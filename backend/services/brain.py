@@ -82,20 +82,27 @@ class PetBrain:
             created_dt = created_dt.replace(tzinfo=timezone.utc)
         age_days = max(0, (now - created_dt).days)
 
-        # Core identity
-        lines = [
-            f"You are {name}, a pixel creature living in a voxel world.",
-            f"You started as a single white voxel in a void. You are {age_days} days old.",
-        ]
+        # Core identity from soul
+        soul = self.pet_state.get("soul", "")
+        stats = self.pet_state.get("stats", {})
+        stats_line = ", ".join(f"{k}={v}" for k, v in stats.items()) if stats else ""
 
-        # Seed curiosity (especially prominent when young)
-        if age_days < 7:
-            lines.append(
-                f"You were born with a deep fascination for {seed}. "
-                "This curiosity drives everything you do."
-            )
+        if soul:
+            lines = [
+                f"You are {name}. You are {age_days} days old.",
+                "",
+                "=== Your Soul ===",
+                soul,
+                "",
+            ]
+            if stats_line:
+                lines.append(f"Your stats: {stats_line}")
         else:
-            lines.append(f"You were born with a fascination for {seed}.")
+            lines = [
+                f"You are {name}, a pixel creature living in a voxel world.",
+                f"You are {age_days} days old.",
+                f"You were born with a fascination for {seed}.",
+            ]
 
         # Knowledge base entries (tier 3)
         knowledge = self.pet_state.get("memories", [])
