@@ -1,30 +1,52 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import WorldScene from '../components/world/WorldScene'
 import AppLayout from '../components/layout/AppLayout'
 import { useChat } from '../hooks/useChat'
 import type { VoxelUpdate, Position } from '../hooks/useWebSocket'
 import type { Chunk, PetEntity as PetEntityType, Voxel } from '../types/world'
+import { petShapes } from '../data/petShapes'
+import type { Species } from '../data/petShapes'
 
 interface Pet {
   id: string
   name: string
   seed_curiosity: string
   food_balance: number
+  rarity?: string
+  species?: string
+  stats?: Record<string, number>
+  backstory?: string
+  initial_curiosity?: string
 }
 
 // A new pet's world: empty void
 const emptyWorld: Chunk[] = []
 
-// A new pet: single white voxel
-const newPet: PetEntityType = {
-  position: { x: 0, y: 0, z: 0 },
-  voxels: [{ x: 0, y: 0, z: 0, r: 255, g: 255, b: 255, a: 255 }],
+function getPetVoxels(species?: string): Voxel[] {
+  if (species && species in petShapes) {
+    return petShapes[species as Species].map((v) => ({
+      x: v.x,
+      y: v.y,
+      z: v.z,
+      r: v.r,
+      g: v.g,
+      b: v.b,
+      a: v.a,
+    }))
+  }
+  // Fallback: single white voxel
+  return [{ x: 0, y: 0, z: 0, r: 255, g: 255, b: 255, a: 255 }]
 }
 
 export default function World({ pet }: { pet: Pet }) {
+  const petVoxels = useMemo(() => getPetVoxels(pet.species), [pet.species])
+
   const [currentTime, setCurrentTime] = useState<Date>(new Date())
   const [chunks, setChunks] = useState<Chunk[]>(emptyWorld)
-  const [petEntity, setPetEntity] = useState<PetEntityType>(newPet)
+  const [petEntity, setPetEntity] = useState<PetEntityType>({
+    position: { x: 0, y: 0, z: 0 },
+    voxels: petVoxels,
+  })
   const [foodBalance, setFoodBalance] = useState(pet.food_balance)
 
   const handleVoxelUpdate = useCallback((update: VoxelUpdate) => {

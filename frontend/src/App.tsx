@@ -12,6 +12,11 @@ interface Pet {
   name: string
   seed_curiosity: string
   food_balance: number
+  rarity: string
+  species: string
+  stats: Record<string, number>
+  backstory: string
+  initial_curiosity: string
 }
 
 function App() {
@@ -55,18 +60,24 @@ function App() {
   }, [session])
 
   const handleHatch = useCallback(
-    async (name: string) => {
+    async (name: string, initialCuriosity: string) => {
       if (!session) return
       try {
         const res = await fetch(`${API_URL}/api/pets`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner_id: session.user.id, name }),
+          body: JSON.stringify({
+            owner_id: session.user.id,
+            name,
+            initial_curiosity: initialCuriosity,
+          }),
         })
         const data = await res.json()
         setPet(data)
+        return data
       } catch (e) {
         console.error('Failed to create pet:', e)
+        return null
       }
     },
     [session]

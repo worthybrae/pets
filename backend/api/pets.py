@@ -52,6 +52,7 @@ class FeedResponse(BaseModel):
 class CreatePetRequest(BaseModel):
     owner_id: str
     name: str
+    initial_curiosity: str = ""
 
 
 @router.get("/pets/by-owner/{owner_id}")
@@ -65,8 +66,10 @@ async def get_pet_by_owner(owner_id: str):
 
 @router.post("/pets", response_model=Pet)
 async def create_pet(request: CreatePetRequest):
-    """Create a new pet with random seed curiosity."""
-    new_pet = await create_pet_service(request.owner_id, request.name)
+    """Create a new pet with rolled stats, rarity, and species."""
+    # Truncate initial_curiosity to 250 chars
+    curiosity = request.initial_curiosity[:250] if request.initial_curiosity else ""
+    new_pet = await create_pet_service(request.owner_id, request.name, curiosity)
     _pets[str(new_pet.id)] = new_pet
 
     # Schedule the new pet for its first autonomous tick
@@ -93,6 +96,11 @@ async def get_pet(pet_id: UUID):
             position_y=0.0,
             position_z=0.0,
             created_at=datetime.utcnow(),
+            rarity="common",
+            species="cat",
+            stats={"curiosity": 5, "creativity": 5, "social": 5, "focus": 5, "energy": 5, "resilience": 5},
+            backstory="A mysterious pet that appeared from nowhere.",
+            initial_curiosity="",
         )
     return pet
 
