@@ -20,7 +20,9 @@ class Pet(BaseModel):
     position_z: float
     created_at: datetime
     rarity: str = "common"  # common, uncommon, rare, legendary, mythic
-    species: str = "cat"  # cat, dog, fox, dragon, etc.
-    stats: dict = {}  # {curiosity, creativity, social, focus, energy, resilience} each 1-10
+    stats: dict = {}  # {curiosity, creativity, social, focus, energy, resilience, humor} each 1-10
     backstory: str = ""  # AI-generated backstory
     initial_curiosity: str = ""  # User's initial curiosity description
+    voxels: list = []  # [{x,y,z,r,g,b}, ...] pet body
+    soul: str = ""  # Full personality document
+    world_voxels: list = []  # [{x,y,z,r,g,b}, ...] starter world
