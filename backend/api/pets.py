@@ -49,12 +49,24 @@ class FeedResponse(BaseModel):
     rescheduled: bool
 
 
+class CreatePetRequest(BaseModel):
+    owner_id: str
+    name: str
+
+
+@router.get("/pets")
+async def get_pet_by_owner(owner_id: str):
+    """Look up a pet by owner ID."""
+    for pet in _pets.values():
+        if str(pet.owner_id) == owner_id:
+            return pet
+    return {}
+
+
 @router.post("/pets", response_model=Pet)
-async def create_pet(pet: PetCreate):
+async def create_pet(request: CreatePetRequest):
     """Create a new pet with random seed curiosity."""
-    # Use the creation service (owner_id comes from auth later, stub for now)
-    owner_id = str(uuid4())
-    new_pet = await create_pet_service(owner_id, pet.name)
+    new_pet = await create_pet_service(request.owner_id, request.name)
     _pets[str(new_pet.id)] = new_pet
 
     # Schedule the new pet for its first autonomous tick
