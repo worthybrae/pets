@@ -2,7 +2,7 @@
 
 ## Overview
 
-An autonomous AI pet that lives in a 3D voxel world it builds from scratch. The pet starts as a single white voxel in a black void and evolves over time — developing a personality, building its environment, creating artifacts, conducting research, and interacting with its owner and other pets. Powered by Claude, constrained by a "food" budget system.
+An autonomous AI pet that lives in a 3D voxel world it builds from scratch. The pet starts as a single white voxel in a black void and evolves over time — developing a personality, building its environment, creating artifacts, conducting research, and interacting with its owner and other pets. Powered by OpenAI, constrained by a "food" budget system.
 
 ## Core Concept
 
@@ -30,8 +30,8 @@ Two operating modes sharing the same state:
 
 Conflict resolution: simple lock — pause autonomous tick while chatting, resume after.
 
-### Claude Integration
-Each "thought" is a Claude API call with:
+### OpenAI Integration
+Each "thought" is a OpenAI API call with:
 - **System prompt** (reconstructed each call): core identity, age, current knowledge base (tier 3), recent digested notes (tier 2), current agenda, remaining food budget, world state summary
 - **Tool calls**: structured actions the pet can take (see Tool System below)
 
