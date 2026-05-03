@@ -97,10 +97,12 @@ async def get_pet(pet_id: UUID):
             position_z=0.0,
             created_at=datetime.utcnow(),
             rarity="common",
-            species="cat",
-            stats={"curiosity": 5, "creativity": 5, "social": 5, "focus": 5, "energy": 5, "resilience": 5},
+            stats={"curiosity": 5, "creativity": 5, "social": 5, "focus": 5, "energy": 5, "resilience": 5, "humor": 5},
             backstory="A mysterious pet that appeared from nowhere.",
             initial_curiosity="",
+            voxels=[{"x": 0, "y": 0, "z": 0, "r": 255, "g": 255, "b": 255}],
+            soul="",
+            world_voxels=[],
         )
     return pet
 
