@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from uuid import UUID, uuid4
 from datetime import date, datetime
 
-from backend.models.pet import Pet, PetCreate
+from backend.models.pet import Pet
 from backend.models.world import WorldChunk
 from backend.models.memory import DigestedNote
 from backend.models.artifact import Artifact
@@ -54,7 +54,7 @@ class CreatePetRequest(BaseModel):
     name: str
 
 
-@router.get("/pets")
+@router.get("/pets/by-owner/{owner_id}")
 async def get_pet_by_owner(owner_id: str):
     """Look up a pet by owner ID."""
     for pet in _pets.values():

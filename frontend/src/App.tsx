@@ -41,7 +41,7 @@ function App() {
     }
 
     setPetLoading(true)
-    fetch(`${API_URL}/api/pets?owner_id=${session.user.id}`)
+    fetch(`${API_URL}/api/pets/by-owner/${session.user.id}`)
       .then((r) => r.json())
       .then((data) => {
         if (data && data.id) {

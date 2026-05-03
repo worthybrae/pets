@@ -4,8 +4,8 @@ interface HeaderBarProps {
   maxFood: number
 }
 
-export default function HeaderBar({ petName, foodBalance, maxFood }: HeaderBarProps) {
-  const percentage = Math.round((foodBalance / maxFood) * 100)
+export default function HeaderBar({ petName, foodBalance = 0, maxFood = 100 }: HeaderBarProps) {
+  const percentage = maxFood > 0 ? Math.round((foodBalance / maxFood) * 100) : 0
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3 backdrop-blur-md bg-black/50 border-b border-white/10">
@@ -30,7 +30,7 @@ export default function HeaderBar({ petName, foodBalance, maxFood }: HeaderBarPr
             />
           </div>
           <span className="text-white/70 text-sm font-mono">
-            {foodBalance.toFixed(2)}/{maxFood.toFixed(2)}
+            {(foodBalance ?? 0).toFixed(0)}/{(maxFood ?? 100).toFixed(0)}
           </span>
         </div>
       </div>
