@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from backend.models.memory import RawEvent
 from backend.services.food import deduct_food
 from backend.services.memory import MemoryService
+from backend.services.events import get_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -443,12 +444,20 @@ async def _handle_place_voxels(pet_id: str, args: dict[str, Any]) -> dict[str, A
     for v in voxels:
         if not all(k in v for k in ("x", "y", "z", "r", "g", "b", "a")):
             return {"success": False, "error": "Invalid voxel data: missing fields."}
+    # Broadcast voxel placement
+    broadcaster = get_broadcaster()
+    if broadcaster:
+        await broadcaster.voxel_placed(pet_id, voxels)
     return {"success": True, "placed": len(voxels)}
 
 
 async def _handle_remove_voxels(pet_id: str, args: dict[str, Any]) -> dict[str, Any]:
     """Remove voxels from the world."""
     positions = args.get("positions", [])
+    # Broadcast voxel removal
+    broadcaster = get_broadcaster()
+    if broadcaster:
+        await broadcaster.voxel_removed(pet_id, positions)
     return {"success": True, "removed": len(positions)}
 
 
@@ -477,14 +486,34 @@ async def _handle_move_self(pet_id: str, args: dict[str, Any]) -> dict[str, Any]
     y = args.get("y", 0.0)
     z = args.get("z", 0.0)
     _pet_positions[pet_id] = {"x": x, "y": y, "z": z}
+    # Broadcast pet movement
+    broadcaster = get_broadcaster()
+    if broadcaster:
+        await broadcaster.pet_moved(pet_id, {"x": x, "y": y, "z": z})
     return {"success": True, "new_position": {"x": x, "y": y, "z": z}}
 
 
 async def _handle_place_artifact(pet_id: str, args: dict[str, Any]) -> dict[str, Any]:
     """Place an artifact in the world."""
+    artifact_id = str(uuid4())
+    artifact = {
+        "id": artifact_id,
+        "type": args.get("type"),
+        "title": args.get("title"),
+        "content": args.get("content"),
+        "position": {
+            "x": args.get("x", 0),
+            "y": args.get("y", 0),
+            "z": args.get("z", 0),
+        },
+    }
+    # Broadcast artifact placement
+    broadcaster = get_broadcaster()
+    if broadcaster:
+        await broadcaster.artifact_placed(pet_id, artifact)
     return {
         "success": True,
-        "artifact_id": str(uuid4()),
+        "artifact_id": artifact_id,
         "type": args.get("type"),
         "title": args.get("title"),
     }
@@ -607,6 +636,10 @@ async def _handle_respond_to_user(
 ) -> dict[str, Any]:
     """Capture the pet's response to the user."""
     message = args.get("message", "")
+    # Broadcast chat message from pet
+    broadcaster = get_broadcaster()
+    if broadcaster:
+        await broadcaster.chat_message(pet_id, "pet", message)
     return {"success": True, "message": message}
 
 
