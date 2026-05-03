@@ -46,6 +46,8 @@ function App() {
       .then((data) => {
         if (data && data.id) {
           setPet(data)
+        } else {
+          setPetLoading(false)
         }
       })
       .catch(() => {})

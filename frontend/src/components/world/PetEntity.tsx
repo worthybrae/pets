@@ -45,16 +45,16 @@ export default function PetEntity({ pet }: PetEntityProps) {
       ref={groupRef}
       position={[pet.position.x, pet.position.y, pet.position.z]}
     >
+      <pointLight color="#ffffff" intensity={2} distance={15} decay={2} />
       <instancedMesh
         ref={meshRef}
         args={[undefined, undefined, pet.voxels.length]}
         frustumCulled={false}
       >
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
+        <meshBasicMaterial
           vertexColors
-          emissive={new THREE.Color(0.15, 0.15, 0.15)}
-          emissiveIntensity={1}
+          toneMapped={false}
         />
       </instancedMesh>
     </group>
