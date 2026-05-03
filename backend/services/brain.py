@@ -10,6 +10,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from backend.services.food import check_food, deduct_food
+from backend.services.memory import MemoryService
 from backend.services.tools import TOOL_SCHEMAS, execute_tool
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,44 @@ class PetBrain:
 
         return "\n".join(lines)
 
+    async def _load_memory_into_state(self) -> None:
+        """Load memory tiers 2 and 3 from database into pet_state for system prompt."""
+        try:
+            memory = MemoryService(self.pet_id)
+
+            # Load tier 3: Knowledge base
+            knowledge = await memory.get_all_knowledge()
+            if knowledge:
+                self.pet_state["memories"] = knowledge
+
+            # Load tier 2: Recent digested notes
+            digests = await memory.get_recent_digests(limit=10)
+            if digests:
+                self.pet_state["digested_notes"] = digests
+
+        except Exception as e:
+            logger.warning(f"Failed to load memory for pet {self.pet_id}: {e}")
+
+    async def _log_interaction(self, trigger: str, context: dict[str, Any], result: "BrainResult") -> None:
+        """Log the brain interaction as a raw event."""
+        try:
+            memory = MemoryService(self.pet_id)
+
+            # Build event content summarizing the interaction
+            content_parts = [f"trigger={trigger}"]
+            if trigger == "user_chat" and "user_message" in context:
+                content_parts.append(f"user_said: {context['user_message']}")
+            if result.response_to_user:
+                content_parts.append(f"responded: {result.response_to_user}")
+            if result.actions:
+                action_names = [a.get("tool", "?") for a in result.actions]
+                content_parts.append(f"actions: {', '.join(action_names)}")
+
+            content = " | ".join(content_parts)
+            await memory.log_event(f"brain:{trigger}", content)
+        except Exception as e:
+            logger.warning(f"Failed to log interaction for pet {self.pet_id}: {e}")
+
     async def think(self, trigger: str, context: dict[str, Any]) -> BrainResult:
         """
         Run the pet's brain for one thinking cycle.
@@ -190,6 +229,9 @@ class PetBrain:
             result.error = "Insufficient food for brain call."
             return result
         result.food_consumed += 0.02
+
+        # Load memory from database into pet_state
+        await self._load_memory_into_state()
 
         # Build messages
         system_prompt = self._build_system_prompt(trigger, context)
@@ -288,5 +330,8 @@ class PetBrain:
         starting_food = self.pet_state.get("food_balance", 0.0)
         current_food = await check_food(self.pet_id)
         result.food_consumed = starting_food - current_food
+
+        # Log the interaction as a raw event (fire-and-forget)
+        await self._log_interaction(trigger, context, result)
 
         return result

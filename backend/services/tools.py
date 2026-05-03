@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from backend.models.memory import RawEvent
 from backend.services.food import deduct_food
+from backend.services.memory import MemoryService
 
 logger = logging.getLogger(__name__)
 
@@ -492,10 +493,16 @@ async def _handle_place_artifact(pet_id: str, args: dict[str, Any]) -> dict[str,
 async def _handle_search_memories(
     pet_id: str, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Search memories — placeholder returns empty results."""
+    """Search memories using semantic similarity."""
     query = args.get("query", "")
     tier = args.get("tier", "all")
-    return {"success": True, "results": [], "query": query, "tier": tier}
+    try:
+        memory = MemoryService(pet_id)
+        results = await memory.search(query, tier=tier, limit=10)
+        return {"success": True, "results": results, "query": query, "tier": tier}
+    except Exception as e:
+        logger.error(f"Memory search failed for pet {pet_id}: {e}")
+        return {"success": False, "error": str(e), "query": query, "tier": tier}
 
 
 async def _handle_search_web(pet_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -526,27 +533,49 @@ async def _handle_execute_code(pet_id: str, args: dict[str, Any]) -> dict[str, A
 async def _handle_write_knowledge(
     pet_id: str, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Write to knowledge base — placeholder stores in memory."""
+    """Write to knowledge base with embedding."""
     key = args.get("key", "")
     content = args.get("content", "")
-    if pet_id not in _pet_knowledge:
-        _pet_knowledge[pet_id] = {}
-    _pet_knowledge[pet_id][key] = content
-    return {"success": True, "key": key}
+    try:
+        memory = MemoryService(pet_id)
+        entry_id = await memory.write_knowledge(key, content)
+        # Also keep in-memory cache for backward compatibility
+        if pet_id not in _pet_knowledge:
+            _pet_knowledge[pet_id] = {}
+        _pet_knowledge[pet_id][key] = content
+        return {"success": True, "key": key, "entry_id": entry_id}
+    except Exception as e:
+        logger.error(f"Write knowledge failed for pet {pet_id}: {e}")
+        # Fallback to in-memory
+        if pet_id not in _pet_knowledge:
+            _pet_knowledge[pet_id] = {}
+        _pet_knowledge[pet_id][key] = content
+        return {"success": True, "key": key, "note": "stored in-memory only"}
 
 
 async def _handle_digest_memories(
     pet_id: str, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Digest memories — stub."""
+    """Digest recent raw events into a summarized note."""
     topic = args.get("topic", "")
     time_range_hours = args.get("time_range_hours", 24)
-    return {
-        "success": True,
-        "topic": topic,
-        "time_range_hours": time_range_hours,
-        "digest": "No raw memories to digest yet.",
-    }
+    try:
+        memory = MemoryService(pet_id)
+        digest_content = await memory.digest_recent(topic, hours=time_range_hours)
+        return {
+            "success": True,
+            "topic": topic,
+            "time_range_hours": time_range_hours,
+            "digest": digest_content,
+        }
+    except Exception as e:
+        logger.error(f"Digest memories failed for pet {pet_id}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "topic": topic,
+            "time_range_hours": time_range_hours,
+        }
 
 
 async def _handle_visit_pet(pet_id: str, args: dict[str, Any]) -> dict[str, Any]:
