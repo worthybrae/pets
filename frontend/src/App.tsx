@@ -13,10 +13,12 @@ interface Pet {
   seed_curiosity: string
   food_balance: number
   rarity: string
-  species: string
   stats: Record<string, number>
   backstory: string
   initial_curiosity: string
+  voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
+  soul: string
+  world_voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
 }
 
 function App() {
@@ -73,7 +75,6 @@ function App() {
           }),
         })
         const data = await res.json()
-        setPet(data)
         return data
       } catch (e) {
         console.error('Failed to create pet:', e)
@@ -82,6 +83,10 @@ function App() {
     },
     [session]
   )
+
+  const handleHatchComplete = useCallback((petData: Pet) => {
+    setPet(petData)
+  }, [])
 
   if (loading || petLoading) {
     return <div className="min-h-screen bg-black" />
@@ -102,7 +107,7 @@ function App() {
           path="/hatch"
           element={
             session
-              ? (pet ? <Navigate to="/world" /> : <Hatch onHatch={handleHatch} />)
+              ? (pet ? <Navigate to="/world" /> : <Hatch onHatch={handleHatch} onComplete={handleHatchComplete} />)
               : <Navigate to="/" />
           }
         />

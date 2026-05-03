@@ -1,20 +1,21 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { petShapes, rarityColors, speciesByRarity } from '../data/petShapes'
-import type { Species, Rarity } from '../data/petShapes'
+import { rarityColors } from '../data/rarity'
+import type { Rarity } from '../data/rarity'
 
 interface HatchProps {
   onHatch: (name: string, initialCuriosity: string) => Promise<any>
+  onComplete: (petData: any) => void
 }
 
 interface PetData {
   id: string
   name: string
   rarity: Rarity
-  species: Species
   stats: Record<string, number>
   backstory: string
+  voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
 }
 
 type Phase = 'input' | 'hatching' | 'reveal' | 'backstory'
@@ -30,7 +31,6 @@ function EggVoxels({ phase, progress }: { phase: Phase; progress: number }) {
   // Egg shape: roughly ovoid, made of voxels
   const eggVoxels = useMemo(() => {
     const voxels: { x: number; y: number; z: number }[] = []
-    // Build a simple egg shape (wider in middle, narrower top/bottom)
     for (let y = -2; y <= 3; y++) {
       let radius: number
       if (y <= -1) radius = 1
@@ -108,7 +108,7 @@ function EggVoxels({ phase, progress }: { phase: Phase; progress: number }) {
       if (progress > 0.4) {
         const crackCount = Math.floor((progress - 0.4) / 0.1 * 3)
         for (let i = 0; i < Math.min(crackCount, eggVoxels.length); i++) {
-          const crackIdx = (i * 7) % eggVoxels.length // Pseudo-random crack positions
+          const crackIdx = (i * 7) % eggVoxels.length
           color.setRGB(0.8, 0.6, 0.2)
           mesh.setColorAt(crackIdx, color)
         }
@@ -181,7 +181,6 @@ function Particles({ active, intensity }: { active: boolean; intensity: number }
     particlesRef.current.forEach((p, i) => {
       p.life -= delta * (0.5 + intensity * 0.5)
       if (p.life <= 0) {
-        // Respawn
         p.pos.set(
           (Math.random() - 0.5) * 2,
           (Math.random() - 0.5) * 2,
@@ -196,7 +195,7 @@ function Particles({ active, intensity }: { active: boolean; intensity: number }
       }
 
       p.pos.add(p.vel.clone().multiplyScalar(delta))
-      p.vel.y -= delta * 2 // slight gravity
+      p.vel.y -= delta * 2
 
       dummy.position.copy(p.pos)
       const scale = p.life * 0.3 * intensity
@@ -221,21 +220,18 @@ function Particles({ active, intensity }: { active: boolean; intensity: number }
   )
 }
 
-function PetReveal({ species, progress }: { species: Species; progress: number }) {
+function PetReveal({ voxels, progress }: { voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]; progress: number }) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const groupRef = useRef<THREE.Group>(null)
   const timeRef = useRef(0)
 
-  const shape = useMemo(() => petShapes[species] || petShapes.cat, [species])
-
-  // Center the shape
-  const centeredShape = useMemo(() => {
-    if (shape.length === 0) return shape
-    const cx = shape.reduce((s, v) => s + v.x, 0) / shape.length
-    const cy = shape.reduce((s, v) => s + v.y, 0) / shape.length
-    const cz = shape.reduce((s, v) => s + v.z, 0) / shape.length
-    return shape.map((v) => ({ ...v, x: v.x - cx, y: v.y - cy, z: v.z - cz }))
-  }, [shape])
+  const centeredVoxels = useMemo(() => {
+    if (voxels.length === 0) return voxels
+    const cx = voxels.reduce((s, v) => s + v.x, 0) / voxels.length
+    const cy = voxels.reduce((s, v) => s + v.y, 0) / voxels.length
+    const cz = voxels.reduce((s, v) => s + v.z, 0) / voxels.length
+    return voxels.map((v) => ({ ...v, x: v.x - cx, y: v.y - cy, z: v.z - cz }))
+  }, [voxels])
 
   useFrame((_, delta) => {
     timeRef.current += delta
@@ -244,13 +240,12 @@ function PetReveal({ species, progress }: { species: Species; progress: number }
     const mesh = meshRef.current
     const dummy = new THREE.Object3D()
     const color = new THREE.Color()
-    const voxelsToShow = Math.floor(progress * centeredShape.length)
+    const voxelsToShow = Math.floor(progress * centeredVoxels.length)
 
-    for (let i = 0; i < centeredShape.length; i++) {
-      const v = centeredShape[i]
+    for (let i = 0; i < centeredVoxels.length; i++) {
+      const v = centeredVoxels[i]
       if (i < voxelsToShow) {
-        // Materialize with a pop effect
-        const localProgress = Math.min(1, (progress * centeredShape.length - i) / 3)
+        const localProgress = Math.min(1, (progress * centeredVoxels.length - i) / 3)
         const popScale = localProgress < 0.5
           ? localProgress * 2 * 1.3
           : 1 + (1 - localProgress) * 0.3
@@ -259,11 +254,10 @@ function PetReveal({ species, progress }: { species: Species; progress: number }
         dummy.updateMatrix()
         mesh.setMatrixAt(i, dummy.matrix)
 
-        const glow = Math.sin(timeRef.current * 3 + i * 0.5) * 0.1
-        color.setRGB(0.9 + glow, 0.9 + glow, 0.95 + glow)
+        // Use actual voxel colors
+        color.setRGB(v.r / 255, v.g / 255, v.b / 255)
         mesh.setColorAt(i, color)
       } else {
-        // Hidden
         dummy.position.set(0, 0, 0)
         dummy.scale.setScalar(0)
         dummy.updateMatrix()
@@ -280,22 +274,24 @@ function PetReveal({ species, progress }: { species: Species; progress: number }
     groupRef.current.rotation.y += delta * 0.5
   })
 
+  if (centeredVoxels.length === 0) return null
+
   return (
-    <group ref={groupRef}>
-      <pointLight color="#ffffff" intensity={3} distance={20} decay={2} />
-      <instancedMesh ref={meshRef} args={[undefined, undefined, centeredShape.length]} frustumCulled={false}>
+    <group ref={groupRef} position={[0, 2, 0]}>
+      <pointLight color="#ffffff" intensity={4} distance={25} decay={2} />
+      <instancedMesh ref={meshRef} args={[undefined, undefined, centeredVoxels.length]} frustumCulled={false}>
         <boxGeometry args={[0.9, 0.9, 0.9]} />
-        <meshStandardMaterial vertexColors toneMapped={false} emissive="#222222" emissiveIntensity={0.5} />
+        <meshBasicMaterial vertexColors toneMapped={false} />
       </instancedMesh>
     </group>
   )
 }
 
-function HatchScene({ phase, hatchProgress, revealProgress, species }: {
+function HatchScene({ phase, hatchProgress, revealProgress, voxels }: {
   phase: Phase
   hatchProgress: number
   revealProgress: number
-  species: Species
+  voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
 }) {
   return (
     <Canvas
@@ -310,8 +306,8 @@ function HatchScene({ phase, hatchProgress, revealProgress, species }: {
 
       <EggVoxels phase={phase} progress={hatchProgress} />
       <Particles active={phase === 'hatching'} intensity={hatchProgress} />
-      {(phase === 'reveal' || phase === 'backstory') && (
-        <PetReveal species={species} progress={revealProgress} />
+      {(phase === 'reveal' || phase === 'backstory') && voxels.length > 0 && (
+        <PetReveal voxels={voxels} progress={revealProgress} />
       )}
     </Canvas>
   )
@@ -319,121 +315,160 @@ function HatchScene({ phase, hatchProgress, revealProgress, species }: {
 
 // ============ Stat Display Components ============
 
+function getStatColor(value: number): string {
+  if (value >= 9) return '#fbbf24' // gold
+  if (value >= 7) return '#60a5fa' // blue
+  if (value >= 5) return '#a78bfa' // purple
+  if (value >= 3) return '#6ee7b7' // green
+  return '#9ca3af' // gray
+}
+
 function StatBar({ name, value, delay, revealed }: { name: string; value: number; delay: number; revealed: boolean }) {
-  const [displayValue, setDisplayValue] = useState(0)
-  const [rolling, setRolling] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [active, setActive] = useState(false)
+  const [filled, setFilled] = useState(false)
+  const [showValue, setShowValue] = useState(false)
+  const barColor = getStatColor(value)
 
   useEffect(() => {
     if (!revealed) return
 
-    const timeout = setTimeout(() => {
-      setRolling(true)
-      let ticks = 0
-      const maxTicks = 15
-      intervalRef.current = setInterval(() => {
-        ticks++
-        if (ticks >= maxTicks) {
-          setDisplayValue(value)
-          setRolling(false)
-          if (intervalRef.current) clearInterval(intervalRef.current)
-        } else {
-          setDisplayValue(Math.floor(Math.random() * 10) + 1)
-        }
-      }, 60)
-    }, delay)
+    const t1 = setTimeout(() => setActive(true), delay)
+    const t2 = setTimeout(() => setFilled(true), delay + 50)
+    const t3 = setTimeout(() => setShowValue(true), delay + 500)
 
     return () => {
-      clearTimeout(timeout)
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
     }
-  }, [revealed, value, delay])
+  }, [revealed, delay])
 
   return (
-    <div className="flex items-center gap-3 text-sm">
+    <div
+      className="flex items-center gap-3 text-sm"
+      style={{
+        opacity: active ? 1 : 0,
+        transform: active ? 'translateX(0)' : 'translateX(-8px)',
+        transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+      }}
+    >
       <span className="text-gray-400 w-24 capitalize">{name}</span>
-      <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+      <div className="flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
         <div
-          className="h-full bg-white/80 rounded-full transition-all duration-300"
-          style={{ width: `${(rolling ? displayValue : (revealed ? value : 0)) * 10}%` }}
+          className="h-full rounded-full"
+          style={{
+            width: filled ? `${value * 10}%` : '0%',
+            backgroundColor: barColor,
+            boxShadow: filled && value >= 7 ? `0 0 8px ${barColor}60` : 'none',
+            transition: 'width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}
         />
       </div>
-      <span className={`w-6 text-right font-mono ${rolling ? 'text-white animate-pulse' : 'text-white/70'}`}>
-        {revealed ? displayValue : '-'}
+      <span
+        className="w-6 text-right font-mono font-bold"
+        style={{
+          color: showValue ? barColor : 'transparent',
+          transition: 'color 0.2s ease-out',
+        }}
+      >
+        {value}
       </span>
     </div>
   )
 }
 
-function RarityBadge({ rarity, visible }: { rarity: Rarity; visible: boolean }) {
-  if (!visible) return null
+function TotalReveal({ total, visible }: { total: number; visible: boolean }) {
+  const [displayTotal, setDisplayTotal] = useState(0)
 
-  const color = rarityColors[rarity]
-  const isMythic = rarity === 'mythic'
+  useEffect(() => {
+    if (!visible) return
+    const duration = 600
+    const start = Date.now()
+    const animate = () => {
+      const elapsed = Date.now() - start
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setDisplayTotal(Math.round(eased * total))
+      if (progress < 1) requestAnimationFrame(animate)
+    }
+    requestAnimationFrame(animate)
+  }, [visible, total])
+
+  if (!visible) return null
 
   return (
     <div
-      className={`inline-block px-4 py-1.5 rounded-full text-sm font-bold uppercase tracking-wider animate-[scale-in_0.4s_ease-out] ${
-        isMythic ? 'mythic-badge' : ''
-      }`}
-      style={isMythic ? {} : { backgroundColor: `${color}20`, color, border: `1px solid ${color}40` }}
+      className="flex justify-between items-center pt-2 border-t border-white/10"
+      style={{ animation: 'fade-in 0.3s ease-out both' }}
     >
-      {rarity}
+      <span className="text-gray-500 text-sm">Total</span>
+      <span className="text-white font-mono font-bold text-lg">{displayTotal}</span>
+    </div>
+  )
+}
+
+function RarityBadge({ rarity, visible }: { rarity: Rarity; visible: boolean }) {
+  const [show, setShow] = useState(false)
+  const color = rarityColors[rarity]
+  const isMythic = rarity === 'mythic'
+  const isLegendary = rarity === 'legendary'
+
+  useEffect(() => {
+    if (visible) {
+      const t = setTimeout(() => setShow(true), 50)
+      return () => clearTimeout(t)
+    }
+  }, [visible])
+
+  if (!visible) return null
+
+  return (
+    <div className="relative inline-block">
+      {(isLegendary || isMythic) && show && (
+        <div
+          className="absolute inset-0 rounded-full blur-xl animate-pulse"
+          style={{ backgroundColor: `${color}30` }}
+        />
+      )}
+      <div
+        className={`relative inline-block px-5 py-2 rounded-full text-sm font-bold uppercase tracking-widest ${
+          isMythic ? 'mythic-badge' : ''
+        }`}
+        style={{
+          ...(isMythic ? {} : { backgroundColor: `${color}20`, color, border: `1px solid ${color}50` }),
+          opacity: show ? 1 : 0,
+          transform: show ? 'scale(1)' : 'scale(0.3)',
+          transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}
+      >
+        {rarity}
+      </div>
     </div>
   )
 }
 
 // ============ Main Hatch Component ============
 
-export default function Hatch({ onHatch }: HatchProps) {
+export default function Hatch({ onHatch, onComplete }: HatchProps) {
   const [name, setName] = useState('')
   const [curiosity, setCuriosity] = useState('')
   const [phase, setPhase] = useState<Phase>('input')
   const [hatchProgress, setHatchProgress] = useState(0)
   const [revealProgress, setRevealProgress] = useState(0)
   const [petData, setPetData] = useState<PetData | null>(null)
+  const [fullPetResponse, setFullPetResponse] = useState<any>(null)
   const [statsRevealed, setStatsRevealed] = useState(false)
   const [rarityVisible, setRarityVisible] = useState(false)
-  const [speciesVisible, setSpeciesVisible] = useState(false)
   const [backstoryText, setBackstoryText] = useState('')
   const [showBeginButton, setShowBeginButton] = useState(false)
   const [flashActive, setFlashActive] = useState(false)
   const hatchStartRef = useRef<number>(0)
   const animFrameRef = useRef<number>(0)
 
-  // Generate local random pet data (used for animation, overridden by backend response)
-  const generateLocalPet = useCallback((): PetData => {
-    const rarityRoll = Math.random() * 100
-    let rarity: Rarity
-    if (rarityRoll < 1) rarity = 'mythic'
-    else if (rarityRoll < 5) rarity = 'legendary'
-    else if (rarityRoll < 15) rarity = 'rare'
-    else if (rarityRoll < 40) rarity = 'uncommon'
-    else rarity = 'common'
-
-    const speciesPool = speciesByRarity[rarity]
-    const species = speciesPool[Math.floor(Math.random() * speciesPool.length)]
-
-    const stats: Record<string, number> = {}
-    const statNames = ['curiosity', 'creativity', 'social', 'focus', 'energy', 'resilience']
-    statNames.forEach((s) => {
-      stats[s] = Math.floor(Math.random() * 10) + 1
-    })
-
-    return {
-      id: 'local',
-      name: name.trim(),
-      rarity,
-      species,
-      stats,
-      backstory: `Born from curiosity about ${curiosity || 'the mysteries of the world'}, ${name.trim()} emerged with an insatiable desire to explore.`,
-    }
-  }, [name, curiosity])
-
   // Hatching animation loop
   const startHatchAnimation = useCallback(() => {
     hatchStartRef.current = Date.now()
-    const HATCH_DURATION = 3500 // 3.5 seconds
+    const HATCH_DURATION = 8000 // 8 seconds to cover LLM latency
 
     const animate = () => {
       const elapsed = Date.now() - hatchStartRef.current
@@ -459,7 +494,7 @@ export default function Hatch({ onHatch }: HatchProps) {
 
   // Reveal animation loop
   const startRevealAnimation = useCallback(() => {
-    const REVEAL_DURATION = 4000 // 4 seconds for pet to materialize
+    const REVEAL_DURATION = 3000
     const revealStart = Date.now()
 
     const animate = () => {
@@ -470,12 +505,11 @@ export default function Hatch({ onHatch }: HatchProps) {
       if (progress < 1) {
         animFrameRef.current = requestAnimationFrame(animate)
       } else {
-        // Show stats rolling
-        setTimeout(() => setStatsRevealed(true), 500)
-        // Show species name
-        setTimeout(() => setSpeciesVisible(true), 800)
-        // Show rarity badge
-        setTimeout(() => setRarityVisible(true), 2500)
+        // Sequential reveal: name → stats → rarity
+        setTimeout(() => setStatsRevealed(true), 800)
+        // Rarity comes last (after all 7 stats finish)
+        // Stats take 800ms start + 7*250ms stagger + 600ms fill = ~3.5s
+        setTimeout(() => setRarityVisible(true), 3500)
       }
     }
 
@@ -519,31 +553,38 @@ export default function Hatch({ onHatch }: HatchProps) {
     const response = await onHatch(name.trim(), curiosity.trim())
 
     if (response) {
-      // Use real backend data
+      setFullPetResponse(response)
       setPetData({
         id: response.id,
         name: response.name,
         rarity: response.rarity,
-        species: response.species,
         stats: response.stats,
         backstory: response.backstory,
+        voxels: response.voxels || [],
       })
     } else {
-      // Fallback to locally generated data
-      setPetData(generateLocalPet())
+      setPetData({
+        id: 'fallback',
+        name: name.trim(),
+        rarity: 'common',
+        stats: { curiosity: 5, creativity: 5, social: 5, focus: 5, energy: 5, resilience: 5, humor: 5 },
+        backstory: `${name.trim()} emerged from the void with wonder in their eyes.`,
+        voxels: [{ x: 0, y: 0, z: 0, r: 255, g: 255, b: 255 }],
+      })
     }
   }
 
   const handleBeginJourney = () => {
-    // Navigate will happen via App.tsx state change (pet is now set)
-    window.location.href = '/world'
+    if (fullPetResponse) {
+      onComplete(fullPetResponse)
+    } else if (petData) {
+      onComplete(petData)
+    }
   }
 
   const handleContinueToBackstory = () => {
     setPhase('backstory')
   }
-
-  const species = petData?.species || 'cat'
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center relative overflow-hidden">
@@ -553,7 +594,7 @@ export default function Hatch({ onHatch }: HatchProps) {
           phase={phase}
           hatchProgress={hatchProgress}
           revealProgress={revealProgress}
-          species={species as Species}
+          voxels={petData?.voxels || []}
         />
       </div>
 
@@ -613,60 +654,67 @@ export default function Hatch({ onHatch }: HatchProps) {
           </div>
         )}
 
-        {/* Phase 2: Hatching (minimal UI - let the 3D scene do the work) */}
+        {/* Phase 2: Hatching */}
         {phase === 'hatching' && (
           <div className="text-center animate-[fade-in_0.3s_ease-out]">
             <p className="text-gray-400 text-sm animate-pulse mt-40">
-              {hatchProgress < 0.3 ? 'Something stirs...' :
+              {hatchProgress < 0.2 ? 'Something stirs...' :
+               hatchProgress < 0.4 ? 'A pulse of light...' :
                hatchProgress < 0.6 ? 'Cracking...' :
+               hatchProgress < 0.8 ? 'Almost there...' :
                'Breaking free!'}
             </p>
+          </div>
+        )}
+
+        {/* Waiting for data (animation done but API still loading) */}
+        {phase === 'reveal' && !petData && (
+          <div className="text-center animate-pulse mt-40">
+            <p className="text-gray-400 text-sm">Shaping your pet...</p>
           </div>
         )}
 
         {/* Phase 3: Reveal */}
         {phase === 'reveal' && petData && (
           <div className="animate-[fade-in_0.5s_ease-out] mt-32">
-            <div className="bg-black/60 backdrop-blur-sm rounded-2xl border border-white/10 p-6 space-y-5">
-              {/* Species & Name */}
-              <div className="text-center space-y-2">
-                {speciesVisible && (
-                  <p className="text-gray-400 text-xs uppercase tracking-widest animate-[fade-in_0.3s_ease-out]">
-                    {petData.species}
-                  </p>
-                )}
+            <div className="bg-black/70 backdrop-blur-md rounded-2xl border border-white/10 p-6 space-y-5">
+              {/* Name */}
+              <div className="text-center space-y-3">
                 <h2 className="text-2xl font-medium text-white">{petData.name}</h2>
-                <RarityBadge rarity={petData.rarity as Rarity} visible={rarityVisible} />
               </div>
 
               {/* Stats */}
-              <div className="space-y-2.5 pt-2">
+              <div className="space-y-3 pt-2">
                 {Object.entries(petData.stats).map(([statName, value], idx) => (
                   <StatBar
                     key={statName}
                     name={statName}
                     value={value}
-                    delay={idx * 300}
+                    delay={idx * 250}
                     revealed={statsRevealed}
                   />
                 ))}
               </div>
 
               {/* Total */}
-              {statsRevealed && (
-                <div className="flex justify-between items-center pt-2 border-t border-white/10 animate-[fade-in_0.3s_ease-out]">
-                  <span className="text-gray-500 text-sm">Total</span>
-                  <span className="text-white font-mono">
-                    {Object.values(petData.stats).reduce((a, b) => a + b, 0)}
-                  </span>
-                </div>
-              )}
+              <TotalReveal
+                total={Object.values(petData.stats).reduce((a, b) => a + b, 0)}
+                visible={rarityVisible}
+              />
+
+              {/* Rarity badge */}
+              <div className="text-center pt-1">
+                <RarityBadge rarity={petData.rarity as Rarity} visible={rarityVisible} />
+              </div>
 
               {/* Continue button */}
               {rarityVisible && (
                 <button
                   onClick={handleContinueToBackstory}
-                  className="w-full px-6 py-3 bg-white/10 border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all animate-[fade-in_0.5s_ease-out] mt-4"
+                  className="w-full px-6 py-3 bg-white/10 border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all mt-2"
+                  style={{
+                    animation: 'fade-in 0.4s ease-out 0.6s both',
+                  }}
                 >
                   Continue
                 </button>
@@ -680,7 +728,6 @@ export default function Hatch({ onHatch }: HatchProps) {
           <div className="animate-[fade-in_0.5s_ease-out] mt-32">
             <div className="bg-black/60 backdrop-blur-sm rounded-2xl border border-white/10 p-6 space-y-6">
               <div className="text-center">
-                <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">{petData.species}</p>
                 <h2 className="text-xl font-medium text-white">{petData.name}</h2>
               </div>
 

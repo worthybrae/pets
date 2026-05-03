@@ -4,8 +4,6 @@ import AppLayout from '../components/layout/AppLayout'
 import { useChat } from '../hooks/useChat'
 import type { VoxelUpdate, Position } from '../hooks/useWebSocket'
 import type { Chunk, PetEntity as PetEntityType, Voxel } from '../types/world'
-import { petShapes } from '../data/petShapes'
-import type { Species } from '../data/petShapes'
 
 interface Pet {
   id: string
@@ -13,36 +11,50 @@ interface Pet {
   seed_curiosity: string
   food_balance: number
   rarity?: string
-  species?: string
   stats?: Record<string, number>
   backstory?: string
   initial_curiosity?: string
+  voxels?: { x: number; y: number; z: number; r: number; g: number; b: number }[]
+  world_voxels?: { x: number; y: number; z: number; r: number; g: number; b: number }[]
 }
 
-// A new pet's world: empty void
-const emptyWorld: Chunk[] = []
-
-function getPetVoxels(species?: string): Voxel[] {
-  if (species && species in petShapes) {
-    return petShapes[species as Species].map((v) => ({
+function getPetVoxels(pet: Pet): Voxel[] {
+  if (pet.voxels && pet.voxels.length > 0) {
+    return pet.voxels.map((v) => ({
       x: v.x,
       y: v.y,
       z: v.z,
       r: v.r,
       g: v.g,
       b: v.b,
-      a: v.a,
+      a: 255,
     }))
   }
-  // Fallback: single white voxel
   return [{ x: 0, y: 0, z: 0, r: 255, g: 255, b: 255, a: 255 }]
 }
 
+function getInitialChunks(pet: Pet): Chunk[] {
+  if (pet.world_voxels && pet.world_voxels.length > 0) {
+    const voxels: Voxel[] = pet.world_voxels.map((v) => ({
+      x: v.x,
+      y: v.y,
+      z: v.z,
+      r: v.r,
+      g: v.g,
+      b: v.b,
+      a: 255,
+    }))
+    return [{ chunk_x: 0, chunk_y: 0, chunk_z: 0, voxels }]
+  }
+  return []
+}
+
 export default function World({ pet }: { pet: Pet }) {
-  const petVoxels = useMemo(() => getPetVoxels(pet.species), [pet.species])
+  const petVoxels = useMemo(() => getPetVoxels(pet), [pet])
+  const initialChunks = useMemo(() => getInitialChunks(pet), [pet])
 
   const [currentTime, setCurrentTime] = useState<Date>(new Date())
-  const [chunks, setChunks] = useState<Chunk[]>(emptyWorld)
+  const [chunks, setChunks] = useState<Chunk[]>(initialChunks)
   const [petEntity, setPetEntity] = useState<PetEntityType>({
     position: { x: 0, y: 0, z: 0 },
     voxels: petVoxels,
