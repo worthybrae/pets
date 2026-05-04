@@ -47,8 +47,8 @@ export function StatBar({ name, value, delay, revealed }: {
       transform: active ? 'translateX(0)' : 'translateX(-10px)',
       transition: 'opacity 0.4s ease-out, transform 0.4s ease-out',
     }}>
-      <span className="text-white/50 w-24 capitalize text-xs tracking-wide">{name}</span>
-      <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden relative">
+      <span className="text-neutral-500 w-24 capitalize text-xs tracking-wide">{name}</span>
+      <div className="flex-1 h-2 bg-neutral-200 rounded-full overflow-hidden relative">
         <div className="h-full rounded-full relative overflow-hidden" style={{
           width: filled ? `${value * 10}%` : '0%',
           backgroundColor: barColor,
@@ -89,9 +89,9 @@ export function TotalReveal({ total, visible }: { total: number; visible: boolea
   if (!visible) return null
 
   return (
-    <div className="flex justify-between items-center pt-2 border-t border-white/10" style={{ animation: 'fadeUp 0.4s ease-out both' }}>
-      <span className="text-white/40 text-xs">Total</span>
-      <span className="text-white font-semibold text-lg">{displayTotal}</span>
+    <div className="flex justify-between items-center pt-2 border-t border-neutral-200" style={{ animation: 'fadeUp 0.4s ease-out both' }}>
+      <span className="text-neutral-400 text-xs">Total</span>
+      <span className="text-neutral-800 font-semibold text-lg">{displayTotal}</span>
     </div>
   )
 }

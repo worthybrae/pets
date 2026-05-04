@@ -1,0 +1,184 @@
+<h2>Egg Hatch Flow — Visual Overview</h2>
+<p class="subtitle">How the egg evolves through each phase</p>
+
+<div style="display:flex;gap:1.5rem;flex-wrap:wrap;justify-content:center;margin-top:2rem">
+
+  <!-- Phase 1: Idle -->
+  <div style="background:#0d0d14;border-radius:16px;padding:1.5rem;width:180px;text-align:center;border:1px solid rgba(255,255,255,0.06)">
+    <p style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#888;margin-bottom:0.75rem">Phase 1 — Idle</p>
+    <svg width="80" height="110" viewBox="0 0 80 110" style="margin:0 auto;display:block">
+      <defs>
+        <radialGradient id="idle-g" cx="40%" cy="35%">
+          <stop offset="0%" stop-color="#a78bfa"/>
+          <stop offset="70%" stop-color="#4c1d95"/>
+          <stop offset="100%" stop-color="#1e1b4b"/>
+        </radialGradient>
+        <radialGradient id="idle-heart" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="#fff" stop-opacity="0.7"/>
+          <stop offset="50%" stop-color="#a78bfa" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+      </defs>
+      <ellipse cx="40" cy="58" rx="28" ry="38" fill="url(#idle-g)"/>
+      <!-- Subtle scale pattern -->
+      <path d="M28,42 L40,38 L52,42 L50,54 L40,56 L30,54 Z" fill="none" stroke="#a78bfa" stroke-opacity="0.2" stroke-width="0.5"/>
+      <path d="M25,54 L30,54 L40,56 L37,66 L24,63 Z" fill="none" stroke="#a78bfa" stroke-opacity="0.15" stroke-width="0.5"/>
+      <path d="M50,54 L56,56 L54,66 L43,66 L40,56 Z" fill="none" stroke="#a78bfa" stroke-opacity="0.15" stroke-width="0.5"/>
+      <!-- Heart -->
+      <ellipse cx="40" cy="55" rx="7" ry="7" fill="url(#idle-heart)">
+        <animate attributeName="rx" values="7;9;7" dur="1.2s" repeatCount="indefinite"/>
+        <animate attributeName="ry" values="7;9;7" dur="1.2s" repeatCount="indefinite"/>
+      </ellipse>
+    </svg>
+    <p style="font-size:0.7rem;color:#a78bfa;margin-top:0.5rem;font-weight:500">Violet Hexscale Orb</p>
+    <p style="font-size:0.6rem;color:#666;margin-top:0.25rem">⬥ Rare — 5.5/10</p>
+  </div>
+
+  <!-- Phase 2: Hatching -->
+  <div style="background:#0d0d14;border-radius:16px;padding:1.5rem;width:180px;text-align:center;border:1px solid rgba(255,255,255,0.06)">
+    <p style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#888;margin-bottom:0.75rem">Phase 2 — Hatching</p>
+    <svg width="100" height="110" viewBox="0 0 100 110" style="margin:0 auto;display:block">
+      <defs>
+        <radialGradient id="hatch-g" cx="40%" cy="35%">
+          <stop offset="0%" stop-color="#c4b5fd"/>
+          <stop offset="70%" stop-color="#6d28d9"/>
+          <stop offset="100%" stop-color="#2e1065"/>
+        </radialGradient>
+        <radialGradient id="hatch-heart" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="#fff" stop-opacity="0.9"/>
+          <stop offset="40%" stop-color="#c4b5fd" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+      </defs>
+      <ellipse cx="50" cy="55" rx="36" ry="46" fill="url(#hatch-g)"/>
+      <!-- More pronounced scales -->
+      <path d="M34,38 L50,33 L66,38 L63,53 L50,56 L37,53 Z" fill="none" stroke="#c4b5fd" stroke-opacity="0.35" stroke-width="0.8"/>
+      <path d="M30,53 L37,53 L50,56 L46,69 L28,65 Z" fill="none" stroke="#c4b5fd" stroke-opacity="0.25" stroke-width="0.8"/>
+      <path d="M63,53 L72,56 L69,69 L53,69 L50,56 Z" fill="none" stroke="#c4b5fd" stroke-opacity="0.25" stroke-width="0.8"/>
+      <!-- Bigger, faster heart -->
+      <ellipse cx="50" cy="53" rx="10" ry="10" fill="url(#hatch-heart)">
+        <animate attributeName="rx" values="10;14;10" dur="0.6s" repeatCount="indefinite"/>
+        <animate attributeName="ry" values="10;14;10" dur="0.6s" repeatCount="indefinite"/>
+      </ellipse>
+    </svg>
+    <p style="font-size:0.6rem;color:#999;margin-top:0.5rem">Egg growing, heart racing</p>
+  </div>
+
+  <!-- Phase 3: Stats -->
+  <div style="background:#0d0d14;border-radius:16px;padding:1.5rem;width:180px;text-align:center;border:1px solid rgba(255,255,255,0.06)">
+    <p style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#888;margin-bottom:0.75rem">Phase 3 — Stats</p>
+    <div style="text-align:left;padding:0.5rem;background:rgba(255,255,255,0.03);border-radius:8px;margin-top:0.5rem">
+      <div style="margin-bottom:0.4rem">
+        <span style="font-size:0.55rem;color:#888;display:inline-block;width:55px">curiosity</span>
+        <div style="display:inline-block;width:60px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;vertical-align:middle">
+          <div style="width:70%;height:100%;background:#8b5cf6;border-radius:2px"></div>
+        </div>
+        <span style="font-size:0.55rem;color:#8b5cf6;margin-left:4px">7</span>
+      </div>
+      <div style="margin-bottom:0.4rem">
+        <span style="font-size:0.55rem;color:#888;display:inline-block;width:55px">creativity</span>
+        <div style="display:inline-block;width:60px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;vertical-align:middle">
+          <div style="width:90%;height:100%;background:#f59e0b;border-radius:2px"></div>
+        </div>
+        <span style="font-size:0.55rem;color:#f59e0b;margin-left:4px">9</span>
+      </div>
+      <div style="margin-bottom:0.4rem">
+        <span style="font-size:0.55rem;color:#888;display:inline-block;width:55px">social</span>
+        <div style="display:inline-block;width:60px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;vertical-align:middle">
+          <div style="width:40%;height:100%;background:#10b981;border-radius:2px"></div>
+        </div>
+        <span style="font-size:0.55rem;color:#10b981;margin-left:4px">4</span>
+      </div>
+      <div style="margin-bottom:0.4rem">
+        <span style="font-size:0.55rem;color:#888;display:inline-block;width:55px">focus</span>
+        <div style="display:inline-block;width:60px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;vertical-align:middle">
+          <div style="width:60%;height:100%;background:#3b82f6;border-radius:2px"></div>
+        </div>
+        <span style="font-size:0.55rem;color:#3b82f6;margin-left:4px">6</span>
+      </div>
+    </div>
+    <div style="margin-top:0.6rem;padding:0.3rem 0.6rem;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;display:inline-block">
+      <span style="font-size:0.6rem;color:#fbbf24;font-weight:600;letter-spacing:0.05em">ENHANCED</span>
+    </div>
+  </div>
+
+  <!-- Phase 4: Generating -->
+  <div style="background:#0d0d14;border-radius:16px;padding:1.5rem;width:180px;text-align:center;border:1px solid rgba(255,255,255,0.06)">
+    <p style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#888;margin-bottom:0.75rem">Phase 4 — Generating</p>
+    <svg width="110" height="110" viewBox="0 0 110 110" style="margin:0 auto;display:block">
+      <defs>
+        <radialGradient id="gen-g" cx="40%" cy="35%">
+          <stop offset="0%" stop-color="#e9d5ff"/>
+          <stop offset="50%" stop-color="#7c3aed"/>
+          <stop offset="100%" stop-color="#3b0764"/>
+        </radialGradient>
+        <radialGradient id="gen-heart" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="#fff"/>
+          <stop offset="30%" stop-color="#e9d5ff" stop-opacity="0.8"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+        <radialGradient id="gen-mist" cx="50%" cy="50%">
+          <stop offset="40%" stop-color="transparent"/>
+          <stop offset="70%" stop-color="#a78bfa" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <!-- Mist aura -->
+      <ellipse cx="55" cy="55" rx="50" ry="50" fill="url(#gen-mist)">
+        <animate attributeName="rx" values="48;52;48" dur="2s" repeatCount="indefinite"/>
+        <animate attributeName="ry" values="48;52;48" dur="2s" repeatCount="indefinite"/>
+      </ellipse>
+      <ellipse cx="55" cy="55" rx="40" ry="48" fill="url(#gen-g)"/>
+      <!-- Glowing crack lines -->
+      <path d="M45,30 L50,45 L43,55" stroke="#fff" stroke-opacity="0.4" stroke-width="1" fill="none">
+        <animate attributeName="stroke-opacity" values="0.2;0.5;0.2" dur="0.8s" repeatCount="indefinite"/>
+      </path>
+      <path d="M65,35 L60,50 L67,60" stroke="#fff" stroke-opacity="0.3" stroke-width="0.8" fill="none">
+        <animate attributeName="stroke-opacity" values="0.15;0.4;0.15" dur="0.8s" repeatCount="indefinite" begin="0.3s"/>
+      </path>
+      <!-- Intense heart -->
+      <ellipse cx="55" cy="52" rx="12" ry="12" fill="url(#gen-heart)">
+        <animate attributeName="rx" values="12;16;12" dur="0.4s" repeatCount="indefinite"/>
+        <animate attributeName="ry" values="12;16;12" dur="0.4s" repeatCount="indefinite"/>
+      </ellipse>
+    </svg>
+    <p style="font-size:0.55rem;color:#a78bfa;margin-top:0.3rem;animation:pulse 1.5s infinite;letter-spacing:0.1em">shaping consciousness...</p>
+  </div>
+
+  <!-- Phase 5: Reveal -->
+  <div style="background:#0d0d14;border-radius:16px;padding:1.5rem;width:180px;text-align:center;border:1px solid rgba(255,255,255,0.06)">
+    <p style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#888;margin-bottom:0.75rem">Phase 5 — Reveal</p>
+    <svg width="100" height="110" viewBox="0 0 100 110" style="margin:0 auto;display:block">
+      <defs>
+        <radialGradient id="rev-glow" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="#fff" stop-opacity="0.6"/>
+          <stop offset="40%" stop-color="#c4b5fd" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+      </defs>
+      <!-- Scattered shell fragments -->
+      <rect x="15" y="25" width="8" height="6" rx="1" fill="#4c1d95" opacity="0.5" transform="rotate(-20 19 28)"/>
+      <rect x="70" y="30" width="10" height="5" rx="1" fill="#4c1d95" opacity="0.4" transform="rotate(15 75 32)"/>
+      <rect x="20" y="75" width="7" height="5" rx="1" fill="#4c1d95" opacity="0.3" transform="rotate(25 23 77)"/>
+      <rect x="72" y="70" width="9" height="5" rx="1" fill="#4c1d95" opacity="0.35" transform="rotate(-10 76 72)"/>
+      <!-- Voxel creature (simplified) -->
+      <rect x="44" y="45" width="5" height="5" fill="#a78bfa"/>
+      <rect x="49" y="45" width="5" height="5" fill="#8b5cf6"/>
+      <rect x="44" y="50" width="5" height="5" fill="#7c3aed"/>
+      <rect x="49" y="50" width="5" height="5" fill="#6d28d9"/>
+      <rect x="39" y="50" width="5" height="5" fill="#c4b5fd"/>
+      <rect x="54" y="50" width="5" height="5" fill="#c4b5fd"/>
+      <rect x="44" y="55" width="5" height="5" fill="#5b21b6"/>
+      <rect x="49" y="55" width="5" height="5" fill="#4c1d95"/>
+      <rect x="44" y="40" width="5" height="5" fill="#ddd6fe"/>
+      <rect x="49" y="40" width="5" height="5" fill="#ede9fe"/>
+      <!-- Glow behind -->
+      <ellipse cx="50" cy="50" rx="20" ry="20" fill="url(#rev-glow)"/>
+    </svg>
+    <p style="font-size:0.6rem;color:#999;margin-top:0.5rem">Shell dissolves, creature assembles</p>
+  </div>
+</div>
+
+<style>
+  @keyframes pulse { 0%,100%{opacity:0.6} 50%{opacity:1} }
+</style>

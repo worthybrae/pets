@@ -1,14 +1,16 @@
 @import "tailwindcss";
 
-@layer base {
-  html, body {
-    margin: 0;
-    min-height: 100vh;
-    background-color: #0a0a0f;
-    font-family: 'Space Grotesk', sans-serif;
-  }
+html {
+  background-color: #e5e5e5 !important;
+}
 
-  #root {
-    min-height: 100vh;
-  }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #e5e5e5 !important;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+#root {
+  min-height: 100vh;
 }

@@ -1,14 +1,6 @@
 import { rarityColors } from '../../data/rarity'
 import type { EggProfile, RolledAttribute } from './types'
 
-const STAT_BIAS_LABELS: Record<string, string[]> = {
-  shape:  ['resilience', 'energy'],
-  scales: ['focus', 'creativity'],
-  color:  ['social', 'humor'],
-  size:   ['energy', 'resilience'],
-  mist:   ['curiosity', 'creativity'],
-}
-
 const TIER_COLORS: Record<string, string> = {
   common: '#9ca3af',
   uncommon: '#22c55e',
@@ -17,51 +9,76 @@ const TIER_COLORS: Record<string, string> = {
   mythic: '#ec4899',
 }
 
+const TIER_BG: Record<string, string> = {
+  common: 'rgba(156,163,175,0.08)',
+  uncommon: 'rgba(34,197,94,0.08)',
+  rare: 'rgba(59,130,246,0.08)',
+  legendary: 'rgba(168,85,247,0.1)',
+  mythic: 'rgba(236,72,153,0.1)',
+}
+
 function AttributeRow({ attr }: { attr: RolledAttribute }) {
   const tierColor = TIER_COLORS[attr.option.tier] || '#9ca3af'
-  const biases = STAT_BIAS_LABELS[attr.category] || []
+  const tierBg = TIER_BG[attr.option.tier] || 'transparent'
 
   return (
-    <div className="flex items-center justify-between gap-4 py-1">
-      <div className="flex items-center gap-2">
-        <span className="text-white/40 text-xs capitalize w-12">{attr.category}</span>
-        <span className="text-white text-xs font-medium">{attr.option.name}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs" style={{ color: tierColor }}>{attr.option.tier}</span>
-        {biases.length > 0 && (
-          <span className="text-white/25 text-[10px]">
-            +{biases.join(', +')}
-          </span>
-        )}
-      </div>
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <span className="text-neutral-400 text-[11px] uppercase tracking-wider w-14 shrink-0">{attr.category}</span>
+      <span className="text-neutral-800 text-sm font-medium flex-1">{attr.option.name}</span>
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+        style={{ color: tierColor, backgroundColor: tierBg }}
+      >
+        {attr.option.tier}
+      </span>
     </div>
   )
 }
 
-export default function EggTooltip({ egg, visible }: { egg: EggProfile; visible: boolean }) {
+export default function EggTooltip({ egg, visible, mousePos }: { egg: EggProfile; visible: boolean; mousePos: { x: number; y: number } }) {
   if (!visible) return null
+
+  const rarityColor = rarityColors[egg.rarity]
 
   return (
     <div
-      className="absolute top-4 right-4 z-20 w-64 rounded-2xl p-4 space-y-2"
+      className="fixed z-50 w-72 rounded-2xl pointer-events-none overflow-hidden"
       style={{
-        background: 'rgba(15, 15, 20, 0.9)',
-        backdropFilter: 'blur(30px)',
-        WebkitBackdropFilter: 'blur(30px)',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
-        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.3)',
-        animation: 'fadeUp 0.3s ease-out',
+        left: mousePos.x + 16,
+        top: mousePos.y + 16,
+        background: 'rgba(255, 255, 255, 0.88)',
+        backdropFilter: 'blur(40px)',
+        WebkitBackdropFilter: 'blur(40px)',
+        border: '1px solid rgba(0, 0, 0, 0.06)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.04)',
       }}
     >
-      <div className="text-center pb-2 border-b border-white/10">
-        <div className="text-white text-sm font-medium tracking-wide">{egg.name}</div>
-        <div className="text-xs mt-1" style={{ color: rarityColors[egg.rarity] }}>
-          {egg.rarity.toUpperCase()} — {egg.totalPoints.toFixed(1)} / 10
+      {/* Header with rarity accent */}
+      <div
+        className="px-5 pt-4 pb-3"
+        style={{
+          borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
+          background: `linear-gradient(135deg, ${rarityColor}08, transparent)`,
+        }}
+      >
+        <div className="text-neutral-900 text-sm font-semibold tracking-wide">{egg.name}</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <span
+            className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full"
+            style={{
+              color: rarityColor,
+              backgroundColor: `${rarityColor}12`,
+              border: `1px solid ${rarityColor}25`,
+            }}
+          >
+            {egg.rarity}
+          </span>
+          <span className="text-neutral-300 text-[10px]">{egg.totalPoints.toFixed(1)} / 10</span>
         </div>
       </div>
 
-      <div className="space-y-0.5">
+      {/* Attributes */}
+      <div className="px-5 py-3 space-y-0">
         {egg.attributes.map(attr => (
           <AttributeRow key={attr.category} attr={attr} />
         ))}

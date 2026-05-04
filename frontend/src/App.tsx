@@ -94,7 +94,7 @@ function App() {
   }, [])
 
   if (loading || petLoading) {
-    return <div className="min-h-screen bg-[#0a0a0f]" />
+    return <div className="min-h-screen bg-[#e5e5e5]" />
   }
 
   return (

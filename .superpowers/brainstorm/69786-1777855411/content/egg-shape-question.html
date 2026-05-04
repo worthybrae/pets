@@ -1,0 +1,107 @@
+<h2>Egg Shape Variants</h2>
+<p class="subtitle">The base egg silhouette — how organic vs. geometric should the shapes be?</p>
+
+<div class="cards">
+  <div class="card" data-choice="organic" onclick="toggleSelect(this)">
+    <div class="card-image" style="height:200px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a1a2e,#16213e)">
+      <svg width="120" height="160" viewBox="0 0 120 160">
+        <!-- Classic organic egg -->
+        <defs>
+          <radialGradient id="g1" cx="40%" cy="35%">
+            <stop offset="0%" stop-color="#a78bfa"/>
+            <stop offset="70%" stop-color="#4c1d95"/>
+            <stop offset="100%" stop-color="#1e1b4b"/>
+          </radialGradient>
+          <radialGradient id="heart1" cx="50%" cy="50%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.8"/>
+            <stop offset="50%" stop-color="#a78bfa" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="transparent"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="60" cy="85" rx="42" ry="55" fill="url(#g1)" stroke="#a78bfa" stroke-opacity="0.3" stroke-width="1"/>
+        <!-- Heart core -->
+        <ellipse cx="60" cy="80" rx="12" ry="12" fill="url(#heart1)">
+          <animate attributeName="rx" values="12;14;12" dur="1.2s" repeatCount="indefinite"/>
+          <animate attributeName="ry" values="12;14;12" dur="1.2s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" repeatCount="indefinite"/>
+        </ellipse>
+      </svg>
+    </div>
+    <div class="card-body">
+      <h3>Organic</h3>
+      <p>Classic egg shape — smooth, natural curves. Different sizes (round, elongated, squat). Feels biological, alive.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="geometric" onclick="toggleSelect(this)">
+    <div class="card-image" style="height:200px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a1a2e,#16213e)">
+      <svg width="120" height="160" viewBox="0 0 120 160">
+        <!-- Geometric crystalline egg -->
+        <defs>
+          <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#22d3ee"/>
+            <stop offset="100%" stop-color="#0e7490"/>
+          </linearGradient>
+          <radialGradient id="heart2" cx="50%" cy="50%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.8"/>
+            <stop offset="50%" stop-color="#22d3ee" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="transparent"/>
+          </radialGradient>
+        </defs>
+        <polygon points="60,25 95,55 100,100 80,140 40,140 20,100 25,55" fill="url(#g2)" stroke="#22d3ee" stroke-opacity="0.5" stroke-width="1"/>
+        <line x1="60" y1="25" x2="60" y2="140" stroke="#22d3ee" stroke-opacity="0.15"/>
+        <line x1="25" y1="55" x2="100" y2="100" stroke="#22d3ee" stroke-opacity="0.15"/>
+        <line x1="20" y1="100" x2="95" y2="55" stroke="#22d3ee" stroke-opacity="0.15"/>
+        <!-- Heart core -->
+        <ellipse cx="60" cy="85" rx="10" ry="10" fill="url(#heart2)">
+          <animate attributeName="rx" values="10;13;10" dur="1.2s" repeatCount="indefinite"/>
+          <animate attributeName="ry" values="10;13;10" dur="1.2s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" repeatCount="indefinite"/>
+        </ellipse>
+      </svg>
+    </div>
+    <div class="card-body">
+      <h3>Geometric / Crystalline</h3>
+      <p>Faceted, gem-like eggs with angular surfaces. Different poly counts by rarity. Feels mystical, artifact-like.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image" style="height:200px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a1a2e,#16213e)">
+      <svg width="120" height="160" viewBox="0 0 120 160">
+        <!-- Hybrid: organic shape with geometric surface detail -->
+        <defs>
+          <radialGradient id="g3" cx="40%" cy="35%">
+            <stop offset="0%" stop-color="#fb923c"/>
+            <stop offset="70%" stop-color="#9a3412"/>
+            <stop offset="100%" stop-color="#431407"/>
+          </radialGradient>
+          <radialGradient id="heart3" cx="50%" cy="50%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.9"/>
+            <stop offset="50%" stop-color="#fb923c" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="transparent"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="60" cy="85" rx="42" ry="55" fill="url(#g3)" stroke="#fb923c" stroke-opacity="0.3" stroke-width="1"/>
+        <!-- Scale/facet pattern on surface -->
+        <path d="M40,55 L60,50 L80,55 L75,75 L60,78 L45,75 Z" fill="none" stroke="#fb923c" stroke-opacity="0.25" stroke-width="0.8"/>
+        <path d="M35,75 L45,75 L60,78 L55,95 L38,90 Z" fill="none" stroke="#fb923c" stroke-opacity="0.2" stroke-width="0.8"/>
+        <path d="M75,75 L85,80 L82,95 L65,95 L60,78 Z" fill="none" stroke="#fb923c" stroke-opacity="0.2" stroke-width="0.8"/>
+        <path d="M38,90 L55,95 L50,115 L35,110 Z" fill="none" stroke="#fb923c" stroke-opacity="0.15" stroke-width="0.8"/>
+        <path d="M65,95 L82,95 L78,115 L60,115 Z" fill="none" stroke="#fb923c" stroke-opacity="0.15" stroke-width="0.8"/>
+        <!-- Heart core -->
+        <ellipse cx="60" cy="82" rx="11" ry="11" fill="url(#heart3)">
+          <animate attributeName="rx" values="11;14;11" dur="1.2s" repeatCount="indefinite"/>
+          <animate attributeName="ry" values="11;14;11" dur="1.2s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" repeatCount="indefinite"/>
+        </ellipse>
+      </svg>
+    </div>
+    <div class="card-body">
+      <h3>Hybrid</h3>
+      <p>Organic egg silhouette with geometric scale/facet patterns on the surface. Best of both — natural form, detailed texture.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem;opacity:0.6">All options have the same beating heart core. Shape variety comes from proportions (tall/squat/round) and surface detail.</p>
