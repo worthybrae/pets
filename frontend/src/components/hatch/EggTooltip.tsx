@@ -1,6 +1,5 @@
 import { rarityColors } from '../../data/rarity'
 import type { EggProfile, RolledAttribute } from './types'
-import { TIER_POINTS } from './eggAttributes'
 
 const STAT_BIAS_LABELS: Record<string, string[]> = {
   shape:  ['resilience', 'energy'],

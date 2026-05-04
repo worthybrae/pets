@@ -49,7 +49,7 @@ function getInitialChunks(pet: Pet): Chunk[] {
   return []
 }
 
-export default function World({ pet }: { pet: Pet }) {
+export default function World({ pet, onFoodUpdate }: { pet: Pet; onFoodUpdate?: (balance: number) => void }) {
   const petVoxels = useMemo(() => getPetVoxels(pet), [pet])
   const initialChunks = useMemo(() => getInitialChunks(pet), [pet])
 
@@ -59,7 +59,7 @@ export default function World({ pet }: { pet: Pet }) {
     position: { x: 0, y: 0, z: 0 },
     voxels: petVoxels,
   })
-  const [foodBalance, setFoodBalance] = useState(pet.food_balance)
+  const [, setFoodBalance] = useState(pet.food_balance)
 
   const handleVoxelUpdate = useCallback((update: VoxelUpdate) => {
     setChunks((prevChunks) => {
@@ -93,7 +93,8 @@ export default function World({ pet }: { pet: Pet }) {
 
   const handleFoodUpdate = useCallback((balance: number) => {
     setFoodBalance(balance)
-  }, [])
+    onFoodUpdate?.(balance)
+  }, [onFoodUpdate])
 
   const { messages, sendMessage, isConnected } = useChat({
     petId: pet.id,
@@ -110,8 +111,6 @@ export default function World({ pet }: { pet: Pet }) {
   return (
     <AppLayout
       petName={pet.name}
-      foodBalance={foodBalance}
-      maxFood={100}
       messages={messages}
       onSendMessage={sendMessage}
       onTimeChange={setCurrentTime}

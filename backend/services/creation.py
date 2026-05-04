@@ -115,10 +115,12 @@ CREATION_SCHEMA = {
                     "additionalProperties": False,
                 },
             },
+            "name": {"type": "string"},
+            "curiosity": {"type": "string"},
             "soul": {"type": "string"},
             "backstory": {"type": "string"},
         },
-        "required": ["pet_voxels", "world_voxels", "soul", "backstory"],
+        "required": ["name", "curiosity", "pet_voxels", "world_voxels", "soul", "backstory"],
         "additionalProperties": False,
     },
 }
@@ -139,25 +141,27 @@ Example of a simple 24-voxel bird (to show format):
 This is a small example. Real creatures should be 150-400 voxels."""
 
 
-def _build_user_prompt(name: str, curiosity: str, stats: dict, rarity: str) -> str:
+def _build_user_prompt(stats: dict, rarity: str) -> str:
     """Build the user prompt for the creation LLM call."""
     stats_block = "\n".join(f"  {k.capitalize()}: {v}/10" for k, v in stats.items())
 
     return f"""Create a pet and its world based on these attributes:
 
-Name: {name}
-Curiosity: {curiosity or "the mysteries of the world"}
 Rarity: {rarity}
 Stats:
 {stats_block}
 
 Generate:
 
-1. pet_voxels (150-400 voxels): A unique creature that embodies these stats. High energy = dynamic pose. High creativity = unusual features. High humor = playful expression. The rarity should influence elaborateness — mythic creatures are more complex than common ones.
+1. name: A unique, memorable name for this creature. It should feel organic and fit the pet's personality. Can be a made-up word, a playful name, or something evocative — but keep it short (1-2 words).
 
-2. world_voxels (200-500 voxels): A single landmark or feature that relates to the pet's curiosity "{curiosity or "the mysteries of the world"}". Place it offset from the origin (around x=10..25) so it doesn't overlap the pet. This is the first thing in an otherwise empty void.
+2. curiosity: What this creature is deeply curious about — a specific fascination that drives it. This should feel unique and tied to its personality/stats (e.g. "the sound that colors make" or "why shadows have edges"). One short phrase.
 
-3. soul (~600 words): The pet's inner identity document with these sections:
+3. pet_voxels (150-400 voxels): A unique creature that embodies these stats. High energy = dynamic pose. High creativity = unusual features. High humor = playful expression. The rarity should influence elaborateness — mythic creatures are more complex than common ones.
+
+4. world_voxels (200-500 voxels): A single landmark or feature that relates to the pet's curiosity. Place it offset from the origin (around x=10..25) so it doesn't overlap the pet. This is the first thing in an otherwise empty void.
+
+5. soul (~600 words): The pet's inner identity document with these sections:
    - Temperament: emotional baseline
    - Speech style: how they talk to their owner
    - Quirks: 2-3 specific behavioral habits
@@ -168,7 +172,7 @@ Generate:
 
    All sections should be shaped by the stats. Make the personality feel coherent and alive.
 
-4. backstory (2-3 sentences): Third-person origin story referencing their name, curiosity, and strongest stat."""
+6. backstory (2-3 sentences): Third-person origin story referencing their name, curiosity, and strongest stat."""
 
 
 def _validate_creation_output(data: dict) -> dict:
@@ -204,6 +208,8 @@ def _validate_creation_output(data: dict) -> dict:
         })
 
     # Validate text fields
+    name = data.get("name", "").strip()[:30]
+    curiosity = data.get("curiosity", "").strip()[:250]
     soul = data.get("soul", "")
     backstory = data.get("backstory", "")
 
@@ -213,6 +219,8 @@ def _validate_creation_output(data: dict) -> dict:
         logger.warning(f"LLM returned only {len(world_voxels)} world voxels (expected 200-500)")
 
     return {
+        "name": name or "Unnamed",
+        "curiosity": curiosity or "the unknown",
         "pet_voxels": clamped_pet,
         "world_voxels": clamped_world,
         "soul": soul,
@@ -220,12 +228,68 @@ def _validate_creation_output(data: dict) -> dict:
     }
 
 
-def _fallback_creation(name: str, stats: dict, curiosity: str) -> dict:
+_FALLBACK_NAMES = [
+    "Glim", "Nyx", "Pebble", "Wisp", "Ember", "Chirp", "Mote", "Bramble",
+    "Flicker", "Twig", "Haze", "Rumble", "Drift", "Pip", "Sprout", "Quill",
+]
+
+
+def _fallback_creation(stats: dict) -> dict:
     """Generate fallback data if the LLM call fails."""
+    name = random.choice(_FALLBACK_NAMES)
     top_stat = max(stats, key=lambda k: stats[k])
     return {
-        "pet_voxels": [{"x": 0, "y": 0, "z": 0, "r": 255, "g": 255, "b": 255}],
-        "world_voxels": [],
+        "name": name,
+        "curiosity": "the unknown",
+        "pet_voxels": [
+            # Simple creature shape (~30 voxels) so fallback is visible
+            # Body (2x3x2 core)
+            {"x": 0, "y": 0, "z": 0, "r": 180, "g": 120, "b": 255},
+            {"x": 1, "y": 0, "z": 0, "r": 180, "g": 120, "b": 255},
+            {"x": 0, "y": 0, "z": 1, "r": 180, "g": 120, "b": 255},
+            {"x": 1, "y": 0, "z": 1, "r": 180, "g": 120, "b": 255},
+            {"x": 0, "y": 1, "z": 0, "r": 200, "g": 140, "b": 255},
+            {"x": 1, "y": 1, "z": 0, "r": 200, "g": 140, "b": 255},
+            {"x": 0, "y": 1, "z": 1, "r": 200, "g": 140, "b": 255},
+            {"x": 1, "y": 1, "z": 1, "r": 200, "g": 140, "b": 255},
+            {"x": 0, "y": 2, "z": 0, "r": 220, "g": 160, "b": 255},
+            {"x": 1, "y": 2, "z": 0, "r": 220, "g": 160, "b": 255},
+            {"x": 0, "y": 2, "z": 1, "r": 220, "g": 160, "b": 255},
+            {"x": 1, "y": 2, "z": 1, "r": 220, "g": 160, "b": 255},
+            # Head (2x2x2)
+            {"x": 0, "y": 3, "z": 0, "r": 240, "g": 200, "b": 255},
+            {"x": 1, "y": 3, "z": 0, "r": 240, "g": 200, "b": 255},
+            {"x": 0, "y": 3, "z": 1, "r": 240, "g": 200, "b": 255},
+            {"x": 1, "y": 3, "z": 1, "r": 240, "g": 200, "b": 255},
+            {"x": 0, "y": 4, "z": 0, "r": 240, "g": 200, "b": 255},
+            {"x": 1, "y": 4, "z": 0, "r": 240, "g": 200, "b": 255},
+            {"x": 0, "y": 4, "z": 1, "r": 240, "g": 200, "b": 255},
+            {"x": 1, "y": 4, "z": 1, "r": 240, "g": 200, "b": 255},
+            # Eyes
+            {"x": 0, "y": 4, "z": -1, "r": 255, "g": 255, "b": 255},
+            {"x": 1, "y": 4, "z": -1, "r": 255, "g": 255, "b": 255},
+            # Ears
+            {"x": 0, "y": 5, "z": 0, "r": 200, "g": 140, "b": 255},
+            {"x": 1, "y": 5, "z": 1, "r": 200, "g": 140, "b": 255},
+            # Arms
+            {"x": -1, "y": 2, "z": 0, "r": 180, "g": 120, "b": 255},
+            {"x": 2, "y": 2, "z": 0, "r": 180, "g": 120, "b": 255},
+            # Feet
+            {"x": 0, "y": -1, "z": 0, "r": 150, "g": 100, "b": 220},
+            {"x": 1, "y": -1, "z": 0, "r": 150, "g": 100, "b": 220},
+        ],
+        "world_voxels": [
+            # Small platform
+            {"x": 12, "y": 0, "z": 0, "r": 80, "g": 80, "b": 80},
+            {"x": 13, "y": 0, "z": 0, "r": 80, "g": 80, "b": 80},
+            {"x": 14, "y": 0, "z": 0, "r": 80, "g": 80, "b": 80},
+            {"x": 12, "y": 0, "z": 1, "r": 80, "g": 80, "b": 80},
+            {"x": 13, "y": 0, "z": 1, "r": 80, "g": 80, "b": 80},
+            {"x": 14, "y": 0, "z": 1, "r": 80, "g": 80, "b": 80},
+            {"x": 13, "y": 1, "z": 0, "r": 120, "g": 200, "b": 120},
+            {"x": 13, "y": 2, "z": 0, "r": 120, "g": 200, "b": 120},
+            {"x": 13, "y": 3, "z": 0, "r": 100, "g": 220, "b": 100},
+        ],
         "soul": (
             f"Temperament: Curious and eager.\n"
             f"Speech style: Simple and direct.\n"
@@ -236,28 +300,25 @@ def _fallback_creation(name: str, stats: dict, curiosity: str) -> dict:
             f"Initial questions: What is this place? Why am I here? What is beyond the void?"
         ),
         "backstory": (
-            f"{name} emerged from the void with a deep fascination for "
-            f"{curiosity or 'the unknown'}. Their remarkable {top_stat} hints at "
-            f"a destiny yet to unfold."
+            f"{name} emerged from the void with wonder in its eyes. "
+            f"Its remarkable {top_stat} hints at a destiny yet to unfold."
         ),
     }
 
 
-async def _generate_pet_with_llm(
-    name: str, curiosity: str, stats: dict, rarity: str
-) -> dict:
-    """Call OpenAI structured output to generate pet voxels, world, soul, and backstory."""
+async def _generate_pet_with_llm(stats: dict, rarity: str) -> dict:
+    """Call OpenAI structured output to generate pet name, curiosity, voxels, world, soul, and backstory."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         logger.error("OPENAI_API_KEY not set, using fallback creation")
-        return _fallback_creation(name, stats, curiosity)
+        return _fallback_creation(stats)
 
     client = AsyncOpenAI(api_key=api_key)
-    user_prompt = _build_user_prompt(name, curiosity, stats, rarity)
+    user_prompt = _build_user_prompt(stats, rarity)
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -266,7 +327,7 @@ async def _generate_pet_with_llm(
                 "type": "json_schema",
                 "json_schema": CREATION_SCHEMA,
             },
-            timeout=15.0,
+            timeout=120.0,
         )
 
         raw = response.choices[0].message.content
@@ -275,18 +336,20 @@ async def _generate_pet_with_llm(
 
     except Exception as e:
         logger.error(f"LLM creation failed: {e}")
-        return _fallback_creation(name, stats, curiosity)
+        return _fallback_creation(stats)
 
 
-async def create_pet(owner_id: str | UUID, name: str, initial_curiosity: str = "") -> Pet:
+async def create_pet(
+    owner_id: str | UUID,
+    stats: dict | None = None,
+    rarity: str | None = None,
+) -> Pet:
     """
-    Create a new pet with rolled stats, rarity, and AI-generated content.
+    Create a new pet with AI-generated content.
 
-    1. Roll 7 stats (median-of-3)
-    2. Determine rarity (weighted random)
-    3. Adjust stats to fit rarity tier
-    4. Call OpenAI to generate voxels, soul, world, and backstory
-    5. Return the complete Pet
+    Stats and rarity can be provided (pre-rolled on the client) or will be
+    rolled server-side if not supplied. The LLM generates everything else:
+    name, curiosity, voxels, soul, world, and backstory.
     """
     pet_id = uuid4()
 
@@ -298,22 +361,28 @@ async def create_pet(owner_id: str | UUID, name: str, initial_curiosity: str = "
     else:
         owner_uuid = owner_id
 
-    # Roll stats and determine rarity
-    stats = _roll_stats()
-    rarity = _determine_rarity(sum(stats.values()))
-    stats = _adjust_stats_for_rarity(stats, rarity)
+    # Use pre-rolled stats or roll fresh
+    if stats and rarity and rarity in RARITY_RANGES:
+        # Validate client-provided stats
+        for name in STAT_NAMES:
+            if name not in stats:
+                stats[name] = 5
+            stats[name] = max(1, min(10, int(stats[name])))
+    else:
+        stats = _roll_stats()
+        rarity = _determine_rarity(sum(stats.values()))
+        stats = _adjust_stats_for_rarity(stats, rarity)
 
-    # Generate creative content via LLM
-    generated = await _generate_pet_with_llm(name, initial_curiosity, stats, rarity)
+    # Generate all creative content via LLM
+    generated = await _generate_pet_with_llm(stats, rarity)
 
-    seed_curiosity = initial_curiosity if initial_curiosity else "the unknown"
     await initialize_food(str(pet_id), DEFAULT_FOOD_BALANCE)
 
     pet = Pet(
         id=pet_id,
         owner_id=owner_uuid,
-        name=name,
-        seed_curiosity=seed_curiosity,
+        name=generated["name"],
+        seed_curiosity=generated["curiosity"],
         food_balance=DEFAULT_FOOD_BALANCE,
         status="idle",
         position_x=0.0,
@@ -323,7 +392,7 @@ async def create_pet(owner_id: str | UUID, name: str, initial_curiosity: str = "
         rarity=rarity,
         stats=stats,
         backstory=generated["backstory"],
-        initial_curiosity=initial_curiosity,
+        initial_curiosity=generated["curiosity"],
         voxels=generated["pet_voxels"],
         soul=generated["soul"],
         world_voxels=generated["world_voxels"],

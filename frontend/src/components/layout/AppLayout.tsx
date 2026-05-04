@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import HeaderBar from '../ui/HeaderBar'
 import FloatingActions from '../ui/FloatingActions'
 import ChatPanel from '../ui/ChatPanel'
 import type { ChatMessage } from '../ui/ChatPanel'
@@ -10,8 +9,6 @@ type PanelState = 'none' | 'chat' | 'timeline'
 
 interface AppLayoutProps {
   petName: string
-  foodBalance: number
-  maxFood: number
   messages: ChatMessage[]
   onSendMessage: (text: string) => void
   onTimeChange: (timestamp: Date) => void
@@ -21,8 +18,6 @@ interface AppLayoutProps {
 
 export default function AppLayout({
   petName,
-  foodBalance,
-  maxFood,
   messages,
   onSendMessage,
   onTimeChange,
@@ -45,9 +40,6 @@ export default function AppLayout({
       <div className="fixed inset-0 z-0">
         {children}
       </div>
-
-      {/* Header bar */}
-      <HeaderBar petName={petName} foodBalance={foodBalance} maxFood={maxFood} />
 
       {/* Panels */}
       <ChatPanel

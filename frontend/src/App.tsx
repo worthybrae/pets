@@ -1,9 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from './lib/supabase'
-import Landing from './pages/Landing'
+import HeaderBar from './components/ui/HeaderBar'
 import World from './pages/World'
 import Hatch from './pages/Hatch'
+import Guide from './pages/Guide'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -62,7 +63,7 @@ function App() {
   }, [session])
 
   const handleHatch = useCallback(
-    async (name: string, initialCuriosity: string) => {
+    async (stats: Record<string, number>, rarity: string) => {
       if (!session) return
       try {
         const res = await fetch(`${API_URL}/api/pets`, {
@@ -70,8 +71,8 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             owner_id: session.user.id,
-            name,
-            initial_curiosity: initialCuriosity,
+            stats,
+            rarity,
           }),
         })
         const data = await res.json()
@@ -88,35 +89,40 @@ function App() {
     setPet(petData)
   }, [])
 
+  const handleFoodUpdate = useCallback((balance: number) => {
+    setPet((prev) => prev ? { ...prev, food_balance: balance } : prev)
+  }, [])
+
   if (loading || petLoading) {
-    return <div className="min-h-screen bg-black" />
+    return <div className="min-h-screen bg-[#0a0a0f]" />
   }
 
   return (
     <BrowserRouter>
+      <HeaderBar
+        isLoggedIn={!!session}
+        hasPet={!!pet}
+        foodBalance={pet?.food_balance}
+        maxFood={100}
+      />
       <Routes>
         <Route
           path="/"
-          element={
-            session
-              ? <Navigate to={pet ? '/world' : '/hatch'} />
-              : <Landing />
-          }
+          element={<Navigate to={pet ? '/world' : '/hatch'} />}
         />
         <Route
           path="/hatch"
           element={
-            session
-              ? (pet ? <Navigate to="/world" /> : <Hatch onHatch={handleHatch} onComplete={handleHatchComplete} />)
-              : <Navigate to="/" />
+            pet ? <Navigate to="/world" /> : <Hatch onHatch={handleHatch} onComplete={handleHatchComplete} session={session} />
           }
         />
+        <Route path="/guide" element={<Guide />} />
         <Route
           path="/world"
           element={
             session
-              ? (pet ? <World pet={pet} /> : <Navigate to="/hatch" />)
-              : <Navigate to="/" />
+              ? (pet ? <World pet={pet} onFoodUpdate={handleFoodUpdate} /> : <Navigate to="/hatch" />)
+              : <Navigate to="/hatch" />
           }
         />
       </Routes>

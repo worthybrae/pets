@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
-import type { OrbitControls as OrbitControlsType } from 'three/addons/controls/OrbitControls.js'
+import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 
 interface CameraControllerProps {
   petPosition: { x: number; y: number; z: number }
