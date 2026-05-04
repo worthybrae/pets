@@ -80,15 +80,21 @@ function GlowHalo({ phase, glowColor, mistIntensity }: { phase: Phase; glowColor
 
 // ── Egg Mesh ──
 
-function EggMesh({ phase, egg, mouseRef }: {
+const INTRO_DURATION = 3.0 // seconds for black sphere → full egg
+const MAX_EGG_SCALE = 0.45 // ~25% of viewport height at default camera distance
+
+function EggMesh({ phase, egg, mouseRef, onIntroComplete }: {
   phase: Phase
   egg: EggProfile
   mouseRef: React.MutableRefObject<{ x: number; y: number }>
+  onIntroComplete: () => void
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const dissolveRef = useRef(0)
   const timeRef = useRef(0)
   const growthRef = useRef(0)
+  const introRef = useRef(0) // 0→1 over INTRO_DURATION
+  const introCompleteRef = useRef(false)
 
   const uniforms = useMemo(() => getEggUniforms(egg), [egg])
 
@@ -99,24 +105,74 @@ function EggMesh({ phase, egg, mouseRef }: {
       uDissolve: { value: 0 },
       uBeat: { value: 0 },
       uSeed: { value: Math.random() * 100 },
-      uShapeType: { value: uniforms.shapeType },
-      uScaleType: { value: uniforms.scaleType },
-      uSizeScale: { value: uniforms.sizeScale },
-      uMistIntensity: { value: uniforms.mistIntensity },
-      uBaseColor: { value: new THREE.Vector3(...uniforms.baseColor) },
-      uCoreColor: { value: new THREE.Vector3(...uniforms.coreColor) },
-      uSpecColor: { value: new THREE.Vector3(...uniforms.specColor) },
+      uShapeType: { value: 0 }, // starts as sphere (0), lerps to actual
+      uScaleType: { value: 0 }, // starts with no scales
+      uSizeScale: { value: 0.08 }, // starts tiny
+      uMistIntensity: { value: 0 },
+      uBaseColor: { value: new THREE.Vector3(0.02, 0.02, 0.03) }, // starts black
+      uCoreColor: { value: new THREE.Vector3(0.05, 0.05, 0.08) }, // dim core
+      uSpecColor: { value: new THREE.Vector3(0.1, 0.1, 0.1) },
     },
     vertexShader: EGG_VERT,
     fragmentShader: EGG_FRAG,
     transparent: true,
-  }), [uniforms])
+  }), [])
 
   useFrame((_, dt) => {
     timeRef.current += dt
     const t = timeRef.current
     mat.uniforms.uTime.value = t
 
+    // ── Intro animation: black sphere → colored egg ──
+    if (introRef.current < 1) {
+      introRef.current = Math.min(1, introRef.current + dt / INTRO_DURATION)
+      const p = introRef.current
+      // Ease-out cubic
+      const ease = 1 - Math.pow(1 - p, 3)
+
+      // Lerp size from tiny to final
+      const finalSize = uniforms.sizeScale * MAX_EGG_SCALE
+      mat.uniforms.uSizeScale.value = 0.08 + (finalSize - 0.08) * ease
+
+      // Lerp shape from sphere (0) to actual shape
+      mat.uniforms.uShapeType.value = uniforms.shapeType * ease
+
+      // Lerp scales in after 40% progress
+      const scaleP = Math.max(0, (p - 0.4) / 0.6)
+      mat.uniforms.uScaleType.value = uniforms.scaleType * scaleP
+
+      // Lerp colors from black to actual
+      const base = mat.uniforms.uBaseColor.value as THREE.Vector3
+      base.set(
+        0.02 + (uniforms.baseColor[0] - 0.02) * ease,
+        0.02 + (uniforms.baseColor[1] - 0.02) * ease,
+        0.03 + (uniforms.baseColor[2] - 0.03) * ease
+      )
+      const core = mat.uniforms.uCoreColor.value as THREE.Vector3
+      core.set(
+        0.05 + (uniforms.coreColor[0] - 0.05) * ease,
+        0.05 + (uniforms.coreColor[1] - 0.05) * ease,
+        0.08 + (uniforms.coreColor[2] - 0.08) * ease
+      )
+      const spec = mat.uniforms.uSpecColor.value as THREE.Vector3
+      spec.set(
+        0.1 + (uniforms.specColor[0] - 0.1) * ease,
+        0.1 + (uniforms.specColor[1] - 0.1) * ease,
+        0.1 + (uniforms.specColor[2] - 0.1) * ease
+      )
+
+      // Mist fades in last
+      const mistP = Math.max(0, (p - 0.7) / 0.3)
+      mat.uniforms.uMistIntensity.value = uniforms.mistIntensity * mistP
+
+      // Fire callback when done
+      if (p >= 1 && !introCompleteRef.current) {
+        introCompleteRef.current = true
+        onIntroComplete()
+      }
+    }
+
+    // ── Phase-based growth (post-intro) ──
     let targetGrowth = 0
     if (phase === 'idle') targetGrowth = 0
     if (phase === 'hatching' || phase === 'stats') targetGrowth = 1.0
@@ -202,11 +258,12 @@ function SceneCamera({ phase }: { phase: Phase }) {
 
 // ── Main Scene (exported) ──
 
-export default function EggScene({ phase, egg, revealProgress, voxels }: {
+export default function EggScene({ phase, egg, revealProgress, voxels, onIntroComplete }: {
   phase: Phase
   egg: EggProfile
   revealProgress: number
   voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
+  onIntroComplete?: () => void
 }) {
   const mouseRef = useRef({ x: 0, y: 0 })
   const uniforms = useMemo(() => getEggUniforms(egg), [egg])
@@ -232,7 +289,7 @@ export default function EggScene({ phase, egg, revealProgress, voxels }: {
 
       <SceneCamera phase={phase} />
       <GlowHalo phase={phase} glowColor={uniforms.coreColor} mistIntensity={uniforms.mistIntensity} />
-      <EggMesh phase={phase} egg={egg} mouseRef={mouseRef} />
+      <EggMesh phase={phase} egg={egg} mouseRef={mouseRef} onIntroComplete={onIntroComplete || (() => {})} />
       <GroundShadow />
 
       {phase === 'reveal' && voxels.length > 0 && (

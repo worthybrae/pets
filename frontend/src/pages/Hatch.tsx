@@ -11,6 +11,7 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
   const [egg, setEgg] = useState<EggProfile>(() => rollEgg())
   const [phase, setPhase] = useState<Phase>('idle')
   const [hovering, setHovering] = useState(false)
+  const [eggReady, setEggReady] = useState(false) // true after intro animation
 
   // ── Stats state ──
   const [rolledStats, setRolledStats] = useState<Record<string, number> | null>(null)
@@ -173,6 +174,7 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
           egg={egg}
           revealProgress={revealProgress}
           voxels={petData?.voxels || []}
+          onIntroComplete={() => setEggReady(true)}
         />
       </div>
 
@@ -181,8 +183,8 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
         <div className="absolute inset-0 z-50 bg-white/30" style={{ animation: 'flashOut 0.8s ease-out forwards' }} />
       )}
 
-      {/* ── Egg info (always visible) ── */}
-      {phase !== 'reveal' && (
+      {/* ── Egg info (visible after intro) ── */}
+      {eggReady && phase !== 'reveal' && (
         <div className="fixed top-20 left-0 right-0 z-10 text-center" style={{ animation: 'fadeUp 0.6s ease-out' }}>
           <h2 className="text-xl font-light text-white tracking-wide">{egg.name}</h2>
           <div className="mt-2 flex items-center justify-center gap-3">
@@ -193,10 +195,10 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
       )}
 
       {/* ── Tooltip (on hover) ── */}
-      <EggTooltip egg={egg} visible={hovering && (phase === 'idle' || phase === 'hatching')} />
+      <EggTooltip egg={egg} visible={eggReady && hovering && (phase === 'idle' || phase === 'hatching')} />
 
-      {/* ── Idle: Hatch button ── */}
-      {phase === 'idle' && (
+      {/* ── Idle: Hatch button (after intro) ── */}
+      {phase === 'idle' && eggReady && (
         <div className="fixed bottom-16 left-0 right-0 z-10 flex flex-col items-center" style={{ animation: 'fadeUp 0.6s ease-out 0.3s both' }}>
           <button
             onClick={startHatching}
