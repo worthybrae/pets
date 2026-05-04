@@ -4,7 +4,6 @@ import EggScene from '../components/hatch/EggScene'
 import EggTooltip from '../components/hatch/EggTooltip'
 import { StatBar, TotalReveal, RarityBadge, QualityBadge } from '../components/hatch/StatsCard'
 import { rollEgg, rollStatsFromEgg, computeQuality, GEN_STATUS, readPendingEgg, STAT_NAMES } from '../components/hatch/gameLogic'
-import { rarityColors } from '../data/rarity'
 import type { Phase, PetData, HatchProps, EggProfile, QualityTier } from '../components/hatch/types'
 
 export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
@@ -160,8 +159,6 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
   const genStatusText = GEN_STATUS.reduce((msg, s) => genElapsed >= s.t ? s.text : msg, GEN_STATUS[0].text)
   const statEntries = rolledStats ? Object.entries(rolledStats) : []
   const total = rolledStats ? Object.values(rolledStats).reduce((a, b) => a + b, 0) : 0
-
-  void rarityColors // available for future use per design spec
 
   return (
     <div
