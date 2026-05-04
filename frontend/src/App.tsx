@@ -5,6 +5,7 @@ import HeaderBar from './components/ui/HeaderBar'
 import World from './pages/World'
 import Hatch from './pages/Hatch'
 import Guide from './pages/Guide'
+import VoxelTest from './pages/VoxelTest'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -22,11 +23,22 @@ interface Pet {
   world_voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
 }
 
+interface ScheduleInfo {
+  nextTaskTime: number | null
+  nextTaskName: string | null
+  status: string
+}
+
 function App() {
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [pet, setPet] = useState<Pet | null>(null)
   const [petLoading, setPetLoading] = useState(false)
+  const [schedule, setSchedule] = useState<ScheduleInfo>({
+    nextTaskTime: null,
+    nextTaskName: null,
+    status: 'unknown',
+  })
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -63,7 +75,7 @@ function App() {
   }, [session])
 
   const handleHatch = useCallback(
-    async (stats: Record<string, number>, rarity: string) => {
+    async (stats: Record<string, number>, rarity: string, eggColor?: string) => {
       if (!session) return
       try {
         const res = await fetch(`${API_URL}/api/pets`, {
@@ -73,6 +85,7 @@ function App() {
             owner_id: session.user.id,
             stats,
             rarity,
+            egg_color: eggColor,
           }),
         })
         const data = await res.json()
@@ -93,6 +106,27 @@ function App() {
     setPet((prev) => prev ? { ...prev, food_balance: balance } : prev)
   }, [])
 
+  const handleScheduleUpdate = useCallback((info: ScheduleInfo) => {
+    setSchedule(info)
+  }, [])
+
+  const handleFeed = useCallback(async () => {
+    if (!pet) return
+    try {
+      const res = await fetch(`${API_URL}/api/pets/${pet.id}/feed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 1.0 }),
+      })
+      const data = await res.json()
+      if (data.new_balance != null) {
+        setPet((prev) => prev ? { ...prev, food_balance: data.new_balance } : prev)
+      }
+    } catch (e) {
+      console.error('Failed to feed pet:', e)
+    }
+  }, [pet])
+
   if (loading || petLoading) {
     return <div className="min-h-screen bg-[#e5e5e5]" />
   }
@@ -103,7 +137,11 @@ function App() {
         isLoggedIn={!!session}
         hasPet={!!pet}
         foodBalance={pet?.food_balance}
-        maxFood={100}
+        maxFood={1}
+        nextTaskTime={schedule.nextTaskTime}
+        nextTaskName={schedule.nextTaskName}
+        petStatus={schedule.status}
+        onFeed={pet ? handleFeed : undefined}
       />
       <Routes>
         <Route
@@ -117,11 +155,12 @@ function App() {
           }
         />
         <Route path="/guide" element={<Guide />} />
+        <Route path="/voxel-test" element={<VoxelTest />} />
         <Route
           path="/world"
           element={
             session
-              ? (pet ? <World pet={pet} onFoodUpdate={handleFoodUpdate} /> : <Navigate to="/hatch" />)
+              ? (pet ? <World pet={pet} onFoodUpdate={handleFoodUpdate} onScheduleUpdate={handleScheduleUpdate} /> : <Navigate to="/hatch" />)
               : <Navigate to="/hatch" />
           }
         />

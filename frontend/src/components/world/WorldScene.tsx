@@ -8,33 +8,34 @@ interface WorldSceneProps {
   chunks: Chunk[]
   pet: PetEntityType
   onVoxelClick?: (metadataId: string) => void
+  onPetPositionChange?: (pos: { x: number; y: number; z: number }) => void
 }
 
-export default function WorldScene({ chunks, pet, onVoxelClick }: WorldSceneProps) {
+export default function WorldScene({ chunks, pet, onVoxelClick, onPetPositionChange }: WorldSceneProps) {
   return (
-    <div className="h-screen w-screen bg-black">
+    <div className="h-screen w-screen bg-[#e5e5e5]">
       <Canvas
         camera={{ position: [10, 8, 10], fov: 50, near: 0.1, far: 500 }}
         gl={{ antialias: true }}
         scene={{ background: undefined }}
       >
         {/* Black void background */}
-        <color attach="background" args={['#000000']} />
+        <color attach="background" args={['#e5e5e5']} />
 
-        {/* Lighting */}
-        <ambientLight intensity={0.4} />
+        {/* Lighting — Math.PI base for physically correct lights in Three.js 0.184 */}
+        <ambientLight intensity={Math.PI * 0.8} />
         <directionalLight
           position={[20, 30, 10]}
-          intensity={0.8}
+          intensity={Math.PI * 1.5}
           castShadow={false}
         />
         <directionalLight
           position={[-10, 10, -10]}
-          intensity={0.3}
+          intensity={Math.PI * 0.5}
         />
 
-        {/* Fog to fade distant chunks */}
-        <fog attach="fog" args={['#000000', 40, 80]} />
+        {/* Fog — pushed far back so nearby world items stay visible */}
+        <fog attach="fog" args={['#e5e5e5', 100, 200]} />
 
         {/* World chunks */}
         <WorldManager
@@ -43,7 +44,7 @@ export default function WorldScene({ chunks, pet, onVoxelClick }: WorldSceneProp
         />
 
         {/* Pet */}
-        <PetEntity pet={pet} />
+        <PetEntity pet={pet} onPositionChange={onPetPositionChange} />
 
         {/* Camera */}
         <CameraController petPosition={pet.position} />

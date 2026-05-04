@@ -2,9 +2,13 @@ import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-export default function PetReveal({ voxels, progress }: {
+// Minimum per-voxel brightness (0-1 avg channel). Below this, blend toward fallback.
+const MIN_BRIGHTNESS = 0.25
+
+export default function PetReveal({ voxels, progress, fallbackColor }: {
   voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
   progress: number
+  fallbackColor?: [number, number, number]
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const groupRef = useRef<THREE.Group>(null)
@@ -17,6 +21,43 @@ export default function PetReveal({ voxels, progress }: {
     const cz = voxels.reduce((s, v) => s + v.z, 0) / voxels.length
     return voxels.map(v => ({ ...v, x: v.x - cx, y: v.y - cy, z: v.z - cz }))
   }, [voxels])
+
+  // Pre-compute corrected colors (0-1 range, dark voxels blended with fallback)
+  const correctedColors = useMemo(() => {
+    if (voxels.length === 0) return []
+    // Debug
+    const avgBright = voxels.reduce((s, v) => s + v.r + v.g + v.b, 0) / voxels.length
+    console.log('[PetReveal] voxels:', voxels.length,
+      '| avgBrightness(0-765):', avgBright.toFixed(1),
+      '| fallback:', fallbackColor,
+      '| samples:', voxels.slice(0, 3).map(v => `(${v.r},${v.g},${v.b})`).join(' '))
+
+    return centered.map(v => {
+      // Normalize to 0-1
+      let rr = v.r > 1 ? v.r / 255 : v.r
+      let gg = v.g > 1 ? v.g / 255 : v.g
+      let bb = v.b > 1 ? v.b / 255 : v.b
+
+      const brightness = (rr + gg + bb) / 3
+
+      if (brightness < MIN_BRIGHTNESS && fallbackColor) {
+        // Compute position-based fallback color for depth variation
+        const height = (v.y + 10) / 20
+        const variation = 0.7 + height * 0.6
+        const fr = fallbackColor[0] * variation
+        const fg = fallbackColor[1] * variation
+        const fb = fallbackColor[2] * variation
+
+        // Blend: fully fallback at black, full original at threshold
+        const t = brightness / MIN_BRIGHTNESS
+        rr = rr * t + fr * (1 - t)
+        gg = gg * t + fg * (1 - t)
+        bb = bb * t + fb * (1 - t)
+      }
+
+      return { r: rr, g: gg, b: bb }
+    })
+  }, [voxels, centered, fallbackColor])
 
   useFrame((_, delta) => {
     timeRef.current += delta
@@ -42,10 +83,12 @@ export default function PetReveal({ voxels, progress }: {
         mesh.setMatrixAt(i, obj.matrix)
         const cb = Math.min(1, localP * 2)
         const glow = (1 - cb) * 2
+        const cc = correctedColors[i] || { r: 0.6, g: 0.6, b: 0.6 }
         col.setRGB(
-          (v.r / 255) * cb + glow,
-          (v.g / 255) * cb + glow,
-          (v.b / 255) * cb + glow
+          cc.r * cb + glow,
+          cc.g * cb + glow,
+          cc.b * cb + glow,
+          THREE.SRGBColorSpace
         )
         mesh.setColorAt(i, col)
       } else {
@@ -62,14 +105,25 @@ export default function PetReveal({ voxels, progress }: {
 
   if (centered.length === 0) return null
 
+  // Auto-scale to fit scene based on bounding box
+  const scale = useMemo(() => {
+    if (centered.length === 0) return 1
+    let maxDim = 0
+    for (const v of centered) {
+      maxDim = Math.max(maxDim, Math.abs(v.x), Math.abs(v.y), Math.abs(v.z))
+    }
+    return maxDim > 0 ? 2.5 / maxDim : 1
+  }, [centered])
+
   return (
-    <group ref={groupRef} position={[0, 3, 0]}>
-      <pointLight color="#ffffff" intensity={8} distance={25} decay={2} />
-      <pointLight color="#999999" intensity={4} distance={20} decay={2} position={[0, -3, 0]} />
-      <pointLight color="#ffffff" intensity={3} distance={15} decay={2} position={[0, 5, 5]} />
+    <group ref={groupRef} position={[0, 1.5, 0]} scale={scale}>
+      <ambientLight intensity={Math.PI} />
+      <directionalLight position={[5, 8, 5]} intensity={Math.PI * 1.5} />
+      <directionalLight position={[-3, 2, -3]} intensity={Math.PI * 0.5} />
+      <pointLight position={[0, 5, 5]} intensity={Math.PI * 2} distance={20} decay={1} />
       <instancedMesh ref={meshRef} args={[undefined, undefined, centered.length]} frustumCulled={false}>
         <boxGeometry args={[0.9, 0.9, 0.9]} />
-        <meshBasicMaterial vertexColors toneMapped={false} fog={false} />
+        <meshStandardMaterial roughness={0.4} metalness={0.1} />
       </instancedMesh>
     </group>
   )

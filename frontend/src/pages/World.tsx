@@ -1,9 +1,12 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import WorldScene from '../components/world/WorldScene'
 import AppLayout from '../components/layout/AppLayout'
 import { useChat } from '../hooks/useChat'
 import type { VoxelUpdate, Position } from '../hooks/useWebSocket'
 import type { Chunk, PetEntity as PetEntityType, Voxel } from '../types/world'
+import type { AgendaTask } from '../components/ui/SchedulePanel'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 interface Pet {
   id: string
@@ -16,6 +19,13 @@ interface Pet {
   initial_curiosity?: string
   voxels?: { x: number; y: number; z: number; r: number; g: number; b: number }[]
   world_voxels?: { x: number; y: number; z: number; r: number; g: number; b: number }[]
+}
+
+interface ScheduleInfo {
+  nextTaskTime: number | null
+  nextTaskName: string | null
+  status: string
+  tasks: AgendaTask[]
 }
 
 function getPetVoxels(pet: Pet): Voxel[] {
@@ -49,7 +59,15 @@ function getInitialChunks(pet: Pet): Chunk[] {
   return []
 }
 
-export default function World({ pet, onFoodUpdate }: { pet: Pet; onFoodUpdate?: (balance: number) => void }) {
+export default function World({
+  pet,
+  onFoodUpdate,
+  onScheduleUpdate,
+}: {
+  pet: Pet
+  onFoodUpdate?: (balance: number) => void
+  onScheduleUpdate?: (info: ScheduleInfo) => void
+}) {
   const petVoxels = useMemo(() => getPetVoxels(pet), [pet])
   const initialChunks = useMemo(() => getInitialChunks(pet), [pet])
 
@@ -60,6 +78,51 @@ export default function World({ pet, onFoodUpdate }: { pet: Pet; onFoodUpdate?: 
     voxels: petVoxels,
   })
   const [, setFoodBalance] = useState(pet.food_balance)
+  const [scheduleTasks, setScheduleTasks] = useState<AgendaTask[]>([])
+  const [nextTaskTime, setNextTaskTime] = useState<number | null>(null)
+
+  // Fetch schedule + agenda data
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchSchedule = async () => {
+      try {
+        const [schedRes, agendaRes] = await Promise.all([
+          fetch(`${API_URL}/api/pets/${pet.id}/schedule`),
+          fetch(`${API_URL}/api/pets/${pet.id}/agenda`),
+        ])
+
+        if (cancelled) return
+
+        const schedData = await schedRes.json()
+        const agendaData = await agendaRes.json()
+
+        const tasks: AgendaTask[] = agendaData?.plan?.tasks || []
+        const ntt = schedData?.next_tick || null
+        const status = schedData?.status || 'unknown'
+        const nextTask = schedData?.next_task || null
+
+        setScheduleTasks(tasks)
+        setNextTaskTime(ntt)
+
+        onScheduleUpdate?.({
+          nextTaskTime: ntt,
+          nextTaskName: nextTask,
+          status,
+          tasks,
+        })
+      } catch {
+        // Silently fail — schedule display is non-critical
+      }
+    }
+
+    fetchSchedule()
+    const interval = setInterval(fetchSchedule, 30000) // Refresh every 30s
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [pet.id, onScheduleUpdate])
 
   const handleVoxelUpdate = useCallback((update: VoxelUpdate) => {
     setChunks((prevChunks) => {
@@ -115,8 +178,10 @@ export default function World({ pet, onFoodUpdate }: { pet: Pet; onFoodUpdate?: 
       onSendMessage={sendMessage}
       onTimeChange={setCurrentTime}
       currentTime={currentTime}
+      scheduleTasks={scheduleTasks}
+      nextTaskTime={nextTaskTime}
     >
-      <WorldScene chunks={chunks} pet={petEntity} onVoxelClick={handleVoxelClick} />
+      <WorldScene chunks={chunks} pet={petEntity} onVoxelClick={handleVoxelClick} onPetPositionChange={handlePetMoved} />
       <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2">
         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'}`} />
         <span className="text-xs text-white/40">

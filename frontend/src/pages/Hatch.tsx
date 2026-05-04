@@ -54,7 +54,8 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
     setPhase('generating')
     genStartRef.current = Date.now()
 
-    const response = await onHatch(rolledStats, egg.rarity)
+    const colorAttr = egg.attributes.find(a => a.category === 'color')
+    const response = await onHatch(rolledStats, egg.rarity, colorAttr?.option.name)
     if (response) {
       setFullPetResponse(response)
       setPetData({
@@ -166,15 +167,15 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
     <div
       className="min-h-screen bg-[#e5e5e5] relative overflow-hidden grid grid-cols-1 lg:grid-cols-2"
     >
-      {/* ── Left: Hero Section ── */}
-      <div className="relative z-10 flex flex-col justify-center px-8 sm:px-12 lg:px-16 py-12 min-h-[50vh] lg:min-h-screen">
+      {/* ── Right: Text / Controls ── */}
+      <div className="relative z-10 flex flex-col justify-center px-8 sm:px-12 lg:px-16 py-12 min-h-[50vh] lg:min-h-screen order-1 lg:order-2">
         {/* Egg info */}
         {phase !== 'reveal' && (
           <div className="mb-8" style={{ animation: 'fadeUp 0.6s ease-out' }}>
             <h2 className="text-2xl sm:text-3xl font-semibold text-neutral-900 tracking-tight">{egg.name}</h2>
             <div className="mt-3 flex items-center gap-3">
               <RarityBadge rarity={egg.rarity} visible={true} />
-              <span className="text-neutral-300 text-xs font-medium">{egg.totalPoints.toFixed(1)} / 10</span>
+              <span className="text-neutral-500 text-xs font-medium">{egg.totalPoints.toFixed(1)} / 10</span>
             </div>
           </div>
         )}
@@ -312,11 +313,9 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
         )}
       </div>
 
-      {/* ── Right: 3D Egg Scene ── */}
+      {/* ── Left: 3D Egg Scene ── */}
       <div
-        className="relative min-h-[50vh] lg:min-h-screen"
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
+        className="relative min-h-[50vh] lg:min-h-screen order-2 lg:order-1"
         onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}
       >
         <div className="absolute inset-0">
@@ -326,6 +325,7 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
             revealProgress={revealProgress}
             voxels={petData?.voxels || []}
             onIntroComplete={() => setEggReady(true)}
+            onHover={setHovering}
           />
         </div>
 

@@ -636,10 +636,8 @@ async def _handle_respond_to_user(
 ) -> dict[str, Any]:
     """Capture the pet's response to the user."""
     message = args.get("message", "")
-    # Broadcast chat message from pet
-    broadcaster = get_broadcaster()
-    if broadcaster:
-        await broadcaster.chat_message(pet_id, "pet", message)
+    # Don't broadcast here — _process_chat() in websocket.py handles it
+    # after the brain loop completes, preventing duplicate messages.
     return {"success": True, "message": message}
 
 

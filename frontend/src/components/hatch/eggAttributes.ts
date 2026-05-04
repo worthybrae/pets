@@ -120,7 +120,7 @@ function computeStatRanges(attributes: RolledAttribute[]): Record<string, [numbe
   const ranges: Record<string, [number, number]> = {}
 
   for (const stat of STAT_NAMES) {
-    ranges[stat] = [1, 6]
+    ranges[stat] = [1, 3]
   }
 
   for (const attr of attributes) {

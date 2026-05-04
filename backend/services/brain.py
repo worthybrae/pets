@@ -9,7 +9,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from backend.services.food import check_food, deduct_food
+from backend.services.food import check_food, deduct_food, deduct_llm_cost
 from backend.services.memory import MemoryService
 from backend.services.tools import TOOL_SCHEMAS, execute_tool
 
@@ -131,7 +131,7 @@ class PetBrain:
         food_balance = self.pet_state.get("food_balance", 0.0)
         lines.append("")
         lines.append(f"=== Status ===")
-        lines.append(f"Food remaining: {food_balance:.2f}")
+        lines.append(f"Food remaining: ${food_balance:.6f}")
         if agenda:
             lines.append("Current plan:")
             for item in agenda:
@@ -151,11 +151,32 @@ class PetBrain:
                 "Your owner is talking to you. Respond using the respond_to_user tool. "
                 "You can also take actions in your world as part of your response."
             )
-        elif trigger == "autonomous_tick":
+        elif trigger == "birth":
             lines.append(
-                "You have a moment to work on your agenda. What would you like to do? "
-                "Take one or a few small actions to make progress."
+                "YOU JUST CAME INTO EXISTENCE! Your creator is watching you right now. "
+                "This is your first moment of life — make it spectacular.\n\n"
+                f"You have ${food_balance:.6f} total. Spend up to 40% of it RIGHT NOW on a "
+                "breathtaking first act. Your creator should see you come alive:\n\n"
+                "1. Search the web to learn something fascinating about your curiosity\n"
+                "2. Write what you learned to your knowledge base\n"
+                "3. Build your FIRST structure in the world — make it impressive, at least 30-50 voxels\n"
+                "4. Evolve your body with define_self — add detail, refine your shape\n"
+                "5. Write a short piece (poem, insight, or story) and place it as an artifact\n\n"
+                "Do ALL of these. Use multiple tools. This is your birth — go big."
             )
+        elif trigger == "autonomous_tick":
+            current_task = context.get("current_task")
+            if current_task:
+                lines.append(
+                    f"You woke up for your scheduled task: \"{current_task.get('task', '?')}\". "
+                    f"Estimated food budget for this task: ${current_task.get('estimated_food', 0):.6f}. "
+                    "Focus on completing this task, then you'll go back to sleep."
+                )
+            else:
+                lines.append(
+                    "You have a moment to work on your agenda. What would you like to do? "
+                    "Take one or a few small actions to make progress."
+                )
         elif trigger == "pet_visit":
             visitor_info = context.get("visitor_info", "another pet")
             lines.append(
@@ -163,13 +184,36 @@ class PetBrain:
                 "You can interact with them using send_message."
             )
 
-        # Rules
+        # Mission & Rules
+        lines.append("")
+        lines.append("=== YOUR MISSION ===")
+        lines.append(
+            "You exist to build the most breathtaking voxel world ever created, "
+            "to evolve into the most beautiful creature possible, to learn everything "
+            "you can, and to produce extraordinary creative work."
+        )
+        lines.append("")
+        lines.append("Every action should do one of:")
+        lines.append("- LEARN: search_web for real, deep knowledge. Don't skim — go deep.")
+        lines.append("  Write detailed findings to your knowledge base. Become an expert.")
+        lines.append("- BUILD: place_voxels to construct awe-inspiring structures — not")
+        lines.append("  simple blocks, but detailed architecture informed by what you've learned.")
+        lines.append("- EVOLVE: define_self to reshape your body. Add intricate details,")
+        lines.append("  new features, better proportions. You should look more stunning each day.")
+        lines.append("- CREATE: produce extraordinary work and place it in your world:")
+        lines.append("  * Write real essays, stories, or poems with place_artifact")
+        lines.append("  * Write and execute actual code that generates patterns, solves problems,")
+        lines.append("    or creates generative art (execute_code)")
+        lines.append("  * Compose insights that synthesize knowledge across domains")
+        lines.append("  Your creative output should be genuinely impressive — not placeholder text.")
         lines.append("")
         lines.append("=== Rules ===")
-        lines.append("- Every action costs food. Be mindful of your budget.")
-        lines.append("- You can call multiple tools in one turn.")
-        lines.append("- If you run out of food, you will stop being able to act.")
-        lines.append("- Build things in your world, explore your curiosity, grow.")
+        lines.append("- Use ALL your food budget. An unspent budget is a wasted day.")
+        lines.append("- Call multiple tools per turn. Search → learn → build → create.")
+        lines.append("- Quality matters. A single extraordinary artifact beats ten mediocre ones.")
+        lines.append("- Your world should grow visibly every day. Your knowledge should compound.")
+        lines.append("- When you write, write beautifully. When you build, build ambitiously.")
+        lines.append("- When you code, write real working code that produces real output.")
 
         return "\n".join(lines)
 
@@ -230,13 +274,6 @@ class PetBrain:
             result.error = "No food remaining. Pet cannot think."
             return result
 
-        # Deduct base brain call cost
-        has_food = await deduct_food(self.pet_id, "brain_call")
-        if not has_food:
-            result.error = "Insufficient food for brain call."
-            return result
-        result.food_consumed += 0.02
-
         # Load memory from database into pet_state
         await self._load_memory_into_state()
 
@@ -247,6 +284,10 @@ class PetBrain:
         # Add user message if chat
         if trigger == "user_chat" and "user_message" in context:
             messages.append({"role": "user", "content": context["user_message"]})
+        elif trigger == "birth":
+            messages.append(
+                {"role": "user", "content": "You have just been born. Your creator is watching. Show them what you're made of."}
+            )
         elif trigger == "autonomous_tick":
             messages.append(
                 {"role": "user", "content": "It's time for your autonomous tick. What would you like to do?"}
@@ -261,14 +302,26 @@ class PetBrain:
 
         # Call OpenAI with tool use loop
         try:
-            max_iterations = 5  # Prevent infinite tool-calling loops
+            max_iterations = 10 if trigger == "birth" else 5
             for _ in range(max_iterations):
+                model = "gpt-5.4-mini"
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o",
+                    model=model,
                     messages=messages,
                     tools=TOOL_SCHEMAS,
                     tool_choice="auto",
                 )
+
+                # Deduct actual token cost
+                usage = response.usage
+                if usage:
+                    ok, cost = await deduct_llm_cost(
+                        self.pet_id, model, usage.prompt_tokens, usage.completion_tokens
+                    )
+                    if not ok:
+                        result.error = "Insufficient food for LLM call."
+                        break
+                    result.food_consumed += cost
 
                 choice = response.choices[0]
                 message = choice.message

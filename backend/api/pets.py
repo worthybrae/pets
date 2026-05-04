@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from uuid import UUID, uuid4
@@ -15,6 +18,8 @@ from backend.services.food import check_food, initialize_food, deduct_food
 from backend.services.lock import PetLock
 from backend.services.scheduler import PetScheduler
 from backend.services.agenda import get_current_agenda, generate_daily_agenda
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -53,6 +58,7 @@ class CreatePetRequest(BaseModel):
     owner_id: str
     stats: dict | None = None
     rarity: str | None = None
+    egg_color: str | None = None
 
 
 @router.get("/pets/by-owner/{owner_id}")
@@ -64,16 +70,60 @@ async def get_pet_by_owner(owner_id: str):
     return {}
 
 
+async def _run_birth_burst(pet_id: str, pet: Pet) -> None:
+    """Background task: the creature's first burst of activity after being born."""
+    try:
+        food = await check_food(pet_id)
+        pet_state = {
+            "name": pet.name,
+            "seed_curiosity": pet.seed_curiosity,
+            "created_at": pet.created_at.isoformat(),
+            "food_balance": food,
+            "position": {"x": 0, "y": 0, "z": 0},
+            "memories": [],
+            "digested_notes": [],
+            "agenda": [],
+            "soul": getattr(pet, "soul", ""),
+            "stats": getattr(pet, "stats", {}),
+        }
+
+        brain = PetBrain(pet_id, pet_state)
+        result = await brain.think(trigger="birth", context={})
+
+        # Update food balance on the pet object
+        remaining = await check_food(pet_id)
+        pet.food_balance = remaining
+
+        logger.info(
+            f"Birth burst for {pet.name} ({pet_id}): "
+            f"{len(result.actions)} actions, ${result.food_consumed:.6f} consumed, "
+            f"${remaining:.6f} remaining"
+        )
+
+        # Now generate the agenda for the rest of the day and schedule
+        agenda_state = {
+            "name": pet.name,
+            "seed_curiosity": pet.seed_curiosity,
+            "memories": [],
+        }
+        await generate_daily_agenda(pet_id, agenda_state)
+        await _scheduler.schedule_pet(pet_id, remaining)
+
+    except Exception as e:
+        logger.error(f"Birth burst failed for pet {pet_id}: {e}")
+
+
 @router.post("/pets", response_model=Pet)
 async def create_pet(request: CreatePetRequest):
     """Create a new pet with rolled stats, rarity, and species."""
-    # Truncate initial_curiosity to 250 chars
-    new_pet = await create_pet_service(request.owner_id, request.stats, request.rarity)
+    new_pet = await create_pet_service(request.owner_id, request.stats, request.rarity, request.egg_color)
     _pets[str(new_pet.id)] = new_pet
 
-    # Schedule the new pet for its first autonomous tick
     pet_id_str = str(new_pet.id)
-    await _scheduler.schedule_pet(pet_id_str, new_pet.food_balance)
+
+    # Fire the birth burst in the background — the user sees activity
+    # via WebSocket as soon as they land on the World page
+    asyncio.create_task(_run_birth_burst(pet_id_str, new_pet))
 
     return new_pet
 
@@ -273,8 +323,8 @@ async def get_agenda(pet_id: UUID):
         date=date.today(),
         plan={"tasks": agenda.get("tasks", [])},
         current_task=None,
-        food_allocated=agenda.get("food_allocated", 0.0),
-        food_spent=agenda.get("food_spent", 0.0),
+        food_allocated=agenda.get("food_at_generation", 0.0),
+        food_spent=agenda.get("food_at_generation", 0.0) - agenda.get("food_at_last_check", 0.0),
     )
 
 

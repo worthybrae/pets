@@ -36,7 +36,7 @@ export interface PetData {
 }
 
 export interface HatchProps {
-  onHatch: (stats: Record<string, number>, rarity: string) => Promise<any>
+  onHatch: (stats: Record<string, number>, rarity: string, eggColor?: string) => Promise<any>
   onComplete: (petData: any) => void
   session: any
 }

@@ -25,27 +25,27 @@ class EmbeddingService:
             self._client = AsyncOpenAI(api_key=api_key)
         return self._client
 
-    async def embed(self, text: str) -> list[float]:
-        """Generate embedding for a single text."""
+    async def embed(self, text: str) -> tuple[list[float], int]:
+        """Generate embedding for a single text. Returns (embedding, total_tokens)."""
         if not text.strip():
-            # Return zero vector for empty text
-            return [0.0] * 1536
+            return [0.0] * 1536, 0
 
         response = await self.client.embeddings.create(
             model=self.model,
             input=text,
         )
-        return response.data[0].embedding
+        total_tokens = response.usage.total_tokens if response.usage else 0
+        return response.data[0].embedding, total_tokens
 
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for multiple texts."""
+    async def embed_batch(self, texts: list[str]) -> tuple[list[list[float]], int]:
+        """Generate embeddings for multiple texts. Returns (embeddings, total_tokens)."""
         if not texts:
-            return []
+            return [], 0
 
         # Filter out empty strings, but keep track of indices
         non_empty = [(i, t) for i, t in enumerate(texts) if t.strip()]
         if not non_empty:
-            return [[0.0] * 1536 for _ in texts]
+            return [[0.0] * 1536 for _ in texts], 0
 
         # Call API with non-empty texts
         response = await self.client.embeddings.create(
@@ -53,13 +53,15 @@ class EmbeddingService:
             input=[t for _, t in non_empty],
         )
 
+        total_tokens = response.usage.total_tokens if response.usage else 0
+
         # Map results back to original indices
         results: list[list[float]] = [[0.0] * 1536 for _ in texts]
         for idx, embedding_obj in enumerate(response.data):
             original_idx = non_empty[idx][0]
             results[original_idx] = embedding_obj.embedding
 
-        return results
+        return results, total_tokens
 
 
 # Singleton instance

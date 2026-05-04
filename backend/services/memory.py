@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 
 from backend.services.db import get_supabase, insert_row, query_rows, upsert_row, rpc
 from backend.services.embeddings import get_embedding_service
+from backend.services.food import deduct_llm_cost
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +23,25 @@ class MemoryService:
         self.pet_id = pet_id
         self._embedding_service = get_embedding_service()
 
+    async def _embed_and_bill(self, text: str) -> list[float] | None:
+        """Generate embedding and deduct the cost from pet's food."""
+        try:
+            embedding, tokens = await self._embedding_service.embed(text)
+            if tokens > 0:
+                await deduct_llm_cost(
+                    self.pet_id, "text-embedding-3-small", tokens, 0
+                )
+            return embedding
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for pet {self.pet_id}: {e}")
+            return None
+
     # --- Tier 1: Raw Events ---
 
     async def log_event(self, event_type: str, content: str) -> str:
         """Log a raw event with auto-generated embedding. Returns event ID."""
         event_id = str(uuid4())
-
-        # Generate embedding
-        try:
-            embedding = await self._embedding_service.embed(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding for event: {e}")
-            embedding = None
+        embedding = await self._embed_and_bill(content)
 
         data: dict[str, Any] = {
             "id": event_id,
@@ -67,13 +75,7 @@ class MemoryService:
     async def create_digest(self, topic: str, content: str) -> str:
         """Create a digested note (summary of raw events). Returns note ID."""
         note_id = str(uuid4())
-
-        # Generate embedding from the content
-        try:
-            embedding = await self._embedding_service.embed(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding for digest: {e}")
-            embedding = None
+        embedding = await self._embed_and_bill(content)
 
         data: dict[str, Any] = {
             "id": note_id,
@@ -106,13 +108,7 @@ class MemoryService:
     async def write_knowledge(self, key: str, content: str) -> str:
         """Add or update a knowledge base entry. Returns entry ID."""
         entry_id = str(uuid4())
-
-        # Generate embedding
-        try:
-            embedding = await self._embedding_service.embed(f"{key}: {content}")
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding for knowledge: {e}")
-            embedding = None
+        embedding = await self._embed_and_bill(f"{key}: {content}")
 
         data: dict[str, Any] = {
             "id": entry_id,
@@ -167,11 +163,8 @@ class MemoryService:
         tier: "all", "raw", "digested", "knowledge"
         Returns results ranked by cosine similarity.
         """
-        # Generate embedding for query
-        try:
-            query_embedding = await self._embedding_service.embed(query)
-        except Exception as e:
-            logger.error(f"Failed to embed search query: {e}")
+        query_embedding = await self._embed_and_bill(query)
+        if not query_embedding:
             return []
 
         results: list[dict[str, Any]] = []
@@ -236,12 +229,13 @@ class MemoryService:
             event_lines.append(f"[{ev.get('event_type', '')}] {ev.get('content', '')}")
         events_text = "\n".join(event_lines)
 
-        # Use OpenAI to summarize
+        # Use LLM to summarize — track cost
         try:
             api_key = os.environ.get("OPENAI_API_KEY")
             openai_client = AsyncOpenAI(api_key=api_key)
+            model = "gpt-5.4-mini"
             completion = await openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model,
                 messages=[
                     {
                         "role": "system",
@@ -256,11 +250,19 @@ class MemoryService:
                 ],
                 max_tokens=500,
             )
+
+            # Deduct LLM cost
+            usage = completion.usage
+            if usage:
+                await deduct_llm_cost(
+                    self.pet_id, model, usage.prompt_tokens, usage.completion_tokens
+                )
+
             digest_content = completion.choices[0].message.content or "Could not generate digest."
         except Exception as e:
             logger.error(f"Failed to generate digest summary: {e}")
             digest_content = f"Raw digest of {len(events)} events about '{topic}' (summarization failed)."
 
-        # Store as digested note
+        # Store as digested note (embed cost tracked inside create_digest)
         await self.create_digest(topic, digest_content)
         return digest_content

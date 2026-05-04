@@ -376,16 +376,15 @@ void main() {
   float centerFocus = smoothstep(0.0, 0.9, NdV);
   float fireShape = fireTurbulence * coreDepth * (0.3 + centerFocus * 0.7);
 
-  float pulse = uBeat;
-  float ember = 0.15 * fireShape;
-  float blaze = pulse * (2.0 + uGrowth * 0.5) * fireShape * centerFocus;
-  float fireIntensity = ember + blaze;
+  // Subtle ambient ember from fire noise (always present, no beat)
+  float ember = 0.1 * fireShape;
+  vec3 fireColor = uCoreColor * 1.2 * ember;
 
-  // Beat pulses shift to deep blood-red, like a heart pumping
-  vec3 heartRed = vec3(0.9, 0.08, 0.05);
-  vec3 baseFireColor = uCoreColor + vec3(0.15, 0.05, -0.03) * fireTurbulence * 0.3;
-  vec3 hotColor = mix(baseFireColor, heartRed, pulse * 0.7);
-  vec3 fireColor = hotColor * fireIntensity;
+  // Beat pulse — warm red core glow
+  float pulse = uBeat;
+  float pulseGlow = pow(NdV, 1.5) * pulse;
+  vec3 warmRed = vec3(0.7, 0.1, 0.05);
+  vec3 pulseColor = warmRed * pulseGlow;
 
   // ── Core glow — deep inner light ──
   float glow = pow(NdV, 2.0);
@@ -438,6 +437,7 @@ void main() {
   color += mist;
   color += core * glow * coreIntensity;
   color += fireColor;
+  color += pulseColor;
   color += specular;
   color += envRefl;
   color += iridescence;
@@ -499,12 +499,15 @@ void main() {
 `
 
 export const SHADOW_FRAG = /* glsl */ `
+uniform vec3 uColor;
 varying vec2 vUv;
 void main() {
   float d = length(vUv - 0.5) * 2.0;
-  float alpha = 0.4 * (1.0 - smoothstep(0.2, 1.0, d));
-  alpha *= alpha; // softer falloff
-  vec3 shadowColor = mix(vec3(0.03, 0.015, 0.025), vec3(0.0), d * 0.6);
+  float alpha = 0.35 * (1.0 - smoothstep(0.15, 1.0, d));
+  alpha *= alpha;
+  // Blend dark shadow with saturated egg color
+  vec3 tinted = uColor * 0.6;
+  vec3 shadowColor = mix(vec3(0.05), tinted, 0.7 - d * 0.3);
   gl_FragColor = vec4(shadowColor, alpha);
 }
 `

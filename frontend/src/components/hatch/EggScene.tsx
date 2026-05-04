@@ -23,6 +23,18 @@ const SIZE_SCALE_MAP: Record<string, number> = {
   Tiny: 0.6, Small: 0.8, Standard: 1.0, Large: 1.2, Massive: 1.4, Colossal: 1.7,
 }
 
+// Width scale per shape type (matches widthScale in eggShaders vertex shader)
+const SHAPE_WIDTH: Record<number, number> = {
+  0: 1.05,  // Round
+  1: 0.95,  // Oval
+  2: 1.15,  // Squat
+  3: 0.82,  // Elongated
+  4: 1.0,   // Teardrop
+  5: 1.12,  // Bulbous
+  6: 0.98,  // Gourd
+  7: 0.72,  // Spire
+}
+
 function getEggUniforms(egg: EggProfile) {
   const colorAttr = egg.attributes.find(a => a.category === 'color')
   const colors = COLOR_MAP[colorAttr?.option.name || 'Stone'] || COLOR_MAP.Stone
@@ -30,11 +42,13 @@ function getEggUniforms(egg: EggProfile) {
   const scaleAttr = egg.attributes.find(a => a.category === 'scales')
   const sizeAttr = egg.attributes.find(a => a.category === 'size')
   const mistAttr = egg.attributes.find(a => a.category === 'mist')
+  const shapeType = shapeAttr?.option.value ?? 0
 
   return {
-    shapeType: shapeAttr?.option.value ?? 0,
+    shapeType,
     scaleType: scaleAttr?.option.value ?? 0,
     sizeScale: SIZE_SCALE_MAP[sizeAttr?.option.name || 'Standard'] || 1.0,
+    widthScale: SHAPE_WIDTH[shapeType] ?? 1.0,
     mistIntensity: mistAttr?.option.value ?? 0,
     baseColor: colors.base,
     coreColor: colors.core,
@@ -67,7 +81,7 @@ function GlowHalo({ phase, glowColor, mistIntensity, eggScaleRef }: { phase: Pha
     // Mist shows as soon as egg has grown in
     let targetGrowth = eggScaleRef.current * 0.5
     if (phase === 'hatching' || phase === 'stats') targetGrowth = 1.0
-    if (phase === 'generating') targetGrowth = 2.0
+    if (phase === 'generating') targetGrowth = 1.3
     mat.uniforms.uGrowth.value += (targetGrowth - mat.uniforms.uGrowth.value) * 0.03
     // Fade in mist intensity with egg intro
     mat.uniforms.uMistIntensity.value = mistIntensity * eggScaleRef.current
@@ -78,34 +92,37 @@ function GlowHalo({ phase, glowColor, mistIntensity, eggScaleRef }: { phase: Pha
 
   return (
     <mesh position={[0, 0, -0.5]} material={mat}>
-      <planeGeometry args={[6, 6]} />
+      <planeGeometry args={[10, 10]} />
     </mesh>
   )
 }
 
 // ── Egg Mesh ──
 
-const INTRO_DURATION = 5.0 // seconds for black sphere → full egg
 const MAX_EGG_SCALE = 0.3 // tuned for detail visibility
 
-function EggMesh({ phase, egg, mouseRef, onIntroComplete, eggScaleRef, seed }: {
+function EggMesh({ phase, egg, mouseRef, onIntroComplete, eggScaleRef, seed, onHover }: {
   phase: Phase
   egg: EggProfile
   mouseRef: React.MutableRefObject<{ x: number; y: number }>
   onIntroComplete: () => void
   eggScaleRef: React.MutableRefObject<number>
   seed: number
+  onHover?: (hovered: boolean) => void
 }) {
   const groupRef = useRef<THREE.Group>(null)
+  const meshRef = useRef<THREE.Mesh>(null)
   const dissolveRef = useRef(0)
   const timeRef = useRef(0)
   const growthRef = useRef(0)
-  const introRef = useRef(0) // 0→1 over INTRO_DURATION
-  const introCompleteRef = useRef(false)
-  const nextBeatRef = useRef(0) // time of next random beat
-  const beatDecayRef = useRef(0) // current beat decay value
+  const shakeRef = useRef(0) // shake intensity ramps up during generating
+  const nextBeatRef = useRef(1.5 + Math.random() * 2.0)
+  const beatDecayRef = useRef(0)
+  const visualRadiusRef = useRef(0.08)
 
   const uniforms = useMemo(() => getEggUniforms(egg), [egg])
+
+  const finalSize = uniforms.sizeScale * MAX_EGG_SCALE
 
   const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
@@ -116,12 +133,12 @@ function EggMesh({ phase, egg, mouseRef, onIntroComplete, eggScaleRef, seed }: {
       uSeed: { value: seed },
       uShapeType: { value: uniforms.shapeType },
       uScaleType: { value: uniforms.scaleType },
-      uSizeScale: { value: 0.08 },
-      uMorph: { value: 0 },
-      uMistIntensity: { value: 0 },
-      uBaseColor: { value: new THREE.Vector3(0.02, 0.02, 0.03) },
-      uCoreColor: { value: new THREE.Vector3(0.05, 0.05, 0.08) },
-      uSpecColor: { value: new THREE.Vector3(0.1, 0.1, 0.1) },
+      uSizeScale: { value: finalSize },
+      uMorph: { value: 1 },
+      uMistIntensity: { value: uniforms.mistIntensity },
+      uBaseColor: { value: new THREE.Vector3(...uniforms.baseColor) },
+      uCoreColor: { value: new THREE.Vector3(...uniforms.coreColor) },
+      uSpecColor: { value: new THREE.Vector3(...uniforms.specColor) },
     },
     vertexShader: EGG_VERT,
     fragmentShader: EGG_FRAG,
@@ -129,109 +146,79 @@ function EggMesh({ phase, egg, mouseRef, onIntroComplete, eggScaleRef, seed }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [uniforms.shapeType, uniforms.scaleType, seed])
 
+  // Egg exists immediately — no intro animation
+  useEffect(() => {
+    eggScaleRef.current = 1
+    onIntroComplete()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Override raycast to match visual egg size (shader scales geometry down)
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    const _sphere = new THREE.Sphere(new THREE.Vector3(), 1)
+    const _target = new THREE.Vector3()
+    mesh.raycast = (raycaster: THREE.Raycaster, intersects: THREE.Intersection[]) => {
+      mesh.getWorldPosition(_sphere.center)
+      _sphere.radius = visualRadiusRef.current
+      if (raycaster.ray.intersectSphere(_sphere, _target)) {
+        const dist = raycaster.ray.origin.distanceTo(_target)
+        if (dist >= raycaster.near && dist <= raycaster.far) {
+          intersects.push({ distance: dist, point: _target.clone(), object: mesh } as THREE.Intersection)
+        }
+      }
+    }
+  }, [])
+
   useFrame((_, dt) => {
     timeRef.current += dt
     const t = timeRef.current
     mat.uniforms.uTime.value = t
 
-    // ── Intro animation: black sphere → colored egg ──
-    if (introRef.current < 1) {
-      introRef.current = Math.min(1, introRef.current + dt / INTRO_DURATION)
-      const p = introRef.current
-      // Spurt easing: grows in distinct bursts with brief pauses
-      const burstCount = 5
-      const raw = p * burstCount
-      const burst = Math.floor(Math.min(raw, burstCount - 0.001))
-      const within = raw - burst
-      // Each burst: active growth then a brief pause
-      const burstEase = within < 0.6
-        ? 0.5 * (1 - Math.cos(Math.PI * within / 0.6))
-        : 1.0
-      const ease = Math.min(1, (burst + burstEase) / burstCount)
-
-      // Pulse the core on each growth burst
-      if (within < 0.3) {
-        mat.uniforms.uBeat.value = Math.pow(1 - within / 0.3, 3)
-      } else {
-        mat.uniforms.uBeat.value = 0
-      }
-
-      // Schedule first random beat after intro completes
-      if (burst === burstCount - 1) {
-        nextBeatRef.current = t + 1.5 + Math.random() * 2.0
-      }
-
-      // Write current progress to shared ref for shadow sync
-      eggScaleRef.current = ease
-
-      // Lerp size from tiny to final
-      const finalSize = uniforms.sizeScale * MAX_EGG_SCALE
-      const currentSize = 0.08 + (finalSize - 0.08) * ease
-      mat.uniforms.uSizeScale.value = currentSize
-      // Morph from sphere to egg shape smoothly
-      mat.uniforms.uMorph.value = ease
-
-      // Lerp colors from black to actual
-      const base = mat.uniforms.uBaseColor.value as THREE.Vector3
-      base.set(
-        0.02 + (uniforms.baseColor[0] - 0.02) * ease,
-        0.02 + (uniforms.baseColor[1] - 0.02) * ease,
-        0.03 + (uniforms.baseColor[2] - 0.03) * ease
-      )
-      const core = mat.uniforms.uCoreColor.value as THREE.Vector3
-      core.set(
-        0.05 + (uniforms.coreColor[0] - 0.05) * ease,
-        0.05 + (uniforms.coreColor[1] - 0.05) * ease,
-        0.08 + (uniforms.coreColor[2] - 0.08) * ease
-      )
-      const spec = mat.uniforms.uSpecColor.value as THREE.Vector3
-      spec.set(
-        0.1 + (uniforms.specColor[0] - 0.1) * ease,
-        0.1 + (uniforms.specColor[1] - 0.1) * ease,
-        0.1 + (uniforms.specColor[2] - 0.1) * ease
-      )
-
-      // Mist fades in last
-      const mistP = Math.max(0, (p - 0.7) / 0.3)
-      mat.uniforms.uMistIntensity.value = uniforms.mistIntensity * mistP
-
-      // Fire callback when done
-      if (p >= 1 && !introCompleteRef.current) {
-        introCompleteRef.current = true
-        onIntroComplete()
-      }
-    }
-
-    // ── Phase-based growth (post-intro) ──
+    // ── Phase-based growth ──
     let targetGrowth = 0
     if (phase === 'idle') targetGrowth = 0
     if (phase === 'hatching' || phase === 'stats') targetGrowth = 1.0
-    if (phase === 'generating') targetGrowth = 2.0
+    if (phase === 'generating') targetGrowth = 1.2
     growthRef.current += (targetGrowth - growthRef.current) * 0.03
     mat.uniforms.uGrowth.value = growthRef.current
+    visualRadiusRef.current = finalSize * (0.8 + growthRef.current * 0.6)
 
     if (phase === 'reveal') {
-      dissolveRef.current = Math.min(1, dissolveRef.current + dt * 0.5)
+      dissolveRef.current = Math.min(1, dissolveRef.current + dt * 0.8)
     }
     mat.uniforms.uDissolve.value = dissolveRef.current
 
-    // ── Random beats (post-intro) ──
-    if (introRef.current >= 1) {
-      beatDecayRef.current = Math.max(0, beatDecayRef.current - dt * 4.0)
-      if (t >= nextBeatRef.current) {
-        beatDecayRef.current = 1.0
-        // Schedule next beat at random interval (1.5–4.5s)
-        nextBeatRef.current = t + 1.5 + Math.random() * 3.0
-      }
-      mat.uniforms.uBeat.value = Math.pow(beatDecayRef.current, 3)
+    // ── Shake during generating — builds gradually ──
+    if (phase === 'generating') {
+      shakeRef.current = Math.min(1, shakeRef.current + dt * 0.03)
+    } else if (phase === 'reveal') {
+      shakeRef.current = Math.max(0, shakeRef.current - dt * 3)
+    } else {
+      shakeRef.current = 0
     }
 
-    const scale = 1.0
+    // ── Gentle core glow — slow smooth pulse ──
+    // Beat faster during generating (egg is agitated)
+    const beatSpeed = phase === 'generating' ? 1.5 : 0.8
+    const beatInterval = phase === 'generating' ? 0.8 + Math.random() * 0.5 : 3.0 + Math.random() * 3.0
+    beatDecayRef.current = Math.max(0, beatDecayRef.current - dt * beatSpeed)
+    if (t >= nextBeatRef.current) {
+      beatDecayRef.current = 1.0
+      nextBeatRef.current = t + beatInterval
+    }
+    const b = beatDecayRef.current
+    const beatStrength = phase === 'generating' ? 0.9 : 0.6
+    mat.uniforms.uBeat.value = Math.sin(b * Math.PI) * beatStrength
 
     if (groupRef.current) {
-      groupRef.current.scale.setScalar(scale)
+      const shake = shakeRef.current
+      const shakeX = shake * Math.sin(t * 35) * 0.02
+      const shakeZ = shake * Math.cos(t * 28) * 0.015
       groupRef.current.rotation.y += dt * 0.15 + mouseRef.current.x * 0.01
-      groupRef.current.rotation.x = mouseRef.current.y * 0.1
+      groupRef.current.rotation.x = mouseRef.current.y * 0.1 + shakeX
+      groupRef.current.position.x = shakeZ
     }
   })
 
@@ -239,7 +226,7 @@ function EggMesh({ phase, egg, mouseRef, onIntroComplete, eggScaleRef, seed }: {
 
   return (
     <group ref={groupRef}>
-      <mesh material={mat}>
+      <mesh ref={meshRef} material={mat} onPointerOver={() => onHover?.(true)} onPointerOut={() => onHover?.(false)}>
         <sphereGeometry args={[1, 64, 64]} />
       </mesh>
     </group>
@@ -248,21 +235,29 @@ function EggMesh({ phase, egg, mouseRef, onIntroComplete, eggScaleRef, seed }: {
 
 // ── Ground Shadow ──
 
-function GroundShadow({ phase, eggScaleRef }: { phase: Phase; eggScaleRef: React.MutableRefObject<number> }) {
+function GroundShadow({ phase, eggScaleRef, color }: { phase: Phase; eggScaleRef: React.MutableRefObject<number>; color: [number, number, number] }) {
   const meshRef = useRef<THREE.Mesh>(null)
+
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Vector3(...color) },
+    },
+    vertexShader: SHADOW_VERT,
+    fragmentShader: SHADOW_FRAG,
+    transparent: true,
+    depthWrite: false,
+  }), [color])
 
   const growthRef = useRef(0)
   useFrame((_, dt) => {
     if (!meshRef.current) return
 
-    // Track the growth uniform smoothly
     let targetGrowth = 0
     if (phase === 'hatching' || phase === 'stats') targetGrowth = 1.0
-    if (phase === 'generating') targetGrowth = 2.0
+    if (phase === 'generating') targetGrowth = 1.2
     growthRef.current += (targetGrowth - growthRef.current) * 0.03
 
-    // Shadow scales with intro progress AND post-intro growth
-    const growthScale = 0.8 + growthRef.current * 0.6 // matches shader: uSizeScale * (0.8 + uGrowth * 0.6)
+    const growthScale = 0.8 + growthRef.current * 0.6
     let scale = eggScaleRef.current * growthScale
     if (phase === 'reveal') scale *= Math.max(0, 1 - growthRef.current * 0.3)
 
@@ -270,107 +265,155 @@ function GroundShadow({ phase, eggScaleRef }: { phase: Phase; eggScaleRef: React
   })
 
   return (
-    <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.85, 0]} scale={0}>
+    <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.85, 0]} scale={0} material={mat}>
       <circleGeometry args={[1.0, 64]} />
-      <shaderMaterial
-        vertexShader={SHADOW_VERT}
-        fragmentShader={SHADOW_FRAG}
-        transparent
-        depthWrite={false}
-      />
     </mesh>
   )
 }
 
-// ── Mist Cloud — 3D volumetric fog ellipsoid ──
+// ── Mist — soft fog bed beneath egg ──
 
-function MistCloud({ mistIntensity, color, eggScaleRef, phase }: {
+const MIST_NOISE = /* glsl */ `
+vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.);
+  const vec4 D=vec4(0.,.5,1.,2.);
+  vec3 i=floor(v+dot(v,C.yyy));
+  vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);
+  vec3 l=1.-g;
+  vec3 i1=min(g.xyz,l.zxy);
+  vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;
+  vec3 x2=x0-i2+C.yyy;
+  vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(
+    i.z+vec4(0.,i1.z,i2.z,1.))
+    +i.y+vec4(0.,i1.y,i2.y,1.))
+    +i.x+vec4(0.,i1.x,i2.x,1.));
+  float n_=.142857142857;
+  vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);
+  vec4 y_=floor(j-7.*x_);
+  vec4 x=x_*ns.x+ns.yyyy;
+  vec4 y=y_*ns.x+ns.yyyy;
+  vec4 h=1.-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);
+  vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.+1.;
+  vec4 s1=floor(b1)*2.+1.;
+  vec4 sh=-step(h,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+  vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);
+  vec3 p1=vec3(a0.zw,h.y);
+  vec3 p2=vec3(a1.xy,h.z);
+  vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.);
+  m=m*m;
+  return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+`
+
+function MistCloud({ mistIntensity, color, eggScaleRef, phase, eggSize, widthScale }: {
   mistIntensity: number
   color: [number, number, number]
   eggScaleRef: React.MutableRefObject<number>
   phase: Phase
+  eggSize: number
+  widthScale: number
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
 
-  const material = useMemo(() => new THREE.ShaderMaterial({
+  const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Vector3(...color) },
       uOpacity: { value: 0 },
+      uRadius: { value: 0.5 },
+      uMistIntensity: { value: mistIntensity },
     },
     vertexShader: /* glsl */ `
-      varying vec3 vNormal;
-      varying vec3 vViewDir;
+      varying vec2 vUv;
       void main() {
-        vec4 worldPos = modelMatrix * vec4(position, 1.0);
-        vNormal = normalize(normalMatrix * normal);
-        vViewDir = normalize(cameraPosition - worldPos.xyz);
-        gl_Position = projectionMatrix * viewMatrix * worldPos;
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       uniform float uTime;
       uniform vec3 uColor;
       uniform float uOpacity;
-      varying vec3 vNormal;
-      varying vec3 vViewDir;
+      uniform float uRadius;
+      uniform float uMistIntensity;
+      varying vec2 vUv;
+
+      ${MIST_NOISE}
 
       void main() {
-        float facing = abs(dot(normalize(vNormal), normalize(vViewDir)));
-        // pow 0.8 → visible from shallow camera angle, soft fade at edges
-        float thickness = pow(facing, 0.8);
-        // Kill the hard mesh boundary
-        float edgeFade = smoothstep(0.0, 0.15, facing);
-        thickness *= edgeFade;
+        vec2 center = vUv - 0.5;
+        float d = length(center) * 2.0;
 
-        float breathe = 1.0 + sin(uTime * 0.7) * 0.05 + sin(uTime * 0.4) * 0.03;
+        // Soft radial falloff
+        float radial = 1.0 - smoothstep(0.2, 0.9, d);
+        radial *= radial;
 
-        float alpha = thickness * uOpacity * breathe;
+        // Layered animated noise — slow drift
+        vec3 noisePos = vec3(center * 4.0, uTime * 0.1);
+        float n1 = snoise(noisePos) * 0.5 + 0.5;
+        float n2 = snoise(noisePos * 2.0 + vec3(100.0)) * 0.5 + 0.5;
+        float fog = n1 * 0.6 + n2 * 0.4;
 
-        // Tinted enough to distinguish from gray background
-        vec3 col = uColor * 0.5 + vec3(0.4);
+        // Gentle shaping — avoid hard bright/dark contrast
+        fog = smoothstep(0.3, 0.65, fog) * 0.6 + 0.2;
+        float alpha = radial * fog * uOpacity;
 
-        if (alpha < 0.003) discard;
-        gl_FragColor = vec4(col, alpha);
+        // Rarer mist is slightly denser
+        alpha *= 0.25 + uMistIntensity * 0.08;
+
+        if (alpha < 0.005) discard;
+        // Darken the color slightly so it reads as shadow+mist, not a bright glow
+        vec3 mistColor = uColor * 0.5;
+        gl_FragColor = vec4(mistColor, alpha);
       }
     `,
     transparent: true,
     depthWrite: false,
-    side: THREE.BackSide,
-  }), [color])
+    side: THREE.DoubleSide,
+  }), [color, mistIntensity])
 
   const growthRef = useRef(0)
   useFrame((_, dt) => {
-    if (!material || !meshRef.current) return
-    material.uniforms.uTime.value += dt
+    if (!mat || !meshRef.current) return
+    mat.uniforms.uTime.value += dt
 
     let targetGrowth = 0
     if (phase === 'hatching' || phase === 'stats') targetGrowth = 1.0
-    if (phase === 'generating') targetGrowth = 2.0
+    if (phase === 'generating') targetGrowth = 1.2
     growthRef.current += (targetGrowth - growthRef.current) * 0.03
 
-    const growthScale = 0.8 + growthRef.current * 0.6
-    const eggScale = eggScaleRef.current * growthScale
-
-    // Pillow shape: ~2x egg width, visible depth
-    const w = eggScale * 1.0
-    const h = eggScale * 0.2
-    meshRef.current.scale.set(w, h, w)
-
-    // Opacity
-    const opTarget = phase === 'reveal' ? 0 : 0.4 + mistIntensity * 0.12
     const eggFade = Math.min(1, eggScaleRef.current * 2)
-    const cur = material.uniforms.uOpacity.value
-    material.uniforms.uOpacity.value += (opTarget * eggFade - cur) * dt * 1.5
 
-    // Sit at egg base
-    meshRef.current.position.y = -eggScale * 0.2
+    // Mist grows only slightly with phase, not as aggressively as the egg
+    const mistGrowth = 1.0 + growthRef.current * 0.15
+    const radius = eggSize * widthScale * (1.2 + mistIntensity * 0.3) * mistGrowth
+    meshRef.current.scale.set(radius, radius, 1)
+
+    const opTarget = phase === 'reveal' ? 0 : 1.0
+    const cur = mat.uniforms.uOpacity.value
+    mat.uniforms.uOpacity.value += (opTarget * eggFade - cur) * dt * 1.5
   })
 
   return (
-    <mesh ref={meshRef} position={[0, 0, 0]}>
-      <sphereGeometry args={[1, 32, 16]} />
-      <primitive object={material} attach="material" />
+    <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.85, 0]} material={mat}>
+      <planeGeometry args={[1, 1]} />
     </mesh>
   )
 }
@@ -394,7 +437,7 @@ function SceneCamera({ phase }: { phase: Phase }) {
     } else if (phase === 'generating') {
       const cx = Math.sin(t * 0.1) * 0.4
       const cy = 0.3 + Math.sin(t * 0.08) * 0.3
-      camera.position.lerp(new THREE.Vector3(cx, cy, 3.5), 0.02)
+      camera.position.lerp(new THREE.Vector3(cx, cy, 4.5), 0.02)
       camera.lookAt(0, 0, 0)
     } else if (phase === 'reveal') {
       camera.position.lerp(new THREE.Vector3(0, 3, 11), 0.03)
@@ -407,12 +450,13 @@ function SceneCamera({ phase }: { phase: Phase }) {
 
 // ── Main Scene (exported) ──
 
-export default function EggScene({ phase, egg, revealProgress, voxels, onIntroComplete }: {
+export default function EggScene({ phase, egg, revealProgress, voxels, onIntroComplete, onHover }: {
   phase: Phase
   egg: EggProfile
   revealProgress: number
   voxels: { x: number; y: number; z: number; r: number; g: number; b: number }[]
   onIntroComplete?: () => void
+  onHover?: (hovered: boolean) => void
 }) {
   const mouseRef = useRef({ x: 0, y: 0 })
   const eggScaleRef = useRef(0) // shared: intro progress (0→1)
@@ -440,14 +484,15 @@ export default function EggScene({ phase, egg, revealProgress, voxels, onIntroCo
 
       <SceneCamera phase={phase} />
       <GlowHalo phase={phase} glowColor={uniforms.coreColor} mistIntensity={uniforms.mistIntensity} eggScaleRef={eggScaleRef} />
-      <EggMesh phase={phase} egg={egg} mouseRef={mouseRef} onIntroComplete={onIntroComplete || (() => {})} eggScaleRef={eggScaleRef} seed={seed} />
-      <GroundShadow phase={phase} eggScaleRef={eggScaleRef} />
-      {uniforms.mistIntensity > 0 && (
-        <MistCloud mistIntensity={uniforms.mistIntensity} color={uniforms.coreColor} eggScaleRef={eggScaleRef} phase={phase} />
+      <EggMesh phase={phase} egg={egg} mouseRef={mouseRef} onIntroComplete={onIntroComplete || (() => {})} eggScaleRef={eggScaleRef} seed={seed} onHover={onHover} />
+      {uniforms.mistIntensity > 0 ? (
+        <MistCloud mistIntensity={uniforms.mistIntensity} color={uniforms.coreColor} eggScaleRef={eggScaleRef} phase={phase} eggSize={uniforms.sizeScale * MAX_EGG_SCALE} widthScale={uniforms.widthScale} />
+      ) : (
+        <GroundShadow phase={phase} eggScaleRef={eggScaleRef} color={uniforms.coreColor} />
       )}
 
       {phase === 'reveal' && voxels.length > 0 && (
-        <PetReveal voxels={voxels} progress={revealProgress} />
+        <PetReveal voxels={voxels} progress={revealProgress} fallbackColor={uniforms.coreColor} />
       )}
     </Canvas>
   )

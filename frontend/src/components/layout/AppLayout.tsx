@@ -4,8 +4,10 @@ import FloatingActions from '../ui/FloatingActions'
 import ChatPanel from '../ui/ChatPanel'
 import type { ChatMessage } from '../ui/ChatPanel'
 import TimelinePanel from '../ui/TimelinePanel'
+import SchedulePanel from '../ui/SchedulePanel'
+import type { AgendaTask } from '../ui/SchedulePanel'
 
-type PanelState = 'none' | 'chat' | 'timeline'
+type PanelState = 'none' | 'chat' | 'timeline' | 'schedule'
 
 interface AppLayoutProps {
   petName: string
@@ -13,6 +15,8 @@ interface AppLayoutProps {
   onSendMessage: (text: string) => void
   onTimeChange: (timestamp: Date) => void
   currentTime: Date
+  scheduleTasks: AgendaTask[]
+  nextTaskTime: number | null
   children: ReactNode
 }
 
@@ -22,6 +26,8 @@ export default function AppLayout({
   onSendMessage,
   onTimeChange,
   currentTime,
+  scheduleTasks,
+  nextTaskTime,
   children,
 }: AppLayoutProps) {
   const [activePanel, setActivePanel] = useState<PanelState>('none')
@@ -32,6 +38,10 @@ export default function AppLayout({
 
   const handleToggleTimeline = useCallback(() => {
     setActivePanel((prev) => (prev === 'timeline' ? 'none' : 'timeline'))
+  }, [])
+
+  const handleToggleSchedule = useCallback(() => {
+    setActivePanel((prev) => (prev === 'schedule' ? 'none' : 'schedule'))
   }, [])
 
   return (
@@ -53,12 +63,19 @@ export default function AppLayout({
         currentTime={currentTime}
         isOpen={activePanel === 'timeline'}
       />
+      <SchedulePanel
+        tasks={scheduleTasks}
+        isOpen={activePanel === 'schedule'}
+        nextTaskTime={nextTaskTime}
+        petName={petName}
+      />
 
       {/* Floating action buttons */}
       <FloatingActions
         activePanel={activePanel}
         onToggleChat={handleToggleChat}
         onToggleTimeline={handleToggleTimeline}
+        onToggleSchedule={handleToggleSchedule}
       />
     </div>
   )
