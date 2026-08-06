@@ -8,6 +8,7 @@ from backend.services.pipeline.types import (
     CriticReview,
     ReviewIssue,
 )
+from backend.services.pipeline.runner import PipelineRunner, PipelineResult
 
 __all__ = [
     "CreativeBrief",
@@ -16,4 +17,6 @@ __all__ = [
     "BuildReport",
     "CriticReview",
     "ReviewIssue",
+    "PipelineRunner",
+    "PipelineResult",
 ]

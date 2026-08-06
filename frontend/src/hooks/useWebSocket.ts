@@ -35,6 +35,17 @@ export interface ArtifactData {
   position: Position
 }
 
+export interface PetThought {
+  thought: string
+  tool: string | null
+  timestamp: string
+}
+
+export interface PetBodyVoxel {
+  x: number; y: number; z: number
+  r: number; g: number; b: number; a?: number
+}
+
 export interface UseWebSocketOptions {
   petId: string | null
   onChatMessage?: (msg: ChatMessageWS) => void
@@ -43,6 +54,8 @@ export interface UseWebSocketOptions {
   onFoodUpdate?: (balance: number) => void
   onStatusChange?: (status: string) => void
   onArtifactPlaced?: (artifact: ArtifactData) => void
+  onPetThought?: (thought: PetThought) => void
+  onPetBodyUpdated?: (voxels: PetBodyVoxel[]) => void
   onConnected?: () => void
 }
 
@@ -81,6 +94,8 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     onFoodUpdate,
     onStatusChange,
     onArtifactPlaced,
+    onPetThought,
+    onPetBodyUpdated,
     onConnected,
   } = options
 
@@ -98,6 +113,8 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     onFoodUpdate,
     onStatusChange,
     onArtifactPlaced,
+    onPetThought,
+    onPetBodyUpdated,
     onConnected,
   })
 
@@ -109,6 +126,8 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       onFoodUpdate,
       onStatusChange,
       onArtifactPlaced,
+      onPetThought,
+      onPetBodyUpdated,
       onConnected,
     }
   })
@@ -127,6 +146,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return
       setIsConnected(true)
       reconnectDelayRef.current = INITIAL_RECONNECT_DELAY
     }
@@ -165,6 +185,16 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
           case 'artifact_placed':
             callbacks.onArtifactPlaced?.(data.artifact)
             break
+          case 'pet_thought':
+            callbacks.onPetThought?.({
+              thought: data.thought,
+              tool: data.tool ?? null,
+              timestamp: data.timestamp,
+            })
+            break
+          case 'pet_body_updated':
+            callbacks.onPetBodyUpdated?.(data.voxels)
+            break
           case 'pong':
             // Keepalive response, no action needed
             break
@@ -180,6 +210,9 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     }
 
     ws.onclose = () => {
+      // Ignore close events from superseded connections
+      if (wsRef.current !== ws) return
+
       setIsConnected(false)
       wsRef.current = null
 

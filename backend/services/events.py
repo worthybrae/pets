@@ -42,6 +42,14 @@ class EventBroadcaster:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
+    async def pet_body_updated(self, pet_id: str, voxels: list[dict]) -> None:
+        """Broadcast that the pet's body voxels changed (define_self)."""
+        await self.manager.broadcast(pet_id, {
+            "type": "pet_body_updated",
+            "voxels": voxels,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
     async def chat_message(self, pet_id: str, sender: str, message: str) -> None:
         """Broadcast a chat message to all watchers."""
         await self.manager.broadcast(pet_id, {
@@ -64,6 +72,15 @@ class EventBroadcaster:
         await self.manager.broadcast(pet_id, {
             "type": "food_update",
             "balance": balance,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    async def pet_thought(self, pet_id: str, thought: str, tool: str | None = None) -> None:
+        """Broadcast what the pet is currently thinking or doing."""
+        await self.manager.broadcast(pet_id, {
+            "type": "pet_thought",
+            "thought": thought,
+            "tool": tool,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 

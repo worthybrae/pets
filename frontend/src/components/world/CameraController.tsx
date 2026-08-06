@@ -11,7 +11,7 @@ interface CameraControllerProps {
 
 export default function CameraController({
   petPosition,
-  followDistance = 12,
+  followDistance = 25,
 }: CameraControllerProps) {
   const controlsRef = useRef<OrbitControlsType>(null)
   const { camera } = useThree()

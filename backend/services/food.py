@@ -29,17 +29,32 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
         "input": 0.02 / 1_000_000,   # $0.02 per 1M tokens
         "output": 0.0,               # embeddings have no output cost
     },
+    "o4-mini": {
+        "input": 1.10 / 1_000_000,   # $1.10 per 1M input tokens
+        "output": 4.40 / 1_000_000,  # $4.40 per 1M output tokens
+    },
+    "o4": {
+        "input": 10.00 / 1_000_000,  # $10.00 per 1M input tokens
+        "output": 40.00 / 1_000_000, # $40.00 per 1M output tokens
+    },
 }
 
 # Fixed costs for non-LLM game actions (in dollars)
 ACTION_COSTS: dict[str, Optional[float]] = {
     "place_voxels": 0.0,
+    "fill_region": 0.0,
+    "place_sphere": 0.0,
+    "place_cylinder": 0.0,
     "remove_voxels": 0.0,
     "set_animation": 0.0,
     "define_self": 0.0,
     "move_self": 0.0,
     "place_artifact": 0.0,
+    "scan_world": 0.0,
+    "search_web": 0.0,
+    "fetch_url": 0.0,
     "search_memories": 0.0,
+    "execute_code": 0.0,
     "write_knowledge": 0.0,
     "digest_memories": 0.0,
     "visit_pet": 0.0,

@@ -11,6 +11,8 @@ from backend.services.events import EventBroadcaster, set_broadcaster
 from backend.services.brain import PetBrain
 from backend.services.food import check_food, initialize_food
 from backend.services.lock import PetLock
+from backend.services.agenda import get_current_agenda
+from backend.services.mood_board import MoodBoardService
 
 logger = logging.getLogger(__name__)
 
@@ -172,17 +174,39 @@ async def _process_chat(pet_id: str, user_message: str) -> None:
             )
             return
 
-        # Build minimal pet state for the brain
-        pet_state = {
-            "name": "Pet",  # Will be populated from DB in production
-            "seed_curiosity": "the unknown",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "food_balance": food_balance,
-            "position": {"x": 0, "y": 0, "z": 0},
-            "memories": [],
-            "digested_notes": [],
-            "agenda": [],
-        }
+        # Build pet state for the brain from in-memory store
+        from backend.api.pets import _pets
+        pet = _pets.get(pet_id)
+        if pet:
+            agenda_data = await get_current_agenda(pet_id)
+            agenda_tasks = agenda_data.get("tasks", []) if agenda_data.get("status") != "no_agenda" else []
+            pet_state = {
+                "name": pet.name,
+                "seed_curiosity": pet.seed_curiosity,
+                "created_at": pet.created_at.isoformat(),
+                "food_balance": food_balance,
+                "position": {
+                    "x": pet.position_x,
+                    "y": pet.position_y,
+                    "z": pet.position_z,
+                },
+                "memories": [],
+                "digested_notes": [],
+                "agenda": agenda_tasks,
+                "soul": getattr(pet, "soul", ""),
+                "stats": getattr(pet, "stats", {}),
+            }
+        else:
+            pet_state = {
+                "name": "Pet",
+                "seed_curiosity": "the unknown",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "food_balance": food_balance,
+                "position": {"x": 0, "y": 0, "z": 0},
+                "memories": [],
+                "digested_notes": [],
+                "agenda": [],
+            }
 
         # Run the brain
         brain = PetBrain(pet_id, pet_state)
@@ -198,6 +222,13 @@ async def _process_chat(pet_id: str, user_message: str) -> None:
         # Broadcast food update
         remaining_food = await check_food(pet_id)
         await broadcaster.food_updated(pet_id, remaining_food)
+
+        # Extract themes from conversation for mood board (fire-and-forget)
+        try:
+            mood = MoodBoardService(pet_id)
+            await mood.process_conversation([user_message])
+        except Exception as e:
+            logger.warning(f"Theme extraction failed for {pet_id}: {e}")
 
         # If there was an error, let the user know
         if result.error:

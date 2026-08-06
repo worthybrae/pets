@@ -18,6 +18,8 @@ from backend.services.food import check_food, initialize_food, deduct_food
 from backend.services.lock import PetLock
 from backend.services.scheduler import PetScheduler
 from backend.services.agenda import get_current_agenda, generate_daily_agenda
+from backend.services.world import WorldService, load_pet_body, save_pet_body
+from backend.services.db import insert_row, query_rows
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +65,48 @@ class CreatePetRequest(BaseModel):
 
 @router.get("/pets/by-owner/{owner_id}")
 async def get_pet_by_owner(owner_id: str):
-    """Look up a pet by owner ID."""
+    """Look up a pet by owner ID. Checks in-memory first, falls back to DB."""
     for pet in _pets.values():
         if str(pet.owner_id) == owner_id:
             return pet
+
+    # Fallback: load from Supabase (survives server restarts)
+    try:
+        rows = await query_rows("pets", {"owner_id": owner_id}, limit=1)
+        if rows:
+            row = rows[0]
+            pet_id = row["id"]
+            # Load body voxels from pet_body table
+            body_data = await load_pet_body(pet_id)
+            voxels = []
+            if body_data and body_data.get("voxels"):
+                voxels = body_data["voxels"]
+
+            pet = Pet(
+                id=UUID(pet_id) if isinstance(pet_id, str) else pet_id,
+                owner_id=UUID(owner_id),
+                name=row.get("name", "Pet"),
+                seed_curiosity=row.get("seed_curiosity", ""),
+                food_balance=row.get("food_balance", 0.0),
+                status=row.get("status", "idle"),
+                position_x=row.get("position_x", 0.0),
+                position_y=row.get("position_y", 0.0),
+                position_z=row.get("position_z", 0.0),
+                created_at=row.get("created_at", datetime.utcnow()),
+                rarity=row.get("rarity", "common"),
+                stats=row.get("stats", {}),
+                backstory=row.get("backstory", ""),
+                initial_curiosity=row.get("initial_curiosity", ""),
+                voxels=voxels,
+                soul=row.get("soul", ""),
+                world_voxels=[],  # Loaded separately via /world endpoint
+            )
+            # Cache in memory for this session
+            _pets[str(pet.id)] = pet
+            return pet
+    except Exception as e:
+        logger.warning(f"DB fallback for owner {owner_id} failed: {e}")
+
     return {}
 
 
@@ -120,6 +160,43 @@ async def create_pet(request: CreatePetRequest):
     _pets[str(new_pet.id)] = new_pet
 
     pet_id_str = str(new_pet.id)
+
+    # Persist pet to Supabase (required for FK constraints on world_chunks, pet_body, etc.)
+    try:
+        await insert_row("pets", {
+            "id": pet_id_str,
+            "owner_id": str(new_pet.owner_id),
+            "name": new_pet.name,
+            "seed_curiosity": new_pet.seed_curiosity,
+            "food_balance": new_pet.food_balance,
+            "status": new_pet.status,
+            "position_x": new_pet.position_x,
+            "position_y": new_pet.position_y,
+            "position_z": new_pet.position_z,
+            "rarity": new_pet.rarity,
+            "stats": new_pet.stats,
+            "backstory": new_pet.backstory,
+            "initial_curiosity": new_pet.initial_curiosity,
+            "soul": new_pet.soul,
+        })
+    except Exception as e:
+        logger.error(f"Failed to persist pet {pet_id_str} to database: {e}")
+
+    # Persist creation voxels to Supabase so the creature can manipulate them later
+    try:
+        # Body voxels → pet_body table
+        if new_pet.voxels:
+            await save_pet_body(pet_id_str, new_pet.voxels)
+
+        # World voxels → world_chunks table (add alpha channel)
+        if new_pet.world_voxels:
+            world = WorldService(pet_id_str)
+            voxels_with_alpha = [
+                {**v, "a": v.get("a", 255)} for v in new_pet.world_voxels
+            ]
+            await world.place_voxels(voxels_with_alpha)
+    except Exception as e:
+        logger.warning(f"Failed to persist creation voxels for {pet_id_str}: {e}")
 
     # Fire the birth burst in the background — the user sees activity
     # via WebSocket as soon as they land on the World page
@@ -281,10 +358,40 @@ async def feed_pet(pet_id: UUID, request: FeedRequest):
     )
 
 
-@router.get("/pets/{pet_id}/world", response_model=list[WorldChunk])
+@router.get("/pets/{pet_id}/world")
 async def get_world(pet_id: UUID):
-    """Get world chunks for a pet."""
-    return []
+    """Get world chunks for a pet from the database."""
+    world = WorldService(str(pet_id))
+    chunks = await world.get_all_chunks()
+    return chunks
+
+
+class SeedWorldRequest(BaseModel):
+    chunks: list[dict]
+
+
+@router.post("/pets/{pet_id}/world/seed")
+async def seed_world(pet_id: UUID, request: SeedWorldRequest):
+    """
+    Seed the base world for a pet.
+    Idempotent — chunks that already exist (creation voxels, birth burst)
+    are skipped via the unique index on (pet_id, chunk_x, chunk_y, chunk_z).
+    """
+    world = WorldService(str(pet_id))
+    total = await world.seed_world(request.chunks)
+    return {"seeded": True, "voxels": total, "chunks": len(request.chunks)}
+
+
+@router.get("/pets/{pet_id}/body")
+async def get_pet_body(pet_id: UUID):
+    """Get persisted body data (voxels + position) for a pet."""
+    body_data = await load_pet_body(str(pet_id))
+    if body_data is None:
+        return {"voxels": None, "position": None}
+    return {
+        "voxels": body_data.get("voxels"),
+        "position": body_data.get("position"),
+    }
 
 
 @router.get("/pets/{pet_id}/memories", response_model=list[DigestedNote])

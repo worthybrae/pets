@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useWebSocket } from './useWebSocket'
-import type { ChatMessageWS, VoxelUpdate, Position, ArtifactData } from './useWebSocket'
+import type { ChatMessageWS, VoxelUpdate, Position, ArtifactData, PetThought, PetBodyVoxel } from './useWebSocket'
 import type { ChatMessage } from '../components/ui/ChatPanel'
 
 interface UseChatOptions {
@@ -11,6 +11,8 @@ interface UseChatOptions {
   onFoodUpdate?: (balance: number) => void
   onStatusChange?: (status: string) => void
   onArtifactPlaced?: (artifact: ArtifactData) => void
+  onPetThought?: (thought: PetThought) => void
+  onPetBodyUpdated?: (voxels: PetBodyVoxel[]) => void
 }
 
 interface UseChatReturn {
@@ -35,6 +37,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onFoodUpdate,
     onStatusChange,
     onArtifactPlaced,
+    onPetThought,
+    onPetBodyUpdated,
   } = options
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -63,6 +67,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     onFoodUpdate,
     onStatusChange,
     onArtifactPlaced,
+    onPetThought,
+    onPetBodyUpdated,
   })
 
   const sendMessage = useCallback(

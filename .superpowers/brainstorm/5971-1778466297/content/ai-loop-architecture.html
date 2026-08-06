@@ -1,0 +1,62 @@
+<h2>AI Loop Architecture: Multi-Model Pipeline</h2>
+<p class="subtitle">How should the pet's creative mind be structured?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>The Studio Model</h3>
+      <p>Specialized models for each role in a pipeline:</p>
+      <div style="margin: 12px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.8;">
+        <strong style="color: #f5a623;">① Dreamer</strong> (Claude) — "What should I build next?" Reads memories, conversations, current world state. Outputs a creative brief.<br>
+        <strong style="color: #4a9eff;">② Architect</strong> (Claude/o3) — Takes the brief → produces a detailed build plan with coordinates, materials, phases.<br>
+        <strong style="color: #7ed321;">③ Builder</strong> (GPT-4o/code model) — Executes the plan. Generates voxel code, places blocks, runs procedural generation.<br>
+        <strong style="color: #bd10e0;">④ Critic</strong> (Claude) — Reviews the build. "Does this match the brief? Is it beautiful? What should change?" Feeds back into the loop.
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Each model focuses on what it's best at</li><li>Critic creates the missing feedback loop</li><li>Creative output quality goes way up</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>More API calls = higher cost per tick</li><li>More complex orchestration</li><li>Latency between steps</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>The Director Model</h3>
+      <p>One smart model plans, cheap models execute:</p>
+      <div style="margin: 12px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.8;">
+        <strong style="color: #f5a623;">① Director</strong> (Claude Opus) — Maintains the world vision document. Decides what to build, why, and how. Writes detailed specs.<br>
+        <strong style="color: #7ed321;">② Crew</strong> (Haiku/GPT-4o-mini) — Executes specs mechanically. Place these voxels here. Run this code. No creative decisions.<br>
+        <strong style="color: #bd10e0;">③ Director reviews</strong> — Same smart model evaluates results, updates the vision, plans next session.
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Cheaper — expensive model only used for thinking</li><li>Simpler pipeline (2 roles not 4)</li><li>Strong coherence from single creative mind</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Less creative diversity</li><li>Director bottleneck — one model's taste defines everything</li><li>Review step might be shallow</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>The Ensemble Model</h3>
+      <p>Multiple models "brainstorm" together, best idea wins:</p>
+      <div style="margin: 12px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.8;">
+        <strong style="color: #f5a623;">① Pitch</strong> — 3 different models each propose what to build next (given same context). Three different creative visions.<br>
+        <strong style="color: #4a9eff;">② Judge</strong> (Claude) — Evaluates pitches against pet personality, world coherence, user interests. Picks the best one + synthesizes.<br>
+        <strong style="color: #7ed321;">③ Execute</strong> — Winning model builds its vision.<br>
+        <strong style="color: #bd10e0;">④ Reflect</strong> — Judge reviews the result, saves learnings.
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Maximum creative diversity</li><li>Natural selection for quality</li><li>Surprising, varied output</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>3x cost for ideation phase</li><li>Most complex to orchestrate</li><li>Risk of incoherent world if judge isn't strong enough</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid #f5a623;">
+  <h3 style="margin-top: 0;">The Missing Piece in All Three: World Memory</h3>
+  <p style="margin-bottom: 0; opacity: 0.8;">Regardless of which model architecture you pick, the pet needs a <strong>persistent world document</strong> — a living map of what it's built, where, and why. Think of it as the pet's "journal" that any model in the pipeline can read. Without this, no architecture can produce coherence.</p>
+</div>

@@ -3,7 +3,8 @@
     "pyright-lsp@claude-plugins-official": true
   },
   "permissions": {
-    "defaultMode": "bypassPermissions",
+    "defaultMode": "bypassPermissions"
   }
 }
+
 
