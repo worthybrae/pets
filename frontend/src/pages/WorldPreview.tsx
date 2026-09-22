@@ -3,15 +3,37 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import * as THREE from 'three'
+import type { BlockEdit } from '../types/world'
 import PetEntity from '../components/world/PetEntity'
 import WorldManager from '../components/world/WorldManager'
 import { previewPet } from '../components/world/previewWorld'
-import {
-  ensureTerrainAround, loadBuildProgress, makeProject, ORBITAL_STATION, placeVoxels,
-  saveBuildProgress, worldForProgress,
-} from '../components/world/expandingWorld'
+import { applyBlockEdits, ensureTerrainAround, ORBITAL_STATION } from '../components/world/expandingWorld'
+import { compileWorldPlan, worldForPlannerState, type WorldPlan } from '../components/world/worldPlanner'
 
-interface Point { x: number; z: number }
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+interface Point { x: number; y?: number; z: number }
+interface MimoEvent { id: number; at: number; kind: string; text: string }
+interface LiveMimoState {
+  name: string
+  position: Point
+  energy: number
+  mood: number
+  plans: WorldPlan[]
+  currentIndex: number
+  progress: number
+  status: string
+  last_thought: string
+  last_observation: string
+  last_action_at: number
+  last_error: string | null
+  worker_last_seen_at: number | null
+  fetched_at: number
+  block_edits: BlockEdit[]
+  catalog: Record<string, { color: number[] }>
+  inventory: Record<string, number>
+  recipes: Record<string, { ingredients: Record<string, number>; output: Record<string, number>; station?: string }>
+  events: MimoEvent[]
+}
 
 function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, follow, onOrbit, onChunkChange }: {
   focus: Point
@@ -50,129 +72,81 @@ function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, fol
   })
 
   return (
-    <OrbitControls
-      ref={controlsRef}
-      target={[initialFocus.x, initialFocusY, initialFocus.z]}
-      enableDamping
-      dampingFactor={0.08}
-      minDistance={11}
-      maxDistance={110}
-      maxPolarAngle={Math.PI / 2.04}
-      onStart={onOrbit}
-    />
+    <OrbitControls ref={controlsRef} target={[initialFocus.x, initialFocusY, initialFocus.z]}
+      enableDamping dampingFactor={0.08} minDistance={11} maxDistance={130}
+      maxPolarAngle={Math.PI / 2.04} onStart={onOrbit} />
   )
 }
 
-export default function WorldPreview() {
-  const [progress, setProgress] = useState(loadBuildProgress)
-  const [chunks, setChunks] = useState(() => worldForProgress(loadBuildProgress()))
-  const project = useMemo(() => makeProject(progress.projectIndex), [progress.projectIndex])
-  const [initialPosition] = useState<Point>(() => ({ x: project.site.x, z: project.site.z + project.standOff }))
-  const [initialCameraFocus] = useState<Point>(() => project.landmark ? project.site : initialPosition)
-  const [initialCameraY] = useState(() => project.landmark?.centerY ?? 1)
-  const pet = useMemo(() => ({
-    ...previewPet,
-    position: { ...previewPet.position, x: initialPosition.x, z: initialPosition.z },
-  }), [initialPosition])
-  const [focus, setFocus] = useState<Point>(initialPosition)
-  const [cameraChunk, setCameraChunk] = useState({ x: 0, z: 0 })
+function LiveWorld({ state, onHello, onAction, connectionError }: {
+  state: LiveMimoState
+  onHello: () => Promise<void>
+  onAction: (action: string, item: string) => Promise<string>
+  connectionError: string
+}) {
+  const [initialPosition] = useState<Point>(() => ({ ...state.position }))
+  const [cameraChunk, setCameraChunk] = useState(() => ({ x: Math.floor(state.position.x / 16), z: Math.floor(state.position.z / 16) }))
   const [following, setFollowing] = useState(true)
   const [viewingStation, setViewingStation] = useState(false)
-  const [arrived, setArrived] = useState(false)
   const [helloCount, setHelloCount] = useState(0)
-  const [greeted, setGreeted] = useState(false)
-  const lastFocusUpdate = useRef(0)
+  const [showSystems, setShowSystems] = useState(false)
+  const [interactionError, setInteractionError] = useState('')
+  const [systemMessage, setSystemMessage] = useState('')
+  const plan = state.plans[state.currentIndex]
+  const project = useMemo(() => compileWorldPlan(plan), [plan])
+  const stepIndex = Math.floor(project.voxels.length * state.progress / 100)
+  const chunks = useMemo(() => {
+    const viewCenter = { x: cameraChunk.x * 16, z: cameraChunk.z * 16 }
+    const built = worldForPlannerState({ plans: state.plans, currentIndex: state.currentIndex, stepIndex }, viewCenter)
+    const nearbyEdits = state.block_edits.filter((edit) =>
+      Math.abs(edit.x - viewCenter.x) <= 96 && Math.abs(edit.z - viewCenter.z) <= 96)
+    const edited = applyBlockEdits(built, nearbyEdits, state.catalog)
+    return ensureTerrainAround(edited, cameraChunk.x * 16, cameraChunk.z * 16, 5)
+  }, [state.plans, state.currentIndex, state.block_edits, state.catalog, stepIndex, cameraChunk.x, cameraChunk.z])
+  const pet = useMemo(() => ({
+    ...previewPet, position: { ...previewPet.position, x: initialPosition.x, y: initialPosition.y ?? 1, z: initialPosition.z },
+  }), [initialPosition])
+  const workerOnline = !connectionError && state.worker_last_seen_at !== null && state.fetched_at - state.worker_last_seen_at < 25
+  const activelyLiving = workerOnline && state.status !== 'waiting_for_model'
+  const nearbyStations = new Set(state.block_edits.filter((block) =>
+    (block.material === 'crafting_table' || block.material === 'furnace') &&
+    Math.hypot(block.x - state.position.x, block.z - state.position.z) <= 6
+  ).map((block) => block.material))
+  const cameraFocus = viewingStation ? ORBITAL_STATION : state.position
+  const cameraY = viewingStation ? ORBITAL_STATION.centerY : 1
 
-  const sayHello = () => {
-    setHelloCount((count) => count + 1)
-    setGreeted(true)
+  const sayHello = async () => {
+    setInteractionError('')
+    try {
+      await onHello()
+      setHelloCount((count) => count + 1)
+    } catch {
+      setInteractionError('Mimo could not hear you. The server may be offline.')
+    }
   }
 
-  const handlePetPosition = useCallback((position: { x: number; y: number; z: number }) => {
-    const now = performance.now()
-    if (now - lastFocusUpdate.current < 100) return
-    lastFocusUpdate.current = now
-    setFocus({ x: position.x, z: position.z })
-  }, [])
-
-  const handleChunkChange = useCallback((x: number, z: number) => {
-    setCameraChunk({ x, z })
-    setChunks((current) => ensureTerrainAround(current, x * 16, z * 16, 5))
-  }, [])
-
-  useEffect(() => { saveBuildProgress(progress) }, [progress])
-
-  useEffect(() => {
-    if (!arrived) return
-    if (progress.stepIndex >= project.voxels.length) {
-      const timeout = window.setTimeout(() => {
-        setArrived(false)
-        const nextProject = makeProject(progress.projectIndex + 1)
-        setChunks((current) => ensureTerrainAround(current, nextProject.site.x, nextProject.site.z, 2))
-        setProgress({ projectIndex: progress.projectIndex + 1, stepIndex: 0 })
-      }, 900)
-      return () => window.clearTimeout(timeout)
+  const helpMimo = async (action: string, item: string) => {
+    try {
+      setSystemMessage(await onAction(action, item))
+    } catch (error) {
+      setSystemMessage(error instanceof Error ? error.message : 'That action could not be completed.')
     }
-    const timeout = window.setTimeout(() => {
-      const batchSize = Math.max(1, Math.ceil(project.voxels.length / 220))
-      const nextStep = Math.min(project.voxels.length, progress.stepIndex + batchSize)
-      setChunks((current) => placeVoxels(current, project.voxels.slice(progress.stepIndex, nextStep)))
-      setProgress({ projectIndex: progress.projectIndex, stepIndex: nextStep })
-      if (progress.stepIndex % (batchSize * 5) === 0) setHelloCount((count) => count + 1)
-    }, 260)
-    return () => window.clearTimeout(timeout)
-  }, [arrived, progress.projectIndex, progress.stepIndex, project])
-
-  const cameraDistance = project.landmark ? 55 : typeof window !== 'undefined' && window.innerWidth < 700 ? 40 : 28
-  const targetDistance = viewingStation || project.landmark ? 83 : 38
-  const cameraFocus = viewingStation
-    ? { x: ORBITAL_STATION.x, z: ORBITAL_STATION.z }
-    : project.landmark ? project.site : focus
-  const cameraY = viewingStation ? ORBITAL_STATION.centerY : project.landmark?.centerY ?? 1
-  const buildSegment = project.landmark
-    ? Math.min(19, Math.floor((progress.stepIndex / project.voxels.length) * 20))
-    : 0
-  const buildAngle = Math.PI / 2 - (buildSegment / 20) * Math.PI * 2
-  const destination = project.landmark
-    ? {
-        x: project.site.x + Math.cos(buildAngle) * project.standOff,
-        z: project.site.z + Math.sin(buildAngle) * project.standOff,
-        token: progress.projectIndex * 100 + buildSegment,
-      }
-    : { x: project.site.x, z: project.site.z + project.standOff, token: progress.projectIndex * 100 }
-  const percent = Math.round((progress.stepIndex / project.voxels.length) * 100)
+  }
 
   return (
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
       <div className="absolute inset-0">
-        <Canvas
-          camera={{
-            position: [initialCameraFocus.x + cameraDistance, initialCameraY + cameraDistance * 0.72, initialCameraFocus.z + cameraDistance],
-            fov: 48, near: 0.1, far: 260,
-          }}
-          gl={{ antialias: true }}
-          dpr={[1, 2]}
-        >
+        <Canvas camera={{ position: [initialPosition.x + 30, 23, initialPosition.z + 30], fov: 48, near: 0.1, far: 280 }}
+          gl={{ antialias: true }} dpr={[1, 2]}>
           <color attach="background" args={['#dce9eb']} />
-          <fog attach="fog" args={['#dce9eb', 90, 175]} />
+          <fog attach="fog" args={['#dce9eb', 100, 200]} />
           <ambientLight intensity={1.3} />
           <directionalLight position={[12, 24, 16]} intensity={2.4} />
           <directionalLight position={[-10, 8, -12]} intensity={0.8} color="#d5eaff" />
           <WorldManager chunks={chunks} cameraChunkX={cameraChunk.x} cameraChunkZ={cameraChunk.z} viewDistance={5} />
-          {project.landmark && progress.stepIndex < project.voxels.length && (
-            <mesh position={[project.site.x, project.landmark.centerY, project.site.z]}>
-              <sphereGeometry args={[project.landmark.radius + 0.5, 20, 14]} />
-              <meshBasicMaterial color="#6f8e90" wireframe transparent opacity={0.12} depthWrite={false} />
-            </mesh>
-          )}
-          <PetEntity
-            pet={pet}
-            destination={destination}
-            onArrive={() => setArrived(true)}
-            onPositionChange={handlePetPosition}
-            onPetClick={sayHello}
-            hopSignal={helloCount}
-          >
+          <PetEntity pet={pet}
+            destination={{ x: state.position.x, y: state.position.y, z: state.position.z, token: Math.round(state.last_action_at) }}
+            onPetClick={() => { void sayHello() }} hopSignal={helloCount}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />
@@ -184,7 +158,10 @@ export default function WorldPreview() {
               <meshStandardMaterial color="#cd8a84" />
             </mesh>
           </PetEntity>
-          <BuildCamera focus={cameraFocus} focusY={cameraY} initialFocus={initialCameraFocus} initialFocusY={initialCameraY} distance={targetDistance} follow={following} onOrbit={() => setFollowing(false)} onChunkChange={handleChunkChange} />
+          <BuildCamera focus={cameraFocus} focusY={viewingStation ? cameraY : state.position.y ?? 1} initialFocus={initialPosition} initialFocusY={initialPosition.y ?? 1}
+            distance={viewingStation ? 84 : 38} follow={following}
+            onOrbit={() => setFollowing(false)}
+            onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />
         </Canvas>
       </div>
 
@@ -192,35 +169,169 @@ export default function WorldPreview() {
         <p className="mb-2 text-sm font-medium text-[#637d79]">Mimo's world</p>
         <h1 className="text-4xl font-semibold leading-[1.04] tracking-[-0.065em] sm:text-6xl">Made by Mimo.</h1>
         <p className="mt-4 max-w-[18rem] text-sm leading-6 text-[#4f6967] sm:text-base">
-          Follow along as Mimo explores and adds new places to the world.
+          Mimo's world and activity are stored on the server. Its worker runs while this page is closed.
         </p>
       </div>
 
+      <div className="absolute right-5 top-5 z-10 max-w-[15rem] rounded-2xl border border-white/75 bg-[#f5faf7]/90 px-4 py-3 text-xs shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md sm:right-10 sm:top-9">
+        <p className="font-semibold"><span className={activelyLiving ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {activelyLiving ? 'Mimo is live' : workerOnline ? 'Mimo is paused' : 'Worker offline'}</p>
+        <p className="mt-1 text-[#54726e]">{state.status.replaceAll('_', ' ')} · energy {Math.round(state.energy)}%</p>
+        <p className="mt-1 text-[#54726e]">Last action {new Date(state.last_action_at * 1000).toLocaleString()}</p>
+      </div>
+
       <div className="absolute bottom-6 left-5 right-5 z-10 flex flex-col gap-4 sm:bottom-9 sm:left-10 sm:right-10 sm:flex-row sm:items-end sm:justify-between">
-        <div className="w-[min(100%,18rem)] rounded-2xl border border-white/75 bg-[#f5faf7]/90 px-5 py-4 shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md">
+        <div className="w-[min(100%,21rem)] rounded-2xl border border-white/75 bg-[#f5faf7]/90 px-5 py-4 shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f5c0a9] text-xl" aria-hidden="true">✿</div>
             <div>
               <p className="text-base font-semibold leading-tight">Mimo</p>
-              <p className="text-xs text-[#65817b]">{greeted ? 'Happy to see you' : arrived ? 'Busy building' : 'On the way'}</p>
+              <p className="text-xs text-[#65817b]">{state.status.replaceAll('_', ' ')}</p>
             </div>
           </div>
-          <p className="mt-4 text-sm font-medium">{arrived ? 'Building' : 'Heading to'} {project.name}</p>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#d9e8df]" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label={`${project.name} progress`}>
-            <div className="h-full rounded-full bg-[#4d8c77] transition-[width] duration-200" style={{ width: `${percent}%` }} />
+          <p className="mt-4 text-sm font-medium">{state.progress < 100 ? 'Building' : 'Finished'} {project.name}</p>
+          <p className="mt-2 text-xs leading-5 text-[#54726e]">{plan.observation}</p>
+          <p className="mt-2 text-xs italic leading-5 text-[#54726e]">“{state.last_thought}”</p>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#d9e8df]" role="progressbar"
+            aria-valuenow={state.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${project.name} progress`}>
+            <div className="h-full rounded-full bg-[#4d8c77] transition-[width] duration-500" style={{ width: `${state.progress}%` }} />
           </div>
           <div className="mt-4 flex gap-2">
-            <button type="button" onClick={sayHello} className="flex-1 rounded-xl bg-[#315e58] px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#244b47] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#315e58]">Say hello</button>
-            <button type="button" onClick={() => { setViewingStation(false); setFollowing(true) }} className="flex-1 rounded-xl border border-[#bfd5cd] px-3 py-2.5 text-sm font-medium text-[#315e58] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#315e58]">{project.landmark ? 'View build' : 'Follow Mimo'}</button>
+            <button type="button" onClick={() => { void sayHello() }}
+              className="flex-1 rounded-xl bg-[#315e58] px-3 py-2.5 text-sm font-medium text-white hover:bg-[#244b47]">Say hello</button>
+            <button type="button" onClick={() => { setViewingStation(false); setFollowing(true) }}
+              className="flex-1 rounded-xl border border-[#bfd5cd] px-3 py-2.5 text-sm font-medium text-[#315e58] hover:bg-white">Follow Mimo</button>
           </div>
-          {progress.projectIndex > 0 && (
-            <button type="button" onClick={() => { setViewingStation(true); setFollowing(true) }} className="mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4 hover:text-[#244b47] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#315e58]">
-              Visit the orbital station
-            </button>
-          )}
+          <button type="button" onClick={() => { setViewingStation(true); setFollowing(true) }}
+            className="mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4">
+            Visit the orbital station
+          </button>
+          <button type="button" onClick={() => setShowSystems(true)}
+            className="ml-4 mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4">
+            Blocks & crafting
+          </button>
+          {(state.last_error || interactionError) && <p className="mt-3 text-xs text-[#a65b50]">{interactionError || state.last_error}</p>}
         </div>
-        <p className="max-w-[14rem] text-xs leading-5 text-[#54726e] sm:text-right">Drag to look around<br />Scroll to zoom in</p>
+        <div className="hidden w-64 rounded-2xl border border-white/75 bg-[#f5faf7]/90 px-4 py-4 text-xs shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md md:block">
+          <p className="mb-2 font-semibold">Mimo's inventory</p>
+          <div className="mb-4 flex flex-wrap gap-1.5 text-[#315e58]">
+            {Object.entries(state.inventory).filter(([, amount]) => amount > 0).slice(0, 8).map(([item, amount]) =>
+              <span key={item} className="rounded-md bg-[#e1eee7] px-2 py-1">{item.replaceAll('_', ' ')} ×{amount}</span>)}
+          </div>
+          <p className="mb-2 font-semibold">What Mimo has done</p>
+          <ul className="space-y-2 text-[#54726e]">
+            {state.events.slice(0, 4).map((event) => <li key={event.id}>{event.text}</li>)}
+          </ul>
+          <p className="mt-3 text-[#65817b]">Drag to look around · Scroll to zoom</p>
+        </div>
+      </div>
+      {showSystems && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#203b38]/45 p-4" role="presentation" onClick={() => setShowSystems(false)}>
+          <section role="dialog" aria-modal="true" aria-label="Mimo's blocks and crafting" onClick={(event) => event.stopPropagation()}
+            className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-[#f5faf7] p-6 shadow-2xl sm:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <div><p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">World systems</p>
+                <h2 className="mt-1 text-3xl font-semibold tracking-tight">Blocks & crafting</h2></div>
+              <button type="button" onClick={() => setShowSystems(false)} aria-label="Close blocks and crafting" className="rounded-xl bg-[#e1eee7] px-3 py-1.5 text-xl">×</button>
+            </div>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-[#54726e]">Mimo can mine, place, craft, and smelt these materials. You can help with crafting here. Inventory and machines persist when you leave.</p>
+            <h3 className="mt-6 text-sm font-semibold">Mimo's inventory</h3>
+            <div className="mt-2 flex flex-wrap gap-2 text-sm">
+              {Object.entries(state.inventory).filter(([, amount]) => amount > 0).map(([item, amount]) =>
+                <span key={item} className="rounded-lg bg-[#e1eee7] px-3 py-1.5">{item.replaceAll('_', ' ')} ×{amount}</span>)}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" disabled={!state.inventory.crafting_table} onClick={() => { void helpMimo('place_machine', 'crafting_table') }}
+                className="rounded-lg bg-[#315e58] px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-35">Place crafting table</button>
+              <button type="button" disabled={!state.inventory.furnace} onClick={() => { void helpMimo('place_machine', 'furnace') }}
+                className="rounded-lg bg-[#315e58] px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-35">Place furnace</button>
+              <button type="button" disabled={!state.inventory.iron_ore || !nearbyStations.has('furnace') || !(state.inventory.coal || state.inventory.planks)} onClick={() => { void helpMimo('smelt', 'iron_ore') }}
+                className="rounded-lg border border-[#bfd5cd] px-3 py-2 text-xs font-medium text-[#315e58] disabled:cursor-not-allowed disabled:opacity-35">Smelt iron ore</button>
+            </div>
+            <p className="mt-2 text-xs text-[#65817b]">Smelting needs a placed furnace and coal or planks for fuel.</p>
+            {systemMessage && <p className="mt-3 rounded-lg bg-[#e1eee7] px-3 py-2 text-xs text-[#315e58]" role="status">{systemMessage}</p>}
+            <h3 className="mt-6 text-sm font-semibold">{Object.keys(state.catalog).length} block types</h3>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {Object.entries(state.catalog).map(([name, block]) => (
+                <div key={name} className="flex items-center gap-2 rounded-lg border border-[#d6e5dc] px-2 py-1.5 text-xs">
+                  <span className="h-5 w-5 shrink-0 rounded-sm border border-black/10" style={{ backgroundColor: `rgb(${block.color.join(',')})` }} />
+                  {name.replaceAll('_', ' ')}
+                </div>
+              ))}
+            </div>
+            <h3 className="mt-6 text-sm font-semibold">Recipes</h3>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {Object.entries(state.recipes).map(([name, recipe]) => (
+                <div key={name} className="rounded-xl bg-[#e9f2eb] px-3 py-2 text-xs leading-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold">{name.replaceAll('_', ' ')}</p>
+                    <button type="button" disabled={Boolean(recipe.station && !nearbyStations.has(recipe.station)) ||
+                      Object.entries(recipe.ingredients).some(([item, amount]) => (state.inventory[item] || 0) < amount)}
+                      onClick={() => { void helpMimo('craft', name) }}
+                      className="rounded-md bg-[#315e58] px-2 py-1 font-medium text-white hover:bg-[#244b47] disabled:cursor-not-allowed disabled:opacity-35">Craft</button>
+                  </div>
+                  <p className="text-[#54726e]">{Object.entries(recipe.ingredients).map(([item, amount]) => `${amount} ${item.replaceAll('_', ' ')}`).join(' + ')}
+                    {recipe.station ? ` · needs placed ${recipe.station.replaceAll('_', ' ')}` : ''}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  )
+}
+
+export default function WorldPreview() {
+  const [state, setState] = useState<LiveMimoState | null>(null)
+  const [error, setError] = useState('')
+
+  const refresh = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/mimo`)
+      if (!response.ok) throw new Error(`Server returned ${response.status}`)
+      const next = await response.json() as LiveMimoState
+      next.fetched_at = Date.now() / 1000
+      setState((previous) => {
+        if (previous && JSON.stringify(previous.plans) === JSON.stringify(next.plans)) next.plans = previous.plans
+        if (previous && JSON.stringify(previous.block_edits) === JSON.stringify(next.block_edits)) next.block_edits = previous.block_edits
+        if (previous && JSON.stringify(previous.catalog) === JSON.stringify(next.catalog)) next.catalog = previous.catalog
+        return next
+      })
+      setError('')
+    } catch {
+      setError('Mimo’s server is unavailable. Its world will appear when the server is running.')
+    }
+  }, [])
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => { void refresh() }, 0)
+    const timer = window.setInterval(() => { void refresh() }, 5000)
+    return () => { window.clearTimeout(initial); window.clearInterval(timer) }
+  }, [refresh])
+
+  const hello = async () => {
+    const response = await fetch(`${API_URL}/api/mimo/hello`, { method: 'POST' })
+    if (!response.ok) throw new Error('Greeting failed')
+    await refresh()
+  }
+
+  const act = async (action: string, item: string) => {
+    const response = await fetch(`${API_URL}/api/mimo/action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, item }),
+    })
+    const result = await response.json() as { message?: string; detail?: string }
+    if (!response.ok) throw new Error(result.detail || 'That action could not be completed.')
+    await refresh()
+    return result.message || 'Done.'
+  }
+
+  if (!state) return (
+    <main className="flex min-h-screen items-center justify-center bg-[#dce9eb] px-6 text-center text-[#315e58]">
+      <div><p className="text-2xl font-semibold">Connecting to Mimo’s world…</p>
+        {error && <p className="mx-auto mt-3 max-w-sm text-sm leading-6">{error}</p>}
+        {error && <button type="button" onClick={() => { void refresh() }} className="mt-5 rounded-xl bg-[#315e58] px-4 py-2 text-sm text-white">Try again</button>}
       </div>
     </main>
   )
+  return <LiveWorld state={state} onHello={hello} onAction={act} connectionError={error} />
 }

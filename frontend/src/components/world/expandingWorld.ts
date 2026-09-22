@@ -1,4 +1,4 @@
-import type { Chunk, Voxel } from '../../types/world'
+import type { BlockEdit, Chunk, Voxel } from '../../types/world'
 import { CHUNK_SIZE } from '../../types/world'
 import { previewChunks } from './previewWorld'
 
@@ -36,6 +36,12 @@ const grass: Color[][] = [
 
 function hash(x: number, z: number) {
   return Math.abs((x * 73856093) ^ (z * 19349663))
+}
+
+export function terrainHeight(x: number, z: number) {
+  if (Math.hypot(x, z) < 17 || Math.hypot(x - ORBITAL_STATION.x, z - ORBITAL_STATION.z) < 27) return 0
+  const wave = Math.sin(x * 0.085) + Math.cos(z * 0.075) + Math.sin((x + z) * 0.037)
+  return wave > 1.65 ? 3 : wave > 1.15 ? 2 : wave > 0.65 ? 1 : 0
 }
 
 function voxel(x: number, y: number, z: number, color: Color): Voxel {
@@ -79,7 +85,10 @@ export function makeTerrainChunk(cx: number, cz: number): Chunk {
       const wz = cz * CHUNK_SIZE + z
       const region = Math.sin(wx * 0.095) + Math.cos(wz * 0.085) + Math.sin((wx + wz) * 0.055)
       const palette = grass[region > 0.7 ? 1 : region < -0.7 ? 2 : 0]
-      add(x, 0, z, palette[hash(wx, wz) % palette.length])
+      const height = terrainHeight(wx, wz)
+      for (let y = 0; y <= height; y++) {
+        add(x, y, z, y === height ? palette[hash(wx, wz) % palette.length] : y >= height - 1 ? [126, 105, 89] : [153, 151, 148])
+      }
 
       // Keep the village and future project sites clear for construction.
       if (Math.hypot(wx, wz) < 17 || x < 3 || x > 12 || z < 3 || z > 12) continue
@@ -88,17 +97,17 @@ export function makeTerrainChunk(cx: number, cz: number): Chunk {
       if (nearSiteX && nearSiteZ) continue
 
       if (hash(wx, wz) % 257 === 0) {
-        for (let y = 1; y <= 4; y++) add(x, y, z, [126, 94, 74])
+        for (let y = height + 1; y <= height + 4; y++) add(x, y, z, [126, 94, 74])
         for (let dx = -2; dx <= 2; dx++) {
           for (let dz = -2; dz <= 2; dz++) {
             if (Math.abs(dx) + Math.abs(dz) > 3) continue
-            add(x + dx, 5, z + dz, [91, 151, 119])
-            if (Math.abs(dx) + Math.abs(dz) < 2) add(x + dx, 6, z + dz, [110, 168, 128])
+            add(x + dx, height + 5, z + dz, [91, 151, 119])
+            if (Math.abs(dx) + Math.abs(dz) < 2) add(x + dx, height + 6, z + dz, [110, 168, 128])
           }
         }
       } else if (hash(wx, wz) % 71 === 0) {
-        add(x, 1, z, [89, 147, 112])
-        add(x, 2, z, hash(wx + 1, wz) % 2 ? [242, 178, 153] : [245, 216, 143])
+        add(x, height + 1, z, [89, 147, 112])
+        add(x, height + 2, z, hash(wx + 1, wz) % 2 ? [242, 178, 153] : [245, 216, 143])
       }
     }
   }
@@ -144,6 +153,48 @@ export function placeVoxels(chunks: Chunk[], values: Voxel[]): Chunk[] {
     next[index] = { ...next[index], voxels: record.voxels }
   }
   return next
+}
+
+const blockColors: Record<string, Color> = {
+  grass: [127, 173, 137], dirt: [126, 105, 89], stone: [153, 151, 148],
+  sand: [222, 203, 158], gravel: [159, 166, 162], wood: [139, 105, 82],
+  glass: [160, 218, 218], water: [103, 179, 203], lantern: [247, 213, 143],
+  leaves: [101, 164, 128],
+}
+
+export function applyBlockEdits(chunks: Chunk[], edits: BlockEdit[], catalog: Record<string, { color: number[] }> = {}): Chunk[] {
+  if (!edits.length) return chunks
+  const colorOf = (material: string): Color => {
+    const color = catalog[material]?.color
+    return color && color.length >= 3 ? [color[0], color[1], color[2]] : blockColors[material] ?? [180, 130, 180]
+  }
+  const undergroundMaterial = (x: number, y: number, z: number) => {
+    if (y === -5) return 'bedrock'
+    if (y === -1) return 'dirt'
+    const oreSeed = Math.abs(x * 31 + z * 17 + y * 101)
+    return oreSeed % 37 === 0 ? 'iron_ore' : oreSeed % 19 === 0 ? 'coal_ore' : 'stone'
+  }
+  // Generate the exposed layers only around excavations. The deeper world is
+  // implicit bedrock/stone until Mimo digs into it.
+  const underground: Voxel[] = []
+  for (const edit of edits) {
+    if (edit.material !== 'air' || edit.y > 0) continue
+    for (let x = edit.x - 2; x <= edit.x + 2; x++) for (let z = edit.z - 2; z <= edit.z + 2; z++) {
+      for (let y = -5; y <= -1; y++) {
+        const material = undergroundMaterial(x, y, z)
+        underground.push({ ...voxel(x, y, z, colorOf(material)), material })
+      }
+    }
+  }
+  let next = placeVoxels(chunks, underground)
+  next = placeVoxels(next, edits.filter((edit) => edit.material !== 'air').map((edit) => ({
+    ...voxel(edit.x, edit.y, edit.z, colorOf(edit.material)),
+    material: edit.material,
+  })))
+  const removed = new Set(edits.filter((edit) => edit.material === 'air').map((edit) => `${edit.x},${edit.y},${edit.z}`))
+  return next.map((chunk) => ({ ...chunk, voxels: chunk.voxels.filter((value) => !removed.has(
+    `${value.x + chunk.chunk_x * CHUNK_SIZE},${value.y + chunk.chunk_y * CHUNK_SIZE},${value.z + chunk.chunk_z * CHUNK_SIZE}`
+  )) }))
 }
 
 export function ensureTerrainAround(chunks: Chunk[], x: number, z: number, radius = 2): Chunk[] {

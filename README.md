@@ -1,91 +1,42 @@
-# AI Pet Voxel World
+# Mimo's voxel world
 
-An autonomous AI pet that lives in a 3D voxel world. Users create pets that evolve autonomously using Claude AI, build their own voxel worlds, and interact with users via chat. Everything costs "food" (AI credits).
+Mimo is a persistent pet with a server-owned world. A separate worker observes its stored world, asks a configured chat model what to do, validates the choice, and saves its actions. The `/preview` page renders that state; closing the page does not stop the worker.
 
-## Architecture
-
-- **Backend:** FastAPI (Python) with Supabase for persistence and Redis for caching
-- **Frontend:** React + Vite + TypeScript + Tailwind CSS + Three.js for 3D rendering
-- **AI:** Claude (Anthropic) for pet intelligence, memory, and world-building
-- **Database:** Supabase (PostgreSQL) with pgvector for embeddings
-
-## Project Structure
-
-```
-pets/
-├── backend/
-│   ├── main.py          # FastAPI app entrypoint
-│   ├── api/             # Route handlers
-│   ├── models/          # Pydantic models
-│   ├── migrations/      # SQL migrations for Supabase
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── pages/       # React pages
-│   │   ├── components/  # Shared components
-│   │   └── lib/         # Utilities (Supabase client, etc.)
-│   └── package.json
-├── docker-compose.yml   # Local Redis
-└── .env.example
-```
-
-## Setup
-
-### World and pet preview
-
-The first playable scene runs without the backend, Supabase, Redis, or an AI key:
+## Run locally
 
 ```bash
+docker compose up -d --build api mimo-worker
 cd frontend
 npm ci
 npm run dev
 ```
 
-Open the local URL shown by Vite. The home page leads to `/preview`. Mimo builds a large orbital station in batches, then keeps adding smaller projects across generated terrain. You can orbit, zoom, and greet Mimo. Build progress is saved in this browser.
+Open `http://127.0.0.1:5173/preview`. The API runs at `http://localhost:8000/api/mimo`. Both API and Redis ports bind to localhost for this prototype. The Compose volume `pets_mimo_data` keeps Mimo's world, inventory, activity, and block edits across container restarts. Redis remains available for the older multi-pet routes, on host port 6380 by default.
 
-The preview uses a deterministic project planner. It does not yet read the web or use an AI model to choose structures.
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- Docker (for Redis)
-- A Supabase project
-- An Anthropic API key
-
-### Backend
+Mimo pauses if no model is configured. To enable autonomous choices, make a local `.env` from `.env.example` and set `MIMO_MODEL` plus `OPENAI_API_KEY`. A compatible local chat endpoint can be used with `MIMO_MODEL_URL` and `MIMO_MODEL`; a model served on the host must use a Docker-reachable host name such as `host.docker.internal`. Recreate the containers after changing model settings:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn backend.main:app --reload
+docker compose up -d --force-recreate api mimo-worker
 ```
 
-### Frontend
+The worker wakes every five seconds to check if an action is due. It advances an active build every 20 seconds and normally asks the model for one new choice every 15 minutes after a small action. The default cap is 64 model attempts per UTC day. Set `MIMO_THINK_SECONDS`, `MIMO_TICK_SECONDS`, and `MIMO_MAX_DECISIONS_PER_DAY` to adjust those limits.
+
+For 24/7 operation, run the API and worker on an always-on host with a persistent `/data` volume and a configured model. A laptop sleeping or Docker being stopped pauses Mimo; the stored world remains intact.
+
+## Current world rules
+
+- Mimo has persistent energy, mood, traits, inventory, projects, individual block edits, and an activity log.
+- Its observation includes known structures, the pond, nearby vertical block columns, and validated open sites. Build choices are limited to available space and a set of structure compilers.
+- The world has 24 block types, including transparent glass and water, glowing blocks, ore, wood, sand, and gravel. Ground has small hills; Mimo can place blocks above ground and dig to four blocks below it.
+- Placed sand and gravel fall one cell per world tick when unsupported. Water is translucent and gently animated in the viewer; it does not flow yet.
+- Mining yields materials. Logs become planks and sticks; a placed crafting table unlocks furnace and pickaxe recipes. A placed furnace consumes fuel to smelt ore or sand. Inventory and placed machines survive restart.
+- The **Blocks & crafting** panel lets the owner help by crafting, placing the table or furnace, and smelting. These actions use the same persistent inventory as Mimo's autonomous actions.
+
+The current large structures are compiled from parameterized designs. The model selects the project and site; it does not yet generate arbitrary voxel schematics. This is a functional base for a Minecraft-style world, not a full one-to-one recreation: player movement, multiplayer, fluid simulation, lighting propagation, redstone-style circuits, biomes, and broad crafting progression remain future work. Owner actions currently have no account authentication, so add authentication before exposing this API publicly.
+
+## Checks
 
 ```bash
-cd frontend
-npm install
-npm run dev
+python3 -m unittest backend.tests.test_live_mimo -v
+cd frontend && npm run build
 ```
-
-### Local Services
-
-```bash
-# Start Redis
-docker-compose up -d
-```
-
-### Environment Variables
-
-Copy `.env.example` to `.env` and fill in your keys:
-
-```bash
-cp .env.example .env
-```
-
-## Database Setup
-
-Run the SQL migrations in `backend/migrations/` against your Supabase project in order (001, 002, etc.) via the Supabase SQL editor or CLI.

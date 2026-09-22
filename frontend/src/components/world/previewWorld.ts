@@ -20,7 +20,8 @@ const leaves: Color[] = [[86, 145, 117], [100, 160, 126], [112, 170, 132]]
 const voxels = new Map<string, Voxel>()
 
 function add(x: number, y: number, z: number, color: Color) {
-  voxels.set(`${x},${y},${z}`, { x, y, z, r: color[0], g: color[1], b: color[2], a: 255 })
+  voxels.set(`${x},${y},${z}`, { x, y, z, r: color[0], g: color[1], b: color[2], a: 255,
+    material: color === water ? 'water' : undefined })
 }
 
 function hash(x: number, z: number) {

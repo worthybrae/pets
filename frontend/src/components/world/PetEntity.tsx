@@ -17,7 +17,7 @@ interface PetEntityProps {
   onPetClick?: () => void
   hopSignal?: number
   children?: ReactNode
-  destination?: { x: number; z: number; token: number }
+  destination?: { x: number; y?: number; z: number; token: number }
   onArrive?: () => void
 }
 
@@ -46,9 +46,11 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
   const currentRotY = useRef(0)
   const origin = useRef({ x: pet.position.x, z: pet.position.z })
   const hopTime = useRef(0)
+  const currentHeight = useRef(pet.position.y)
   const lastHopSignal = useRef(hopSignal)
   const destinationX = destination?.x
   const destinationZ = destination?.z
+  const destinationY = destination?.y
   const destinationToken = destination?.token
 
   useEffect(() => {
@@ -133,11 +135,12 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
 
     // --- Apply position + bob + rotation ---
     if (groupRef.current) {
+      currentHeight.current = THREE.MathUtils.lerp(currentHeight.current, destinationY ?? pet.position.y, 1 - Math.exp(-5 * delta))
       hopTime.current = Math.max(0, hopTime.current - delta)
       groupRef.current.position.x = currentPos.current.x
       groupRef.current.position.z = currentPos.current.z
       const hop = hopTime.current > 0 ? Math.sin((1 - hopTime.current / 0.7) * Math.PI) * 0.8 : 0
-      groupRef.current.position.y = pet.position.y + Math.sin(timeRef.current * 2) * 0.1 + hop
+      groupRef.current.position.y = currentHeight.current + Math.sin(timeRef.current * 2) * 0.1 + hop
       groupRef.current.rotation.y = currentRotY.current
     }
   })
