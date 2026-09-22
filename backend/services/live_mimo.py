@@ -496,7 +496,27 @@ def _jev_decision(state: dict, observation: dict, events: list[dict]) -> dict:
         raise ValueError("Jev selected an action outside the offered choices")
     decision = options[selected][1]
     if decision["action"] == "creative_plan":
-        return _model_decision(state, observation, events)
+        try:
+            proposal = _model_decision(state, observation, events)
+            validate_decision(proposal, observation)
+            return proposal
+        except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as error:
+            # A failed creative call must not pause the pet. Jev's next-best
+            # executable choice keeps the world moving while Luna recovers.
+            probabilities = answer.get("probabilities")
+            if not isinstance(probabilities, dict):
+                probabilities = {}
+            ranked = sorted(
+                ((score, option_id) for option_id, score in probabilities.items()
+                 if option_id in options and option_id != "creative_plan"
+                 and isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(score)),
+                reverse=True,
+            )
+            fallback_id = ranked[0][1] if ranked else "rest"
+            cause = error.__cause__
+            status = f"HTTP {cause.code}" if isinstance(cause, HTTPError) else type(error).__name__
+            state["last_error"] = f"Luna unavailable ({status}); used Jev fallback."
+            return options[fallback_id][1]
     return decision
 
 

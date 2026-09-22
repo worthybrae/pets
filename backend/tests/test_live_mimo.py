@@ -2,6 +2,7 @@ import io
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -87,6 +88,19 @@ class LiveMimoTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "rest")
         luna.assert_called_once()
+
+    def test_jev_uses_next_best_action_when_luna_is_unavailable(self):
+        response = io.BytesIO(b'{"answers":{"next_action":{"type":"choice","choice":"creative_plan",'
+                              b'"probabilities":{"creative_plan":0.6,"explore_0":0.3,"rest":0.1}}}}')
+        with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-jev-key", "OPENAI_API_KEY": "test-openai-key"}), \
+             patch("backend.services.live_mimo.urlopen", return_value=response), \
+             patch("backend.services.live_mimo._model_decision", side_effect=RuntimeError("HTTP 429")):
+            state = self.store.snapshot()
+            result = _jev_decision(state, observe_world(state), [])
+
+        self.assertEqual(result["action"], "explore")
+        self.assertEqual(result["candidate_id"], 0)
+        self.assertIn("Luna unavailable", state["last_error"])
 
     def test_jev_rejects_unoffered_action(self):
         with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-jev-key"}), \
@@ -193,6 +207,10 @@ class LiveMimoTests(unittest.TestCase):
 
         with patch.dict("os.environ", {"MIMO_MAX_DECISIONS_PER_DAY": "1"}):
             first = self.store.snapshot()
+            next_noon = (datetime.fromtimestamp(first["next_tick_at"], timezone.utc).date()
+                         + timedelta(days=1))
+            first["next_tick_at"] = datetime.combine(next_noon, datetime.min.time(), timezone.utc).timestamp() + 43200
+            self.store.finish(first)
             run_tick(self.store, decide, first["next_tick_at"] + 1)
             second = self.store.snapshot()
             run_tick(self.store, decide, second["next_tick_at"] + 1)
