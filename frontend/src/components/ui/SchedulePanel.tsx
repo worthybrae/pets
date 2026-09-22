@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 
 export interface AgendaTask {
   task: string
@@ -33,11 +32,7 @@ function formatFoodCost(cost: number): string {
   return `$${cost.toFixed(3)}`
 }
 
-export default function SchedulePanel({ tasks, isOpen, nextTaskTime, petName }: SchedulePanelProps) {
-  const now = useMemo(() => {
-    const d = new Date()
-    return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`
-  }, [])
+export default function SchedulePanel({ tasks, isOpen, petName }: SchedulePanelProps) {
 
   // Find current task index (first uncompleted)
   const currentIdx = tasks.findIndex(t => !t.completed)

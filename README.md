@@ -31,6 +31,18 @@ pets/
 
 ## Setup
 
+### World and pet preview
+
+The first playable scene runs without the backend, Supabase, Redis, or an AI key:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the local URL shown by Vite. The home page leads to `/preview`, where you can orbit the island, zoom, and greet Mimo.
+
 ### Prerequisites
 
 - Python 3.11+

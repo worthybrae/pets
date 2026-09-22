@@ -6,6 +6,7 @@ import World from './pages/World'
 import Hatch from './pages/Hatch'
 import Guide from './pages/Guide'
 import VoxelTest from './pages/VoxelTest'
+import WorldPreview from './pages/WorldPreview'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -146,8 +147,9 @@ function App() {
       <Routes>
         <Route
           path="/"
-          element={<Navigate to={pet ? '/world' : '/hatch'} />}
+          element={<Navigate to={pet ? '/world' : session ? '/hatch' : '/preview'} />}
         />
+        <Route path="/preview" element={<WorldPreview />} />
         <Route
           path="/hatch"
           element={

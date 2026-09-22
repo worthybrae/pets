@@ -336,7 +336,7 @@ export default function Hatch({ onHatch, onComplete, session }: HatchProps) {
       </div>
 
       {/* Tooltip follows cursor over egg */}
-      <EggTooltip egg={egg} visible={hovering && (phase === 'idle' || phase === 'hatching')} mousePos={mousePos} />
+      <EggTooltip egg={egg} visible={eggReady && hovering && (phase === 'idle' || phase === 'hatching')} mousePos={mousePos} />
 
       <style>{`
         @keyframes fadeUp {
