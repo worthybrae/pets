@@ -32,6 +32,28 @@ BUILD_KINDS = [kind for kind in RADII if kind != "station"]
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 LOOSE_BLOCKS = {kind for kind, properties in BLOCKS.items() if properties.get("gravity")}
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "data" / "mimo.sqlite3"
+LUNA_ACTION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "action": {"type": "string", "enum": ["build", "explore", "rest", "place", "dig", "craft", "smelt"]},
+        "kind": {"type": ["string", "null"], "enum": [*BUILD_KINDS, None],
+                 "description": "Structure kind for build; null for other actions."},
+        "candidate_id": {"type": ["integer", "null"],
+                         "description": "Observed site index for build or explore; null otherwise."},
+        "x": {"type": ["integer", "null"]},
+        "y": {"type": ["integer", "null"]},
+        "z": {"type": ["integer", "null"]},
+        "material": {"type": ["string", "null"], "enum": [*sorted(BLOCK_TYPES - {"air"}), None],
+                     "description": "Block to place; null for other actions."},
+        "recipe": {"type": ["string", "null"], "enum": [*RECIPES, None],
+                   "description": "Recipe to craft; null for other actions."},
+        "input_item": {"type": ["string", "null"], "enum": [*SMELTING, None],
+                       "description": "Item to smelt; null for other actions."},
+        "thought": {"type": "string", "description": "One brief first-person thought explaining the action."},
+    },
+    "required": ["action", "kind", "candidate_id", "x", "y", "z", "material", "recipe", "input_item", "thought"],
+}
 
 
 def now() -> float:
@@ -369,7 +391,7 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
         "personality": state["personality"], "energy": round(state["energy"]), "mood": round(state["mood"]),
         "world_observation": observation,
         "recent_events": [{"kind": event["kind"], "text": event["text"]} for event in events[:8]],
-        "instructions": "Choose one action: build, explore, rest, place, dig, craft, or smelt. For build choose a kind and candidate_id from candidate_sites. Boardwalk goes over the pond. For place/dig choose integer x,y,z within 6 blocks of your position; placing consumes that block from inventory. Digging stone and ore requires a pickaxe. Craft uses a recipe name; some recipes require a placed crafting_table within 6 blocks. Smelt uses input_item and needs a placed furnace, fuel and ore. You can build upward and excavate to y=-4. Use nearby_columns and inventory to plan a meaningful sequence. Respond only with JSON: {action, kind, candidate_id, x, y, z, material, recipe, input_item, thought}. Thought must be one brief first-person sentence. Do not invent a build site outside the candidates.",
+        "instructions": "Choose one action: build, explore, rest, place, dig, craft, or smelt. For build choose a kind and candidate_id from candidate_sites. Boardwalk goes over the pond. For place/dig choose integer x,y,z within 6 blocks of your position; placing consumes that block from inventory. Digging stone and ore requires a pickaxe. Craft uses a recipe name; some recipes require a placed crafting_table within 6 blocks. Smelt uses input_item and needs a placed furnace, fuel and ore. You can build upward and excavate to y=-4. Use nearby_columns and inventory to plan a meaningful sequence. Set fields unrelated to your action to null. Thought must be one brief first-person sentence. Do not invent a build site outside the candidates.",
         "allowed_builds": BUILD_KINDS, "allowed_blocks": sorted(BLOCK_TYPES - {"air"}),
     }
     request_body = {"model": model, "messages": [
@@ -377,10 +399,11 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
         {"role": "user", "content": json.dumps(prompt)},
     ]}
     if model == "gpt-6-luna" and is_openai_api:
-        # Luna accepts Chat Completions, but reasoning models use the newer
-        # completion limit and do not accept the old sampling temperature.
-        request_body.update({"reasoning_effort": "none", "max_completion_tokens": 256,
-                             "response_format": {"type": "json_object"}})
+        # Strict Structured Outputs constrain the shape; the world validator
+        # still checks spatial reach, inventory, and action-specific rules.
+        request_body.update({"reasoning_effort": "medium", "max_completion_tokens": 1024,
+                             "response_format": {"type": "json_schema", "json_schema": {
+                                 "name": "mimo_action", "strict": True, "schema": LUNA_ACTION_SCHEMA}}})
     else:
         request_body.update({"temperature": 0.8, "max_tokens": 180})
     body = json.dumps(request_body).encode()
@@ -392,7 +415,15 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
             result = json.load(response)
     except (HTTPError, URLError) as error:
         raise RuntimeError(f"Model request failed: {error}") from error
-    content = result["choices"][0]["message"]["content"]
+    choice = result["choices"][0]
+    if choice.get("finish_reason") == "length":
+        raise RuntimeError("Luna response was cut off before a complete action.")
+    message = choice["message"]
+    if message.get("refusal"):
+        raise RuntimeError("Luna declined to choose an action.")
+    content = message.get("content")
+    if not isinstance(content, str):
+        raise RuntimeError("Luna returned no action.")
     if content.startswith("```"):
         content = content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     return json.loads(content)

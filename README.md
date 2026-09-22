@@ -15,6 +15,8 @@ Open `http://127.0.0.1:5173/preview`. The API runs at `http://localhost:8000/api
 
 To enable autonomous choices, make a local `.env` from `.env.example` and set `TYPESAFE_API_KEY`. Jev chooses among observed build sites, exploration, rest, and currently valid crafting actions. Set `OPENAI_API_KEY` as well if you want Jev to be able to route more creative decisions to GPT-6 Luna. Without a TypeSafe key, the worker can still use Luna alone when its OpenAI key is set. These API keys are billed separately from a ChatGPT subscription. A compatible local chat endpoint can instead be used with `MIMO_MODEL_URL` and `MIMO_MODEL`; a model served on the host must use a Docker-reachable host name such as `host.docker.internal`. Recreate the containers after changing model settings:
 
+Luna uses `medium` reasoning and strict Structured Outputs for the action shape. The worker still validates coordinates, build sites, inventory, and crafting requirements before executing an action.
+
 ```bash
 docker compose up -d --force-recreate api mimo-worker
 ```

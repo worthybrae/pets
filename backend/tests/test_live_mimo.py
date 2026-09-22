@@ -24,7 +24,11 @@ class LiveMimoTests(unittest.TestCase):
         def fake_urlopen(request, timeout):
             self.assertEqual(timeout, 45)
             requests.append(json.loads(request.data))
-            return io.BytesIO(b'{"choices":[{"message":{"content":"{\\"action\\":\\"rest\\",\\"thought\\":\\"I will rest.\\"}"}}]}')
+            content = {"action": "rest", "kind": None, "candidate_id": None,
+                       "x": None, "y": None, "z": None, "material": None,
+                       "recipe": None, "input_item": None, "thought": "I will rest."}
+            return io.BytesIO(json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                "content": json.dumps(content)}}]}).encode())
 
         with patch.dict("os.environ", {"MIMO_MODEL": "gpt-6-luna", "OPENAI_API_KEY": "test-only-key",
                                      "MIMO_MODEL_URL": "https://api.openai.com/v1/chat/completions"}), \
@@ -34,9 +38,15 @@ class LiveMimoTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "rest")
         self.assertEqual(requests[0]["model"], "gpt-6-luna")
-        self.assertEqual(requests[0]["reasoning_effort"], "none")
-        self.assertEqual(requests[0]["max_completion_tokens"], 256)
-        self.assertEqual(requests[0]["response_format"], {"type": "json_object"})
+        self.assertEqual(requests[0]["reasoning_effort"], "medium")
+        self.assertEqual(requests[0]["max_completion_tokens"], 1024)
+        response_format = requests[0]["response_format"]
+        self.assertEqual(response_format["type"], "json_schema")
+        self.assertTrue(response_format["json_schema"]["strict"])
+        schema = response_format["json_schema"]["schema"]
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(set(schema["required"]), set(schema["properties"]))
+        self.assertIn("build", schema["properties"]["action"]["enum"])
         self.assertNotIn("temperature", requests[0])
         self.assertNotIn("max_tokens", requests[0])
 
