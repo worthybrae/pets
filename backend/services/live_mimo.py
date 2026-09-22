@@ -77,6 +77,7 @@ def new_state(timestamp: float) -> dict:
         "personality": {"curiosity": 82, "creativity": 91, "sociability": 66, "patience": 73},
         "position": {"x": 73.0, "y": 1.0, "z": 0.0}, "energy": 100.0, "mood": 70.0,
         "explore_target": None,
+        "visited_sites": [],
         "inventory": {"oak_log": 8, "cobblestone": 12, "coal": 4, "iron_ore": 3},
         "plans": [STATION], "currentIndex": 0, "progress": 100.0,
         "status": "thinking", "last_thought": "I wonder what belongs beside my station.",
@@ -94,6 +95,7 @@ def normalize_state(state: dict) -> dict:
     state.setdefault("decision_day", datetime.fromtimestamp(state["born_at"], timezone.utc).date().isoformat())
     state.setdefault("decisions_today", 0)
     state.setdefault("explore_target", None)
+    state.setdefault("visited_sites", [])
     state["position"].setdefault("y", terrain_height(round(state["position"]["x"]), round(state["position"]["z"])) + 1)
     return state
 
@@ -361,6 +363,10 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
                 break
         if len(candidates) >= 16:
             break
+    visited_sites = state.get("visited_sites", [])
+    explorable_site_ids = [site["id"] for site in candidates
+                           if distance(site, state["position"]) >= 8
+                           and all(distance(site, visited) >= 8 for visited in visited_sites)]
     edits = edits or []
     edited = {(block["x"], block["y"], block["z"]): block["material"] for block in edits}
     px, pz = round(state["position"]["x"]), round(state["position"]["z"])
@@ -371,6 +377,7 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
                                    for y in range(3, -5, -1)]})
     return {"pet_position": state["position"], "features": features[-14:],
             "pond": {"x": -5, "z": 4}, "candidate_sites": candidates,
+            "explorable_site_ids": explorable_site_ids,
             "nearby_columns": columns, "loose_blocks": [block for block in edits if block["material"] in LOOSE_BLOCKS][:20],
             "nearby_stations": [block["material"] for block in edits if block["material"] in ("crafting_table", "furnace")
                                 and math.hypot(block["x"] - px, block["z"] - pz) <= 6],
@@ -391,7 +398,7 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
         "personality": state["personality"], "energy": round(state["energy"]), "mood": round(state["mood"]),
         "world_observation": observation,
         "recent_events": [{"kind": event["kind"], "text": event["text"]} for event in events[:8]],
-        "instructions": "Choose one action: build, explore, rest, place, dig, craft, or smelt. For build choose a kind and candidate_id from candidate_sites. Boardwalk goes over the pond. For place/dig choose integer x,y,z within 6 blocks of your position; placing consumes that block from inventory. Digging stone and ore requires a pickaxe. Craft uses a recipe name; some recipes require a placed crafting_table within 6 blocks. Smelt uses input_item and needs a placed furnace, fuel and ore. You can build upward and excavate to y=-4. Use nearby_columns and inventory to plan a meaningful sequence. Set fields unrelated to your action to null. Thought must be one brief first-person sentence. Do not invent a build site outside the candidates.",
+        "instructions": "Choose one action: build, explore, rest, place, dig, craft, or smelt. For build choose a kind and candidate_id from candidate_sites. For explore use a candidate_id from explorable_site_ids; do not revisit a clearing. Boardwalk goes over the pond. For place/dig choose integer x,y,z within 6 blocks of your position; placing consumes that block from inventory. Digging stone and ore requires a pickaxe. Craft uses a recipe name; some recipes require a placed crafting_table within 6 blocks. Smelt uses input_item and needs a placed furnace, fuel and ore. You can build upward and excavate to y=-4. Use nearby_columns and inventory to plan a meaningful sequence. Set fields unrelated to your action to null. Thought must be one brief first-person sentence. Do not invent a build site outside the candidates.",
         "allowed_builds": BUILD_KINDS, "allowed_blocks": sorted(BLOCK_TYPES - {"air"}),
     }
     request_body = {"model": model, "messages": [
@@ -455,7 +462,8 @@ def _jev_decision(state: dict, observation: dict, events: list[dict]) -> dict:
     if "boardwalk" not in (plan["kind"] for plan in state["plans"]):
         options["build_boardwalk"] = ("Build a boardwalk across the pond.",
                                        {"action": "build", "kind": "boardwalk", "thought": "I want to cross the pond."})
-    for candidate_id, site in enumerate(sites[:3]):
+    for candidate_id in observation["explorable_site_ids"][:3]:
+        site = sites[candidate_id]
         options[f"explore_{candidate_id}"] = (
             f"Explore clearing {candidate_id} at ({site['x']}, {site['z']}) near {site['nearest']}.",
             {"action": "explore", "candidate_id": candidate_id,
@@ -598,6 +606,8 @@ def validate_decision(decision: dict, observation: dict) -> dict:
         return {"action": action, "kind": "boardwalk", "site": observation["pond"], "thought": thought}
     if not isinstance(candidate_id, int) or candidate_id < 0 or candidate_id >= len(observation["candidate_sites"]):
         raise ValueError("Model chose a site outside the observed free space")
+    if action == "explore" and candidate_id not in observation["explorable_site_ids"]:
+        raise ValueError("Model chose a clearing Mimo already reached")
     site = observation["candidate_sites"][candidate_id]
     if action == "build" and decision.get("kind") not in BUILD_KINDS:
         raise ValueError("Model chose an unknown structure")
@@ -631,6 +641,8 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                 state["status"] = "travelling"
                 state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_TICK_SECONDS", "20"))
             else:
+                if all(distance(target, visited) >= 8 for visited in state["visited_sites"]):
+                    state["visited_sites"] = [*state["visited_sites"], {"x": target["x"], "z": target["z"]}][-64:]
                 state["explore_target"] = None
                 state["status"] = "exploring"
                 state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_THINK_SECONDS", "900"))

@@ -243,6 +243,29 @@ class LiveMimoTests(unittest.TestCase):
         self.assertLessEqual(abs(moved["position"]["x"] - 73) + abs(moved["position"]["z"]), 8)
         self.assertGreaterEqual(moved["position"]["y"], 1)
         self.assertEqual(moved["status"], "travelling")
+        target = planned["explore_target"]
+        for _ in range(20):
+            state = self.store.snapshot()
+            if state["explore_target"] is None:
+                break
+            run_tick(self.store, decide, state["next_tick_at"] + 1)
+        arrived = MimoStore(self.path).snapshot()
+        self.assertIsNone(arrived["explore_target"])
+        self.assertIn(target, arrived["visited_sites"])
+
+    def test_exploration_excludes_current_and_previously_visited_clearings(self):
+        state = self.store.snapshot()
+        original = observe_world(state)
+        current_site, old_site = original["candidate_sites"][:2]
+        state["position"] = {"x": float(current_site["x"]), "y": 1.0, "z": float(current_site["z"])}
+        state["visited_sites"] = [{"x": old_site["x"], "z": old_site["z"]}]
+        observation = observe_world(state)
+
+        self.assertNotIn(current_site["id"], observation["explorable_site_ids"])
+        self.assertNotIn(old_site["id"], observation["explorable_site_ids"])
+        with self.assertRaises(ValueError):
+            validate_decision({"action": "explore", "candidate_id": current_site["id"],
+                               "thought": "I want to explore."}, observation)
 
     def test_owner_can_craft_and_place_real_machines(self):
         self.store.owner_action("craft", "planks")

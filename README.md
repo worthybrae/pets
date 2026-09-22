@@ -28,7 +28,7 @@ For 24/7 operation, run the API and worker on an always-on host with a persisten
 ## Current world rules
 
 - Mimo has persistent energy, mood, traits, inventory, projects, individual block edits, and an activity log.
-- Its observation includes known structures, the pond, nearby vertical block columns, and validated open sites. Build choices are limited to available space and a set of structure compilers.
+- Its observation includes known structures, the pond, nearby vertical block columns, and validated open sites. Mimo remembers visited clearings and excludes them from new exploration choices while keeping them available for building. Build choices are limited to available space and a set of structure compilers.
 - The world has 24 block types, including transparent glass and water, glowing blocks, ore, wood, sand, and gravel. Ground has small hills; Mimo can place blocks above ground and dig to four blocks below it.
 - Placed sand and gravel fall one cell per world tick when unsupported. Water is translucent and gently animated in the viewer; it does not flow yet.
 - Mining yields materials. Logs become planks and sticks; a placed crafting table unlocks furnace and pickaxe recipes. A placed furnace consumes fuel to smelt ore or sand. Inventory and placed machines survive restart.
