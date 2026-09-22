@@ -97,7 +97,7 @@ export default function WorldPreview() {
 
   const handleChunkChange = useCallback((x: number, z: number) => {
     setCameraChunk({ x, z })
-    setChunks((current) => ensureTerrainAround(current, x * 16, z * 16, 3))
+    setChunks((current) => ensureTerrainAround(current, x * 16, z * 16, 5))
   }, [])
 
   useEffect(() => { saveBuildProgress(progress) }, [progress])
@@ -158,7 +158,7 @@ export default function WorldPreview() {
           <ambientLight intensity={1.3} />
           <directionalLight position={[12, 24, 16]} intensity={2.4} />
           <directionalLight position={[-10, 8, -12]} intensity={0.8} color="#d5eaff" />
-          <WorldManager chunks={chunks} cameraChunkX={cameraChunk.x} cameraChunkZ={cameraChunk.z} viewDistance={3} />
+          <WorldManager chunks={chunks} cameraChunkX={cameraChunk.x} cameraChunkZ={cameraChunk.z} viewDistance={5} />
           {project.landmark && progress.stepIndex < project.voxels.length && (
             <mesh position={[project.site.x, project.landmark.centerY, project.site.z]}>
               <sphereGeometry args={[project.landmark.radius + 0.5, 20, 14]} />
