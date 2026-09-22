@@ -41,7 +41,9 @@ npm ci
 npm run dev
 ```
 
-Open the local URL shown by Vite. The home page leads to `/preview`, where you can orbit the island, zoom, and greet Mimo.
+Open the local URL shown by Vite. The home page leads to `/preview`. Mimo builds a large orbital station in batches, then keeps adding smaller projects across generated terrain. You can orbit, zoom, and greet Mimo. Build progress is saved in this browser.
+
+The preview uses a deterministic project planner. It does not yet read the web or use an AI model to choose structures.
 
 ### Prerequisites
 

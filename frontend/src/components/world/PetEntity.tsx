@@ -17,6 +17,8 @@ interface PetEntityProps {
   onPetClick?: () => void
   hopSignal?: number
   children?: ReactNode
+  destination?: { x: number; z: number; token: number }
+  onArrive?: () => void
 }
 
 function randomTarget(origin: { x: number; z: number }, radius: number) {
@@ -29,7 +31,7 @@ function randomTarget(origin: { x: number; z: number }, radius: number) {
   )
 }
 
-export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, onPetClick, hopSignal = 0, children }: PetEntityProps) {
+export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, onPetClick, hopSignal = 0, children, destination, onArrive }: PetEntityProps) {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const timeRef = useRef(0)
@@ -45,6 +47,9 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
   const origin = useRef({ x: pet.position.x, z: pet.position.z })
   const hopTime = useRef(0)
   const lastHopSignal = useRef(hopSignal)
+  const destinationX = destination?.x
+  const destinationZ = destination?.z
+  const destinationToken = destination?.token
 
   useEffect(() => {
     if (hopSignal !== lastHopSignal.current) {
@@ -52,6 +57,12 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
       lastHopSignal.current = hopSignal
     }
   }, [hopSignal])
+
+  useEffect(() => {
+    if (destinationX === undefined || destinationZ === undefined) return
+    targetPos.current.set(destinationX, 0, destinationZ)
+    wanderState.current = 'walking'
+  }, [destinationX, destinationZ, destinationToken])
 
   useFrame((_, delta) => {
     timeRef.current += delta
@@ -80,7 +91,7 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
     stateTimer.current -= delta
 
     if (wanderState.current === 'idle') {
-      if (stateTimer.current <= 0) {
+      if (!destination && stateTimer.current <= 0) {
         targetPos.current = randomTarget(origin.current, wanderRadius)
         wanderState.current = 'walking'
       }
@@ -93,6 +104,7 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
         // Arrived — pause
         wanderState.current = 'pausing'
         stateTimer.current = PAUSE_MIN + Math.random() * (PAUSE_MAX - PAUSE_MIN)
+        if (destination) onArrive?.()
       } else {
         dir.normalize()
         const step = Math.min(WALK_SPEED * delta, dist)
@@ -113,7 +125,7 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
         })
       }
     } else if (wanderState.current === 'pausing') {
-      if (stateTimer.current <= 0) {
+      if (!destination && stateTimer.current <= 0) {
         targetPos.current = randomTarget(origin.current, wanderRadius)
         wanderState.current = 'walking'
       }
