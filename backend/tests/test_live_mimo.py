@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.services.live_mimo import MimoStore, _model_decision, observe_world, run_tick, validate_decision
+from backend.services.live_mimo import MimoStore, _jev_decision, _model_decision, observe_world, run_tick, validate_decision
 
 
 class LiveMimoTests(unittest.TestCase):
@@ -42,11 +42,59 @@ class LiveMimoTests(unittest.TestCase):
     def test_luna_stays_paused_without_api_key(self):
         state = self.store.snapshot()
         with patch.dict("os.environ", {"MIMO_MODEL": "gpt-6-luna", "OPENAI_API_KEY": "",
-                                     "MIMO_MODEL_API_KEY": "", "MIMO_MODEL_URL": "https://api.openai.com/v1/chat/completions"}), \
+                                     "MIMO_MODEL_API_KEY": "", "TYPESAFE_API_KEY": "",
+                                     "MIMO_MODEL_URL": "https://api.openai.com/v1/chat/completions"}), \
              patch("backend.services.live_mimo.urlopen") as urlopen_mock:
             run_tick(self.store, timestamp=state["next_tick_at"] + 1)
         self.assertEqual(self.store.snapshot()["status"], "waiting_for_model")
         urlopen_mock.assert_not_called()
+
+    def test_jev_selects_valid_build_without_openai_key(self):
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(request.get_header("Authorization"), "Bearer test-jev-key")
+            body = json.loads(request.data)
+            requests.append(body)
+            self.assertEqual(body["model"], "jev-latest")
+            self.assertIn("build_greenhouse_0", body["questions"]["next_action"]["criteria"])
+            self.assertNotIn("creative_plan", body["questions"]["next_action"]["criteria"])
+            return io.BytesIO(b'{"answers":{"next_action":{"type":"choice","choice":"build_greenhouse_0","confidence":0.8}}}')
+
+        with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-jev-key", "OPENAI_API_KEY": "",
+                                     "MIMO_MODEL_API_KEY": ""}), \
+             patch("backend.services.live_mimo.urlopen", fake_urlopen):
+            state = self.store.snapshot()
+            result = _jev_decision(state, observe_world(state), [])
+
+        self.assertEqual(result["action"], "build")
+        self.assertEqual(result["kind"], "greenhouse")
+        self.assertEqual(result["candidate_id"], 0)
+        self.assertEqual(len(requests), 1)
+
+    def test_jev_can_route_creative_work_to_luna(self):
+        def fake_urlopen(request, timeout):
+            body = json.loads(request.data)
+            self.assertIn("creative_plan", body["questions"]["next_action"]["criteria"])
+            return io.BytesIO(b'{"answers":{"next_action":{"type":"choice","choice":"creative_plan"}}}')
+
+        with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-jev-key", "OPENAI_API_KEY": "test-openai-key"}), \
+             patch("backend.services.live_mimo.urlopen", fake_urlopen), \
+             patch("backend.services.live_mimo._model_decision", return_value={"action": "rest", "thought": "I will rest."}) as luna:
+            state = self.store.snapshot()
+            result = _jev_decision(state, observe_world(state), [])
+
+        self.assertEqual(result["action"], "rest")
+        luna.assert_called_once()
+
+    def test_jev_rejects_unoffered_action(self):
+        with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-jev-key"}), \
+             patch("backend.services.live_mimo.urlopen", return_value=io.BytesIO(
+                 b'{"answers":{"next_action":{"type":"choice","choice":"delete_world"}}}')):
+            state = self.store.snapshot()
+            with self.assertRaises(ValueError):
+                _jev_decision(state, observe_world(state), [])
 
     def test_model_chosen_build_keeps_progressing_without_a_browser(self):
         first = self.store.snapshot()

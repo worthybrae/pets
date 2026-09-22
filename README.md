@@ -1,6 +1,6 @@
 # Mimo's voxel world
 
-Mimo is a persistent pet with a server-owned world. A separate worker observes its stored world, asks a configured chat model what to do, validates the choice, and saves its actions. The `/preview` page renders that state; closing the page does not stop the worker.
+Mimo is a persistent pet with a server-owned world. A separate worker observes its stored world, asks Jev to choose from valid actions, validates the choice, and saves its actions. When an OpenAI key is also configured, Jev can route a creative decision to Luna. The `/preview` page renders that state; closing the page does not stop the worker.
 
 ## Run locally
 
@@ -13,13 +13,13 @@ npm run dev
 
 Open `http://127.0.0.1:5173/preview`. The API runs at `http://localhost:8000/api/mimo`. Both API and Redis ports bind to localhost for this prototype. The Compose volume `pets_mimo_data` keeps Mimo's world, inventory, activity, and block edits across container restarts. Redis remains available for the older multi-pet routes, on host port 6380 by default.
 
-Mimo defaults to the GPT-6 Luna API model and pauses until an API key is configured. To enable autonomous choices, make a local `.env` from `.env.example` and set `OPENAI_API_KEY`. API usage is billed separately from a ChatGPT subscription. A compatible local chat endpoint can instead be used with `MIMO_MODEL_URL` and `MIMO_MODEL`; a model served on the host must use a Docker-reachable host name such as `host.docker.internal`. Recreate the containers after changing model settings:
+To enable autonomous choices, make a local `.env` from `.env.example` and set `TYPESAFE_API_KEY`. Jev chooses among observed build sites, exploration, rest, and currently valid crafting actions. Set `OPENAI_API_KEY` as well if you want Jev to be able to route more creative decisions to GPT-6 Luna. Without a TypeSafe key, the worker can still use Luna alone when its OpenAI key is set. These API keys are billed separately from a ChatGPT subscription. A compatible local chat endpoint can instead be used with `MIMO_MODEL_URL` and `MIMO_MODEL`; a model served on the host must use a Docker-reachable host name such as `host.docker.internal`. Recreate the containers after changing model settings:
 
 ```bash
 docker compose up -d --force-recreate api mimo-worker
 ```
 
-The worker wakes every five seconds to check if an action is due. It advances an active build every 20 seconds and normally asks the model for one new choice every 15 minutes after a small action. The default cap is 64 model attempts per UTC day. Set `MIMO_THINK_SECONDS`, `MIMO_TICK_SECONDS`, and `MIMO_MAX_DECISIONS_PER_DAY` to adjust those limits.
+The worker wakes every five seconds to check if an action is due. It advances an active build every 20 seconds and normally asks Jev for one new choice every 15 minutes after a small action. The default cap is 64 decision attempts per UTC day. Set `MIMO_THINK_SECONDS`, `MIMO_TICK_SECONDS`, and `MIMO_MAX_DECISIONS_PER_DAY` to adjust those limits.
 
 For 24/7 operation, run the API and worker on an always-on host with a persistent `/data` volume and a configured model. A laptop sleeping or Docker being stopped pauses Mimo; the stored world remains intact.
 

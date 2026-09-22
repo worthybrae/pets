@@ -398,7 +398,117 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
     return json.loads(content)
 
 
+def _jev_decision(state: dict, observation: dict, events: list[dict]) -> dict:
+    """Ask Jev to select one executable action from the observed world."""
+    api_key = os.environ.get("TYPESAFE_API_KEY")
+    if not api_key:
+        raise RuntimeError("Set TYPESAFE_API_KEY to enable Jev decisions.")
+
+    options: dict[str, tuple[str, dict]] = {
+        "rest": ("Rest to recover energy or wait for a better opportunity.",
+                 {"action": "rest", "thought": "I want to rest and think for a while."})
+    }
+    sites = observation["candidate_sites"]
+    recent = observation["recent_builds"][-3:]
+    for kind in BUILD_KINDS:
+        if kind == "boardwalk":
+            continue
+        for candidate_id, site in enumerate(sites[:2]):
+            option_id = f"build_{kind}_{candidate_id}"
+            description = (f"Build a {kind.replace('_', ' ')} in clearing {candidate_id} at "
+                           f"({site['x']}, {site['z']}), near {site['nearest']}. "
+                           f"{'Recently built; prefer variety.' if kind in recent else 'Adds something new to the world.'}")
+            options[option_id] = (description, {"action": "build", "kind": kind,
+                                                    "candidate_id": candidate_id,
+                                                    "thought": f"I want to build a {kind.replace('_', ' ')} here."})
+    if "boardwalk" not in (plan["kind"] for plan in state["plans"]):
+        options["build_boardwalk"] = ("Build a boardwalk across the pond.",
+                                       {"action": "build", "kind": "boardwalk", "thought": "I want to cross the pond."})
+    for candidate_id, site in enumerate(sites[:3]):
+        options[f"explore_{candidate_id}"] = (
+            f"Explore clearing {candidate_id} at ({site['x']}, {site['z']}) near {site['nearest']}.",
+            {"action": "explore", "candidate_id": candidate_id,
+             "thought": "I want to see what lies beyond my last project."})
+
+    inventory = state["inventory"]
+    stations = set(observation["nearby_stations"])
+    for recipe_name, recipe in RECIPES.items():
+        required_station = recipe.get("station")
+        if required_station and required_station not in stations:
+            continue
+        if all(inventory.get(item, 0) >= amount for item, amount in recipe["ingredients"].items()):
+            options[f"craft_{recipe_name}"] = (
+                f"Craft {recipe_name.replace('_', ' ')} from available materials.",
+                {"action": "craft", "recipe": recipe_name,
+                 "thought": f"I can make {recipe_name.replace('_', ' ')} with what I have."})
+    if "furnace" in stations and (inventory.get("coal", 0) or inventory.get("planks", 0)):
+        for input_item in SMELTING:
+            if inventory.get(input_item, 0):
+                options[f"smelt_{input_item}"] = (
+                    f"Smelt {input_item.replace('_', ' ')} in the nearby furnace.",
+                    {"action": "smelt", "input_item": input_item,
+                     "thought": f"I can smelt this {input_item.replace('_', ' ')}."})
+    for material in ("crafting_table", "furnace"):
+        if inventory.get(material, 0) and material not in stations:
+            column = next((column for column in observation["nearby_columns"]
+                           if column["x"] != round(state["position"]["x"])
+                           and any(layer["y"] == 1 and layer["material"] == "air" for layer in column["layers"])), None)
+            if column:
+                options[f"place_{material}"] = (
+                    f"Place an owned {material.replace('_', ' ')} nearby to unlock more recipes.",
+                    {"action": "place", "x": column["x"], "y": 1, "z": column["z"], "material": material,
+                     "thought": f"I should set up my {material.replace('_', ' ')}."})
+
+    # Jev routes to Luna only when an OpenAI credential is configured. Its
+    # selected action is then validated by the same world rules as every option.
+    if os.environ.get("MIMO_MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        options["creative_plan"] = (
+            "Ask Luna for a novel detailed voxel action when the fixed choices would feel repetitive.",
+            {"action": "creative_plan"})
+
+    request_body = {
+        "model": os.environ.get("TYPESAFE_MODEL", "jev-latest"),
+        "state": {
+            "pet": {"personality": state["personality"], "energy": round(state["energy"]),
+                    "mood": round(state["mood"]), "position": state["position"]},
+            "current_project": state["plans"][state["currentIndex"]]["kind"],
+            "recent_builds": recent,
+            "inventory": inventory,
+            "nearby_features": observation["features"][-8:],
+            "recent_events": [event["text"] for event in events[:5]],
+        },
+        "questions": {"next_action": {
+            "type": "choice",
+            "instructions": "Choose the best useful next action for this curious pet. Favor variety, progress, and its needs. Choose only from the offered actions.",
+            "criteria": {option_id: description for option_id, (description, _) in options.items()},
+        }},
+    }
+    url = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
+    headers = {"Content-Type": "application/json", "Accept": "application/json",
+               "User-Agent": "curl/8.7.1", "Authorization": f"Bearer {api_key}"}
+    try:
+        with urlopen(Request(url, data=json.dumps(request_body).encode(), headers=headers), timeout=20) as response:
+            answer = json.load(response)["answers"]["next_action"]
+    except (HTTPError, URLError) as error:
+        raise RuntimeError(f"Jev request failed: {error}") from error
+    selected = answer.get("choice")
+    if selected not in options:
+        raise ValueError("Jev selected an action outside the offered choices")
+    decision = options[selected][1]
+    if decision["action"] == "creative_plan":
+        return _model_decision(state, observation, events)
+    return decision
+
+
+def _autonomous_decision(state: dict, observation: dict, events: list[dict]) -> dict:
+    if os.environ.get("TYPESAFE_API_KEY"):
+        return _jev_decision(state, observation, events)
+    return _model_decision(state, observation, events)
+
+
 def model_configured() -> bool:
+    if os.environ.get("TYPESAFE_API_KEY"):
+        return True
     url = os.environ.get("MIMO_MODEL_URL", "https://api.openai.com/v1/chat/completions")
     has_key = bool(os.environ.get("MIMO_MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     return bool(os.environ.get("MIMO_MODEL", "gpt-6-luna")) and (has_key or urlsplit(url).hostname != "api.openai.com")
@@ -444,7 +554,7 @@ def validate_decision(decision: dict, observation: dict) -> dict:
             "nearby": site["nearest"], "distance": site["distance_to_nearest"], "thought": thought}
 
 
-def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] = _model_decision,
+def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] = _autonomous_decision,
              timestamp: float | None = None) -> bool:
     timestamp = now() if timestamp is None else timestamp
     store.heartbeat(timestamp)
@@ -506,8 +616,8 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
             snapshot = store.snapshot()
             observation = observe_world(state, snapshot["block_edits"])
             events = snapshot["events"]
-            if decide is _model_decision and not model_configured():
-                raise RuntimeError("Set OPENAI_API_KEY to enable GPT-6 Luna, or configure MIMO_MODEL_URL and MIMO_MODEL for a local model.")
+            if decide is _autonomous_decision and not model_configured():
+                raise RuntimeError("Set TYPESAFE_API_KEY for Jev or OPENAI_API_KEY for GPT-6 Luna.")
             state["decisions_today"] = state.get("decisions_today", 0) + 1
             choice = validate_decision(decide(state, observation, events), observation)
             state["last_thought"] = choice["thought"]
