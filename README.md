@@ -13,7 +13,7 @@ npm run dev
 
 Open `http://127.0.0.1:5173/preview`. The API runs at `http://localhost:8000/api/mimo`. Both API and Redis ports bind to localhost for this prototype. The Compose volume `pets_mimo_data` keeps Mimo's world, inventory, activity, and block edits across container restarts. Redis remains available for the older multi-pet routes, on host port 6380 by default.
 
-Mimo pauses if no model is configured. To enable autonomous choices, make a local `.env` from `.env.example` and set `MIMO_MODEL` plus `OPENAI_API_KEY`. A compatible local chat endpoint can be used with `MIMO_MODEL_URL` and `MIMO_MODEL`; a model served on the host must use a Docker-reachable host name such as `host.docker.internal`. Recreate the containers after changing model settings:
+Mimo defaults to the GPT-6 Luna API model and pauses until an API key is configured. To enable autonomous choices, make a local `.env` from `.env.example` and set `OPENAI_API_KEY`. API usage is billed separately from a ChatGPT subscription. A compatible local chat endpoint can instead be used with `MIMO_MODEL_URL` and `MIMO_MODEL`; a model served on the host must use a Docker-reachable host name such as `host.docker.internal`. Recreate the containers after changing model settings:
 
 ```bash
 docker compose up -d --force-recreate api mimo-worker

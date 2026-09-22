@@ -15,7 +15,7 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       MIMO_DB_PATH: /data/mimo.sqlite3
-      MIMO_MODEL: ${MIMO_MODEL:-}
+      MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
       MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
       MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -33,7 +33,7 @@ services:
     command: ["python", "-m", "backend.workers.mimo_worker"]
     environment:
       MIMO_DB_PATH: /data/mimo.sqlite3
-      MIMO_MODEL: ${MIMO_MODEL:-}
+      MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
       MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
       MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

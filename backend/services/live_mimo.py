@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterator
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from backend.services.crafting import BLOCKS, RECIPES, SMELTING, add_item, can_harvest, craft, smelt, take_items
@@ -357,11 +358,12 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
 
 
 def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
-    model = os.environ.get("MIMO_MODEL")
+    model = os.environ.get("MIMO_MODEL", "gpt-6-luna")
     api_key = os.environ.get("MIMO_MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY")
     url = os.environ.get("MIMO_MODEL_URL", "https://api.openai.com/v1/chat/completions")
-    if not model or (not api_key and "api.openai.com" in url):
-        raise RuntimeError("Set MIMO_MODEL and OPENAI_API_KEY (or MIMO_MODEL_URL for a local compatible model).")
+    is_openai_api = urlsplit(url).hostname == "api.openai.com"
+    if not model or (not api_key and is_openai_api):
+        raise RuntimeError("Set OPENAI_API_KEY to enable GPT-6 Luna, or configure MIMO_MODEL_URL and MIMO_MODEL for a local model.")
     prompt = {
         "identity": "You are Mimo, a curious, creative voxel pet. Your thoughts and choices persist while your owner is away.",
         "personality": state["personality"], "energy": round(state["energy"]), "mood": round(state["mood"]),
@@ -370,10 +372,18 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
         "instructions": "Choose one action: build, explore, rest, place, dig, craft, or smelt. For build choose a kind and candidate_id from candidate_sites. Boardwalk goes over the pond. For place/dig choose integer x,y,z within 6 blocks of your position; placing consumes that block from inventory. Digging stone and ore requires a pickaxe. Craft uses a recipe name; some recipes require a placed crafting_table within 6 blocks. Smelt uses input_item and needs a placed furnace, fuel and ore. You can build upward and excavate to y=-4. Use nearby_columns and inventory to plan a meaningful sequence. Respond only with JSON: {action, kind, candidate_id, x, y, z, material, recipe, input_item, thought}. Thought must be one brief first-person sentence. Do not invent a build site outside the candidates.",
         "allowed_builds": BUILD_KINDS, "allowed_blocks": sorted(BLOCK_TYPES - {"air"}),
     }
-    body = json.dumps({"model": model, "messages": [
+    request_body = {"model": model, "messages": [
         {"role": "system", "content": "You control one persistent voxel pet. Return valid JSON only."},
         {"role": "user", "content": json.dumps(prompt)},
-    ], "temperature": 0.8, "max_tokens": 180}).encode()
+    ]}
+    if model == "gpt-6-luna" and is_openai_api:
+        # Luna accepts Chat Completions, but reasoning models use the newer
+        # completion limit and do not accept the old sampling temperature.
+        request_body.update({"reasoning_effort": "none", "max_completion_tokens": 256,
+                             "response_format": {"type": "json_object"}})
+    else:
+        request_body.update({"temperature": 0.8, "max_tokens": 180})
+    body = json.dumps(request_body).encode()
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -391,7 +401,7 @@ def _model_decision(state: dict, observation: dict, events: list[dict]) -> dict:
 def model_configured() -> bool:
     url = os.environ.get("MIMO_MODEL_URL", "https://api.openai.com/v1/chat/completions")
     has_key = bool(os.environ.get("MIMO_MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
-    return bool(os.environ.get("MIMO_MODEL")) and (has_key or "api.openai.com" not in url)
+    return bool(os.environ.get("MIMO_MODEL", "gpt-6-luna")) and (has_key or urlsplit(url).hostname != "api.openai.com")
 
 
 def validate_decision(decision: dict, observation: dict) -> dict:
@@ -497,7 +507,7 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
             observation = observe_world(state, snapshot["block_edits"])
             events = snapshot["events"]
             if decide is _model_decision and not model_configured():
-                raise RuntimeError("Set MIMO_MODEL and OPENAI_API_KEY (or MIMO_MODEL_URL for a local compatible model).")
+                raise RuntimeError("Set OPENAI_API_KEY to enable GPT-6 Luna, or configure MIMO_MODEL_URL and MIMO_MODEL for a local model.")
             state["decisions_today"] = state.get("decisions_today", 0) + 1
             choice = validate_decision(decide(state, observation, events), observation)
             state["last_thought"] = choice["thought"]

@@ -1,9 +1,11 @@
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.services.live_mimo import MimoStore, observe_world, run_tick, validate_decision
+from backend.services.live_mimo import MimoStore, _model_decision, observe_world, run_tick, validate_decision
 
 
 class LiveMimoTests(unittest.TestCase):
@@ -14,6 +16,37 @@ class LiveMimoTests(unittest.TestCase):
 
     def tearDown(self):
         self.directory.cleanup()
+
+    def test_luna_request_uses_supported_chat_parameters(self):
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            self.assertEqual(timeout, 45)
+            requests.append(json.loads(request.data))
+            return io.BytesIO(b'{"choices":[{"message":{"content":"{\\"action\\":\\"rest\\",\\"thought\\":\\"I will rest.\\"}"}}]}')
+
+        with patch.dict("os.environ", {"MIMO_MODEL": "gpt-6-luna", "OPENAI_API_KEY": "test-only-key",
+                                     "MIMO_MODEL_URL": "https://api.openai.com/v1/chat/completions"}), \
+             patch("backend.services.live_mimo.urlopen", fake_urlopen):
+            state = self.store.snapshot()
+            result = _model_decision(state, observe_world(state), [])
+
+        self.assertEqual(result["action"], "rest")
+        self.assertEqual(requests[0]["model"], "gpt-6-luna")
+        self.assertEqual(requests[0]["reasoning_effort"], "none")
+        self.assertEqual(requests[0]["max_completion_tokens"], 256)
+        self.assertEqual(requests[0]["response_format"], {"type": "json_object"})
+        self.assertNotIn("temperature", requests[0])
+        self.assertNotIn("max_tokens", requests[0])
+
+    def test_luna_stays_paused_without_api_key(self):
+        state = self.store.snapshot()
+        with patch.dict("os.environ", {"MIMO_MODEL": "gpt-6-luna", "OPENAI_API_KEY": "",
+                                     "MIMO_MODEL_API_KEY": "", "MIMO_MODEL_URL": "https://api.openai.com/v1/chat/completions"}), \
+             patch("backend.services.live_mimo.urlopen") as urlopen_mock:
+            run_tick(self.store, timestamp=state["next_tick_at"] + 1)
+        self.assertEqual(self.store.snapshot()["status"], "waiting_for_model")
+        urlopen_mock.assert_not_called()
 
     def test_model_chosen_build_keeps_progressing_without_a_browser(self):
         first = self.store.snapshot()
