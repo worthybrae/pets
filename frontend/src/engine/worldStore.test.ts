@@ -90,6 +90,18 @@ describe('WorldStore', () => {
     expect(cells).toContainEqual([5, 30, 5, blockId('limestone')])
   })
 
+  it('orders layers by first call even when a layer starts empty', () => {
+    const store = new WorldStore()
+    store.setOverlay([], 'finished')
+    store.setOverlay([{ x: 5, y: 30, z: 5, material: 'limestone' }], 'current')
+    store.setOverlay([{ x: 5, y: 30, z: 5, material: 'planks' }], 'finished')
+    expect(store.getBlock(5, 30, 5)).toBe(blockId('limestone'))
+    const edits = Array.from(store.editsNear(0, 0))
+    const cells = []
+    for (let i = 0; i < edits.length; i += 4) cells.push(edits.slice(i, i + 4))
+    expect(cells).toContainEqual([5, 30, 5, blockId('limestone')])
+  })
+
   it('tells subscribers which columns changed', () => {
     const store = new WorldStore()
     const seen: string[][] = []

@@ -117,25 +117,25 @@ export class WorldStore {
   setOverlay(blocks: PlacedBlock[], layer = 'default'): string[] {
     const next = new Map<string, number>()
     for (const { x, y, z, material } of blocks) next.set(cellKey(x, y, z), blockId(material))
-    const existing = this.overlayLayers.get(layer)
-    const previousCells = existing?.cells ?? new Map<string, number>()
+    let record = this.overlayLayers.get(layer)
+    const previousCells = record?.cells ?? new Map<string, number>()
     const dirty = new Set<string>()
     for (const [cell, id] of next) if (previousCells.get(cell) !== id) markCell(dirty, cell)
     for (const cell of previousCells.keys()) if (!next.has(cell)) markCell(dirty, cell)
+    // Register a layer on its first call, even an empty one, so layer order always
+    // follows the order of first use rather than the order layers first get content.
+    if (!record) {
+      record = { cells: new Map(), grouped: new Map() }
+      this.overlayLayers.set(layer, record)
+    }
     if (dirty.size === 0) return []
     const grouped: CellMap = new Map()
     for (const [cell, id] of next) {
       const [x, y, z] = cell.split(',').map(Number)
       put(grouped, x, y, z, id)
     }
-    // Reuse the existing layer record (keeping its creation-order position) when it
-    // already exists; only a first-time layer name is inserted, at the newest end.
-    if (existing) {
-      existing.cells = next
-      existing.grouped = grouped
-    } else {
-      this.overlayLayers.set(layer, { cells: next, grouped })
-    }
+    record.cells = next
+    record.grouped = grouped
     return this.emit(dirty)
   }
 
