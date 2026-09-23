@@ -54,8 +54,11 @@ logger = logging.getLogger(__name__)
 
 RECENT_LIMIT = 20
 # Finished walks, swims and falls keep their timed path so the viewer can replay a short step it
-# never saw running. Only the newest few entries keep it, so the saved state stays small.
+# never saw running. Only entries that ended within PATH_WINDOW real seconds of the newest one keep
+# it (the viewer replays about 1.5 s behind), and never more than the newest PATH_KEEP, so the
+# saved state and the /api/mimo payload stay small.
 PATH_KEEP = 4
+PATH_WINDOW = 10.0
 MAX_STEPS_PER_ADVANCE = 1000
 MAX_SEARCHES_PER_TICK = 2  # route()/start_step(walk) calls allowed across one whole advance_world call
 GRAVITY = 32.0  # blocks per second squared: a fall of b blocks takes sqrt(2 b / GRAVITY) seconds
@@ -142,8 +145,9 @@ def record(state: dict, step: dict, ended_at: float, result: str, reason: str | 
     if code:
         entry["code"] = code
     recent = [*state["recent_actions"], entry][-RECENT_LIMIT:]
-    for older in recent[:-PATH_KEEP]:
-        older.pop("path", None)
+    for index, older in enumerate(recent[:-1]):
+        if index < len(recent) - PATH_KEEP or older["ended_at"] < ended_at - PATH_WINDOW:
+            older.pop("path", None)
     state["recent_actions"] = recent
 
 
@@ -156,8 +160,6 @@ def fail(state: dict, step: dict, at: float, reason: str, code: str = "bad_step"
                              "purpose": step.get("purpose"), "at": at, "seq": seq}
     state["action"] = None
     state["queue"] = []
-
-
 
 
 def as_started(spec: dict, at: float) -> dict:
@@ -301,8 +303,11 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
         events.append((at, "wake", f"{state['name']} woke up."))
     if step["kind"] == "walk" and not step["reached"]:
         target = step["target"]
-        state["queue"].insert(0, {"kind": "walk", "target": [target["x"], target["y"], target["z"]],
-                                  "reach": step["reach"], "segments": step["segments"] + 1})
+        segment = {"kind": "walk", "target": [target["x"], target["y"], target["z"]], "reach": step["reach"],
+                   "segments": step["segments"] + 1}
+        if "purpose" in step:
+            segment["purpose"] = step["purpose"]
+        state["queue"].insert(0, segment)
     notify(context, state, step, at)
     return False
 

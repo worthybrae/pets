@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
 
-from backend.survival.actions import ensure_actions
+from backend.survival.actions import ensure_actions, record
 from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
 from backend.survival.models import (
@@ -166,7 +166,8 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
 
 def apply_choice(state: dict, choice: Choice, now: float) -> None:
     """Make the choice the current purpose. A new purpose drops the old plan (or, during a reflex,
-    the steps the reflex set aside) and ends a wait so the next tick plans at once."""
+    the steps the reflex set aside) and ends a wait, or a sleep Mimo took while it waited for a
+    choice, so the next tick plans at once."""
     brain = ensure_brain(state)
     changed = choice.purpose != brain["purpose"]
     brain.update(pending=None, picker=choice.picker, chosen_at=now)
@@ -177,7 +178,11 @@ def apply_choice(state: dict, choice: Choice, now: float) -> None:
             brain["set_aside"] = []
         else:
             state["queue"] = []
-            if (state.get("action") or {}).get("kind") == "wait":
+            action = state.get("action") or {}
+            if action.get("kind") == "wait":
+                state["action"] = None
+            elif action.get("kind") == "sleep" and "purpose" not in action and choice.purpose != "sleep":
+                record(state, action, now, "interrupted", "choice")
                 state["action"] = None
     state["last_thought"] = choice.thought
 
@@ -188,6 +193,7 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> 
         state = read_state(db)
         if state["died_at"] is not None:
             return None
+        ensure_actions(state)
         brain = ensure_brain(state)
         counters = calls_today(brain, now)
         for key, count in choice.calls.items():

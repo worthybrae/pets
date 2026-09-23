@@ -16,7 +16,7 @@ from backend.api.mimo import (
 )
 from backend.services.live_mimo import MimoStore
 from backend.survival.registry import LifeRegistry
-from backend.survival.snapshot import notable
+from backend.survival.snapshot import notable, replayable
 from backend.survival.tick import tick_life
 from backend.survival.triggers import new_brain
 from backend.survival.world import SurvivalWorld, read_state, write_state
@@ -248,6 +248,13 @@ class SurvivalApiTests(unittest.TestCase):
         mimo = get_mimo()
         self.assertEqual((mimo["purpose"], mimo["reflex"], mimo["picker"], mimo["choosing"]),
                          ("gather_wood", "head_home", "jev", False))
+
+    def test_only_replayable_paths_are_streamed(self):
+        path = [{"x": 1, "y": 9, "z": 2, "at": 10.0}, {"x": 2, "y": 9, "z": 2, "at": 10.9}]
+        old = {"kind": "walk", "started_at": 10.0, "ended_at": 10.9, "result": "done", "path": path}
+        new = {**old, "started_at": 30.0, "ended_at": 30.9}
+        self.assertEqual(replayable([old, new], 35.0), [{k: v for k, v in old.items() if k != "path"}, new])
+        self.assertIn("path", old)
 
     def test_memorials_skip_choices_and_reflexes(self):
         events = [{"kind": kind, "text": kind} for kind in ("purpose", "reflex", "found", "discovered", "trapped")]

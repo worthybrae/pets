@@ -19,6 +19,7 @@ from backend.survival.world import SurvivalWorld, read_state, write_state
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 DUSK = {**DAY, "phase": "dusk", "seconds_into_day": 2230.0}
+NIGHT = {**DAY, "phase": "night", "seconds_into_day": 3000.0}
 BORN = 1_000_000.0
 WAIT = [{"kind": "wait", "seconds": 1.0}]
 
@@ -60,6 +61,12 @@ class BrainPlanTests(unittest.TestCase):
         state["brain"]["pending"] = None
         brain_plan(state, brainy(), 5.0)
         self.assertEqual(state["brain"]["pending"]["reasons"], ["idle"])
+
+    def test_waiting_for_a_choice_at_night_is_sleeping(self):
+        state = pet()
+        plan = brain_plan(state, brainy(clock=lambda at: NIGHT), 0.0)
+        self.assertEqual([step["kind"] for step in plan], ["sleep"])
+        self.assertEqual(state["brain"]["pending"]["reasons"], ["born"])
 
     def test_a_purpose_plans_tagged_batches_until_it_is_done(self):
         state = pet()

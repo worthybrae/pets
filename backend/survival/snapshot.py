@@ -6,6 +6,7 @@ import math
 
 from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
+from backend.survival.actions import PATH_WINDOW
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
 from backend.survival.registry import LifeRegistry
@@ -36,6 +37,12 @@ def brain_view(brain: dict | None) -> dict:
     return {"purpose": brain.get("purpose"), "reflex": brain.get("reflex"), "picker": brain.get("picker"),
             "choosing": brain.get("pending") is not None}
 
+
+def replayable(recent: list[dict], now: float) -> list[dict]:
+    """Finished steps for the viewer. A path is sent only while the viewer (about 1.5 s behind)
+    can still replay it: steps that ended more than PATH_WINDOW seconds ago go without one."""
+    return [entry if "path" not in entry or entry["ended_at"] >= now - PATH_WINDOW
+            else {key: value for key, value in entry.items() if key != "path"} for entry in recent]
 
 
 def life_row(life: dict, scale: float, now: float) -> dict:
@@ -86,7 +93,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "cause": state["cause"],
         # Worlds from before M2 have no action fields until their first tick.
         "action": action_view(state.get("action")),
-        "recent_actions": state.get("recent_actions", []),
+        "recent_actions": replayable(state.get("recent_actions", []), now),
         **brain_view(state.get("brain")),
     }
 

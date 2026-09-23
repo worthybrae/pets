@@ -175,6 +175,29 @@ class ChoosingTests(unittest.TestCase):
         state = self.world.state()
         self.assertEqual((state["queue"], state["action"], state["brain"]["purpose"]), ([], None, "rest"))
 
+    def test_a_new_purpose_wakes_mimo_from_a_sleep_it_took_while_waiting(self):
+        def dozing(state):
+            ensure_brain(state).update(pending={"id": 7, "reasons": ["plan_done"], "since": BORN, "urgent": False})
+            state["action"] = {"kind": "sleep", "started_at": BORN}
+
+        self.edit(dozing)
+        ask = self.ask(BORN + 1, {})
+        store_choice(self.world, ask, Choice("go_home", "utility", "Hm.", {"model": 0, "luna": 0, "reflections": 0}),
+                     BORN + 1)
+        state = self.world.state()
+        self.assertIsNone(state["action"])
+        self.assertEqual(state["recent_actions"][-1]["result"], "interrupted")
+
+        def sleeping_on_purpose(state):
+            ensure_brain(state).update(pending={"id": 8, "reasons": ["hour"], "since": BORN, "urgent": False})
+            state["action"] = {"kind": "sleep", "started_at": BORN, "purpose": "sleep"}
+
+        self.edit(sleeping_on_purpose)
+        ask = self.ask(BORN + 2, {})
+        store_choice(self.world, ask, Choice("rest", "utility", "Hm.", {"model": 0, "luna": 0, "reflections": 0}),
+                     BORN + 2)
+        self.assertEqual(self.world.state()["action"]["kind"], "sleep")
+
     def test_the_worker_ticks_the_brain_and_answers_its_triggers(self):
         line = run_once(self.registry, None, BORN + 1, mind=BRAIN, chooser=self.chooser())
         self.assertIn(self.life["name"], line)

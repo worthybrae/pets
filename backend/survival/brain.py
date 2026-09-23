@@ -13,7 +13,8 @@ steps whenever Mimo's queue runs dry:
    that is no longer valid, or has nothing left to do, is finished: `plan_done` asks for a new
    choice. A planner that crashes (or returns something other than a list of steps) is logged
    once and reported like a failure.
-4. With no purpose (a choice is pending), Mimo waits a second at a time.
+4. With no purpose (a choice is pending), Mimo follows M1's rest rule while it waits: it sleeps
+   at night (or when exhausted) and otherwise waits a second at a time.
 
 Reflexes (backend.survival.reflexes) take over through the interrupt hook. When a reflex's steps
 run out, brain_plan ends it and resumes the purpose's steps it set aside.
@@ -35,6 +36,7 @@ from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visi
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, Purpose, is_valid
 from backend.survival.reflexes import end_reflex, reflex_hook
+from backend.survival.script import rest_plan
 from backend.survival.senses import ORES, ores_around
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell, label
@@ -48,11 +50,13 @@ PENDING_WAIT = 1.0
 PENALTY_GAME_SECONDS = 600.0
 
 
-def waiting(state: dict, at: float) -> list[dict]:
-    """Wait a second for a choice, asking for one if nothing is pending."""
+def waiting(state: dict, context: ActionContext, at: float) -> list[dict]:
+    """Wait for a choice, asking for one if nothing is pending: asleep at night (rest_plan's
+    rule), else a second at a time so a choice starts promptly."""
     if ensure_brain(state)["pending"] is None:
         mark_trigger(state, "idle", at)
-    return [{"kind": "wait", "seconds": PENDING_WAIT}]
+    plan = rest_plan(state, context, at)
+    return plan if plan and plan[0]["kind"] == "sleep" else [{"kind": "wait", "seconds": PENDING_WAIT}]
 
 
 def finish_purpose(state: dict, at: float, reason: str) -> None:
@@ -110,7 +114,7 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
             return resumed
     purpose = PURPOSES.get(brain["purpose"]) if brain["purpose"] else None
     if purpose is None:
-        return waiting(state, at)
+        return waiting(state, context, at)
     failure = new_failure(state, brain)
     if failure is not None:
         if brain["replans"] >= 1:
@@ -122,7 +126,7 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
                 return escape
             forget_unreachable_home(context, purpose.name, failure)
             report(state, context, purpose.name, at, failure["reason"])
-            return waiting(state, at)
+            return waiting(state, context, at)
         brain["handled_failure"] = failure
         brain["replans"] += 1
     elif brain["planned_at"] is not None:
@@ -131,10 +135,10 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     steps = plan_batch(purpose, in_tick(state, context, at), context)
     if steps is None:
         report(state, context, purpose.name, at, "its plan broke")
-        return waiting(state, at)
+        return waiting(state, context, at)
     if not steps:
         finish_purpose(state, at, "plan_done")
-        return waiting(state, at)
+        return waiting(state, context, at)
     brain["planned_at"] = at
     return [{**step, "purpose": purpose.name} for step in steps]
 

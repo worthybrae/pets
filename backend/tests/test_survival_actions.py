@@ -194,6 +194,14 @@ class ActionEngineTests(unittest.TestCase):
         advance_actions(state, context(grid), 100.0)
         self.assertEqual(state["position"], {"x": 200.0, "y": 1.0, "z": 0.0})
 
+    def test_a_requeued_walk_segment_keeps_its_purpose(self):
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "walk", "target": [200, 1, 0], "purpose": "explore"}]
+        advance_actions(state, context(grid), 0.0)
+        first = state["action"]
+        advance_actions(state, context(grid), first["ends_at"])
+        self.assertEqual((state["action"]["segments"], state["action"]["purpose"]), (1, "explore"))
+
     def test_a_walk_stops_where_its_path_became_blocked(self):
         grid, state = small_world(), pet()
         state["queue"] = [{"kind": "walk", "target": [5, 1, 0]}]
@@ -371,6 +379,14 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual(len(walks), 6)
         self.assertEqual(["path" in entry for entry in walks], [False, False, True, True, True, True])
         self.assertEqual(walks[-1]["path"][-1], {"x": 6, "y": 1, "z": 0, "at": walks[-1]["ended_at"]})
+
+    def test_paths_too_old_to_replay_are_dropped(self):
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "walk", "target": [1, 1, 0]}, {"kind": "wait", "seconds": 30.0},
+                          {"kind": "walk", "target": [2, 1, 0]}]
+        advance_actions(state, context(grid), 40.0)
+        walks = state["recent_actions"]
+        self.assertEqual(["path" in entry for entry in walks], [False, True])
 
     def test_the_context_action_scale_speeds_up_steps(self):
         grid, state = small_world({(1, 1, 0): "oak_log"}), pet()
