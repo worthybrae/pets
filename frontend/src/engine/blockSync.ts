@@ -23,7 +23,10 @@ export class BlockSync {
   }
 
   async syncTo(serverSeq: number): Promise<boolean> {
-    if (this.running || serverSeq === this.seq) return false
+    // A pending reset (from a failed fetch after the server seq went backwards) must
+    // still be applied even if the reset target is seq 0 on an empty database, where
+    // serverSeq now equals the local seq the failed attempt was left at.
+    if (this.running || (serverSeq === this.seq && !this.pendingReset)) return false
     this.running = true
     try {
       if (serverSeq < this.seq) {

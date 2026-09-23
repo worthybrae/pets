@@ -55,6 +55,17 @@ describe('BlockSync', () => {
     expect(applied).toEqual([{ changes: [], reset: true }])
   })
 
+  it('does not leave stale edits on screen when the reset target is an empty database', async () => {
+    const pages: Record<number, BlocksPage> = {}
+    const { sync, applied } = setup(pages)
+    sync.seq = 9
+    await expect(sync.syncTo(0)).rejects.toThrow('offline')
+    expect(sync.seq).toBe(0)
+    pages[0] = { seq: 0, changes: [], more: false }
+    expect(await sync.syncTo(0)).toBe(true)
+    expect(applied).toEqual([{ changes: [], reset: true }])
+  })
+
   it('skips a call while another sync is running', async () => {
     let release: (page: BlocksPage) => void = () => {}
     const sync = new BlockSync(() => new Promise<BlocksPage>((resolve) => { release = resolve }), () => {})
