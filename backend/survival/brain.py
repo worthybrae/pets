@@ -15,6 +15,9 @@ steps whenever Mimo's queue runs dry:
    once and reported like a failure.
 4. With no purpose (a choice is pending), Mimo waits a second at a time.
 
+Reflexes (backend.survival.reflexes) take over through the interrupt hook. When a reflex's steps
+run out, brain_plan ends it and resumes the purpose's steps it set aside.
+
 `observe_step` hears about finished steps: ores around a mined block, recipes learned, water swum
 in, places visited. `notice_step` runs after each vitals step: vital crossings (urgent), dawn and
 dusk, a game hour since the last choice, and shelter (the first sheltered spot becomes home).
@@ -31,6 +34,7 @@ from backend.survival.escape import plan_escape
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, Purpose, is_valid
+from backend.survival.reflexes import end_reflex, reflex_hook
 from backend.survival.senses import ORES, ores_around
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell, label
@@ -100,6 +104,10 @@ def plan_batch(purpose: Purpose, s: Situation, context: ActionContext) -> list[d
 def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     """The next steps for Mimo's purpose. See the module docstring for the rules."""
     brain = ensure_brain(state)
+    if brain["reflex"] is not None:
+        resumed = end_reflex(state, at)
+        if resumed and brain["purpose"] is not None:
+            return resumed
     purpose = PURPOSES.get(brain["purpose"]) if brain["purpose"] else None
     if purpose is None:
         return waiting(state, at)
@@ -187,4 +195,4 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
             remember(context.db, "shelter", cell, at)
 
 
-BRAIN = Mind(plan=brain_plan, observe=observe_step, notice=notice_step)
+BRAIN = Mind(plan=brain_plan, interrupt=reflex_hook, observe=observe_step, notice=notice_step)

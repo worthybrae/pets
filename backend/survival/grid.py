@@ -94,13 +94,17 @@ class Grid:
         x, y, z = cell
         return self.passable(cell) and self.material(x, y - 1, z) == "water"
 
-    def placed_near(self, x: int, z: int, reach: float, materials: tuple[str, ...]) -> set[str]:
-        """Which of `materials` have been placed within `reach` blocks (horizontally) of (x, z)."""
+    def placed_cells(self, x: int, z: int, reach: float, materials: tuple[str, ...]) -> list[tuple[Cell, str]]:
+        """Placed blocks of `materials` within `reach` blocks (horizontally) of (x, z), with their cells."""
         for cx in range(math.floor((x - reach) / CHUNK), math.floor((x + reach) / CHUNK) + 1):
             for cz in range(math.floor((z - reach) / CHUNK), math.floor((z + reach) / CHUNK) + 1):
                 self._load(cx * CHUNK, cz * CHUNK)
-        return {material for (bx, _, bz), material in self.edits.items()
-                if material in materials and math.hypot(bx - x, bz - z) <= reach}
+        return [(cell, material) for cell, material in self.edits.items()
+                if material in materials and math.hypot(cell[0] - x, cell[2] - z) <= reach]
+
+    def placed_near(self, x: int, z: int, reach: float, materials: tuple[str, ...]) -> set[str]:
+        """Which of `materials` have been placed within `reach` blocks (horizontally) of (x, z)."""
+        return {material for _, material in self.placed_cells(x, z, reach, materials)}
 
 
 def world_grid(db: sqlite3.Connection, seed: str) -> Grid:
