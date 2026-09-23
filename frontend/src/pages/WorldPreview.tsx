@@ -4,6 +4,7 @@ import ArchiveBrowser from '../survival/ArchiveBrowser'
 import ArchiveWorld from '../survival/ArchiveWorld'
 import EggHatch from '../survival/EggHatch'
 import Memorial from '../survival/Memorial'
+import { shouldReplace } from '../survival/poll'
 import { pickScreen } from '../survival/screens'
 import type { Received } from '../survival/screens'
 import SurvivalWorld from '../survival/SurvivalWorld'
@@ -11,6 +12,8 @@ import type { LifeSummary, ServerEgg } from '../survival/types'
 
 /** How long the fly-in plays before `arrival` clears itself, so it only ever plays once. */
 const ARRIVAL_MS = 3000
+/** Gap between the end of one poll and the start of the next. */
+const POLL_MS = 1000
 
 /** The egg and last-life props EggHatch was showing at the moment the owner pressed Hatch. */
 interface HatchSnapshot {
@@ -33,7 +36,7 @@ export default function WorldPreview() {
   const refresh = useCallback(async () => {
     try {
       const data = await fetchMimo()
-      setReceived({ data, receivedAt: Date.now() / 1000 })
+      setReceived((current) => (current && !shouldReplace(current.data, data)) ? current : { data, receivedAt: Date.now() / 1000 })
       setError('')
     } catch (failure) {
       setError(failure instanceof Error && !failure.message.startsWith('Server returned')
@@ -41,10 +44,17 @@ export default function WorldPreview() {
     }
   }, [])
 
+  // Polls one at a time: the next poll is scheduled only once the current fetch settles, so a
+  // stalled request cannot pile up behind another and resolve out of order.
   useEffect(() => {
-    const initial = window.setTimeout(() => { void refresh() }, 0)
-    const timer = window.setInterval(() => { void refresh() }, 1000)
-    return () => { window.clearTimeout(initial); window.clearInterval(timer) }
+    let cancelled = false
+    let timer: number | undefined
+    const poll = async () => {
+      await refresh()
+      if (!cancelled) timer = window.setTimeout(() => { void poll() }, POLL_MS)
+    }
+    void poll()
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer) }
   }, [refresh])
 
   // One-shot: the fly-in plays once per arrival, then this clears it so re-mounting the
