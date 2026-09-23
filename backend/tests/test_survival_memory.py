@@ -5,7 +5,7 @@ from pathlib import Path
 
 from backend.survival import world as world_module
 from backend.survival.memory import (
-    create_memory_tables, forget, known_recipes, learn, nearest, places, remember, visit,
+    create_memory_tables, forget, know, known, known_recipes, learn, nearest, places, remember, update_place, visit,
 )
 from backend.survival.triggers import crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
 from backend.survival.world import SurvivalWorld, new_survival_state, read_state, write_state
@@ -60,6 +60,32 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(known_recipes(db), ["planks", "sticks"])
         self.assertEqual(db.execute("SELECT uses FROM memory_recipes WHERE recipe='planks'").fetchone()[0], 2)
 
+    def test_a_place_keeps_data_that_updates_merge_into(self):
+        db = memory_db()
+        remember(db, "food", (5, 3, 5), 1.0)
+        self.assertTrue(update_place(db, "food", (5, 3, 5), {"ripe": 3, "seen_at": 1.0}))
+        self.assertTrue(update_place(db, "food", (5, 3, 5), {"ripe": 1}))
+        self.assertFalse(update_place(db, "food", (9, 3, 9), {"ripe": 1}))
+        self.assertEqual(places(db)[0]["data"], {"ripe": 1, "seen_at": 1.0})
+        self.assertFalse(remember(db, "food", (10, 3, 5), 2.0))
+        self.assertTrue(remember(db, "fire", (6, 3, 5), 2.0, "campfire"))
+        self.assertEqual(places(db, ("fire",))[0]["data"], {})
+
+    def test_places_are_read_in_a_box_around_a_cell(self):
+        db = memory_db()
+        remember(db, "ore", (0, 0, 0), 1.0, "coal_ore")
+        remember(db, "ore", (300, 0, 0), 2.0, "coal_ore")
+        remember(db, "home", (10, 5, -20), 3.0)
+        self.assertEqual([place["x"] for place in places(db, around=(0, 0, 0), reach=32)], [0, 10])
+        self.assertEqual([place["x"] for place in places(db, ("ore",), around=(290, 0, 0), reach=32)], [300])
+
+    def test_facts_are_learned_once(self):
+        db = memory_db()
+        self.assertTrue(know(db, "red_mushroom", "poisonous", 1.0))
+        self.assertFalse(know(db, "red_mushroom", "poisonous", 2.0))
+        self.assertEqual((known(db, "poisonous"), known(db, "tasty")), (["red_mushroom"], []))
+
+
 
 class WorldMemoryTests(unittest.TestCase):
     def setUp(self):
@@ -92,6 +118,22 @@ class WorldMemoryTests(unittest.TestCase):
             write_state(db, state)
         self.world.greet(1500.0)
         self.assertIn("hello", self.world.state()["brain"]["pending"]["reasons"])
+
+    def test_memory_from_m3_gets_place_data_and_facts_and_keeps_its_places(self):
+        with self.world.connect() as db:
+            db.execute("DROP TABLE memory_places")
+            db.execute("CREATE TABLE memory_places (kind TEXT NOT NULL, x INTEGER NOT NULL, y INTEGER NOT NULL, "
+                       "z INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', found_at REAL NOT NULL, visited_at REAL, "
+                       "PRIMARY KEY (kind, x, y, z))")
+            db.execute("INSERT INTO memory_places(kind, x, y, z, found_at) VALUES ('home', 1, 5, 1, 9.0)")
+            db.execute("DROP TABLE memory_knowledge")
+        world_module._schema_ready.discard(self.path.resolve())
+        with SurvivalWorld(self.path).connect() as db:
+            self.assertEqual([(place["kind"], place["data"]) for place in places(db)], [("home", {})])
+            self.assertEqual(known(db, "poisonous"), [])
+            create_memory_tables(db)
+            self.assertEqual(len(places(db)), 1)
+
 
 
 class TriggerTests(unittest.TestCase):

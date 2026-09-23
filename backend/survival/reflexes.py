@@ -250,8 +250,8 @@ register(Reflex("avoid_drop", 20, trigger=lambda s: drop_ahead(s) is not None, p
 # eat_now ---------------------------------------------------------------------------------------
 
 register(Reflex("eat_now", 40,
-                trigger=lambda s: s.vitals["hunger"] < EAT_NOW_BELOW and bool(foods(s.inventory)),
-                plan=lambda s, context: meal(s.inventory, s.vitals["hunger"], EAT_NOW_FULL),
+                trigger=lambda s: s.vitals["hunger"] < EAT_NOW_BELOW and bool(foods(s.inventory, s.poisons)),
+                plan=lambda s, context: meal(s.inventory, s.vitals["hunger"], EAT_NOW_FULL, s.poisons),
                 thought="I'm starving. I have to eat now.", event="{name} ate in a hurry.", cooldown=5.0))
 
 

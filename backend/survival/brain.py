@@ -22,7 +22,8 @@ steps when no purpose is left). head_home ends the purpose instead, so the choic
 made at home.
 
 `observe_step` hears about finished steps: ores around a mined block, recipes learned, water swum
-in, places visited. `notice_step` runs after each vitals step: vital crossings (urgent), dawn and
+in, places visited, and M4's lessons (backend.survival.learning: poisonous food, food patches,
+fires and farms). `notice_step` runs after each vitals step: vital crossings (urgent), dawn and
 dusk, a game hour since the last choice, and shelter (the first sheltered spot becomes home).
 First sightings (home, each ore material, water) are discoveries and ask for a new choice.
 """
@@ -34,6 +35,7 @@ import logging
 from backend.survival import toolmaking, work  # noqa: F401  (they register their purposes)
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
+from backend.survival.learning import learn_from_step
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, Purpose, is_valid
@@ -183,6 +185,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
         if water is not None and remember(db, "water", as_cell(water), at):
             discover(state, context, at, "water", "discovered", f"{name} found water.")
         visit(db, as_cell(state["position"]), at)
+    learn_from_step(state, step, context, at)
 
 
 def notice_step(state: dict, context: ActionContext, before: dict, surroundings: Surroundings,

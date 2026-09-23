@@ -125,15 +125,17 @@ def wait_for_nightfall(s: Situation) -> dict:
     return {"kind": "wait", "seconds": max(1.0, min(60.0, s.seconds_to(NIGHTFALL) / s.scale))}
 
 
-def foods(inventory: dict) -> list[str]:
-    """Food Mimo carries, best first."""
-    return sorted((item for item in FOOD if inventory.get(item, 0) > 0), key=lambda item: -FOOD[item])
+def foods(inventory: dict, avoid=()) -> list[str]:
+    """Food Mimo carries, best first, leaving out what it knows is poisonous (`avoid`)."""
+    return sorted((item for item in FOOD if inventory.get(item, 0) > 0 and item not in avoid),
+                  key=lambda item: -FOOD[item])
 
 
-def meal(inventory: dict, hunger: float, full: float = FULL) -> list[dict]:
-    """Eat steps, best food first, until hunger would reach `full` or the food runs out."""
+def meal(inventory: dict, hunger: float, full: float = FULL, avoid=()) -> list[dict]:
+    """Eat steps, best food first, until hunger would reach `full` or the food runs out. Food in
+    `avoid` (known to be poisonous) is never eaten."""
     steps, left = [], dict(inventory)
-    for item in foods(inventory):
+    for item in foods(inventory, avoid):
         while left.get(item, 0) > 0 and hunger < full:
             steps.append({"kind": "eat", "item": item})
             left[item] -= 1
@@ -276,12 +278,12 @@ register(Purpose(
 def plan_eat(s: Situation, context: ActionContext) -> list[dict]:
     if s.brain["batches"] > 0:
         return []
-    return meal(s.inventory, s.vitals["hunger"])
+    return meal(s.inventory, s.vitals["hunger"], avoid=s.poisons)
 
 
 register(Purpose(
     "eat", "eat", "Eat carried food, the best first.",
-    valid=lambda s: bool(foods(s.inventory)) and s.vitals["hunger"] < EAT_BELOW,
+    valid=lambda s: bool(foods(s.inventory, s.poisons)) and s.vitals["hunger"] < EAT_BELOW,
     facts=lambda s: f"hunger {round(s.vitals['hunger'])}, carrying {s.count(*FOOD)} food",
     score=lambda s: 100.0 - s.vitals["hunger"], plan=plan_eat,
     thoughts=("Time for a snack.", "Food first, then everything else.")))

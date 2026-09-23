@@ -4,7 +4,7 @@ import unittest
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.brain import brain_plan
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, places, remember
+from backend.survival.memory import create_memory_tables, know, places, remember
 from backend.survival.reflexes import REFLEXES, reflex_hook
 from backend.survival.triggers import ensure_brain
 from backend.survival.vitals import START_VITALS
@@ -185,6 +185,16 @@ class ReflexTests(unittest.TestCase):
         floating = pet(vitals={**START_VITALS, "air": 30.0})
         self.assertEqual(reflex_hook(floating, brainy(lake), 0.0), "surface")
         self.assertEqual(floating["queue"], [walk(3, 1, 0, "surface")])
+
+    def test_eat_now_never_eats_food_known_to_be_poisonous(self):
+        state = pet(inventory={"red_mushroom": 2, "apple": 1}, vitals={**START_VITALS, "hunger": 10.0})
+        ctx = brainy()
+        know(ctx.db, "red_mushroom", "poisonous", 0.0)
+        self.assertEqual(reflex_hook(state, ctx, 0.0), "eat_now")
+        self.assertEqual(state["queue"], [{"kind": "eat", "item": "apple", "purpose": "eat_now"}])
+        sick = pet(inventory={"red_mushroom": 2}, vitals={**START_VITALS, "hunger": 10.0})
+        self.assertIsNone(reflex_hook(sick, ctx, 0.0))
+
 
 
 if __name__ == "__main__":

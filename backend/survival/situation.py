@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 DUSK = 2220.0
 NIGHTFALL = 2400.0
+PLACE_SIGHT = 256  # remembered places this far away (on each axis) are read; farther ones are not
 
 
 @dataclass
@@ -44,7 +45,12 @@ class Situation:
 
     @cached_property
     def places(self) -> list[dict]:
-        return memory.places(self.db) if self.db is not None else []
+        return memory.places(self.db, around=self.here, reach=PLACE_SIGHT) if self.db is not None else []
+
+    @cached_property
+    def poisons(self) -> tuple[str, ...]:
+        """Food Mimo learned is poisonous (it got sick eating it)."""
+        return tuple(memory.known(self.db, "poisonous")) if self.db is not None else ()
 
     @cached_property
     def recipes(self) -> list[str]:

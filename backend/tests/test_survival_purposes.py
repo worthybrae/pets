@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, remember
+from backend.survival.memory import create_memory_tables, know, remember
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, Purpose, meal, offered, register
 from backend.survival.situation import Situation
@@ -156,6 +156,21 @@ class SimplePurposeTests(unittest.TestCase):
                          [{"kind": "eat", "item": "bread"}, {"kind": "eat", "item": "berries"},
                           {"kind": "eat", "item": "berries"}])
         self.assertEqual(meal({"berries": 1}, 10.0), [{"kind": "eat", "item": "berries"}])
+
+    def test_food_known_to_be_poisonous_is_never_eaten(self):
+        hungry = pet(inventory={"red_mushroom": 2, "berries": 1}, vitals={**START_VITALS, "hunger": 20.0})
+        s = situation(hungry)
+        self.assertEqual(PURPOSES["eat"].plan(s, context()),
+                         [{"kind": "eat", "item": "berries"}, {"kind": "eat", "item": "red_mushroom"},
+                          {"kind": "eat", "item": "red_mushroom"}])
+        know(s.db, "red_mushroom", "poisonous", 0.0)
+        s = Situation(hungry, s.grid, DAY, 0.0, s.db)
+        self.assertEqual(PURPOSES["eat"].plan(s, context()), [{"kind": "eat", "item": "berries"}])
+        only_red = situation(pet(inventory={"red_mushroom": 1}, vitals={**START_VITALS, "hunger": 20.0}))
+        know(only_red.db, "red_mushroom", "poisonous", 0.0)
+        self.assertNotIn("eat", names(only_red))
+        self.assertEqual(meal({"red_mushroom": 3}, 10.0, avoid=("red_mushroom",)), [])
+
 
 
 class SituationTests(unittest.TestCase):
