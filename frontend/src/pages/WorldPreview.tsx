@@ -170,7 +170,12 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   }), [initialPosition])
   const workerOnline = !connectionError && state.worker_last_seen_at !== null && state.fetched_at - state.worker_last_seen_at < 25
   const activelyLiving = workerOnline && state.status !== 'waiting_for_model'
-  const nearbyStations = store.materialsNear(state.position.x, state.position.z, 6)
+  // Recomputed once per poll (fetched_at changes every second, after the delta sync has
+  // applied) instead of scanning every server edit in the render body of a component that
+  // re-renders up to 60/s while Mimo builds.
+  const nearbyStations = useMemo(() => store.materialsNear(state.position.x, state.position.z, 6),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store, state.fetched_at, state.position.x, state.position.z])
   const cameraFocus = viewingStation ? ORBITAL_STATION : viewingWilderness ? WILDERNESS : state.progress < 100
     ? { x: (state.position.x + plan.site.x) / 2, z: (state.position.z + plan.site.z) / 2 }
     : state.position
