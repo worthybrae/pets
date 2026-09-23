@@ -1,9 +1,12 @@
-import type { FinishedAction, MimoAction, Point } from './types'
+import type { FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
 export const CRACK_STAGES = 6
 export const PLACE_BOUNCE_SECONDS = 0.35
 export const BURST_SECONDS = 0.6
 export const POP_SECONDS = 0.6
+export const PUFF_SECONDS = 0.8
+/** Steps that take a block (or what grows on it) away, and so end with a break. */
+const BREAKS = new Set(['mine', 'pick', 'harvest'])
 /**
  * An 8×8 crack in the soft pixel style. Row 0 is the top. Each digit is the stage from which
  * that pixel shows: the crack starts in the middle and spreads to the edges.
@@ -105,15 +108,42 @@ export interface BlockEffect {
   at: number
 }
 
-/** Breaks and placements from finished steps and the running one, one per step. */
+/** Breaks and placements from finished steps and the running one, one per step. Picking and
+ * harvesting break what grows on a cell, so they burst like mining. */
 export function blockEffects(action: MimoAction | null, recent: FinishedAction[]): BlockEffect[] {
   const found = new Map<string, BlockEffect>()
   const add = (kind: string, cell: Point | undefined, block: string | undefined, at: number | null) => {
-    if ((kind !== 'mine' && kind !== 'place') || !cell || !block || at === null) return
+    if ((!BREAKS.has(kind) && kind !== 'place') || !cell || !block || at === null) return
     const key = `${kind}:${cell.x},${cell.y},${cell.z}:${at}`
-    if (!found.has(key)) found.set(key, { key, kind: kind === 'mine' ? 'break' : 'place', cell, block, at })
+    if (!found.has(key)) found.set(key, { key, kind: kind === 'place' ? 'place' : 'break', cell, block, at })
   }
   for (const entry of recent) if (entry.result === 'done') add(entry.kind, entry.target, entry.block, entry.ended_at)
   if (action) add(action.kind, action.target, action.block, action.ends_at)
   return [...found.values()]
+}
+
+export interface LeafPuff {
+  key: string
+  cell: Point
+  /** Seconds since the leaf went. */
+  age: number
+}
+
+/** The leaf puffs showing at server time `t`: decays that happened less than PUFF_SECONDS ago. */
+export function leafPuffs(decays: LeafDecay[], t: number): LeafPuff[] {
+  return decays
+    .filter((decay) => t >= decay.at && t - decay.at < PUFF_SECONDS)
+    .map((decay) => ({ key: `${decay.x},${decay.y},${decay.z}:${decay.at}`, cell: decay, age: t - decay.at }))
+}
+
+/** Where the bits of one puff are, `age` seconds after the leaf went: they drift out, sink slowly
+ * and shrink away. */
+export function puffBits(count: number, age: number): { offsets: Point[]; scale: number } {
+  const p = Math.min(1, Math.max(0, age / PUFF_SECONDS))
+  const offsets = Array.from({ length: count }, (_, index) => {
+    const angle = index * GOLDEN_ANGLE
+    const spread = 0.25 + 0.35 * p
+    return { x: Math.cos(angle) * spread, y: 0.1 * (index % 3) - 0.5 * p * p, z: Math.sin(angle) * spread }
+  })
+  return { offsets, scale: 1 - p }
 }

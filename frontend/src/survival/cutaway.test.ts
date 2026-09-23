@@ -40,6 +40,11 @@ describe('underground', () => {
     expect(underground(ground({ '0,2,0': 'lantern' }), { x: 0, y: 1, z: 0 })).toBe(false)
     expect(underground(ground({ '0,2,0': 'glass' }), { x: 0, y: 1, z: 0 })).toBe(false)
   })
+
+  it('is false with a placed campfire, torch, bed or chest in the headroom', () => {
+    expect(['campfire', 'torch', 'bed', 'chest'].map((name) =>
+      underground(ground({ '0,2,0': name }), { x: 0, y: 1, z: 0 }))).toEqual([false, false, false, false])
+  })
 })
 
 describe('cutawayFor', () => {

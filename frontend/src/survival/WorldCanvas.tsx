@@ -9,13 +9,15 @@ import { focusPoint } from './motion'
 import { REPLAY_DELAY, replayAt } from './replay'
 import { daylightFactor } from './sky'
 import ActionEffects from './ActionEffects'
+import LeafPuffs from './LeafPuffs'
 import { cutawayFor } from './cutaway'
 import SurvivalPet from './SurvivalPet'
-import type { FinishedAction, MimoAction } from './types'
+import type { FinishedAction, LeafDecay, MimoAction } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
 const NO_ACTIONS: FinishedAction[] = []
+const NO_DECAYS: LeafDecay[] = []
 
 /** Phones and low-core devices draw fewer columns. */
 function pickViewDistance(): number {
@@ -30,7 +32,7 @@ function pickViewDistance(): number {
  * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
  * When the pet is underground, the terrain over it is cut away (cutaway.ts).
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, serverTime }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, serverTime }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -41,6 +43,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   hopSignal?: number
   action?: MimoAction | null
   recentActions?: FinishedAction[]
+  decays?: LeafDecay[]
   serverTime?: () => number
 }) {
   const [viewDistance] = useState(pickViewDistance)
@@ -97,6 +100,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             {seconds && <PetGlow seconds={seconds} />}
           </SurvivalPet>
           {serverTime && <ActionEffects store={store} action={action} recent={recentActions} position={position} now={replayTime} />}
+          {serverTime && <LeafPuffs decays={decays} now={replayTime} />}
           <FollowCamera focus={position} focusY={position.y} focusAt={serverTime ? focusAt : undefined}
             initialFocus={initial} initialFocusY={initial.y}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}

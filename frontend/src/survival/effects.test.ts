@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { blockEffects, burst, CRACK_STAGES, crackMask, crackStage, crackTexels, itemPop, placeScale } from './effects'
+import {
+  blockEffects, burst, CRACK_STAGES, crackMask, crackStage, crackTexels, itemPop, leafPuffs, placeScale, PUFF_SECONDS,
+  puffBits,
+} from './effects'
 import type { FinishedAction, MimoAction } from './types'
 
 const mine: MimoAction = { kind: 'mine', started_at: 10, ends_at: 12, target: { x: 1, y: 2, z: 3 }, block: 'stone' }
@@ -73,5 +76,35 @@ describe('blockEffects', () => {
     const effects = blockEffects(mine, recent)
     expect(effects.map((effect) => [effect.kind, effect.at])).toEqual([['break', 3], ['place', 3.3], ['break', 12]])
     expect(effects[2].key).toBe('mine:1,2,3:12')
+  })
+})
+
+describe('food, farm and leaf effects', () => {
+  it('bursts when Mimo picks or harvests, like a break', () => {
+    const recent: FinishedAction[] = [
+      { kind: 'pick', started_at: 1, ended_at: 1.5, result: 'done', target: { x: 2, y: 1, z: 0 }, block: 'berry_bush_ripe' },
+      { kind: 'harvest', started_at: 2, ended_at: 2.5, result: 'done', target: { x: 3, y: 1, z: 0 }, block: 'wheat_3' },
+      { kind: 'till', started_at: 3, ended_at: 4, result: 'done', target: { x: 3, y: 0, z: 0 }, block: 'grass' },
+    ]
+    expect(blockEffects(null, recent).map((effect) => [effect.kind, effect.block])).toEqual([
+      ['break', 'berry_bush_ripe'], ['break', 'wheat_3'],
+    ])
+  })
+
+  it('shows a puff for each leaf that went in the last moment', () => {
+    const decays = [{ x: 1, y: 6, z: 1, at: 10 }, { x: 2, y: 6, z: 1, at: 10.5 }, { x: 3, y: 6, z: 1, at: 20 }]
+    expect(leafPuffs(decays, 10.6).map((puff) => [puff.cell.x, Number(puff.age.toFixed(2))])).toEqual([[1, 0.6], [2, 0.1]])
+    expect(leafPuffs(decays, 10 + PUFF_SECONDS + 0.01).map((puff) => puff.cell.x)).toEqual([2])
+    expect(leafPuffs(decays, 5)).toEqual([])
+  })
+
+  it('spreads a puff out as it fades', () => {
+    const start = puffBits(6, 0)
+    const late = puffBits(6, PUFF_SECONDS * 0.9)
+    expect(start.offsets).toHaveLength(6)
+    expect(start.scale).toBe(1)
+    expect(late.scale).toBeCloseTo(0.1)
+    expect(Math.hypot(late.offsets[0].x, late.offsets[0].z)).toBeGreaterThan(Math.hypot(start.offsets[0].x, start.offsets[0].z))
+    expect(late.offsets[0].y).toBeLessThan(start.offsets[0].y)
   })
 })

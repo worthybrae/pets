@@ -17,6 +17,7 @@ export interface Point {
 }
 
 export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
+  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook'
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -58,6 +59,11 @@ export interface FinishedAction {
   purpose?: string
   /** Walks, swims and falls keep their timed path (the newest few only), for replay. */
   path?: PathPoint[]
+}
+
+/** A leaf that decayed after its tree lost its logs, at server time `at`. */
+export interface LeafDecay extends Point {
+  at: number
 }
 
 export type PickerName = 'jev' | 'luna' | 'utility'
@@ -130,6 +136,8 @@ export interface SurvivalState {
   cause: string | null
   action: MimoAction | null
   recent_actions: FinishedAction[]
+  /** Leaves that decayed lately, newest last, for a puff as each goes. */
+  decays: LeafDecay[]
   /** The purpose Mimo is working on, like "gather_wood", or null. */
   purpose: string | null
   /** A reflex that took over, like "head_home", or null. */

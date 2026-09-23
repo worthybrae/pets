@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  actionText, careLabel, causeText, clockTime, dayLabel, lifeLine, purposeText, statusText, vitalBars, workerOnline,
+  actionText, careLabel, causeText, clockTime, dayLabel, lifeLine, purposeText, statusText, thingName, vitalBars,
+  workerOnline,
 } from './hud'
 
 const vitals = { health: 100, hunger: 14.6, warmth: 34, energy: 62.4, air: 100, mood: 70 }
@@ -63,6 +64,16 @@ describe('actionText', () => {
     expect(actionText({ kind: 'wait', started_at: 0, ends_at: 5 }, 'idle')).toBe('Standing still')
     expect(actionText(null, 'sleeping')).toBe('Sleeping')
   })
+
+  it('names food and farm work without ripeness or crop stages', () => {
+    expect(actionText({ kind: 'pick', started_at: 0, ends_at: 1, block: 'berry_bush_ripe' }, 'picking')).toBe('Picking berry bush')
+    expect(actionText({ kind: 'harvest', started_at: 0, ends_at: 1, block: 'wheat_3' }, 'harvesting')).toBe('Harvesting wheat')
+    expect(actionText({ kind: 'plant', started_at: 0, ends_at: 1, item: 'seeds', block: 'wheat_0' }, 'planting'))
+      .toBe('Planting wheat')
+    expect(actionText({ kind: 'fish', started_at: 0, ends_at: 40, target: { x: 1, y: 2, z: 3 } }, 'fishing')).toBe('Fishing')
+    expect(actionText({ kind: 'cook', started_at: 0, ends_at: 5, item: 'raw_fish' }, 'cooking')).toBe('Cooking raw fish')
+    expect(thingName('red_mushroom')).toBe('red mushroom')
+  })
 })
 
 describe('purposeText', () => {
@@ -70,6 +81,8 @@ describe('purposeText', () => {
     expect(purposeText({ purpose: 'gather_wood', reflex: 'head_home', choosing: false })).toBe('Hurrying home before dark')
     expect(purposeText({ purpose: 'gather_wood', reflex: null, choosing: true })).toBe('Gathering wood')
     expect(purposeText({ purpose: 'build_shelter', reflex: null, choosing: false })).toBe('Build shelter')
+    expect(purposeText({ purpose: 'forage', reflex: null, choosing: false })).toBe('Foraging for food')
+    expect(purposeText({ purpose: 'farm', reflex: null, choosing: false })).toBe('Tending the farm')
     expect(purposeText({ purpose: null, reflex: null, choosing: true })).toBe('Deciding what to do')
     expect(purposeText({ purpose: null, reflex: null, choosing: false })).toBe('Taking it easy')
   })

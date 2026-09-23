@@ -11,6 +11,16 @@ describe('moveFor', () => {
     expect(moveFor({ ...mine, kind: 'craft', recipe: 'planks' }, 11)).toBe('work')
     expect(moveFor({ kind: 'sleep', started_at: 0, ends_at: null }, 5000)).toBe('sleep')
     expect(moveFor({ kind: 'walk', started_at: 0, ends_at: 3, path: [] }, 1, true)).toBe('swim')
+    expect(moveFor({ kind: 'fish', started_at: 0, ends_at: 40 }, 10)).toBe('fish')
+    expect(moveFor({ kind: 'pick', started_at: 0, ends_at: 1 }, 0.5)).toBe('place')
+    expect(moveFor({ kind: 'till', started_at: 0, ends_at: 1 }, 0.5)).toBe('mine')
+    expect(moveFor({ kind: 'cook', started_at: 0, ends_at: 5 }, 1)).toBe('work')
+  })
+
+  it('leans over the water while fishing', () => {
+    const leans = [0, 1, 2, 3, 4].map((seconds) => bodyPose('fish', seconds, 0, 0).pitch)
+    expect(Math.min(...leans)).toBeGreaterThanOrEqual(0.28)
+    expect(Math.max(...leans)).toBeLessThanOrEqual(0.32)
   })
 
   it('goes idle when a step has ended and the next has not arrived yet', () => {

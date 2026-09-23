@@ -54,7 +54,13 @@ export function statusText(status: string): string {
 
 const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
   walk: 'Walking', swim: 'Swimming', fall: 'Falling!', mine: 'Mining', place: 'Placing', eat: 'Eating',
-  craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping',
+  craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping', pick: 'Picking', harvest: 'Harvesting',
+  till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking',
+}
+
+/** A block or item in plain words: a crop's stage and a bush's ripeness are left out. */
+export function thingName(name: string): string {
+  return name.replace(/_(ripe|\d)$/, '').replaceAll('_', ' ')
 }
 
 /** The current step in plain words ("Mining oak log"); the status when Mimo is between steps or waiting. */
@@ -62,13 +68,14 @@ export function actionText(action: MimoAction | null, status: string): string {
   const words = action ? ACTION_WORDS[action.kind] : undefined
   if (!action || !words) return statusText(status)
   const object = action.block ?? action.item ?? action.recipe
-  return object ? `${words} ${object.replaceAll('_', ' ')}` : words
+  return object ? `${words} ${thingName(object)}` : words
 }
 
 const PURPOSE_TEXT: Record<string, string> = {
   gather_wood: 'Gathering wood', gather_stone: 'Digging for stone', mine_ore: 'Mining ore',
   craft_tools: 'Making a tool', explore: 'Exploring', go_home: 'Going home', sleep: 'Settling down to sleep',
-  rest: 'Resting', eat: 'Having a meal', escape: 'Digging out of a pit',
+  rest: 'Resting', eat: 'Having a meal', escape: 'Digging out of a pit', forage: 'Foraging for food',
+  fish: 'Fishing', farm: 'Tending the farm', cook: 'Cooking a meal',
 }
 const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
