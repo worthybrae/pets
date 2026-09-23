@@ -4,33 +4,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-BLOCKS = {
-    "grass": {"color": [127, 173, 137], "drop": "dirt"},
-    "snow": {"color": [236, 241, 243], "drop": "dirt"},
-    "dirt": {"color": [126, 105, 89], "drop": "dirt"},
-    "stone": {"color": [153, 151, 148], "drop": "cobblestone", "requires": "wooden_pickaxe"},
-    "cobblestone": {"color": [130, 137, 137], "drop": "cobblestone"},
-    "bedrock": {"color": [67, 72, 75], "drop": None},
-    "sand": {"color": [222, 203, 158], "drop": "sand", "gravity": True},
-    "gravel": {"color": [159, 166, 162], "drop": "gravel", "gravity": True},
-    "clay": {"color": [166, 190, 192], "drop": "clay"},
-    "brick": {"color": [184, 105, 86], "drop": "brick"},
-    "basalt": {"color": [75, 83, 86], "drop": "basalt"},
-    "oak_log": {"color": [139, 105, 82], "drop": "oak_log"},
-    "planks": {"color": [202, 171, 125], "drop": "planks"},
-    "leaves": {"color": [101, 164, 128], "drop": None},
-    "coal_ore": {"color": [88, 94, 97], "drop": "coal", "requires": "wooden_pickaxe"},
-    "iron_ore": {"color": [182, 138, 107], "drop": "iron_ore", "requires": "stone_pickaxe"},
-    "copper_ore": {"color": [170, 116, 91], "drop": "copper_ore", "requires": "stone_pickaxe"},
-    "glass": {"color": [160, 218, 218], "drop": "glass", "opacity": 0.38},
-    "water": {"color": [103, 179, 203], "drop": None, "opacity": 0.58, "fluid": True},
-    "lava": {"color": [244, 117, 57], "drop": None, "opacity": 0.85, "fluid": True, "glow": True},
-    "wool": {"color": [238, 226, 204], "drop": "wool"},
-    "moss": {"color": [85, 139, 100], "drop": "moss"},
-    "lantern": {"color": [247, 213, 143], "drop": "lantern", "glow": True},
-    "crafting_table": {"color": [169, 117, 72], "drop": "crafting_table"},
-    "furnace": {"color": [88, 91, 89], "drop": "furnace", "glow": True},
-}
+from backend.services.blocks import BLOCK_PROPERTIES
+
+# Block properties live in shared/blocks.json so the viewer uses the same list.
+BLOCKS = BLOCK_PROPERTIES
 
 RECIPES = {
     "planks": {"ingredients": {"oak_log": 1}, "output": {"planks": 4}},

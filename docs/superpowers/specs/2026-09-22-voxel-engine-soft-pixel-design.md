@@ -68,7 +68,7 @@ The mesher and worldgen are pure functions so they run the same in the worker an
 
 ## Block registry
 
-`shared/blocks.json` is an ordered array. The array index is the numeric block id used on the client. Id 0 is `air`. The list is append-only: never reorder or remove an entry, only mark it unused. The server keeps storing material names, so ids never reach the database.
+`shared/blocks.json` has two keys. `tiles` maps a tile name to a texture recipe: a `pattern` name, a base `color` and an optional `accent` color. `blocks` is an ordered array. The array index is the numeric block id used on the client. Id 0 is `air`. The list is append-only: never reorder or remove an entry, only mark it unused. The server keeps storing material names, so ids never reach the database.
 
 Each entry:
 
@@ -84,7 +84,7 @@ Each entry:
 ```
 
 - `layer` is one of `opaque`, `cutout`, `translucent`, `none` (air).
-- `textures` names recipes in the atlas. A plain string means the same recipe on every face.
+- `textures` names tiles from `tiles`. A plain string means the same tile on every face.
 - Optional fields carry over from today's `BLOCKS`: `requires`, `gravity`, `fluid`, `glow`, `opacity`.
 - `solid: false` for air, water, lava, plants. Sub-project 2 uses it for collision.
 
