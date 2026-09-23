@@ -16,6 +16,17 @@ ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", 
                             "explore", "owner", "plan"})
 NOTABLE_LIMIT = 6
 
+# The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
+# planner's bookkeeping.
+ACTION_FIELDS = ("kind", "started_at", "ends_at", "path", "target", "block", "item", "recipe", "blocks")
+
+
+def action_view(action: dict | None) -> dict | None:
+    """The current step for the viewer, or None when Mimo is between steps."""
+    if action is None:
+        return None
+    return {key: action[key] for key in ACTION_FIELDS if key in action}
+
 
 def life_row(life: dict, scale: float, now: float) -> dict:
     """A registry row for the viewer: no file path, plus days lived.
@@ -63,6 +74,9 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "server_time": now,
         "died_at": state["died_at"],
         "cause": state["cause"],
+        # Worlds from before M2 have no action fields until their first tick.
+        "action": action_view(state.get("action")),
+        "recent_actions": state.get("recent_actions", []),
     }
 
 

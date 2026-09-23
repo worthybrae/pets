@@ -203,6 +203,26 @@ class SurvivalApiTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 503)
         self.assertNotIn("/", caught.exception.detail)
 
+    def test_the_current_step_and_recent_steps_are_streamed(self):
+        hatch_egg()
+        fresh = get_mimo()
+        self.assertEqual((fresh["action"], fresh["recent_actions"]), (None, []))
+        path = [{"x": 1, "y": 9, "z": 2, "at": 10.0}, {"x": 2, "y": 9, "z": 2, "at": 10.9, "swim": True}]
+        finished = {"kind": "mine", "started_at": 5.0, "target": {"x": 3, "y": 9, "z": 2}, "block": "oak_log",
+                    "ended_at": 7.0, "result": "done"}
+        world = self.active_world()
+        with world.transaction() as db:
+            state = read_state(db)
+            state.update(action={"kind": "walk", "started_at": 10.0, "ends_at": 10.9, "path": path,
+                                 "target": {"x": 2, "y": 9, "z": 2}, "reach": 0.0, "reached": True, "segments": 0},
+                         recent_actions=[finished])
+            write_state(db, state)
+        mimo = get_mimo()
+        self.assertEqual(mimo["action"], {"kind": "walk", "started_at": 10.0, "ends_at": 10.9, "path": path,
+                                          "target": {"x": 2, "y": 9, "z": 2}})
+        self.assertEqual(mimo["recent_actions"], [finished])
+        self.assertIn("server_time", mimo)
+
 
 if __name__ == "__main__":
     unittest.main()
