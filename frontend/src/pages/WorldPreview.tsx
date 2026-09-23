@@ -3,13 +3,14 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import * as THREE from 'three'
-import type { BlockEdit } from '../types/world'
 import PetEntity from '../components/world/PetEntity'
-import WorldManager from '../components/world/WorldManager'
 import { previewPet } from '../components/world/previewWorld'
-import { applyBlockEdits, ensureTerrainAround, ORBITAL_STATION } from '../components/world/expandingWorld'
-import { compileWorldPlan, worldForPlannerState, type WorldPlan } from '../components/world/worldPlanner'
+import { compileWorldPlan, ORBITAL_STATION, overlayBlocks, type WorldPlan } from '../components/world/worldPlanner'
+import BlockWorld, { type ViewStats } from '../engine/BlockWorld'
+import { AIR, BLOCKS } from '../engine/blocks'
+import { BlockSync, type BlocksPage } from '../engine/blockSync'
 import { DEFAULT_WORLD_SEED, terrainHeight } from '../engine/worldgen'
+import { WorldStore } from '../engine/worldStore'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const WILDERNESS = { x: 260, z: 120 }
@@ -31,11 +32,22 @@ interface LiveMimoState {
   last_error: string | null
   worker_last_seen_at: number | null
   fetched_at: number
-  block_edits: BlockEdit[]
-  catalog: Record<string, { color: number[] }>
+  blocks_seq: number
   inventory: Record<string, number>
   recipes: Record<string, { ingredients: Record<string, number>; output: Record<string, number>; station?: string }>
   events: MimoEvent[]
+}
+
+/** Phones and low-core devices draw fewer columns. */
+function pickViewDistance(): number {
+  const small = Math.min(window.innerWidth, window.innerHeight) < 600
+  return small || (navigator.hardwareConcurrency ?? 8) <= 4 ? 4 : 6
+}
+
+async function fetchBlocksPage(since: number): Promise<BlocksPage> {
+  const response = await fetch(`${API_URL}/api/mimo/blocks?since=${since}`)
+  if (!response.ok) throw new Error(`Server returned ${response.status}`)
+  return await response.json() as BlocksPage
 }
 
 function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, follow, onOrbit, onChunkChange }: {
@@ -88,6 +100,16 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   connectionError: string
 }) {
   const worldSeed = state.world_seed || DEFAULT_WORLD_SEED
+  const store = useMemo(() => new WorldStore(worldSeed), [worldSeed])
+  const sync = useMemo(() => new BlockSync(fetchBlocksPage, (changes, reset) => {
+    store.applyServerChanges(changes, reset)
+  }), [store])
+  const [viewDistance] = useState(pickViewDistance)
+  const [debug] = useState(() => new URLSearchParams(window.location.search).has('debug'))
+  const [stats, setStats] = useState<ViewStats | null>(null)
+  const [syncError, setSyncError] = useState('')
+  const [engineError, setEngineError] = useState('')
+  const [engineKey, setEngineKey] = useState(0)
   const [initialPosition] = useState<Point>(() => ({ ...state.position }))
   const [cameraChunk, setCameraChunk] = useState(() => ({ x: Math.floor(state.position.x / 16), z: Math.floor(state.position.z / 16) }))
   const [following, setFollowing] = useState(true)
@@ -99,11 +121,11 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   const [systemMessage, setSystemMessage] = useState('')
   const plan = state.plans[state.currentIndex]
   const project = useMemo(() => compileWorldPlan(plan), [plan])
-  const targetStepIndex = Math.floor(project.voxels.length * state.progress / 100)
+  const targetStepIndex = Math.floor(project.blocks.length * state.progress / 100)
   const [revealed, setRevealed] = useState(() => ({ projectIndex: state.currentIndex, count: targetStepIndex }))
   const revealedRef = useRef(revealed)
   const stepIndex = revealed.projectIndex === state.currentIndex ? Math.min(revealed.count, targetStepIndex) : targetStepIndex
-  const visibleProgress = project.voxels.length ? Math.round(stepIndex / project.voxels.length * 100) : 100
+  const visibleProgress = project.blocks.length ? Math.round(stepIndex / project.blocks.length * 100) : 100
   useEffect(() => { revealedRef.current = revealed }, [revealed])
   useEffect(() => {
     const current = revealedRef.current
@@ -126,31 +148,29 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
     frame = window.requestAnimationFrame(revealFrame)
     return () => window.cancelAnimationFrame(frame)
   }, [state.currentIndex, targetStepIndex])
-  const chunks = useMemo(() => {
-    const viewCenter = { x: cameraChunk.x * 16, z: cameraChunk.z * 16 }
-    const built = worldForPlannerState({ plans: state.plans, currentIndex: state.currentIndex, stepIndex },
-      viewCenter, 112, worldSeed)
-    const nearbyEdits = state.block_edits.filter((edit) =>
-      Math.abs(edit.x - viewCenter.x) <= 112 && Math.abs(edit.z - viewCenter.z) <= 112)
-    const edited = applyBlockEdits(built, nearbyEdits, state.catalog, worldSeed)
-    return ensureTerrainAround(edited, cameraChunk.x * 16, cameraChunk.z * 16, 6, worldSeed)
-  }, [state.plans, state.currentIndex, state.block_edits, state.catalog, worldSeed,
-    stepIndex, cameraChunk.x, cameraChunk.z])
+  // Poll-driven: fetched_at changes every second, so a failed delta is retried on the next poll.
+  useEffect(() => {
+    sync.syncTo(state.blocks_seq).then(
+      () => setSyncError(''),
+      () => setSyncError('Some block changes could not be loaded. Retrying.'),
+    )
+  }, [sync, state.blocks_seq, state.fetched_at])
+  useEffect(() => {
+    store.setOverlay(overlayBlocks(state.plans, state.currentIndex, stepIndex))
+  }, [store, state.plans, state.currentIndex, stepIndex])
   const pet = useMemo(() => ({
     ...previewPet, position: { ...previewPet.position, x: initialPosition.x, y: initialPosition.y ?? 1, z: initialPosition.z },
   }), [initialPosition])
   const workerOnline = !connectionError && state.worker_last_seen_at !== null && state.fetched_at - state.worker_last_seen_at < 25
   const activelyLiving = workerOnline && state.status !== 'waiting_for_model'
-  const nearbyStations = new Set(state.block_edits.filter((block) =>
-    (block.material === 'crafting_table' || block.material === 'furnace') &&
-    Math.hypot(block.x - state.position.x, block.z - state.position.z) <= 6
-  ).map((block) => block.material))
+  const nearbyStations = store.materialsNear(state.position.x, state.position.z, 6)
   const cameraFocus = viewingStation ? ORBITAL_STATION : viewingWilderness ? WILDERNESS : state.progress < 100
     ? { x: (state.position.x + plan.site.x) / 2, z: (state.position.z + plan.site.z) / 2 }
     : state.position
   const cameraY = viewingStation ? ORBITAL_STATION.centerY
     : viewingWilderness ? terrainHeight(WILDERNESS.x, WILDERNESS.z, worldSeed) + 2
       : state.position.y ?? 1
+  const blockTypes = BLOCKS.filter((block) => block.id !== AIR)
 
   const sayHello = async () => {
     setInteractionError('')
@@ -176,11 +196,12 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
         <Canvas camera={{ position: [initialPosition.x + 18, 14, initialPosition.z + 18], fov: 48, near: 0.1, far: 280 }}
           gl={{ antialias: true }} dpr={[1, 2]}>
           <color attach="background" args={['#dce9eb']} />
-          <fog attach="fog" args={['#dce9eb', 68, 116]} />
+          <fog attach="fog" args={['#dce9eb', viewDistance * 16 * 0.6, viewDistance * 16 + 8]} />
           <ambientLight intensity={0.8} />
           <directionalLight position={[12, 24, 16]} intensity={1.7} />
           <directionalLight position={[-10, 8, -12]} intensity={0.35} color="#d5eaff" />
-          <WorldManager chunks={chunks} cameraChunkX={cameraChunk.x} cameraChunkZ={cameraChunk.z} viewDistance={6} />
+          <BlockWorld key={engineKey} store={store} centerX={cameraChunk.x * 16 + 8} centerZ={cameraChunk.z * 16 + 8}
+            viewDistance={viewDistance} onStats={debug ? setStats : undefined} onError={setEngineError} />
           <PetEntity pet={pet} scale={0.31}
             destination={{ x: state.position.x, y: state.position.y, z: state.position.z, token: Math.round(state.last_action_at) }}
             onPetClick={() => { void sayHello() }} hopSignal={helloCount}>
@@ -201,6 +222,24 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
             onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />
         </Canvas>
       </div>
+
+      {debug && stats && (
+        <div className="pointer-events-none absolute left-3 top-3 z-30 rounded-lg bg-black/70 px-3 py-2 font-mono text-[11px] leading-5 text-white">
+          {stats.fps} fps · {stats.drawCalls} draws<br />
+          {stats.columns} columns · {stats.pending} pending · mesh {stats.lastMeshMs.toFixed(1)} ms
+        </div>
+      )}
+
+      {engineError && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#dce9eb]/90 px-6 text-center text-[#315e58]">
+          <div>
+            <p className="text-2xl font-semibold">Mimo's world stopped drawing</p>
+            <p className="mx-auto mt-3 max-w-sm text-sm leading-6">{engineError}</p>
+            <button type="button" onClick={() => { setEngineError(''); setEngineKey((key) => key + 1) }}
+              className="mt-5 rounded-xl bg-[#315e58] px-4 py-2 text-sm text-white">Try again</button>
+          </div>
+        </div>
+      )}
 
       <div className="pointer-events-none absolute left-5 top-20 z-10 max-w-xs sm:left-10 sm:top-24">
         <p className="mb-2 text-sm font-medium text-[#637d79]">Mimo's world</p>
@@ -225,8 +264,8 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
               <p className="text-xs text-[#65817b]">{state.status.replaceAll('_', ' ')}</p>
             </div>
           </div>
-          <p className="mt-4 text-sm font-medium">{stepIndex < project.voxels.length ? 'Building' : 'Finished'} {project.name}</p>
-          {stepIndex < project.voxels.length && <p className="mt-1 text-xs text-[#54726e]">{stepIndex} / {project.voxels.length} blocks placed</p>}
+          <p className="mt-4 text-sm font-medium">{stepIndex < project.blocks.length ? 'Building' : 'Finished'} {project.name}</p>
+          {stepIndex < project.blocks.length && <p className="mt-1 text-xs text-[#54726e]">{stepIndex} / {project.blocks.length} blocks placed</p>}
           <p className="mt-2 text-xs leading-5 text-[#54726e]">{plan.observation}</p>
           <p className="mt-2 text-xs italic leading-5 text-[#54726e]">“{state.last_thought}”</p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#d9e8df]" role="progressbar"
@@ -251,7 +290,9 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
             className="ml-4 mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4">
             Blocks & crafting
           </button>
-          {(state.last_error || interactionError) && <p className="mt-3 text-xs text-[#a65b50]">{interactionError || state.last_error}</p>}
+          {(state.last_error || interactionError || syncError) && (
+            <p className="mt-3 text-xs text-[#a65b50]">{interactionError || syncError || state.last_error}</p>
+          )}
         </div>
         <div className="hidden w-64 rounded-2xl border border-white/75 bg-[#f5faf7]/90 px-4 py-4 text-xs shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md md:block">
           <p className="mb-2 font-semibold">Mimo's inventory</p>
@@ -292,12 +333,12 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
             </div>
             <p className="mt-2 text-xs text-[#65817b]">Smelting needs a placed furnace and coal or planks for fuel.</p>
             {systemMessage && <p className="mt-3 rounded-lg bg-[#e1eee7] px-3 py-2 text-xs text-[#315e58]" role="status">{systemMessage}</p>}
-            <h3 className="mt-6 text-sm font-semibold">{Object.keys(state.catalog).length} block types</h3>
+            <h3 className="mt-6 text-sm font-semibold">{blockTypes.length} block types</h3>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {Object.entries(state.catalog).map(([name, block]) => (
-                <div key={name} className="flex items-center gap-2 rounded-lg border border-[#d6e5dc] px-2 py-1.5 text-xs">
+              {blockTypes.map((block) => (
+                <div key={block.name} className="flex items-center gap-2 rounded-lg border border-[#d6e5dc] px-2 py-1.5 text-xs">
                   <span className="h-5 w-5 shrink-0 rounded-sm border border-black/10" style={{ backgroundColor: `rgb(${block.color.join(',')})` }} />
-                  {name.replaceAll('_', ' ')}
+                  {block.name.replaceAll('_', ' ')}
                 </div>
               ))}
             </div>
@@ -336,8 +377,6 @@ export default function WorldPreview() {
       next.fetched_at = Date.now() / 1000
       setState((previous) => {
         if (previous && JSON.stringify(previous.plans) === JSON.stringify(next.plans)) next.plans = previous.plans
-        if (previous && JSON.stringify(previous.block_edits) === JSON.stringify(next.block_edits)) next.block_edits = previous.block_edits
-        if (previous && JSON.stringify(previous.catalog) === JSON.stringify(next.catalog)) next.catalog = previous.catalog
         return next
       })
       setError('')
