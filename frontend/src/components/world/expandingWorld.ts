@@ -1,9 +1,9 @@
 import type { BlockEdit, Chunk, Voxel } from '../../types/world'
 import { CHUNK_SIZE } from '../../types/world'
 import { previewChunks } from './previewWorld'
-import { baseMaterial, biomeAt, DEFAULT_WORLD_SEED, hash32, LEGACY_RADIUS, SEA_LEVEL, surfaceMaterial, terrainHeight } from './worldgen'
+import { blockAt as baseMaterial, biomeAt, DEFAULT_WORLD_SEED, hash32, LEGACY_RADIUS, SEA_LEVEL, surfaceMaterial, terrainHeight } from '../../engine/worldgen'
 
-export { terrainHeight } from './worldgen'
+export { terrainHeight } from '../../engine/worldgen'
 
 type Color = readonly [number, number, number]
 

@@ -9,7 +9,7 @@ import WorldManager from '../components/world/WorldManager'
 import { previewPet } from '../components/world/previewWorld'
 import { applyBlockEdits, ensureTerrainAround, ORBITAL_STATION } from '../components/world/expandingWorld'
 import { compileWorldPlan, worldForPlannerState, type WorldPlan } from '../components/world/worldPlanner'
-import { DEFAULT_WORLD_SEED, terrainHeight } from '../components/world/worldgen'
+import { DEFAULT_WORLD_SEED, terrainHeight } from '../engine/worldgen'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const WILDERNESS = { x: 260, z: 120 }

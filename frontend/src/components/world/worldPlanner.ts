@@ -5,7 +5,7 @@ import {
   type BuildProject,
 } from './expandingWorld'
 import { previewChunks } from './previewWorld'
-import { DEFAULT_WORLD_SEED } from './worldgen'
+import { DEFAULT_WORLD_SEED } from '../../engine/worldgen'
 
 type Point = { x: number; z: number }
 type Color = readonly [number, number, number]
