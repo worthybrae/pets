@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BlockSync } from '../engine/blockSync'
 import { WorldStore } from '../engine/worldStore'
 import { blocksFetcher, giveCare, helpMimo, sayHello } from './api'
+import { DelayedBlocks } from './blockDelay'
 import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
 import { workerOnline } from './hud'
@@ -24,9 +25,13 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   // unlikely case its world seed matched the previous life's.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const store = useMemo(() => new WorldStore(state.world_seed), [state.world_seed, state.life.id])
+  // Block changes wait REPLAY_DELAY before they reach the store, so they land when the replayed
+  // pet (drawn that far behind the server) mines or places the block.
+  const delayed = useMemo(() => new DelayedBlocks((changes, reset) => { store.applyServerChanges(changes, reset) }),
+    [store])
   const sync = useMemo(() => new BlockSync(blocksFetcher(state.life.id), (changes, reset) => {
-    store.applyServerChanges(changes, reset)
-  }), [store, state.life.id])
+    delayed.push(changes, reset)
+  }), [delayed, state.life.id])
   const [following, setFollowing] = useState(true)
   const [helloCount, setHelloCount] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -36,12 +41,21 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   const [craftMessage, setCraftMessage] = useState('')
 
   // Poll-driven: receivedAt changes every second, so a failed delta is retried on the next poll.
+  // Once a sync has caught the store up, later changes are held back (see DelayedBlocks).
   useEffect(() => {
     sync.syncTo(state.blocks_seq).then(
-      () => setSyncError(''),
+      (ran) => {
+        if (ran || sync.seq === state.blocks_seq) delayed.goLive()
+        setSyncError('')
+      },
       () => setSyncError('Some block changes could not be loaded. Retrying.'),
     )
-  }, [sync, state.blocks_seq, receivedAt])
+  }, [sync, delayed, state.blocks_seq, receivedAt])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { delayed.flush() }, 100)
+    return () => window.clearInterval(timer)
+  }, [delayed])
 
   const seconds = useCallback(() => liveClock(state.clock, receivedAt, Date.now() / 1000).secondsIntoDay,
     [state.clock, receivedAt])
