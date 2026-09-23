@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AIR, blockId } from '../engine/blocks'
-import { CUTAWAY_RADIUS, cutawayFor, cutsAway, underground } from './cutaway'
+import { CUTAWAY_RADIUS, cutawayFor, cutsAway, hidden, underground } from './cutaway'
 
 const STONE = blockId('stone')
 
@@ -44,6 +44,31 @@ describe('underground', () => {
   it('is false with a placed campfire, torch, bed or chest in the headroom', () => {
     expect(['campfire', 'torch', 'bed', 'chest'].map((name) =>
       underground(ground({ '0,2,0': name }), { x: 0, y: 1, z: 0 }))).toEqual([false, false, false, false])
+  })
+})
+
+describe('a shelter Mimo built', () => {
+  /** A wall at x = 3 in front of Mimo (at 0, 1, 0), `height` blocks tall, made of `block`. */
+  const wall = (height: number, block = 'cobblestone') =>
+    ground(Object.fromEntries(Array.from({ length: height }, (_, i) => [`3,${1 + i},0`, block])))
+  const camera = { x: 18, y: 14, z: 0.5 }
+
+  it('counts a dirt or cobblestone roof as cover', () => {
+    expect(underground(ground({ '0,3,0': 'dirt' }), { x: 0, y: 1, z: 0 })).toBe(true)
+    expect(underground(ground({ '0,4,0': 'cobblestone' }), { x: 0, y: 1, z: 0 })).toBe(true)
+  })
+
+  it('is hidden by a wall or roof reaching above the cut between it and the camera', () => {
+    expect(hidden(wall(3), { x: 0, y: 1, z: 0 }, camera)).toBe(true)
+    expect(hidden(wall(2), { x: 0, y: 1, z: 0 }, camera)).toBe(false)  // the cut would leave it anyway
+    expect(hidden(wall(3, 'leaves'), { x: 0, y: 1, z: 0 }, camera)).toBe(false)
+    expect(hidden(wall(3), { x: 0, y: 1, z: 0 }, { x: -18, y: 14, z: 0.5 })).toBe(false)  // seen from the other side
+  })
+
+  it('cuts the walls away when they hide the pet from the camera, and not in the open', () => {
+    expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 }, camera)).toEqual({ x: 0.5, y: 2.5, z: 0.5, radius: CUTAWAY_RADIUS })
+    expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 })).toBeNull()
+    expect(cutawayFor(ground(), { x: 0, y: 1, z: 0 }, camera)).toBeNull()
   })
 })
 

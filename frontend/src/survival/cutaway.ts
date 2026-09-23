@@ -3,11 +3,12 @@ import type { Cutaway } from '../engine/columnRenderer'
 import type { Point } from './types'
 
 /**
- * Seeing Mimo underground. When rock (or a roof) covers Mimo, the terrain materials discard
- * their fragments above Mimo's head (the cut height, 1.5 blocks over its feet) in two places:
- * within CUTAWAY_RADIUS blocks of Mimo horizontally, and inside a cone from the camera to Mimo
- * that is CUTAWAY_RADIUS wide at Mimo, so the follow camera (about 27 degrees up) sees down a
- * tunnel ten blocks deep. One uniform carries the cut; it changes every frame without remeshing.
+ * Seeing Mimo underground or at home. When rock or a roof covers Mimo, or a wall or roof it built
+ * stands between it and the camera, the terrain materials discard their fragments above Mimo's
+ * head (the cut height, 1.5 blocks over its feet) in two places: within CUTAWAY_RADIUS blocks of
+ * Mimo horizontally, and inside a cone from the camera to Mimo that is CUTAWAY_RADIUS wide at
+ * Mimo, so the follow camera (about 27 degrees up) sees down a tunnel ten blocks deep, and into a
+ * shelter over its walls. One uniform carries the cut; it changes every frame without remeshing.
  * The shader in columnRenderer.ts mirrors `cutsAway`.
  */
 
@@ -16,6 +17,9 @@ export const CUTAWAY_RADIUS = 8
 export const CUT_CLEARANCE = 1.5
 /** How far up the column over Mimo's head to look for cover. */
 export const COVER_SEARCH = 12
+/** How far from Mimo, toward the camera, a wall or roof that hides it is looked for. */
+export const HIDE_REACH = 6
+const HIDE_STEP = 0.5
 /** A tree's canopy and trunk, and a placed station or fixture, are not ground: Mimo under one of
  * these stays drawn with it instead of having the terrain around it cut away. */
 const NOT_COVER = new Set([
@@ -26,21 +30,48 @@ export interface BlockReader {
   getBlock(x: number, y: number, z: number): number
 }
 
+function isCover(store: BlockReader, x: number, y: number, z: number): boolean {
+  const id = store.getBlock(x, y, z)
+  if (id === AIR) return false
+  const block = blockDef(id)
+  return block.solid && !NOT_COVER.has(block.name)
+}
+
 /** Whether a solid block (not a tree) covers the cell within COVER_SEARCH blocks over Mimo's head. */
 export function underground(store: BlockReader, cell: Point): boolean {
   for (let dy = 1; dy <= COVER_SEARCH; dy++) {
-    const id = store.getBlock(cell.x, cell.y + dy, cell.z)
-    if (id === AIR) continue
-    const block = blockDef(id)
-    if (block.solid && !NOT_COVER.has(block.name)) return true
+    if (isCover(store, cell.x, cell.y + dy, cell.z)) return true
   }
   return false
 }
 
-/** The cut for Mimo drawn at `pose` (cell coordinates, fractional while it moves), or null in the open. */
-export function cutawayFor(store: BlockReader, pose: Point): Cutaway | null {
+/**
+ * Whether cover the cut can remove hides Mimo, drawn at `pose`, from `camera`: a solid block (not a
+ * tree or fixture) reaching above the cut height on the line from Mimo's middle toward the camera,
+ * within HIDE_REACH blocks. A wall lower than that stays, since the cut would not take it away.
+ */
+export function hidden(store: BlockReader, pose: Point, camera: Point): boolean {
+  const from = { x: pose.x + 0.5, y: pose.y + 0.5, z: pose.z + 0.5 }
+  const toward = { x: camera.x - from.x, y: camera.y - from.y, z: camera.z - from.z }
+  const length = Math.hypot(toward.x, toward.y, toward.z)
+  if (length === 0) return false
+  const lowest = Math.floor(pose.y + CUT_CLEARANCE)
+  const home = { x: Math.round(pose.x), y: Math.round(pose.y), z: Math.round(pose.z) }
+  for (let along = HIDE_STEP; along <= Math.min(HIDE_REACH, length); along += HIDE_STEP) {
+    const x = Math.floor(from.x + (toward.x * along) / length)
+    const y = Math.floor(from.y + (toward.y * along) / length)
+    const z = Math.floor(from.z + (toward.z * along) / length)
+    if (y < lowest || (x === home.x && y === home.y && z === home.z)) continue
+    if (isCover(store, x, y, z)) return true
+  }
+  return false
+}
+
+/** The cut for Mimo drawn at `pose` (cell coordinates, fractional while it moves), or null in the
+ * open. With the `camera` position, walls and roofs that hide Mimo from it count too. */
+export function cutawayFor(store: BlockReader, pose: Point, camera?: Point): Cutaway | null {
   const cell = { x: Math.round(pose.x), y: Math.round(pose.y), z: Math.round(pose.z) }
-  if (!underground(store, cell)) return null
+  if (!underground(store, cell) && !(camera && hidden(store, pose, camera))) return null
   return { x: pose.x + 0.5, y: pose.y + CUT_CLEARANCE, z: pose.z + 0.5, radius: CUTAWAY_RADIUS }
 }
 

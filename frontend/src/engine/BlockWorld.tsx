@@ -16,8 +16,9 @@ interface BlockWorldProps {
   viewDistance: number
   /** Called every frame for the terrain brightness (1 day, 0.35 night). Omit for full daylight. */
   daylight?: () => number
-  /** Called every frame for the terrain to cut away over an underground pet (null: none). */
-  cutaway?: () => Cutaway | null
+  /** Called every frame, with the camera's position, for the terrain to cut away over an
+   * underground or hidden pet (null: none). */
+  cutaway?: (camera: THREE.Vector3) => Cutaway | null
   onStats?: (stats: ViewStats) => void
   onError?: (message: string) => void
 }
@@ -51,11 +52,11 @@ export default function BlockWorld({ store, centerX, centerZ, viewDistance, dayl
     return () => canvas.removeEventListener('webglcontextrestored', restore)
   }, [gl])
 
-  useFrame((_, delta) => {
+  useFrame(({ camera }, delta) => {
     const current = renderer.current
     if (!current) return
     current.setDaylight(daylight ? daylight() : 1)
-    current.setCutaway(cutaway ? cutaway() : null)
+    current.setCutaway(cutaway ? cutaway(camera.position) : null)
     current.tick(delta)
     if (!onStats) return
     const clock = statsClock.current

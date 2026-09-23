@@ -12,7 +12,7 @@ import ActionEffects from './ActionEffects'
 import LeafPuffs from './LeafPuffs'
 import { cutawayFor } from './cutaway'
 import SurvivalPet from './SurvivalPet'
-import type { FinishedAction, LeafDecay, MimoAction } from './types'
+import type { FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
@@ -30,7 +30,7 @@ function pickViewDistance(): number {
  * With `seconds` (game seconds into the day) the sky, lights and terrain follow day and night;
  * without it the scene stays in daylight. `arrival` starts the camera high so it flies down.
  * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
- * When the pet is underground, the terrain over it is cut away (cutaway.ts).
+ * When the pet is underground, or a wall or roof hides it, the terrain over it is cut away (cutaway.ts).
  */
 export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, serverTime }: {
   store: WorldStore
@@ -64,8 +64,9 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
     const { step, rest } = replayAt(action, recentActions, position, t)
     return focusPoint(step, rest, t)
   }, [action, recentActions, position, replayTime])
-  // Underground, the terrain over the drawn pet is cut away so the camera can still see it.
-  const cutawayAt = useCallback(() => cutawayFor(store, serverTime ? focusAt() : position),
+  // Underground, or hidden behind a wall or roof, the terrain over the drawn pet is cut away so the
+  // camera can still see it.
+  const cutawayAt = useCallback((camera: Point) => cutawayFor(store, serverTime ? focusAt() : position, camera),
     [store, serverTime, focusAt, position])
 
   return (
