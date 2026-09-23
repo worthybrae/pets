@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from backend.survival.brain import BRAIN
 from backend.survival.choosing import Chooser
+from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry, data_dir
 from backend.survival.tick import RESTING, Mind, tick_life
 from backend.survival.world import WorldMissing
@@ -62,7 +63,10 @@ def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | No
     """
     state = tick_life(registry, timestamp, mind=mind)
     if chooser is not None and state is not None and state["died_at"] is None:
-        chooser.poll(registry, timestamp)
+        try:
+            chooser.poll(registry, timestamp)
+        except Exception as error:
+            log_once(logger, "chooser", error)
     if state is None:
         line = "No pet is alive. Waiting for the egg to hatch."
     elif state["died_at"] is not None:

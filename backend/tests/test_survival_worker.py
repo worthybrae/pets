@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.hatch import hatch
+from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
 from backend.survival.world import WorldMissing
 from backend.workers.mimo_worker import run_once, should_log_data_error, tick_seconds
@@ -49,6 +51,19 @@ class SurvivalWorkerTests(unittest.TestCase):
         for bad in ("inf", "-inf", "nan", "Infinity"):
             with patch.dict(os.environ, {"MIMO_TICK_SECONDS": bad}):
                 self.assertEqual(tick_seconds(), 1.0)
+
+    def test_a_crashing_chooser_is_logged_once_and_the_status_line_still_builds(self):
+        forget_logged()
+        life = hatch(self.registry, random.Random(8), timestamp=1000.0)
+        chooser = Chooser(env={}, http=lambda *args, **kwargs: {}, executor=InlineExecutor(),
+                          rng=random.Random(1), scale=1.0)
+        with patch("backend.survival.choosing.prepare", side_effect=RuntimeError("boom")):
+            with self.assertLogs("mimo_worker", level="ERROR") as logs:
+                with patch.dict(os.environ, {"MIMO_TIME_SCALE": "1"}):
+                    line = run_once(self.registry, None, timestamp=1060.0, chooser=chooser)
+                    line = run_once(self.registry, line, timestamp=1061.0, chooser=chooser)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn(life["name"], line)
 
     def test_a_data_error_is_logged_once_per_distinct_message(self):
         first = WorldMissing("world 2 is missing")

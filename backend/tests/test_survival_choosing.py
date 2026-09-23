@@ -96,6 +96,8 @@ class ChoosingTests(unittest.TestCase):
         chooser = self.chooser({"TYPESAFE_API_KEY": "k"}, {JEV_URL: JEV_REST}, held)
         self.assertIsNone(chooser.poll(self.registry, BORN + 1))
         self.assertIsNotNone(self.brain()["pending"])
+        self.assertIsNone(chooser.poll(self.registry, BORN + 2))
+        self.assertEqual(len(held.held), 1)
         held.run()
         self.assertEqual(chooser.poll(self.registry, BORN + 3), "rest")
         brain = self.brain()
