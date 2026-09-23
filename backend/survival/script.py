@@ -11,9 +11,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from backend.services.worldgen import terrain_height, trees_in_chunk
+from backend.services.worldgen import terrain_height
 from backend.survival.clock import is_night
-from backend.survival.grid import CHUNK, Cell, Grid
+from backend.survival.grid import Cell, Grid
+from backend.survival.senses import trees_near
 from backend.survival.steps import as_cell
 from backend.survival.vitals import EXHAUSTED_BELOW
 
@@ -43,14 +44,6 @@ def rest_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     return [{"kind": "wait", "seconds": max(1.0, min(MAX_WAIT, until_night))}]
 
 
-def trees_near(seed: str, x: int, z: int, radius: int) -> list[tuple[int, int, int]]:
-    """Generated trees (trunk x, trunk z, ground height) within `radius` blocks of (x, z)."""
-    found = []
-    for cx in range((x - radius) // CHUNK, (x + radius) // CHUNK + 1):
-        for cz in range((z - radius) // CHUNK, (z + radius) // CHUNK + 1):
-            found.extend(tree for tree in trees_in_chunk(cx, cz, seed)
-                         if math.hypot(tree[0] - x, tree[1] - z) <= radius)
-    return found
 
 
 def failed_columns(state: dict) -> set[tuple[int, int]]:
