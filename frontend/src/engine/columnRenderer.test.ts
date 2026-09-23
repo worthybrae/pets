@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { ColumnRenderer, MAX_IN_FLIGHT } from './columnRenderer'
+import { applyDaylight, ColumnRenderer, MAX_IN_FLIGHT } from './columnRenderer'
 import type { LayerBuffers } from './mesher'
 import type { MeshRequest, WorkerResponse } from './workerProtocol'
 import { WorldStore } from './worldStore'
@@ -16,12 +16,24 @@ class FakeWorker {
 }
 
 const empty = (): LayerBuffers => ({
-  positions: new Float32Array(0), uvs: new Float32Array(0), colors: new Float32Array(0), indices: new Uint32Array(0),
+  positions: new Float32Array(0), uvs: new Float32Array(0), colors: new Float32Array(0), glows: new Float32Array(0),
+  indices: new Uint32Array(0),
 })
 const oneQuad = (): LayerBuffers => ({
-  positions: new Float32Array(12), uvs: new Float32Array(8), colors: new Float32Array(12),
+  positions: new Float32Array(12), uvs: new Float32Array(8), colors: new Float32Array(12), glows: new Float32Array(4),
   indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
 })
+
+/** Run a material's onBeforeCompile on three's own basic shader, as the renderer would. */
+function compile(material: THREE.Material) {
+  const shader = {
+    uniforms: {} as Record<string, THREE.IUniform>,
+    vertexShader: THREE.ShaderLib.basic.vertexShader,
+    fragmentShader: THREE.ShaderLib.basic.fragmentShader,
+  }
+  material.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer)
+  return shader
+}
 
 function meshed(request: MeshRequest): WorkerResponse {
   return {
@@ -38,6 +50,21 @@ function setup() {
   const renderer = new ColumnRenderer(store, group, onError, worker as unknown as Worker)
   return { store, group, worker, onError, renderer }
 }
+
+describe('applyDaylight', () => {
+  it('darkens terrain color by daylight except where a vertex glows', () => {
+    const daylight = { value: 0.35 }
+    const material = new THREE.MeshBasicMaterial({ vertexColors: true })
+    applyDaylight(material, daylight)
+    const shader = compile(material)
+    expect(shader.uniforms.uDaylight).toBe(daylight)
+    expect(shader.vertexShader).toContain('attribute float glow;')
+    expect(shader.vertexShader).toContain('vGlow = glow;')
+    expect(shader.fragmentShader).toContain('uniform float uDaylight;')
+    expect(shader.fragmentShader).toContain('diffuseColor.rgb *= mix(uDaylight, 1.0, vGlow);')
+    expect(material.customProgramCacheKey()).toBe('terrain-daylight')
+  })
+})
 
 describe('ColumnRenderer', () => {
   it('requests the nearest columns first and caps work in flight', () => {
@@ -105,6 +132,19 @@ describe('ColumnRenderer', () => {
     renderer.setView(8 + 16 * 5, 8, 0)
     expect(group.children).toHaveLength(0)
     expect(worker.posted.at(-1)?.key).toBe('5,0')
+  })
+
+  it('installs the glow attribute and drives the terrain daylight uniform', () => {
+    const { group, worker, renderer } = setup()
+    renderer.setView(8, 8, 0)
+    worker.reply(meshed(worker.posted[0]))
+    const mesh = group.children[0] as THREE.Mesh
+    expect(mesh.geometry.getAttribute('glow').itemSize).toBe(1)
+    renderer.setDaylight(0.35)
+    const shader = compile(mesh.material as THREE.Material)
+    expect(shader.uniforms.uDaylight.value).toBe(0.35)
+    renderer.setDaylight(4)
+    expect(shader.uniforms.uDaylight.value).toBe(1)
   })
 
   it('reports a worker crash and cleans up on dispose', () => {

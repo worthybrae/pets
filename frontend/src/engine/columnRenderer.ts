@@ -28,12 +28,35 @@ export function createWorldWorker(): Worker {
   return new Worker(new URL('./world.worker.ts', import.meta.url), { type: 'module' })
 }
 
+/** A shared uniform: 1 by day, down to 0.35 at night. */
+export interface DaylightUniform {
+  value: number
+}
+
+/**
+ * Multiplies a terrain material's color by the daylight uniform. Vertices with the `glow`
+ * attribute set to 1 (lanterns, furnaces, lava, later torches and campfires) keep full brightness.
+ */
+export function applyDaylight(material: THREE.Material, daylight: DaylightUniform): void {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uDaylight = daylight
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float glow;\nvarying float vGlow;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uDaylight;\nvarying float vGlow;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(uDaylight, 1.0, vGlow);')
+  }
+  material.customProgramCacheKey = () => 'terrain-daylight'
+}
+
 function toGeometry(buffers: LayerBuffers): THREE.BufferGeometry | null {
   if (buffers.indices.length === 0) return null
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(buffers.positions, 3))
   geometry.setAttribute('uv', new THREE.BufferAttribute(buffers.uvs, 2))
   geometry.setAttribute('color', new THREE.BufferAttribute(buffers.colors, 3))
+  geometry.setAttribute('glow', new THREE.BufferAttribute(buffers.glows, 1))
   geometry.setIndex(new THREE.BufferAttribute(buffers.indices, 1))
   geometry.computeBoundingSphere()
   return geometry
@@ -49,6 +72,7 @@ export class ColumnRenderer {
   private readonly atlas: Atlas
   private readonly texture: THREE.DataTexture
   private readonly materials: Record<LayerName, THREE.MeshBasicMaterial>
+  private readonly daylight: DaylightUniform = { value: 1 }
   private readonly entries = new Map<string, ColumnEntry>()
   private readonly unsubscribe: () => void
   private queue: string[] = []
@@ -77,6 +101,7 @@ export class ColumnRenderer {
       cutout: new THREE.MeshBasicMaterial({ map: this.texture, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
       translucent: new THREE.MeshBasicMaterial({ map: this.texture, vertexColors: true, transparent: true, depthWrite: false }),
     }
+    for (const material of Object.values(this.materials)) applyDaylight(material, this.daylight)
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.receive(event.data)
     this.worker.onerror = (event) => {
       event.preventDefault()
@@ -107,6 +132,11 @@ export class ColumnRenderer {
     }
     this.queue.sort((a, b) => distance(a) - distance(b))
     this.pump()
+  }
+
+  /** Terrain brightness: 1 by day, 0.35 at night. Glowing blocks ignore it. */
+  setDaylight(value: number): void {
+    this.daylight.value = Math.min(1, Math.max(0, value))
   }
 
   tick(delta: number): void {

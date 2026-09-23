@@ -16,6 +16,8 @@ export interface LayerBuffers {
   positions: Float32Array
   uvs: Float32Array
   colors: Float32Array
+  /** 1 for vertices of glowing blocks, which daylight must not darken; else 0. One per vertex. */
+  glows: Float32Array
   indices: Uint32Array
 }
 
@@ -82,15 +84,17 @@ class LayerBuilder {
   positions: number[] = []
   uvs: number[] = []
   colors: number[] = []
+  glows: number[] = []
   indices: number[] = []
 
-  quad(corners: Vec3[], uv: [number, number, number, number], light: number[], flip: boolean): void {
+  quad(corners: Vec3[], uv: [number, number, number, number], light: number[], flip: boolean, glow = 0): void {
     const base = this.positions.length / 3
     corners.forEach(([x, y, z], k) => {
       this.positions.push(x, y, z)
       this.uvs.push(CORNER_UV[k][0] ? uv[2] : uv[0], CORNER_UV[k][1] ? uv[3] : uv[1])
       const value = srgbToLinear(Math.min(1, light[k]))
       this.colors.push(value, value, value)
+      this.glows.push(glow)
     })
     if (flip) this.indices.push(base + 1, base + 2, base + 3, base + 1, base + 3, base)
     else this.indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
@@ -101,6 +105,7 @@ class LayerBuilder {
       positions: new Float32Array(this.positions),
       uvs: new Float32Array(this.uvs),
       colors: new Float32Array(this.colors),
+      glows: new Float32Array(this.glows),
       indices: new Uint32Array(this.indices),
     }
   }
@@ -128,18 +133,18 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
         if (kind === 0) continue
         const wx = x0 + px, wy = WORLD_MIN_Y + layer, wz = z0 + pz
         const blockTint = tint(wx, wy, wz)
+        const glow = GLOW_BY_ID[id] === 1
 
         if (kind === LAYER_CUTOUT) {
           const uv = tileUv(faceTiles[id * 6 + SIDE_FACE])
           for (const quad of CROSS) {
             cutout.quad(quad.map(([x, y, z]) => [wx + x, wy + y, wz + z] as Vec3), uv,
-              [blockTint, blockTint, blockTint, blockTint], false)
+              [blockTint, blockTint, blockTint, blockTint], false, glow ? 1 : 0)
           }
           continue
         }
 
         const builder = kind === LAYER_OPAQUE ? opaque : translucent
-        const glow = GLOW_BY_ID[id] === 1
         const above = idAt(px, layer + 1, pz)
         const lowered = FLUID_BY_ID[id] === 1 && above !== id && LAYER_BY_ID[above] !== LAYER_OPAQUE
         FACES.forEach((face, faceIndex) => {
@@ -168,7 +173,7 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
           const light = aos.map((ao) => face.shade * AO_LIGHT[ao] * blockTint)
           // Split along the diagonal that holds the odd corner so gradients don't crease.
           const flip = aos[0] + aos[2] > aos[1] + aos[3]
-          builder.quad(corners, tileUv(faceTiles[id * 6 + faceIndex]), light, flip)
+          builder.quad(corners, tileUv(faceTiles[id * 6 + faceIndex]), light, flip, glow ? 1 : 0)
         })
       }
     }

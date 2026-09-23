@@ -14,11 +14,13 @@ interface BlockWorldProps {
   centerX: number
   centerZ: number
   viewDistance: number
+  /** Called every frame for the terrain brightness (1 day, 0.35 night). Omit for full daylight. */
+  daylight?: () => number
   onStats?: (stats: ViewStats) => void
   onError?: (message: string) => void
 }
 
-export default function BlockWorld({ store, centerX, centerZ, viewDistance, onStats, onError }: BlockWorldProps) {
+export default function BlockWorld({ store, centerX, centerZ, viewDistance, daylight, onStats, onError }: BlockWorldProps) {
   const { gl } = useThree()
   const [group] = useState(() => new THREE.Group())
   const renderer = useRef<ColumnRenderer | null>(null)
@@ -50,6 +52,7 @@ export default function BlockWorld({ store, centerX, centerZ, viewDistance, onSt
   useFrame((_, delta) => {
     const current = renderer.current
     if (!current) return
+    current.setDaylight(daylight ? daylight() : 1)
     current.tick(delta)
     if (!onStats) return
     const clock = statsClock.current

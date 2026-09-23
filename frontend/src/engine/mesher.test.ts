@@ -103,6 +103,18 @@ describe('meshColumn', () => {
     expect(new Set(top.light).size).toBe(1)
   })
 
+  it('marks the vertices of glowing blocks, and only those, with glow', () => {
+    // Padded x 5, 9 and 12 are world x 4..5, 8..9 and 11..12.
+    const result = mesh([[5, 10, 5, 'lantern'], [9, 10, 9, 'stone'], [12, 10, 12, 'lava']])
+    const glowsAt = (buffers: LayerBuffers, xs: number[]) =>
+      new Set(Array.from(buffers.glows).filter((_, v) => xs.includes(buffers.positions[v * 3])))
+    expect(result.opaque.glows).toHaveLength(result.opaque.positions.length / 3)
+    expect(result.translucent.glows).toHaveLength(result.translucent.positions.length / 3)
+    expect(glowsAt(result.opaque, [4, 5])).toEqual(new Set([1]))
+    expect(glowsAt(result.opaque, [8, 9])).toEqual(new Set([0]))
+    expect(glowsAt(result.translucent, [11, 12])).toEqual(new Set([1]))
+  })
+
   it('keeps directional face shade on glowing blocks', () => {
     const buffers = mesh([[5, 10, 5, 'lantern']]).opaque
     const allQuads = quads(buffers)
