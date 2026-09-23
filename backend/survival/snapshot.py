@@ -14,6 +14,7 @@ from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld
 
 NOTABLE_LIMIT = 6
 EVENTS_SHOWN = 12
+DECAY_WINDOW = 10.0  # real seconds a decayed leaf is streamed for its puff
 
 # The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
 # planner's bookkeeping.
@@ -41,6 +42,12 @@ def replayable(recent: list[dict], now: float) -> list[dict]:
     can still replay it: steps that ended more than PATH_WINDOW seconds ago go without one."""
     return [entry if "path" not in entry or entry["ended_at"] >= now - PATH_WINDOW
             else {key: value for key, value in entry.items() if key != "path"} for entry in recent]
+
+
+def recent_decays(decays: list[dict], now: float) -> list[dict]:
+    """Leaves that decayed in the last DECAY_WINDOW real seconds, for the viewer's puffs. Older ones
+    are left out, so a viewer that opens (or a long catch-up) does not puff them all at once."""
+    return [decay for decay in decays if decay["at"] >= now - DECAY_WINDOW]
 
 
 def life_row(life: dict, scale: float, now: float) -> dict:
@@ -94,7 +101,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "action": action_view(state.get("action")),
         "recent_actions": replayable(state.get("recent_actions", []), now),
         # Leaves that decayed lately ({x, y, z, at}), so the viewer can show a puff as each goes.
-        "decays": state.get("decays", []),
+        "decays": recent_decays(state.get("decays", []), now),
         **brain_view(state.get("brain")),
     }
 

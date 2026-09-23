@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   blockEffects, burst, CRACK_STAGES, crackMask, crackStage, crackTexels, itemPop, leafPuffs, placeScale, PUFF_SECONDS,
-  puffBits,
+  puffBits, puffStarts,
 } from './effects'
 import type { FinishedAction, MimoAction } from './types'
 
@@ -96,6 +96,20 @@ describe('food, farm and leaf effects', () => {
     expect(leafPuffs(decays, 10.6).map((puff) => [puff.cell.x, Number(puff.age.toFixed(2))])).toEqual([[1, 0.6], [2, 0.1]])
     expect(leafPuffs(decays, 10 + PUFF_SECONDS + 0.01).map((puff) => puff.cell.x)).toEqual([2])
     expect(leafPuffs(decays, 5)).toEqual([])
+  })
+
+  it('plays a puff that reached the viewer late from the start instead of skipping it', () => {
+    const late = { x: 1, y: 6, z: 1, at: 10 }
+    const coming = { x: 2, y: 6, z: 1, at: 13 }
+    // First seen at 12, well after the leaf went at 10: its puff starts at 12.
+    const seen = puffStarts([late, coming], 12, new Map())
+    expect([...seen.values()]).toEqual([12, 13])
+    expect(leafPuffs([late], 12, seen).map((puff) => puff.age)).toEqual([0])
+    expect(leafPuffs([late], 12.5, puffStarts([late], 12.5, seen)).map((puff) => puff.age)).toEqual([0.5])
+    expect(leafPuffs([late], 12 + PUFF_SECONDS, seen)).toEqual([])
+    // A start is kept while the decay is listed, and forgotten once it is not.
+    expect(puffStarts([late], 30, seen).get('1,6,1:10')).toBe(12)
+    expect(puffStarts([coming], 30, seen).size).toBe(1)
   })
 
   it('spreads a puff out as it fades', () => {

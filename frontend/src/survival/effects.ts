@@ -125,15 +125,36 @@ export function blockEffects(action: MimoAction | null, recent: FinishedAction[]
 export interface LeafPuff {
   key: string
   cell: Point
-  /** Seconds since the leaf went. */
+  /** Seconds since its puff started: when the leaf went, or when a late decay was first seen. */
   age: number
 }
 
-/** The leaf puffs showing at server time `t`: decays that happened less than PUFF_SECONDS ago. */
-export function leafPuffs(decays: LeafDecay[], t: number): LeafPuff[] {
-  return decays
-    .filter((decay) => t >= decay.at && t - decay.at < PUFF_SECONDS)
-    .map((decay) => ({ key: `${decay.x},${decay.y},${decay.z}:${decay.at}`, cell: decay, age: t - decay.at }))
+function puffKey(decay: LeafDecay): string {
+  return `${decay.x},${decay.y},${decay.z}:${decay.at}`
+}
+
+/**
+ * When each listed decay's puff starts, by key: when the leaf went, or at `t` if the viewer first
+ * sees the decay after that (it reached the viewer late, so it plays from the start instead of
+ * being skipped). `started` is the map from the frame before; decays no longer listed are dropped.
+ */
+export function puffStarts(decays: LeafDecay[], t: number, started: ReadonlyMap<string, number>): Map<string, number> {
+  const starts = new Map<string, number>()
+  for (const decay of decays) {
+    const key = puffKey(decay)
+    starts.set(key, started.get(key) ?? Math.max(decay.at, t))
+  }
+  return starts
+}
+
+/** The leaf puffs showing at server time `t`: those that started less than PUFF_SECONDS ago, each
+ * from its start in `starts` (puffStarts), or else from when the leaf went. */
+export function leafPuffs(decays: LeafDecay[], t: number, starts?: ReadonlyMap<string, number>): LeafPuff[] {
+  return decays.flatMap((decay) => {
+    const key = puffKey(decay)
+    const age = t - (starts?.get(key) ?? decay.at)
+    return age >= 0 && age < PUFF_SECONDS ? [{ key, cell: decay, age }] : []
+  })
 }
 
 /** Where the bits of one puff are, `age` seconds after the leaf went: they drift out, sink slowly

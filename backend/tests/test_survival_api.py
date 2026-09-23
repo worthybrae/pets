@@ -16,7 +16,7 @@ from backend.api.mimo import (
 )
 from backend.services.live_mimo import MimoStore
 from backend.survival.registry import LifeRegistry
-from backend.survival.snapshot import notable, replayable
+from backend.survival.snapshot import notable, recent_decays, replayable
 from backend.survival.tick import tick_life
 from backend.survival.triggers import new_brain
 from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
@@ -256,6 +256,12 @@ class SurvivalApiTests(unittest.TestCase):
         new = {**old, "started_at": 30.0, "ended_at": 30.9}
         self.assertEqual(replayable([old, new], 35.0), [{k: v for k, v in old.items() if k != "path"}, new])
         self.assertIn("path", old)
+
+    def test_only_leaves_that_decayed_in_the_last_ten_seconds_are_streamed(self):
+        decays = [{"x": 1, "y": 6, "z": 1, "at": 20.0}, {"x": 2, "y": 6, "z": 1, "at": 25.0},
+                  {"x": 3, "y": 6, "z": 1, "at": 34.5}]
+        self.assertEqual(recent_decays(decays, 35.0), decays[1:])
+        self.assertEqual(recent_decays(decays, 100.0), [])
 
     def test_a_memorial_keeps_its_notable_events_under_a_flood_of_routine_ones(self):
         hatch_egg()
