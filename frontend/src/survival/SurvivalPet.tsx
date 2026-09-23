@@ -5,7 +5,8 @@ import PetVoxels from '../components/world/PetVoxels'
 import { previewPet } from '../components/world/previewWorld'
 import { bodyPose, crumbs, moveFor, zPuffs } from './animation'
 import { poseAt, turnToward } from './motion'
-import type { MimoAction, Point } from './types'
+import { replayAt } from './replay'
+import type { FinishedAction, MimoAction, Point } from './types'
 
 const SCALE = 0.31
 /** The pet's voxels span x -1..2 in model units, so its middle sits half a voxel right of the origin. */
@@ -15,6 +16,7 @@ const HELLO_HOP_SECONDS = 0.7
 const Z_COLOR = '#f5faf7'
 const CRUMB_COLOR = '#c99a6b'
 const BAR: [number, number, number] = [0.24, 0.05, 0.05]
+const NO_STEPS: FinishedAction[] = []
 
 /** One floating "z" made of three thin bars, in the voxel style. */
 function SleepZ() {
@@ -43,15 +45,18 @@ function setOpacity(object: THREE.Object3D, opacity: number) {
 }
 
 /**
- * The survival pet, driven by the server's current step: it follows a walk's timed path, turns to
- * face where it goes or what it works on, and plays the step's animation. Cheap on phones: no
- * React state changes per frame, a handful of meshes, and all per-frame work in one useFrame.
+ * The survival pet, driven by the step it was doing at `now` (the current step or a finished one,
+ * see replay.ts): it follows a walk's timed path, turns to face where it goes or what it works on,
+ * and plays the step's animation. Cheap on phones: no React state changes per frame, a handful of
+ * meshes, and all per-frame work in one useFrame.
  */
-export default function SurvivalPet({ action, position, now, onPetClick, hopSignal = 0, children }: {
+export default function SurvivalPet({ action, recent = NO_STEPS, position, now, onPetClick, hopSignal = 0, children }: {
   action: MimoAction | null
-  /** The server's position for the pet, used when the step has no path. */
+  /** Finished steps, oldest first, so short steps between polls still play out. */
+  recent?: FinishedAction[]
+  /** The server's position for the pet, used when no path says where it stands. */
   position: Point
-  /** Server time now, in seconds. */
+  /** The time to draw, in server seconds (WorldCanvas passes server time minus REPLAY_DELAY). */
   now: () => number
   onPetClick?: () => void
   hopSignal?: number
@@ -66,9 +71,10 @@ export default function SurvivalPet({ action, position, now, onPetClick, hopSign
 
   useFrame((state, delta) => {
     const t = now()
-    const pose = poseAt(action, position, t)
-    const move = moveFor(action, t, pose.swimming)
-    const stepTime = action ? Math.max(0, t - action.started_at) : 0
+    const { step, rest } = replayAt(action, recent, position, t)
+    const pose = poseAt(step, rest, t)
+    const move = moveFor(step, t, pose.swimming)
+    const stepTime = step ? Math.max(0, t - step.started_at) : 0
     const shape = bodyPose(move, stepTime, pose.travelled, state.clock.elapsedTime)
     if (hello.current.signal !== hopSignal) hello.current = { signal: hopSignal, left: HELLO_HOP_SECONDS }
     hello.current.left = Math.max(0, hello.current.left - delta)

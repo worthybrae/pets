@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { actionText, careLabel, causeText, clockTime, dayLabel, lifeLine, statusText, vitalBars, workerOnline } from './hud'
+import {
+  actionText, careLabel, causeText, clockTime, dayLabel, lifeLine, purposeText, statusText, vitalBars, workerOnline,
+} from './hud'
 
 const vitals = { health: 100, hunger: 14.6, warmth: 34, energy: 62.4, air: 100, mood: 70 }
 
@@ -60,5 +62,15 @@ describe('actionText', () => {
     expect(actionText({ kind: 'walk', started_at: 0, ends_at: 1, path: [] }, 'walking')).toBe('Walking')
     expect(actionText({ kind: 'wait', started_at: 0, ends_at: 5 }, 'idle')).toBe('Standing still')
     expect(actionText(null, 'sleeping')).toBe('Sleeping')
+  })
+})
+
+describe('purposeText', () => {
+  it('names a reflex first, then the purpose, then whether Mimo is choosing', () => {
+    expect(purposeText({ purpose: 'gather_wood', reflex: 'head_home', choosing: false })).toBe('Hurrying home before dark')
+    expect(purposeText({ purpose: 'gather_wood', reflex: null, choosing: true })).toBe('Gathering wood')
+    expect(purposeText({ purpose: 'build_shelter', reflex: null, choosing: false })).toBe('Build shelter')
+    expect(purposeText({ purpose: null, reflex: null, choosing: true })).toBe('Deciding what to do')
+    expect(purposeText({ purpose: null, reflex: null, choosing: false })).toBe('Taking it easy')
   })
 })

@@ -1,4 +1,4 @@
-import type { ActionKind, CareKind, ClockPhase, LifeRow, MimoAction, VitalName, Vitals } from './types'
+import type { ActionKind, CareKind, ClockPhase, LifeRow, MimoAction, SurvivalState, VitalName, Vitals } from './types'
 
 export type VitalLevel = 'ok' | 'low' | 'critical'
 
@@ -63,6 +63,29 @@ export function actionText(action: MimoAction | null, status: string): string {
   if (!action || !words) return statusText(status)
   const object = action.block ?? action.item ?? action.recipe
   return object ? `${words} ${object.replaceAll('_', ' ')}` : words
+}
+
+const PURPOSE_TEXT: Record<string, string> = {
+  gather_wood: 'Gathering wood', gather_stone: 'Digging for stone', mine_ore: 'Mining ore',
+  craft_tools: 'Making a tool', explore: 'Exploring', go_home: 'Going home', sleep: 'Settling down to sleep',
+  rest: 'Resting', eat: 'Having a meal', escape: 'Digging out of a pit',
+}
+const REFLEX_TEXT: Record<string, string> = {
+  surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
+  warm_up: 'Getting warm', head_home: 'Hurrying home before dark', collapse: 'Collapsed from exhaustion',
+  flee: 'Running away!',
+}
+
+function sentence(name: string): string {
+  const words = name.replaceAll('_', ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** What Mimo is up to in plain words: a reflex first, then its purpose, or that it is choosing. */
+export function purposeText(state: Pick<SurvivalState, 'purpose' | 'reflex' | 'choosing'>): string {
+  if (state.reflex) return REFLEX_TEXT[state.reflex] ?? sentence(state.reflex)
+  if (state.purpose) return PURPOSE_TEXT[state.purpose] ?? sentence(state.purpose)
+  return state.choosing ? 'Deciding what to do' : 'Taking it easy'
 }
 
 export function careLabel(kind: CareKind, remaining: number): string {

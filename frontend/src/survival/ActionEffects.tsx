@@ -8,6 +8,7 @@ import {
   itemPop, placeScale, type BlockEffect,
 } from './effects'
 import { poseAt } from './motion'
+import { replayAt } from './replay'
 import type { FinishedAction, MimoAction, Point } from './types'
 
 const PARTICLES = 8
@@ -53,7 +54,7 @@ export default function ActionEffects({ store, action, recent, position, now }: 
   action: MimoAction | null
   recent: FinishedAction[]
   position: Point
-  /** Server time now, in seconds. */
+  /** The time to draw, in server seconds (behind the server by REPLAY_DELAY, like the pet). */
   now: () => number
 }) {
   const effects = useMemo(() => blockEffects(action, recent), [action, recent])
@@ -82,16 +83,17 @@ export default function ActionEffects({ store, action, recent, position, now }: 
     const t = now()
     // Steps that ended before the page opened are not replayed.
     const since = (openedAt.current ??= t - 1)
+    const { step, rest } = replayAt(action, recent, position, t)
 
     // Cracks grow on the block being mined until block sync removes it.
     const crackMesh = crack.current
     const crackMat = crackMaterial.current
     if (crackMesh && crackMat) {
-      const stage = crackStage(action, t)
+      const stage = crackStage(step, t)
       const texture = textures.current[stage]
-      const cell = action?.target
-      const standing = action?.block !== undefined && cell !== undefined
-        && store.getBlock(cell.x, cell.y, cell.z) === blockId(action.block)
+      const cell = step?.target
+      const standing = step?.block !== undefined && cell !== undefined
+        && store.getBlock(cell.x, cell.y, cell.z) === blockId(step.block)
       crackMesh.visible = stage > 0 && standing && texture !== undefined
       if (crackMesh.visible && cell && texture) {
         crackMesh.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)
@@ -146,7 +148,7 @@ export default function ActionEffects({ store, action, recent, position, now }: 
     if (item) {
       item.visible = broke !== null && sinceBreak < POP_SECONDS
       if (item.visible && broke) {
-        const pet = poseAt(action, position, t)
+        const pet = poseAt(step, rest, t)
         const flight = itemPop(sinceBreak, center(broke.effect.cell), { x: pet.x + 0.5, y: pet.y + 0.6, z: pet.z + 0.5 })
         item.position.set(flight.position.x, flight.position.y, flight.position.z)
         item.scale.setScalar(flight.scale)

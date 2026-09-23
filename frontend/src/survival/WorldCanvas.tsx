@@ -6,6 +6,7 @@ import type { WorldStore } from '../engine/worldStore'
 import DayNight, { PetGlow } from './DayNight'
 import FollowCamera from './FollowCamera'
 import { focusPoint } from './motion'
+import { REPLAY_DELAY, replayAt } from './replay'
 import { daylightFactor } from './sky'
 import ActionEffects from './ActionEffects'
 import SurvivalPet from './SurvivalPet'
@@ -13,8 +14,6 @@ import type { FinishedAction, MimoAction } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
-/** Without a server clock (archives) the pet has no step and stands still. */
-const NO_TIME = () => 0
 const NO_ACTIONS: FinishedAction[] = []
 
 /** Phones and low-core devices draw fewer columns. */
@@ -50,10 +49,16 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   const [initial] = useState(() => ({ ...position }))
   const [cameraChunk, setCameraChunk] = useState(() => ({ x: Math.floor(position.x / 16), z: Math.floor(position.z / 16) }))
   const [fogNear, fogFar] = fogRange(viewDistance, CAMERA_DISTANCE)
+  // The pet is drawn REPLAY_DELAY seconds behind the server, so a step that started and ended
+  // between two polls still plays out. Without a server clock (archives) it stands still.
+  const replayTime = useCallback(() => (serverTime ? serverTime() - REPLAY_DELAY : 0), [serverTime])
   // The same interpolated point SurvivalPet renders at, so the camera tracks the walk instead of
   // snapping only when the server's polled position changes.
-  const focusAt = useCallback(() => focusPoint(action, position, serverTime ? serverTime() : 0),
-    [action, position, serverTime])
+  const focusAt = useCallback(() => {
+    const t = replayTime()
+    const { step, rest } = replayAt(action, recentActions, position, t)
+    return focusPoint(step, rest, t)
+  }, [action, recentActions, position, replayTime])
 
   return (
     <>
@@ -72,7 +77,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           <BlockWorld key={engineKey} store={store} centerX={cameraChunk.x * 16 + 8} centerZ={cameraChunk.z * 16 + 8}
             viewDistance={viewDistance} daylight={seconds ? () => daylightFactor(seconds()) : undefined}
             onStats={debug ? setStats : undefined} onError={setEngineError} />
-          <SurvivalPet action={action} position={position} now={serverTime ?? NO_TIME} onPetClick={onPetClick} hopSignal={hopSignal}>
+          <SurvivalPet action={action} recent={recentActions} position={position} now={replayTime} onPetClick={onPetClick} hopSignal={hopSignal}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />
@@ -85,7 +90,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             </mesh>
             {seconds && <PetGlow seconds={seconds} />}
           </SurvivalPet>
-          {serverTime && <ActionEffects store={store} action={action} recent={recentActions} position={position} now={serverTime} />}
+          {serverTime && <ActionEffects store={store} action={action} recent={recentActions} position={position} now={replayTime} />}
           <FollowCamera focus={position} focusY={position.y} focusAt={serverTime ? focusAt : undefined}
             initialFocus={initial} initialFocusY={initial.y}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}

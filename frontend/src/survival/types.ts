@@ -45,13 +45,22 @@ export interface FinishedAction {
   kind: ActionKind
   started_at: number
   ended_at: number
-  result: 'done' | 'failed'
+  /** Interrupted: a reflex or a fall cut it short (`reason` names which). */
+  result: 'done' | 'failed' | 'interrupted'
   target?: Point
   block?: string
   item?: string
   recipe?: string
   reason?: string
+  /** Why it failed: no_path, out_of_reach, gone, missing_item, blocked or bad_step. */
+  code?: string
+  /** The purpose or reflex that planned it. */
+  purpose?: string
+  /** Walks, swims and falls keep their timed path (the newest few only), for replay. */
+  path?: PathPoint[]
 }
+
+export type PickerName = 'jev' | 'luna' | 'utility'
 
 export interface Clock {
   day_number: number
@@ -121,6 +130,14 @@ export interface SurvivalState {
   cause: string | null
   action: MimoAction | null
   recent_actions: FinishedAction[]
+  /** The purpose Mimo is working on, like "gather_wood", or null. */
+  purpose: string | null
+  /** A reflex that took over, like "head_home", or null. */
+  reflex: string | null
+  /** Who chose the purpose. */
+  picker: PickerName | null
+  /** True while Mimo waits for its next choice. */
+  choosing: boolean
 }
 
 export interface AliveResponse extends SurvivalState {
