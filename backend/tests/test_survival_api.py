@@ -68,6 +68,7 @@ class SurvivalApiTests(unittest.TestCase):
             self.assertIn(field, state)
         self.assertEqual(state["clock"]["day_number"], 1)
         self.assertEqual(state["care"], {"snack": 1, "bandage": 1})
+        self.assertEqual(state["decays"], [])
         self.assertNotIn("plans", state)
         self.assertEqual(self.status_of(hatch_egg), 409)
 

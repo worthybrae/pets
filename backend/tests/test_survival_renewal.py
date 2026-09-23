@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.block_table import write_block
+from backend.services.worldgen import is_leaf
 from backend.survival.actions import ActionContext
 from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
@@ -107,6 +108,110 @@ class GrowthTests(unittest.TestCase):
         grid.put(1, 0, 0, "farmland")
         self.assertEqual(grid.take_changes(), [((1, 1, 0), "tall_grass", "air"), ((1, 0, 0), "grass", "farmland")])
         self.assertEqual(grid.take_changes(), [])
+
+
+def forest(extra=None):
+    """Grass at y 0 with one tree like worldgen's rooted at (0, 0): logs at y 1 to 4, leaves at 5 and 6."""
+    extra = extra or {}
+
+    def rule(x, y, z):
+        if (x, y, z) in extra:
+            return extra[(x, y, z)]
+        if (x, z) == (0, 0) and 1 <= y <= 4:
+            return "oak_log"
+        if is_leaf(x, y, z):
+            return "leaves"
+        return "grass" if y == 0 else "dirt" if y < 0 else "air"
+
+    return Grid(rule)
+
+
+def chop(grid, heights=(1, 2, 3, 4)):
+    for y in heights:
+        grid.put(0, y, 0, "air")
+
+
+class TreeTests(unittest.TestCase):
+    def test_chopping_the_last_log_lets_the_canopy_decay_one_to_six_game_minutes_later(self):
+        ctx, state = world(forest()), pet()
+        chop(ctx.grid, (1, 2, 3))
+        renew(state, ctx, 0.0)
+        self.assertEqual(scheduled(ctx.db), [])  # the top log still holds the canopy
+        chop(ctx.grid, (4,))
+        renew(state, ctx, 10.0)
+        leaves = scheduled(ctx.db)
+        self.assertEqual(len(leaves), 26)
+        self.assertTrue(all(block == "air" and 70.0 <= ready_at <= 370.0 for _, block, ready_at in leaves))
+        renew(state, ctx, 370.0)
+        self.assertEqual((ctx.grid.material(1, 5, 0), ctx.grid.material(0, 6, 0)), ("air", "air"))
+        self.assertEqual((len(state["decays"]), scheduled(ctx.db)), (24, []))
+        self.assertEqual(sorted(state["decays"][0]), ["at", "x", "y", "z"])
+
+    def test_leaves_that_still_reach_a_log_stay(self):
+        ctx = world(forest({(3, 5, 0): "oak_log"}))
+        chop(ctx.grid)
+        renew(pet(), ctx, 0.0)
+        cells = [cell for cell, _, _ in scheduled(ctx.db)]
+        self.assertNotIn((2, 5, 0), cells)
+        self.assertIn((-2, 5, 0), cells)
+
+    def test_a_decaying_leaf_drops_saplings_and_apples_to_mimo_nearby(self):
+        near, far = pet(), pet(position={"x": 40.0, "y": 1.0, "z": 0.0})
+        with patch("backend.survival.nature.roll", lambda *args: 0.0):
+            for state in (near, far):
+                ctx = world(forest())
+                chop(ctx.grid)
+                renew(state, ctx, 0.0)
+                renew(state, ctx, 60.0)
+        self.assertEqual(near["inventory"], {"sapling": 26, "apple": 26})
+        self.assertEqual((far["inventory"], len(far["decays"])), ({}, 24))
+
+    def test_a_sapling_grows_into_a_tree_after_a_game_day(self):
+        ctx = world()
+        ctx.grid.put(0, 1, 0, "sapling")
+        renew(pet(), ctx, 0.0)
+        self.assertEqual(scheduled(ctx.db), [((0, 1, 0), "oak_log", 3600.0)])
+        renew(pet(), ctx, 3600.0)
+        self.assertEqual([ctx.grid.material(0, y, 0) for y in range(1, 7)], ["oak_log"] * 4 + ["leaves", "leaves"])
+        self.assertEqual(ctx.grid.material(2, 5, 1), "leaves")
+        self.assertEqual(ctx.events[-1][1:], ("grow", "A sapling grew into a tree."))
+        self.assertEqual(scheduled(ctx.db), [])
+
+    def test_a_sapling_without_room_tries_again_later(self):
+        ctx = world(field({(0, 3, 0): "stone"}))
+        ctx.grid.put(0, 1, 0, "sapling")
+        renew(pet(), ctx, 0.0)
+        renew(pet(), ctx, 3600.0)
+        self.assertEqual(ctx.grid.material(0, 1, 0), "sapling")
+        self.assertEqual(scheduled(ctx.db), [((0, 1, 0), "oak_log", 4200.0)])
+        standing = world()
+        standing.grid.put(0, 1, 0, "sapling")
+        renew(pet(position={"x": 0.0, "y": 2.0, "z": 0.0}), standing, 0.0)
+        renew(pet(position={"x": 0.0, "y": 2.0, "z": 0.0}), standing, 3600.0)
+        self.assertEqual(standing.grid.material(0, 1, 0), "sapling")
+
+
+@patch("backend.survival.renewal.terrain_height", lambda x, z, seed: 0)
+@patch("backend.survival.renewal.biome_at", lambda x, z, seed: "forest")
+class MushroomTests(unittest.TestCase):
+    def test_a_picked_mushroom_comes_back_on_forest_floor_one_per_chunk_per_game_day(self):
+        ctx = world(field({(3, 1, 3): "brown_mushroom", (5, 1, 9): "red_mushroom"}))
+        ctx.grid.put(3, 1, 3, "air")
+        renew(pet(), ctx, 0.0)
+        ctx.grid.put(5, 1, 9, "air")
+        renew(pet(), ctx, 10.0)
+        coming = scheduled(ctx.db)
+        self.assertEqual([(block, ready_at) for _, block, ready_at in coming],
+                         [("brown_mushroom", 3600.0), ("red_mushroom", 7200.0)])
+        self.assertTrue(all(0 <= cell[0] < 16 and 0 <= cell[2] < 16 and cell[1] == 1 for cell, _, _ in coming))
+        renew(pet(), ctx, 3600.0)
+        self.assertEqual(ctx.grid.material(*coming[0][0]), "brown_mushroom")
+
+    def test_a_chunk_holds_at_most_three_mushrooms(self):
+        ctx = world(field({(1, 1, 1): "brown_mushroom", (2, 1, 2): "red_mushroom", (3, 1, 3): "brown_mushroom"}))
+        schedule(ctx.db, (9, 1, 9), "brown_mushroom", 5.0)
+        renew(pet(), ctx, 10.0)
+        self.assertEqual(ctx.grid.material(9, 1, 9), "air")
 
 
 class RenewalTickTests(unittest.TestCase):

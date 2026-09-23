@@ -93,6 +93,8 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # Worlds from before M2 have no action fields until their first tick.
         "action": action_view(state.get("action")),
         "recent_actions": replayable(state.get("recent_actions", []), now),
+        # Leaves that decayed lately ({x, y, z, at}), so the viewer can show a puff as each goes.
+        "decays": state.get("decays", []),
         **brain_view(state.get("brain")),
     }
 
