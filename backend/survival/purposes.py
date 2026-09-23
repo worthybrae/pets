@@ -7,9 +7,17 @@ tick's ActionContext and spend its path-search budget through actions.take_searc
 
 Modules register their purposes on import: this one registers rest, sleep, explore, go_home and
 eat; backend.survival.work registers gather_wood, gather_stone and mine_ore; and
-backend.survival.toolmaking registers craft_tools. backend.survival.brain imports them all.
-M4 and M5 register forage, fish, farm, cook, build_* and light_up the same way; nothing here
-changes for them.
+backend.survival.toolmaking registers craft_tools; M4's backend.survival.foraging registers
+forage and fish, backend.survival.farming farm, and backend.survival.cooking cook.
+backend.survival.brain imports them all. M5 registers build_* and light_up the same way.
+
+Scores fall in bands, so a new purpose fits in with the others (the utility picker adds 0 to 6):
+- survival, 80-100: what keeps Mimo alive right now (sleep at night, go home at dusk, eat when
+  very hungry);
+- needs, 50-80: food and warmth before they turn urgent (forage, fish, cook, eat);
+- work, 40-70: tools, materials and the farm (gather_wood, gather_stone, mine_ore, craft_tools,
+  farm; a farm with ripe crops climbs into the needs band);
+- leisure, 10-40: rest and explore when nothing presses.
 """
 
 from __future__ import annotations
