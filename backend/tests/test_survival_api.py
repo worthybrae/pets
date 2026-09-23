@@ -203,6 +203,16 @@ class SurvivalApiTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 503)
         self.assertNotIn("/", caught.exception.detail)
 
+    def test_hatch_error_detail_has_no_filesystem_path(self):
+        registry = LifeRegistry()
+        with patch("backend.api.lives.SurvivalWorld") as mock_world:
+            mock_world.side_effect = OSError("/absolute/path/to/world/data.sqlite3: permission denied")
+            with self.assertRaises(HTTPException) as caught:
+                hatch_egg()
+            self.assertEqual(caught.exception.status_code, 503)
+            self.assertNotIn("/", caught.exception.detail)
+            self.assertEqual(caught.exception.detail, "The new world could not be created.")
+
     def test_the_current_step_and_recent_steps_are_streamed(self):
         hatch_egg()
         fresh = get_mimo()

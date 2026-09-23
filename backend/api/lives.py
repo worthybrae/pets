@@ -56,7 +56,8 @@ def hatch_egg():
     except LifeConflict as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except UNAVAILABLE as error:
-        raise HTTPException(status_code=503, detail=f"The new world could not be created: {error}") from error
+        logger.error("The new world could not be created: %s", error)
+        raise HTTPException(status_code=503, detail="The new world could not be created.") from error
     now, scale = time.time(), time_scale()
     return {"life": life_row(life, scale, now), "state": alive_snapshot(life, world, now, scale)}
 
