@@ -55,6 +55,9 @@ export class ColumnRenderer {
   private inFlight = 0
   private waterClock = 0
   private waterStep = 0
+  // Renderer-wide, not per-entry: a column unloaded and reloaded gets a fresh entry
+  // whose version would otherwise restart at 0 and could collide with a pre-unload reply.
+  private nextVersion = 0
 
   constructor(store: WorldStore, group: THREE.Group, onError: (message: string) => void,
     worker: Worker = createWorldWorker()) {
@@ -149,7 +152,7 @@ export class ColumnRenderer {
       const key = this.queue.shift()!
       const entry = this.entries.get(key)
       if (!entry) continue
-      entry.version += 1
+      entry.version = ++this.nextVersion
       const request: WorkerRequest = {
         type: 'mesh', key, cx: entry.cx, cz: entry.cz, seed: this.store.seed,
         edits: this.store.editsNear(entry.cx, entry.cz), version: entry.version,

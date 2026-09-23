@@ -84,6 +84,20 @@ describe('ColumnRenderer', () => {
     log.mockRestore()
   })
 
+  it('ignores a reply from before a column was unloaded and reloaded', () => {
+    const { group, worker, renderer } = setup()
+    renderer.setView(8, 8, 0)
+    const staleRequest = worker.posted[0]
+    renderer.setView(8 + 16 * 5, 8, 0) // move away: unloads '0,0', loads '5,0'
+    renderer.setView(8, 8, 0) // move back: unloads '5,0', reloads '0,0' fresh
+    const freshRequest = worker.posted.at(-1)!
+    expect(freshRequest.key).toBe('0,0')
+    worker.reply(meshed(staleRequest))
+    expect(group.children).toHaveLength(0)
+    worker.reply(meshed(freshRequest))
+    expect(group.children).toHaveLength(1)
+  })
+
   it('unloads columns that fall out of range', () => {
     const { group, worker, renderer } = setup()
     renderer.setView(8, 8, 0)
