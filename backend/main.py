@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from backend.api.pets import router as pets_router
+from backend.api.lives import router as lives_router
 from backend.api.mimo import router as mimo_router
 from backend.api.websocket import router as ws_router
 from backend.services.scheduler import PetScheduler
@@ -59,6 +60,7 @@ app.add_middleware(
 
 app.include_router(pets_router, prefix="/api")
 app.include_router(mimo_router, prefix="/api")
+app.include_router(lives_router, prefix="/api")
 app.include_router(ws_router, prefix="/api")
 
 

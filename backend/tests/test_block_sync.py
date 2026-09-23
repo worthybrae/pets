@@ -141,11 +141,12 @@ class BlockSyncTests(unittest.TestCase):
             self.assertEqual(len(seqs), len(set(seqs)), f"attempt {attempt}: duplicate seqs {seqs}")
             self.assertTrue(all(seq >= 1 for seq in seqs), f"attempt {attempt}: {seqs}")
 
-    def test_blocks_endpoint_reads_the_configured_store(self):
+    def test_legacy_blocks_endpoint_reads_the_configured_store(self):
         self.store.put_block(80, 20, 0, "stone")
-        with patch.dict("os.environ", {"MIMO_DB_PATH": str(self.path)}):
-            from backend.api.mimo import get_mimo_blocks
-            result = get_mimo_blocks(since=0, limit=5000)
+        data_dir = Path(self.directory.name) / "data"
+        with patch.dict("os.environ", {"MIMO_DB_PATH": str(self.path), "MIMO_DATA_DIR": str(data_dir)}):
+            from backend.api.lives import get_life_blocks
+            result = get_life_blocks(1, since=0, limit=5000)
         self.assertEqual(result["changes"], [{"x": 80, "y": 20, "z": 0, "material": "stone"}])
 
 

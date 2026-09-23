@@ -1,0 +1,87 @@
+"""The JSON shapes the API returns for lives."""
+
+from __future__ import annotations
+
+import math
+
+from backend.services.crafting import RECIPES
+from backend.services.live_mimo import MimoStore
+from backend.survival.care import care_remaining
+from backend.survival.clock import clock_at
+from backend.survival.registry import LifeRegistry
+from backend.survival.world import SurvivalWorld
+
+# Everyday events that a memorial or archive card leaves out.
+ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
+                            "explore", "owner", "plan"})
+NOTABLE_LIMIT = 6
+
+
+def life_row(life: dict, scale: float, now: float) -> dict:
+    """A registry row for the viewer: no file path, plus days lived.
+
+    Survival lives count game days (the clock's day number). The legacy life counts real days.
+    """
+    row = {key: value for key, value in life.items() if key != "db_path"}
+    end = life["died_at"] if life["died_at"] is not None else now
+    if life["kind"] == "legacy":
+        row["days"] = max(1, math.ceil((end - life["born_at"]) / 86400))
+    else:
+        row["days"] = clock_at(life["born_at"], end, scale)["day_number"]
+    return row
+
+
+def notable(events: list[dict]) -> list[dict]:
+    return [event for event in events if event["kind"] not in ROUTINE_EVENTS][:NOTABLE_LIMIT]
+
+
+def open_archive(registry: LifeRegistry, life: dict) -> MimoStore | SurvivalWorld:
+    """A read-only view of any life's world."""
+    path = registry.world_path(life)
+    if life["kind"] == "legacy":
+        return MimoStore(path, read_only=True)
+    return SurvivalWorld(path, read_only=True)
+
+
+def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
+    """A survival world's state. A dead life's clock stops at its death."""
+    state = world.state()
+    at = state["died_at"] if state["died_at"] is not None else now
+    return {
+        "clock": clock_at(state["born_at"], at, scale),
+        "vitals": {name: round(value, 2) for name, value in state["vitals"].items()},
+        "position": state["position"],
+        "status": state["status"],
+        "last_thought": state["last_thought"],
+        "events": world.events(12),
+        "inventory": state["inventory"],
+        "recipes": RECIPES,
+        "blocks_seq": world.blocks_seq(),
+        "care": care_remaining(state, now),
+        "world_seed": state["world_seed"],
+        "last_tick_at": state["last_tick_at"],
+        "server_time": now,
+        "died_at": state["died_at"],
+        "cause": state["cause"],
+    }
+
+
+def alive_snapshot(life: dict, world: SurvivalWorld, now: float, scale: float) -> dict:
+    return {"phase": "alive", "life": life_row(life, scale, now), **survival_view(world, now, scale)}
+
+
+def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
+    """One life's row, notable events and final state (the legacy snapshot shape for life 1)."""
+    archive = open_archive(registry, life)
+    if isinstance(archive, MimoStore):
+        state = archive.snapshot()
+        events = state["events"]
+    else:
+        state = survival_view(archive, now, scale)
+        events = archive.events(40)
+    return {"life": life_row(life, scale, now), "notable_events": notable(events), "state": state}
+
+
+def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
+    detail = life_detail(registry, life, scale, now)
+    return {**detail["life"], "notable_events": detail["notable_events"]}
