@@ -23,7 +23,7 @@ docker compose up -d --force-recreate api mimo-worker
 
 The worker checks Mimo every five seconds. After a small action, Mimo can choose again on the next pass; it does not wait for a decision cooldown. Travel and active building also progress on each pass. Each choice uses energy. When energy runs low or Mimo chooses to rest, it sleeps and recovers before acting again. A default limit of 8,000 Jev decision attempts and 64 Luna creative attempts per UTC day guards against runaway API use; lower `MIMO_MAX_DECISIONS_PER_DAY` or `MIMO_MAX_LUNA_DECISIONS_PER_DAY` for a tighter budget. `MIMO_TICK_SECONDS` controls travel and build updates.
 
-The preview refreshes the saved world every second. During construction it reveals the blocks in each persisted progress update one at a time, and the block counter follows what is visible. Instanced block meshes initialize before becoming visible, avoiding the blank white frames that previously appeared during updates.
+The preview polls Mimo's state every second. Block changes carry sequence numbers, so the page fetches only new changes from `/api/mimo/blocks`. A Web Worker generates chunk columns from the world seed and meshes them with 8×8 pixel textures and corner shading; the page stays smooth on phones. Add `?debug` to the URL to see frame rate, draw calls and mesh time. Build previews still render in the browser until the server places build blocks itself.
 
 For 24/7 operation, run the API and worker on an always-on host with a persistent `/data` volume and a configured model. A laptop sleeping or Docker being stopped pauses Mimo; the stored world remains intact.
 
@@ -33,6 +33,8 @@ For 24/7 operation, run the API and worker on an always-on host with a persisten
 - Its observation includes known structures, the pond, nearby vertical block columns, and validated open sites. Mimo remembers visited clearings and excludes them from new exploration choices while keeping them available for building. Build choices are limited to available space and a set of structure compilers.
 - Each world has a persisted 64-bit seed. The viewer generates nearby 16×16 terrain chunks from that seed as the camera follows Mimo or visits the wilderness. The server uses the same height, biome, cave, and ore math for observations and mining. The original 192-block home region retains its earlier terrain so saved buildings stay in place; the next 48 blocks blend into the generated landscape.
 - Generated terrain has meadow, forest, desert, and alpine biomes, hills, sea-level water, trees, surface materials, caves, and underground ores. Surface layers are rendered; deeper blocks are generated as they are exposed by digging. Mimo can place blocks above ground and dig to four blocks below it.
+- Every block is listed once in `shared/blocks.json`. The server and the viewer both read it.
+- Trees, flowers, tall grass and the home cottage are part of worldgen on both sides, so Mimo can mine real trees. Python (`backend/services/worldgen.py`) and TypeScript (`frontend/src/engine/worldgen.ts`) must agree cell for cell; `shared/worldgen-fixture.json` checks that.
 - Placed sand and gravel fall one cell per world tick when unsupported. Water is translucent and gently animated in the viewer; it does not flow yet.
 - Mining yields materials. Logs become planks and sticks; a placed crafting table unlocks furnace and pickaxe recipes. A placed furnace consumes fuel to smelt ore or sand. Inventory and placed machines survive restart.
 - The **Blocks & crafting** panel lets the owner help by crafting, placing the table or furnace, and smelting. These actions use the same persistent inventory as Mimo's autonomous actions.
@@ -43,5 +45,7 @@ The current large structures are compiled from parameterized designs. The model 
 
 ```bash
 python3 -m unittest discover -s backend/tests
-cd frontend && npm run build
+cd frontend && npm test && npm run build
 ```
+
+After changing worldgen in either language, run `python3 -m backend.scripts.worldgen_fixture` and commit the updated fixture.
