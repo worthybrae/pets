@@ -2,8 +2,10 @@
 
 The worker calls `tick_life` about once a second. A longer gap (a laptop that slept) is
 caught up in steps of at most 60 game seconds, so a pet can starve while nobody watches.
-Until the brain arrives (M3) Mimo stands where it hatched and only follows the interim
-sleep rule: sleep when exhausted or at night, wake rested after dawn.
+Each step first runs Mimo's timed actions up to the step's start (backend.survival.actions),
+then advances vitals with the activity and surroundings at that moment. A planner decides the
+next steps whenever Mimo runs out: `rest_plan` (M1's sleep rule) unless the caller passes
+another; the worker passes the interim `scripted_plan` until the brain arrives.
 """
 
 from __future__ import annotations
@@ -13,16 +15,17 @@ import time
 
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
+from backend.survival.actions import ActionContext, Planner, activity_of, advance_actions, ensure_actions
 from backend.survival.clock import DAY_SECONDS, clock_at, is_night, time_scale
+from backend.survival.grid import world_grid
 from backend.survival.registry import LifeRegistry
+from backend.survival.script import rest_plan
 from backend.survival.vitals import (
-    EXHAUSTED_BELOW, FIRE_REACH, FREEZING_BELOW, WARM_BLOCKS, Surroundings, is_sheltered, near_warm_block,
-    step_vitals,
+    FIRE_REACH, FREEZING_BELOW, WARM_BLOCKS, Surroundings, is_sheltered, near_warm_block, step_vitals,
 )
 from backend.survival.world import SurvivalWorld, log_event, placed_near, read_state, write_state
 
 MAX_STEP_SECONDS = 60.0
-WAKE_ENERGY = 95.0
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
 
@@ -43,21 +46,6 @@ def surroundings_at(db: sqlite3.Connection, seed: str, position: dict) -> Surrou
     )
 
 
-def update_sleep(state: dict, night: bool, at: float, events: list[Event]) -> None:
-    """The interim rule: sleep when exhausted or at night; wake once rested and it is not night."""
-    energy = state["vitals"]["energy"]
-    if state["status"] == "sleeping":
-        if energy >= WAKE_ENERGY and not night:
-            state["status"] = "idle"
-            state["last_thought"] = "Good morning. I feel rested."
-            events.append((at, "wake", f"{state['name']} woke up."))
-    elif night or energy < EXHAUSTED_BELOW:
-        state["status"] = "sleeping"
-        state["last_thought"] = ("It's dark. Time to curl up and sleep." if night
-                                 else "I'm too tired to keep my eyes open.")
-        events.append((at, "sleep", f"{state['name']} fell asleep."))
-
-
 def note_crossings(state: dict, before: dict, at: float, events: list[Event]) -> None:
     after, name = state["vitals"], state["name"]
     if before["hunger"] >= HUNGRY_BELOW > after["hunger"]:
@@ -71,48 +59,64 @@ def note_crossings(state: dict, before: dict, at: float, events: list[Event]) ->
         events.append((at, "freezing", f"{name} is freezing."))
 
 
-def advance_world(world: SurvivalWorld, timestamp: float, scale: float) -> dict:
+def record_death(state: dict, cause: str, at: float, scale: float, events: list[Event]) -> None:
+    """Mark Mimo dead at `at` and log it. The current step and the plan end with the life."""
+    day = clock_at(state["born_at"], at, scale)["day_number"]
+    state.update(status="dead", died_at=at, cause=cause, action=None, queue=[])
+    events.append((at, "death", f"{state['name']} died of {CAUSE_TEXT[cause]} on day {day}."))
+
+
+def advance_world(world: SurvivalWorld, timestamp: float, scale: float, planner: Planner = rest_plan) -> dict:
     """Catch the world up to `timestamp` in one transaction and return the saved state."""
     with world.transaction() as db:
         state = read_state(db)
         if state["died_at"] is not None or timestamp <= state["last_tick_at"]:
             return state
-        surroundings = surroundings_at(db, world.seed, state["position"])
+        ensure_actions(state)
         events: list[Event] = []
+        context = ActionContext(grid=world_grid(db, world.seed), planner=planner, events=events,
+                                clock_at=lambda at: clock_at(state["born_at"], at, scale))
         cursor = state["last_tick_at"]
         remaining = (timestamp - cursor) * scale
         while remaining > 1e-9:
+            fell_at = advance_actions(state, context, cursor)
+            if fell_at is not None:
+                record_death(state, "fall", fell_at, scale, events)
+                break
             step = min(MAX_STEP_SECONDS, remaining)
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
-            update_sleep(state, night, cursor, events)
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
             state["vitals"], cause = step_vitals(
-                before, step, night=night, activity="sleeping" if state["status"] == "sleeping" else "idle",
-                surroundings=surroundings, lonely=(cursor - last_hello) * scale > DAY_SECONDS)
+                before, step, night=night, activity=activity_of(state),
+                surroundings=surroundings_at(db, world.seed, state["position"]),
+                lonely=(cursor - last_hello) * scale > DAY_SECONDS)
             cursor += step / scale
             remaining -= step
             note_crossings(state, before, cursor, events)
             if cause:
-                day = clock_at(state["born_at"], cursor, scale)["day_number"]
-                state.update(status="dead", died_at=cursor, cause=cause)
-                events.append((cursor, "death", f"{state['name']} died of {CAUSE_TEXT[cause]} on day {day}."))
+                record_death(state, cause, cursor, scale, events)
                 break
+        if state["died_at"] is None:
+            fell_at = advance_actions(state, context, timestamp)
+            if fell_at is not None:
+                record_death(state, "fall", fell_at, scale, events)
         state["last_tick_at"] = state["died_at"] if state["died_at"] is not None else timestamp
         write_state(db, state)
-        for at, kind, text in events:
+        for at, kind, text in sorted(events, key=lambda event: event[0]):
             log_event(db, at, kind, text)
         return state
 
 
-def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: float | None = None) -> dict | None:
+def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: float | None = None,
+              planner: Planner = rest_plan) -> dict | None:
     """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive."""
     life = registry.active_life()
     if life is None:
         return None
     timestamp = time.time() if timestamp is None else timestamp
     scale = time_scale() if scale is None else scale
-    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale)
+    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale, planner)
     if state["died_at"] is not None:
         registry.mark_dead(life["id"], state["died_at"], state["cause"])
     return state
