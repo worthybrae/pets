@@ -7,7 +7,8 @@ above, never in Mimo's own staircase or tunnels. A farm more than 24 blocks away
 first, but only when there is work waiting there (ripe crops, or something to plant and a plot
 for it); far from its farm Mimo does no farm work. Each batch does the most useful work it can,
 at most 4 plots:
-1. harvest ripe crops within 24 blocks and plant each plot again with what it gave;
+1. harvest ripe crops within 24 blocks and plant each plot again with what it gave, but only
+   while Mimo carries less than a day's worth of food: otherwise the crops wait in the field;
 2. plant empty farmland, carrots first (they feed Mimo) and then seeds;
 3. till new plots next to the farm, up to 9, for the carrots and seeds left over, never where
    something Mimo built keeps its ground (structures.reserved);
@@ -120,7 +121,8 @@ def farm_jobs(s: Situation) -> list[tuple[Cell, list[dict]]]:
     farmland = [cell for cell, material in placed if material == "farmland"]
     empty = reachable(s, by_distance((above(cell) for cell in farmland if open_above(s, cell)), s.here))
     jobs: list[tuple[Cell, list[dict]]] = []
-    for cell in ripe[:PLOTS_PER_BATCH]:
+    # Ripe crops wait in the field while Mimo carries a day's worth of food: its arms fill up.
+    for cell in ripe[:PLOTS_PER_BATCH] if food_need(s) > 0 else []:
         crop = s.grid.material(*cell)
         for item, amount in HARVESTS[crop].items():
             inventory[item] = inventory.get(item, 0) + amount
