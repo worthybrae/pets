@@ -2,7 +2,10 @@
 Mimo has seen.
 
 gather_wood chops the nearest standing tree within 24 blocks, lowest log first, until Mimo
-carries 8 logs' worth of wood (craft_tools turns logs into planks). gather_stone needs a pickaxe:
+carries 8 logs' worth of wood (craft_tools turns logs into planks). Trees only come back when
+Mimo plants saplings (they drop from leaves), so each batch first plants up to 2 carried
+saplings on open ground within reach, 3 blocks or more from any trunk or other sapling.
+gather_stone needs a pickaxe:
 it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
 tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
 pickaxe and no iron ore seen yet, it keeps digging to prospect for iron. It never digs into
@@ -24,13 +27,14 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from backend.services.blocks import hardness, is_solid
+from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
-from backend.survival.senses import failed_columns, standing_logs
+from backend.survival.nature import SOIL
+from backend.survival.senses import by_distance, failed_columns, standing_logs, trunks_near
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
 
@@ -39,6 +43,9 @@ if TYPE_CHECKING:
 
 WOOD_GOAL = 8.0
 STAND_REACH = 2.0  # close enough to the lowest log that the top one (3 higher) stays within reach
+SAPLINGS_PER_BATCH = 2
+SAPLING_ROOM = 3.0  # blocks between a planted sapling and any trunk or other sapling
+TREE_SPACE = 6  # open cells a sapling needs above its ground for the trunk and canopy
 STONE_GOAL = 12
 STAIRS_PER_BATCH = 4
 TUNNEL_DEPTH = 10
@@ -77,13 +84,48 @@ def wood_facts(s: Situation) -> str:
     return f"{wood(s.inventory):g} logs of wood carried, {tree}"
 
 
+def sapling_spots(s: Situation) -> list[Cell]:
+    """Open grass, dirt or moss within reach with room for a tree above, nearest first, and each
+    SAPLING_ROOM from every trunk, sapling and other spot."""
+    x, y, z = s.here
+    taken = trunks_near(s.grid, s.seed, x, z, REACH + SAPLING_ROOM)
+    candidates = []
+    for dx in range(-3, 4):
+        for dz in range(-3, 4):
+            for cell in ((x + dx, y, z + dz), (x + dx, y + 1, z + dz), (x + dx, y - 1, z + dz)):
+                if 1.0 <= math.dist(cell, s.here) <= REACH and sapling_fits(s, cell):
+                    candidates.append(cell)
+                    break
+    spots = []
+    for cell in by_distance(candidates, s.here):
+        if all(math.hypot(cell[0] - tx, cell[2] - tz) >= SAPLING_ROOM for tx, tz in taken):
+            spots.append(cell)
+            taken.add((cell[0], cell[2]))
+    return spots
+
+
+def sapling_fits(s: Situation, cell: Cell) -> bool:
+    x, y, z = cell
+    if s.grid.material(x, y - 1, z) not in SOIL["sapling"]:
+        return False
+    return all(is_replaceable(material) and material != "water"
+               for material in (s.grid.material(x, y + dy, z) for dy in range(TREE_SPACE)))
+
+
+def plant_saplings(s: Situation) -> list[dict]:
+    count = min(SAPLINGS_PER_BATCH, s.count("sapling"))
+    if count <= 0:
+        return []
+    return [{"kind": "plant", "target": list(cell), "item": "sapling"} for cell in sapling_spots(s)[:count]]
+
+
 def plan_wood(s: Situation, context: ActionContext) -> list[dict]:
     if wood(s.inventory) >= WOOD_GOAL:
         return []
     logs = logs_to_chop(s)
     if not logs:
         return []
-    return [walk_to(logs[0], STAND_REACH), *({"kind": "mine", "target": list(log)} for log in logs)]
+    return [*plant_saplings(s), walk_to(logs[0], STAND_REACH), *({"kind": "mine", "target": list(log)} for log in logs)]
 
 
 register(Purpose(

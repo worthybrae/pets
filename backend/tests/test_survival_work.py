@@ -86,6 +86,17 @@ class WoodTests(unittest.TestCase):
         self.assertFalse(wood.valid(full))
         self.assertEqual(wood.plan(full, context(full.grid)), [])
 
+    def test_carried_saplings_are_planted_in_open_ground_before_chopping(self):
+        grid = ground({(5, y, 0): "oak_log" for y in (1, 2, 3, 4)})
+        s = situation(pet(inventory={"sapling": 3}), grid)
+        sapling = lambda x, y, z: {"kind": "plant", "target": [x, y, z], "item": "sapling"}  # noqa: E731
+        self.assertEqual(PURPOSES["gather_wood"].plan(s, context(grid)),
+                         [sapling(-1, 1, 0), sapling(2, 1, 0), walk(5, 1, 0, 2.0),
+                          mine(5, 1, 0), mine(5, 2, 0), mine(5, 3, 0), mine(5, 4, 0)])
+        roofed = ground({(-1, 3, 0): "stone", **{(5, y, 0): "oak_log" for y in (1, 2, 3, 4)}})
+        s = situation(pet(inventory={"sapling": 1}), roofed)
+        self.assertEqual(PURPOSES["gather_wood"].plan(s, context(roofed))[0], sapling(0, 1, -1))
+
     def test_a_tree_where_a_step_failed_is_left_alone(self):
         state = pet()
         state["recent_actions"] = [{"kind": "walk", "started_at": 0.0, "ended_at": 0.0, "result": "failed",

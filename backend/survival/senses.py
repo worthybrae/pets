@@ -152,3 +152,11 @@ def near_failure(state: dict, cell: Cell, radius: float = FAILED_REACH) -> bool:
     """A step failed lately within `radius` blocks (horizontally) of `cell`: somewhere Mimo could
     not get to, so the cells around it are left alone for a while too."""
     return any(math.hypot(cell[0] - x, cell[2] - z) <= radius for x, z in failed_columns(state))
+
+
+def trunks_near(grid: Grid, seed: str, x: int, z: int, radius: float) -> set[tuple[int, int]]:
+    """Columns within `radius` where a tree stands or a sapling grows: generated trees, and logs
+    and saplings that were placed or grew."""
+    columns = {(tx, tz) for tx, tz, _ in trees_near(seed, x, z, math.ceil(radius))}
+    columns.update((cell[0], cell[2]) for cell, _ in grid.placed_cells(x, z, radius, (LOG, "sapling")))
+    return columns
