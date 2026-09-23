@@ -1,0 +1,30 @@
+import { lifeLine } from './hud'
+import type { LifeSummary } from './types'
+
+/** Shown after a pet dies, until the owner moves on to the next egg. */
+export default function Memorial({ life, onViewWorld, onNextEgg }: {
+  life: LifeSummary
+  onViewWorld: () => void
+  onNextEgg: () => void
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#1d263b] px-4 py-10 text-[#243e3d]">
+      <section className="w-full max-w-md rounded-3xl bg-[#f5faf7] p-6 shadow-2xl sm:p-8" aria-label={`In memory of ${life.name}`}>
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">In memory of</p>
+        <h1 className="mt-1 text-4xl font-semibold tracking-tight">{life.name}</h1>
+        <p className="mt-3 text-sm text-[#54726e]">{lifeLine(life)}.</p>
+        {life.notable_events.length > 0 && (
+          <ul className="mt-5 space-y-2 border-l-2 border-[#d6e5dc] pl-4 text-sm text-[#54726e]">
+            {life.notable_events.map((event) => <li key={event.id}>{event.text}</li>)}
+          </ul>
+        )}
+        <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+          <button type="button" onClick={onViewWorld}
+            className="flex-1 rounded-xl border border-[#bfd5cd] px-4 py-2.5 text-sm font-medium text-[#315e58] hover:bg-white">View {life.name}'s world</button>
+          <button type="button" onClick={onNextEgg}
+            className="flex-1 rounded-xl bg-[#315e58] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#244b47]">Hatch a new egg</button>
+        </div>
+      </section>
+    </main>
+  )
+}

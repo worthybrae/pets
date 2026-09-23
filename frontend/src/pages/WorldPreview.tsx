@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchMimo } from '../survival/api'
 import ArchiveBrowser from '../survival/ArchiveBrowser'
 import ArchiveWorld from '../survival/ArchiveWorld'
+import EggHatch from '../survival/EggHatch'
+import Memorial from '../survival/Memorial'
 import SurvivalWorld from '../survival/SurvivalWorld'
 import type { MimoResponse } from '../survival/types'
 
@@ -11,10 +13,12 @@ interface Received {
   receivedAt: number
 }
 
-/** /preview: the living pet and the archive of every life. The egg screen arrives in the next task. */
+/** /preview: the egg, the living pet, the memorial after a death, and the archive of every life. */
 export default function WorldPreview() {
   const [received, setReceived] = useState<Received | null>(null)
   const [error, setError] = useState('')
+  const [arrival, setArrival] = useState(false)
+  const [memorialSeen, setMemorialSeen] = useState<number | null>(null)
   const [showLives, setShowLives] = useState(false)
   const [openLife, setOpenLife] = useState<number | null>(null)
 
@@ -48,15 +52,17 @@ export default function WorldPreview() {
 
   const { data, receivedAt } = received
   const openLives = () => setShowLives(true)
-  const screen = data.phase === 'alive'
-    ? <SurvivalWorld key={data.life.id} state={data} receivedAt={receivedAt} arrival={false}
+  const last = data.phase === 'egg' ? data.last_life : null
+  let screen
+  if (data.phase === 'alive') {
+    screen = <SurvivalWorld key={data.life.id} state={data} receivedAt={receivedAt} arrival={arrival}
       connectionError={error} onChanged={refresh} onOpenLives={openLives} />
-    : (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#dce9eb] px-6 text-center text-[#315e58]">
-        <p className="max-w-sm text-xl font-semibold">No pet is alive yet. Hatch the egg with POST /api/lives/hatch.</p>
-        <button type="button" onClick={openLives} className="rounded-xl bg-[#315e58] px-4 py-2 text-sm text-white">Lives</button>
-      </main>
-    )
+  } else if (last && last.kind === 'survival' && memorialSeen !== last.id) {
+    screen = <Memorial life={last} onViewWorld={() => setOpenLife(last.id)} onNextEgg={() => setMemorialSeen(last.id)} />
+  } else {
+    screen = <EggHatch egg={data.egg} lastLife={last} onOpenLives={openLives}
+      onHatched={async () => { setArrival(true); await refresh() }} />
+  }
   return (
     <>
       {screen}
