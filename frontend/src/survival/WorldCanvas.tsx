@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import BlockWorld, { type ViewStats } from '../engine/BlockWorld'
 import { fogRange } from '../engine/fog'
 import type { WorldStore } from '../engine/worldStore'
 import DayNight, { PetGlow } from './DayNight'
 import FollowCamera from './FollowCamera'
+import { focusPoint } from './motion'
 import { daylightFactor } from './sky'
 import SurvivalPet from './SurvivalPet'
 import type { MimoAction } from './types'
@@ -46,6 +47,10 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   const [initial] = useState(() => ({ ...position }))
   const [cameraChunk, setCameraChunk] = useState(() => ({ x: Math.floor(position.x / 16), z: Math.floor(position.z / 16) }))
   const [fogNear, fogFar] = fogRange(viewDistance, CAMERA_DISTANCE)
+  // The same interpolated point SurvivalPet renders at, so the camera tracks the walk instead of
+  // snapping only when the server's polled position changes.
+  const focusAt = useCallback(() => focusPoint(action, position, serverTime ? serverTime() : 0),
+    [action, position, serverTime])
 
   return (
     <>
@@ -77,7 +82,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             </mesh>
             {seconds && <PetGlow seconds={seconds} />}
           </SurvivalPet>
-          <FollowCamera focus={position} focusY={position.y} initialFocus={initial} initialFocusY={initial.y}
+          <FollowCamera focus={position} focusY={position.y} focusAt={serverTime ? focusAt : undefined}
+            initialFocus={initial} initialFocusY={initial.y}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}
             onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />
         </Canvas>

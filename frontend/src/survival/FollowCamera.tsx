@@ -15,9 +15,11 @@ interface Focus {
 const NORMAL_DIRECTION: Vec3 = [18, 13, 18]
 
 /** Orbit controls that glide after a focus point, keep the fog past it and report chunk changes. */
-export default function FollowCamera({ focus, focusY, initialFocus, initialFocusY, distance, follow, viewDistance, onOrbit, onChunkChange }: {
+export default function FollowCamera({ focus, focusY, focusAt, initialFocus, initialFocusY, distance, follow, viewDistance, onOrbit, onChunkChange }: {
   focus: Focus
   focusY: number
+  /** When present, read each frame instead of the static `focus`/`focusY` — e.g. to track an interpolated pose. */
+  focusAt?: () => { x: number; y: number; z: number }
   initialFocus: Focus
   initialFocusY: number
   distance: number
@@ -34,7 +36,8 @@ export default function FollowCamera({ focus, focusY, initialFocus, initialFocus
     const controls = controlsRef.current
     if (!controls) return
     if (follow) {
-      const desired = new THREE.Vector3(focus.x, focusY, focus.z)
+      const point = focusAt ? focusAt() : { x: focus.x, y: focusY, z: focus.z }
+      const desired = new THREE.Vector3(point.x, point.y, point.z)
       const movement = desired.sub(controls.target).multiplyScalar(1 - Math.exp(-3 * delta))
       controls.target.add(movement)
       camera.position.add(movement)

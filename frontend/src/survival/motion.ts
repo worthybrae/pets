@@ -69,3 +69,9 @@ export function poseAt(action: MimoAction | null, rest: Point, t: number): Pose 
     travelled: 0, swimming: false,
   }
 }
+
+/** Where the camera should look: the pet's interpolated position, the same point `poseAt` renders it at. */
+export function focusPoint(action: MimoAction | null, rest: Point, t: number): Point {
+  const pose = poseAt(action, rest, t)
+  return { x: pose.x, y: pose.y, z: pose.z }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { facingToward, poseAt, serverNow, turnToward } from './motion'
+import { facingToward, focusPoint, poseAt, serverNow, turnToward } from './motion'
 import type { MimoAction } from './types'
 
 const walk: MimoAction = {
@@ -57,6 +57,14 @@ describe('poseAt', () => {
     expect(poseAt(mine, rest, 1)).toMatchObject({ x: 7, y: 3, z: 7, travelled: 0, swimming: false })
     expect(poseAt(mine, rest, 1).facing).toBeCloseTo(Math.PI / 4)
     expect(poseAt(null, rest, 1).facing).toBeNull()
+  })
+})
+
+describe('focusPoint', () => {
+  it('follows the same interpolated position poseAt renders, and rests at the server position with no action', () => {
+    const pose = poseAt(walk, rest, 10.15)
+    expect(focusPoint(walk, rest, 10.15)).toEqual({ x: pose.x, y: pose.y, z: pose.z })
+    expect(focusPoint(null, rest, 5)).toEqual({ x: rest.x, y: rest.y, z: rest.z })
   })
 })
 
