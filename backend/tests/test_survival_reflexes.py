@@ -195,6 +195,17 @@ class ReflexTests(unittest.TestCase):
         sick = pet(inventory={"red_mushroom": 2}, vitals={**START_VITALS, "hunger": 10.0})
         self.assertIsNone(reflex_hook(sick, ctx, 0.0))
 
+    def test_warm_up_lights_a_carried_campfire_or_walks_to_one(self):
+        cold = pet(inventory={"campfire": 1, "furnace": 1}, vitals={**START_VITALS, "warmth": 20.0})
+        self.assertEqual(reflex_hook(cold, brainy(), 0.0), "warm_up")
+        self.assertEqual(cold["queue"], [{"kind": "place", "target": [1, 1, 0], "block": "campfire", "purpose": "warm_up"}])
+        grid = flat()
+        grid.put(12, 1, 0, "campfire")
+        wandering = pet(vitals={**START_VITALS, "warmth": 20.0})
+        self.assertEqual(reflex_hook(wandering, brainy(grid), 0.0), "warm_up")
+        self.assertEqual(wandering["queue"], [{"kind": "walk", "target": [12, 1, 0], "reach": 2.0, "purpose": "warm_up"}])
+
+
 
 
 if __name__ == "__main__":

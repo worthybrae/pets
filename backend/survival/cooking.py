@@ -1,0 +1,106 @@
+"""cook: turn raw food into better food.
+
+- Raw fish (8 hunger) cooks into cooked fish (30) in 5 s at a lit campfire or furnace within 6
+  blocks. With no fire that close, Mimo places a campfire or furnace it carries beside it (in a
+  niche it digs when it is below the surface, as toolmaking does), or first crafts a campfire
+  from 2 logs and 3 sticks; failing both, it walks to a fire within 32 blocks and cooks there
+  next batch.
+- Three wheat bake into bread (25) at a crafting table, like craft_tools does it.
+A station or fire the plan placed is mined back into Mimo's inventory at the end. Those steps
+are kept (`keep`), so a new choice does not leave the station behind. cook is offered while
+there is raw food it can cook now, and scores in the needs band.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from backend.services.crafting import FIRES
+from backend.survival.grid import Cell
+from backend.survival.foraging import whole_walk
+from backend.survival.purposes import Purpose, register
+from backend.survival.situation import Situation
+from backend.survival.steps import STATION_REACH, WORKSTATIONS
+from backend.survival.toolmaking import Short, make, place_station, station_spots
+
+if TYPE_CHECKING:
+    from backend.survival.actions import ActionContext
+
+FIRE_TRAVEL = 32.0
+FIRE_STAND = 2.0
+BREAD_WHEAT = 3
+
+
+def made(inventory: dict, item: str) -> list[dict] | None:
+    """The craft steps that make one `item` from `inventory` (which they then change), or None."""
+    trial, steps = dict(inventory), []
+    try:
+        make(trial, item, 1, steps)
+    except Short:
+        return None
+    inventory.clear()
+    inventory.update(trial)
+    return steps
+
+
+def station(inventory: dict, name: str, spots: list[tuple[Cell, bool]], steps: list[dict], placed: list[Cell],
+            carried: tuple[str, ...]) -> bool:
+    """Place a carried station (the first of `carried`), or make `name` and place it, in the next
+    station spot (toolmaking.station_spots). False when there is no spot or nothing to place."""
+    if not spots:
+        return False
+    block = next((item for item in carried if inventory.get(item, 0) > 0), None)
+    if block is None:
+        crafting = made(inventory, name)
+        if crafting is None:
+            return False
+        steps.extend(crafting)
+        block = name
+    placed.append(place_station(spots, block, steps))
+    inventory[block] -= 1
+    return True
+
+
+def cook_plan(s: Situation) -> list[dict] | None:
+    """The steps that cook the raw food Mimo carries, or None when it cannot cook any now."""
+    inventory = dict(s.inventory)
+    x, _, z = s.here
+    near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
+    spots = station_spots(s)
+    steps: list[dict] = []
+    placed: list[Cell] = []
+    fish = inventory.get("raw_fish", 0)
+    if fish and not near.intersection(FIRES) and not station(inventory, "campfire", spots, steps, placed, FIRES):
+        fires = sorted(s.grid.placed_cells(x, z, FIRE_TRAVEL, FIRES), key=lambda found: s.distance(found[0]))
+        if fires:
+            return [whole_walk(fires[0][0], FIRE_STAND)]
+        fish = 0
+    steps.extend({"kind": "cook", "item": "raw_fish"} for _ in range(fish))
+    loaves = inventory.get("wheat", 0) // BREAD_WHEAT
+    if loaves and "crafting_table" not in near and not station(inventory, "crafting_table", spots, steps, placed,
+                                                                ("crafting_table",)):
+        loaves = 0
+    steps.extend({"kind": "craft", "recipe": "bread"} for _ in range(loaves))
+    if not fish and not loaves:
+        return None
+    steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
+    return steps
+
+
+def plan_cook(s: Situation, context: ActionContext) -> list[dict]:
+    if s.brain["batches"] > 1:
+        return []
+    return cook_plan(s) or []
+
+
+def cook_score(s: Situation) -> float:
+    servings = s.count("raw_fish") + s.count("wheat") // BREAD_WHEAT
+    return min(80.0, 50.0 + (100.0 - s.vitals["hunger"]) / 4 + 5.0 * servings)
+
+
+register(Purpose(
+    "cook", "cook", "Cook raw fish at a fire and bake wheat into bread; cooked food fills far more.",
+    valid=lambda s: cook_plan(s) is not None,
+    facts=lambda s: f"carrying {s.count('raw_fish')} raw fish and {s.count('wheat')} wheat",
+    score=cook_score, plan=plan_cook,
+    thoughts=("Cooked fish tastes so much better.", "Let's get a fire going and cook.")))

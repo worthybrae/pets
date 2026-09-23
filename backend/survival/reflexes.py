@@ -41,7 +41,7 @@ from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
 from backend.survival.toolmaking import place_station, station_spots
 from backend.survival.triggers import ensure_brain, mark_trigger
-from backend.survival.vitals import EXHAUSTED_BELOW, is_sheltered
+from backend.survival.vitals import EXHAUSTED_BELOW, WARM_BLOCKS, is_sheltered
 
 logger = logging.getLogger(__name__)
 
@@ -258,18 +258,20 @@ register(Reflex("eat_now", 40,
 # warm_up ---------------------------------------------------------------------------------------
 
 def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
-    """Place a carried furnace (it warms like a fire), else walk to the nearest known warm spot.
-    Below the surface the furnace goes in a niche Mimo digs, never in its way out."""
-    if s.inventory.get("furnace", 0) > 0:
+    """Light a carried campfire beside Mimo (or place a carried furnace, which warms the same), else
+    walk to the nearest known warm spot: a shelter, or a campfire or furnace within 64 blocks.
+    Below the surface the fire goes in a niche Mimo digs, never in its way out."""
+    fire = next((block for block in WARM_BLOCKS if s.inventory.get(block, 0) > 0), None)
+    if fire is not None:
         steps: list[dict] = []
-        if place_station(station_spots(s), "furnace", steps) is not None:
+        if place_station(station_spots(s), fire, steps) is not None:
             return steps
     x, _, z = s.here
     spots = []
     home = nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)
     if home is not None:
         spots.append((s.distance(cell_of(home)), walk_to(cell_of(home))))
-    for cell, _ in s.grid.placed_cells(x, z, HOME_RANGE, ("furnace",)):
+    for cell, _ in s.grid.placed_cells(x, z, HOME_RANGE, WARM_BLOCKS):
         spots.append((s.distance(cell), walk_to(cell, FIRE_STAND)))
     spots = [spot for spot in spots if spot[0] > FIRE_STAND]
     return [min(spots, key=lambda spot: spot[0])[1]] if spots else []
