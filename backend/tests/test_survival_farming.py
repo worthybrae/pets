@@ -1,3 +1,4 @@
+import random
 import sqlite3
 import unittest
 from unittest.mock import patch
@@ -6,6 +7,7 @@ from backend.survival import farming  # noqa: F401  (registers farm)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, remember
+from backend.survival.pickers import JITTER, options, utility_pick
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.vitals import START_VITALS
@@ -108,8 +110,23 @@ class FarmTests(unittest.TestCase):
         score = PURPOSES["farm"].score
         bare = score(situation())
         seeded = score(situation(pet(inventory={"seeds": 1})))
-        ripe = score(situation(pet(inventory={"seeds": 1}), meadow({(1, 0, 0): "farmland", (1, 1, 0): "wheat_3"})))
-        self.assertEqual((bare, seeded, ripe), (47.5, 57.5, 82.5))
+        field = {(1, 0, 0): "farmland", (1, 1, 0): "wheat_3"}
+        ripe = score(situation(pet(inventory={"seeds": 1}), meadow(field)))
+        keen = score(situation(pet(inventory={"seeds": 1}, traits={"diligence": 100, "patience": 100}), meadow(field)))
+        # Ripe crops count for as much food as Mimo lacks: 2 bread (50 of the 60 it likes to carry)
+        # leave a sixth of the bonus. The score never climbs past 80, the top of the needs band.
+        fed = score(situation(pet(inventory={"seeds": 1, "bread": 2}), meadow(field)))
+        self.assertEqual((bare, seeded, ripe, keen), (47.5, 57.5, 80.0, 80.0))
+        self.assertAlmostEqual(fed, 57.5 + 25.0 / 6)
+
+    def test_a_hungry_pet_with_food_eats_before_it_harvests_a_ripe_farm(self):
+        hungry = pet(inventory={"seeds": 1, "bread": 2}, vitals={**START_VITALS, "hunger": 25.0})
+        s = situation(hungry, meadow({(1, 0, 0): "farmland", (1, 1, 0): "wheat_3", (2, 0, 0): "farmland",
+                                      (2, 1, 0): "carrot_3"}))
+        scores = {option.name: option.score for option in options(s)}
+        self.assertGreater(scores["eat"] - scores["farm"], JITTER)
+        self.assertEqual(max(scores, key=scores.get), "eat")
+        self.assertEqual({utility_pick(options(s), random.Random(seed)) for seed in range(20)}, {"eat"})
 
 
 if __name__ == "__main__":

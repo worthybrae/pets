@@ -148,6 +148,12 @@ class SimplePurposeTests(unittest.TestCase):
             wooded = PURPOSES["explore"].score(s)
         self.assertEqual(lonely - wooded, 25.0)
 
+    def test_explore_never_scores_below_zero_late_in_the_day(self):
+        late = {**DAY, "seconds_into_day": 2100.0}
+        s = situation(pet(traits={"curiosity": 0}), clock=late)
+        with patch("backend.survival.purposes.trees_near", lambda seed, x, z, radius: [(5, 0, 0)]):
+            self.assertEqual(PURPOSES["explore"].score(s), 0.0)
+
     def test_eat_is_offered_with_food_and_eats_the_best_first(self):
         hungry = pet(inventory={"berries": 3, "bread": 1}, vitals={**START_VITALS, "hunger": 50.0})
         self.assertIn("eat", names(situation(hungry)))

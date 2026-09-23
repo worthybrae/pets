@@ -11,13 +11,22 @@ backend.survival.toolmaking registers craft_tools; M4's backend.survival.foragin
 forage and fish, backend.survival.farming farm, and backend.survival.cooking cook.
 backend.survival.brain imports them all. M5 registers build_* and light_up the same way.
 
-Scores fall in bands, so a new purpose fits in with the others (the utility picker adds 0 to 6):
-- survival, 80-100: what keeps Mimo alive right now (sleep at night, go home at dusk, eat when
-  very hungry);
-- needs, 50-80: food and warmth before they turn urgent (forage, fish, cook, eat);
-- work, 40-70: tools, materials and the farm (gather_wood, gather_stone, mine_ore, craft_tools,
-  farm; a farm with ripe crops climbs into the needs band);
-- leisure, 10-40: rest and explore when nothing presses.
+Scores fall in bands, so a new purpose fits in with the others. These are the real ranges before
+the utility picker's random nudge (0 to 6) and its 30-point penalty for a purpose that just
+failed; "late" is late_penalty, 30 off outdoor work in the last 5 game minutes before dusk and at
+dusk:
+- survival, 80-100: what keeps Mimo alive right now. sleep 90 at night and 70-100 when tired
+  (energy below 30), else 60 (waiting at home for night); go_home 100 at dusk and night, 70-80
+  late in the day, else 5 (35 when cold); eat 100 - hunger (30-100, offered below 70 hunger).
+- needs, 50-80: food before it turns urgent. cook 55-80; forage 35-88 and fish 25-88, both rising
+  with the food Mimo lacks and with hunger, minus late. Forage and fish reaching into the survival
+  band when Mimo is starving and carries nothing is intended: then food work is survival.
+- work, 40-80: tools, materials and the farm. craft_tools 70-80 (tools unlock everything else);
+  gather_wood 40-80 (65 and up while Mimo carries under 3 logs' worth); gather_stone 40-65;
+  mine_ore 50-80 (65 and up for iron); farm 40-80 (ripe crops add up to 25 as far as Mimo lacks
+  food, capped at 80). Late takes 30 off the outdoor ones, down to 10.
+- leisure, 0-65: rest 10-40 and explore 20-65 (45 and up with no tree in sight), explore minus
+  late but never below 0.
 """
 
 from __future__ import annotations
@@ -225,7 +234,7 @@ def explore_score(s: Situation) -> float:
     score = 20.0 + s.trait("curiosity") / 5
     if not trees_near(s.seed, x, z, TREE_SEARCH):
         score += 25.0
-    return score - late_penalty(s)
+    return max(0.0, score - late_penalty(s))
 
 
 def explore_facts(s: Situation) -> str:

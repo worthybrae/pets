@@ -12,7 +12,8 @@ Mimo does no farm work. Each batch does the most useful work it can, at most 4 p
    in 20 a carrot).
 The purpose ends when none of these is left, or after 6 batches. It is day work. Plots, grass
 and a farm within 4 blocks of where a step just failed are left alone for a while
-(senses.near_failure).
+(senses.near_failure). It scores as work, and ripe crops lift it toward the needs band as far as
+Mimo lacks food, never past 80 (farm_score).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.services.blocks import is_replaceable
-from backend.survival.foraging import reach_steps, whole_walk
+from backend.survival.foraging import FOOD_WANTED, food_need, reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.memory import cell_of, nearest
 from backend.survival.nature import CROP_BLOCKS, HARVESTS, RIPE_CROPS, TILLABLE, crop_stage
@@ -40,6 +41,8 @@ FARM_TRAVEL = 64.0
 SITE_SEARCH = 16.0
 GRASS_SEARCH = 16.0
 STAND = 2.0
+RIPE_BONUS = 25.0  # score for ripe crops when Mimo carries no food; less as it carries more
+FARM_TOP = 80.0
 PLANTABLE = ("carrot", "seeds")  # what to plant, in order of preference
 SEED_OF = {"wheat": "seeds", "carrot": "carrot"}
 # Plot offsets around the farm, nearest first, in a 5x5 square.
@@ -178,11 +181,14 @@ def farm_facts(s: Situation) -> str:
 
 
 def farm_score(s: Situation) -> float:
+    """Work (40-65), plus up to 25 for ripe crops in proportion to the food Mimo lacks
+    (foraging.food_need), at most 80: a ripe farm climbs into the needs band only when Mimo
+    carries little food, so it never outranks eating what it carries when hungry."""
     x, _, z = s.here
     ripe = bool(s.grid.placed_cells(x, z, FARM_RANGE, RIPE_CROPS))
     score = 40.0 + s.trait("diligence") / 10 + s.trait("patience") / 20
-    score += (25.0 if ripe else 0.0) + (10.0 if next_seed(s.inventory) else 0.0)
-    return score - late_penalty(s)
+    score += (RIPE_BONUS * food_need(s) / FOOD_WANTED if ripe else 0.0) + (10.0 if next_seed(s.inventory) else 0.0)
+    return min(FARM_TOP, score) - late_penalty(s)
 
 
 def plan_farm(s: Situation, context: ActionContext) -> list[dict]:
