@@ -1,6 +1,6 @@
 import unittest
 
-from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, TILES, is_plant, is_replaceable
+from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, TILES, is_plant, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS
 
 # Gameplay properties as they were before the registry moved to shared/blocks.json.
@@ -68,6 +68,12 @@ class BlockRegistryTests(unittest.TestCase):
             self.assertTrue(is_plant(name), name)
         for name in ("air", "stone", "leaves", "glass", "water", "not_a_block"):
             self.assertFalse(is_plant(name), name)
+
+    def test_is_solid_follows_the_registry(self):
+        for name in ("stone", "leaves", "glass", "grass"):
+            self.assertTrue(is_solid(name), name)
+        for name in ("air", "water", "lava", "tall_grass", "not_a_block"):
+            self.assertFalse(is_solid(name), name)
 
 
 if __name__ == "__main__":

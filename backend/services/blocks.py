@@ -34,3 +34,9 @@ def is_plant(material: str) -> bool:
     """True for natural decorations with the cutout layer: tall grass and flowers."""
     index = BLOCK_IDS.get(material)
     return index is not None and BLOCK_LIST[index].get("layer") == "cutout"
+
+
+def is_solid(material: str) -> bool:
+    """True for blocks Mimo can stand on or shelter under (the registry's `solid`)."""
+    index = BLOCK_IDS.get(material)
+    return index is not None and bool(BLOCK_LIST[index].get("solid"))
