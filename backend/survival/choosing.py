@@ -19,7 +19,10 @@ After each tick the worker calls `Chooser.poll`. When the active life has a pend
    at most 12 per UTC day.
 2. A utility answer is decided and stored at once. A model answer is decided in one background
    thread while the worker keeps ticking; `decide` never raises: a failed call or an answer that
-   was not offered falls back to utility, and the error is logged once.
+   was not offered falls back to utility, and the error is logged once. A call still unanswered
+   15 s after its timeouts (urllib's timeout does not cover a DNS lookup or a trickling answer)
+   is given up: the stuck thread is left behind with its executor, a fresh one takes new work,
+   the call is counted and the utility picker answers the same ask.
 3. `store_choice` saves the answer in a short transaction, unless the life died, nothing is
    pending any more or the pending id changed (the state moved on). Model calls count either way.
 
@@ -41,7 +44,8 @@ from backend.survival.actions import ensure_actions, record
 from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
 from backend.survival.models import (
-    Http, ModelError, ask_jev, ask_luna, jev_configured, luna_configured, luna_reflect, post_json,
+    JEV_TIMEOUT, LUNA_TIMEOUT, Http, ModelError, ask_jev, ask_luna, jev_configured, luna_configured,
+    luna_reflect, post_json,
 )
 from backend.survival.once import log_once
 from backend.survival.pickers import Option, context_payload, options, thought_for, utility_pick
@@ -54,6 +58,7 @@ from backend.survival.world import SurvivalWorld, log_event, read_state, write_s
 logger = logging.getLogger(__name__)
 
 MODEL_GAP = 60.0
+GIVE_UP_AFTER = 15.0  # seconds past a model call's own timeouts
 MODEL_BUDGET = 8  # model picks per rolling game hour
 REFLECTION_CAP = 12
 REFLECT_ON = ("dawn", "hello", "discovery")
@@ -193,6 +198,13 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
     return Choice(purpose, picker, thought, calls, "; ".join(errors) or None)
 
 
+def deadline(ask: Ask) -> float:
+    """Seconds after asking when an unanswered model call is given up: the pick's timeout (Jev
+    20 s, Luna 45 s), plus Luna's for a reflection, plus 15 s."""
+    seconds = JEV_TIMEOUT if ask.route == "jev" else LUNA_TIMEOUT
+    return seconds + (LUNA_TIMEOUT if ask.reflect else 0.0) + GIVE_UP_AFTER
+
+
 def apply_choice(state: dict, choice: Choice, now: float) -> None:
     """Make the choice the current purpose. A new purpose drops the old plan (or, during a reflex,
     the steps the reflex set aside) and ends a wait, or a sleep Mimo took while it waited for a
@@ -257,14 +269,23 @@ class InlineExecutor:
         return None
 
 
+def new_thread() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=1, thread_name_prefix="mimo-chooser")
+
+
 class Chooser:
-    """Answers the active life's pending choices, one model call at a time in a background thread."""
+    """Answers the active life's pending choices, one model call at a time in a background thread.
+
+    `executor_factory` makes the executor that replaces one stuck on a hung call (tests pass one;
+    the default is a new single-thread pool)."""
 
     def __init__(self, env: Env | None = None, http: Http = post_json, executor=None,
-                 rng: random.Random | None = None, scale: float | None = None):
+                 rng: random.Random | None = None, scale: float | None = None,
+                 executor_factory: Callable[[], object] | None = None):
         self.env = os.environ if env is None else env
         self.http = http
-        self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="mimo-chooser")
+        self.new_executor = executor_factory or new_thread
+        self.executor = executor or self.new_executor()
         self.rng = rng or random.Random()
         self.scale = scale
         self.future: Future | None = None
@@ -290,11 +311,26 @@ class Chooser:
         return self.collect(now)
 
     def collect(self, now: float) -> str | None:
-        if self.future is None or self.asked is None or not self.future.done():
+        if self.future is None or self.asked is None:
             return None
         (path, ask), future = self.asked, self.future
+        if not future.done():
+            return self.give_up(now) if now - ask.asked_at > deadline(ask) else None
         self.future, self.asked = None, None
         return self.store(path, ask, future.result(), now)
+
+    def give_up(self, now: float) -> str | None:
+        """Leave a hung call behind: new work goes to a fresh executor, the call is counted and
+        the utility picker answers the same ask (store_choice still drops it if it went stale)."""
+        (path, ask), future = self.asked, self.future
+        self.future, self.asked = None, None
+        future.cancel()
+        self.executor.shutdown(wait=False, cancel_futures=True)
+        self.executor = self.new_executor()
+        purpose = utility_pick(list(ask.options), self.rng)
+        calls = {"model": 1, "luna": 1 if ask.route == "luna" else 0, "reflections": 0}
+        error = f"{ask.route}: no answer after {deadline(ask):g} s, gave up"
+        return self.store(path, ask, Choice(purpose, "utility", thought_for(purpose, self.rng), calls, error), now)
 
     def store(self, path: Path, ask: Ask, choice: Choice, now: float) -> str | None:
         if choice.error:

@@ -5,7 +5,9 @@ from concurrent.futures import Future
 from pathlib import Path
 
 from backend.survival.brain import BRAIN
-from backend.survival.choosing import DECISION_CAP, Choice, Chooser, InlineExecutor, cap, prepare, store_choice
+from backend.survival.choosing import (
+    DECISION_CAP, Ask, Choice, Chooser, InlineExecutor, cap, deadline, prepare, store_choice,
+)
 from backend.survival.hatch import hatch
 from backend.survival.models import ModelError
 from backend.survival.once import forget_logged
@@ -41,11 +43,15 @@ class HeldExecutor:
 
     def __init__(self):
         self.held = []
+        self.shut = False
 
     def submit(self, fn, *args):
         future = Future()
         self.held.append((future, fn, args))
         return future
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        self.shut = True
 
     def run(self):
         for future, fn, args in self.held:
@@ -170,6 +176,36 @@ class ChoosingTests(unittest.TestCase):
         self.assertEqual(len(logs.output), 1)
         brain = self.brain()
         self.assertEqual((brain["picker"], brain["calls"]["model"], brain["last_call_at"]), ("utility", 1, BORN + 1))
+
+    def test_a_hung_model_call_is_given_up_and_utility_answers_in_its_place(self):
+        forget_logged()
+        tick_life(self.registry, BORN + 1, scale=1, mind=BRAIN)
+        stuck, fresh = HeldExecutor(), []
+
+        def new_executor():
+            fresh.append(InlineExecutor())
+            return fresh[-1]
+
+        chooser = Chooser(env={"TYPESAFE_API_KEY": "k"}, http=FakeHttp({JEV_URL: JEV_REST}), executor=stuck,
+                          rng=random.Random(1), scale=1.0, executor_factory=new_executor)
+        self.assertIsNone(chooser.poll(self.registry, BORN + 1))
+        self.assertIsNone(chooser.poll(self.registry, BORN + 36))  # 35 s: Jev's 20 s timeout plus 15 s
+        with self.assertLogs("backend.survival.choosing", level="ERROR") as logs:
+            self.assertIsNotNone(chooser.poll(self.registry, BORN + 36.5))
+        self.assertEqual(len(logs.output), 1)
+        brain = self.brain()
+        self.assertEqual((brain["pending"], brain["picker"], brain["calls"]["model"], brain["last_call_at"]),
+                         (None, "utility", 1, BORN + 1))
+        self.assertEqual((stuck.shut, len(fresh)), (True, 1))
+        self.edit(lambda state: mark_trigger(state, "hello", BORN + 200))
+        self.assertEqual(chooser.poll(self.registry, BORN + 200), "rest")  # new work skips the stuck thread
+        self.assertEqual(self.brain()["picker"], "jev")
+
+    def test_the_wait_for_a_model_covers_its_timeouts_and_a_reflection(self):
+        def ask(route, reflect=False):
+            return Ask(1, route, reflect, (), {}, 0.0)
+
+        self.assertEqual((deadline(ask("jev")), deadline(ask("luna")), deadline(ask("jev", True))), (35.0, 60.0, 80.0))
 
     def test_a_stale_answer_is_thrown_away_but_its_calls_count(self):
         ask = self.ask(BORN + 1, {"TYPESAFE_API_KEY": "k"})
