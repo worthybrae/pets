@@ -95,6 +95,13 @@ class ChestStepTests(unittest.TestCase):
         run({"kind": "drop", "item": "red_mushroom", "amount": 5}, state, grid)
         self.assertEqual(state["inventory"], {"dirt": 1})
 
+    def test_mining_a_chest_clears_its_contents(self):
+        grid, state = room({CHEST: "chest"}), pet(inventory={"stone_pickaxe": 1})
+        state["chests"] = {"1,1,0": {"bread": 3}}
+        step = start_step({"kind": "mine", "target": list(CHEST)}, state, grid, 0.0)
+        finish_step(step, state, grid, step["ends_at"])
+        self.assertEqual(state["chests"], {})
+
 
 class BedTests(unittest.TestCase):
     def test_sleeping_on_a_bed_rests_at_the_bed_rate(self):

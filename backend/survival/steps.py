@@ -267,6 +267,10 @@ def finish_mine(step: dict, state: dict, grid: Grid, at: float) -> None:
     if grid.material(*target) != step["block"]:
         raise StepFailed(f"the {label(step['block'])} is gone", "gone")
     grid.put(*target, "air")
+    # A chest that is mined takes its contents with it.
+    if step["block"] == "chest":
+        x, y, z = target
+        state.get("chests", {}).pop(f"{x},{y},{z}", None)
     drop = BLOCKS.get(step["block"], {}).get("drop")
     if drop:
         add_item(state["inventory"], drop)
