@@ -19,7 +19,7 @@ from backend.survival.pathing import route, timed_path
 
 REACH = 4.0
 STATION_REACH = 6.0
-WORKSTATIONS = ("crafting_table", "furnace")
+WORKSTATIONS = ("crafting_table", "furnace", "campfire")
 PLACE_SECONDS = 0.3
 EAT_SECONDS = 1.6
 CRAFT_SECONDS = 1.0
@@ -28,8 +28,12 @@ PICKAXE_SPEED = {"wooden_pickaxe": 2.0, "stone_pickaxe": 4.0, "iron_pickaxe": 6.
 # Axe recipes arrive with purposeful building (M5). Any axe doubles the speed on wood.
 AXES = ("wooden_axe", "stone_axe", "iron_axe")
 AXE_SPEED = 2.0
-# Hunger each food restores (spec section 7). The food items themselves arrive in M4.
-FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "carrot": 10.0, "bread": 25.0, "raw_fish": 8.0, "cooked_fish": 30.0}
+# Hunger each food restores (spec section 7). A red mushroom fills like a brown one but is poisonous.
+FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "red_mushroom": 6.0, "carrot": 10.0, "bread": 25.0, "raw_fish": 8.0,
+        "cooked_fish": 30.0, "apple": 15.0}
+# Health a food changes when eaten: a red mushroom is poisonous. Poison never takes the last point
+# of health (it is not a cause of death).
+FOOD_HEALTH = {"red_mushroom": -10.0}
 # A far walk re-plans segment by segment; after this many extra segments it gives up.
 MAX_SEGMENTS = 12
 
@@ -256,9 +260,14 @@ def finish_step(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, st
         grid.put(*target, step["block"])
         return None
     if kind == "eat":
-        state["inventory"] = take_items(state["inventory"], {step["item"]: 1})
-        state["vitals"]["hunger"] = min(100.0, state["vitals"]["hunger"] + FOOD[step["item"]])
-        return "ate", f"{name} ate {label(step['item'])}."
+        item, vitals = step["item"], state["vitals"]
+        state["inventory"] = take_items(state["inventory"], {item: 1})
+        vitals["hunger"] = min(100.0, vitals["hunger"] + FOOD[item])
+        health = FOOD_HEALTH.get(item, 0.0)
+        if health < 0:
+            vitals["health"] = max(min(vitals["health"], 1.0), vitals["health"] + health)
+            return "sick", f"{name} ate {label(item)} and felt sick."
+        return "ate", f"{name} ate {label(item)}."
     if kind == "craft":
         stations = stations_near(grid, as_cell(state["position"]))
         state["inventory"] = craft(state["inventory"], step["recipe"], stations)

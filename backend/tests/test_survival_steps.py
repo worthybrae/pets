@@ -2,6 +2,7 @@ import math
 import unittest
 
 from backend.survival.grid import Grid
+from backend.services.crafting import craft, smelt
 from backend.survival.steps import FOOD, StepFailed, as_cell, failure_code, finish_step, mine_seconds, start_step
 from backend.survival.vitals import START_VITALS
 
@@ -161,7 +162,47 @@ class StepTests(unittest.TestCase):
         self.assertEqual([entry["at"] for entry in walk["path"]], [10.0, 10.1, 10.2, 10.3])
         self.assertEqual(start_step({"kind": "wait", "seconds": 5}, state, grid, 1.0, scale=4.0)["ends_at"], 6.0)
 
+    def test_an_apple_fills_more_and_a_red_mushroom_makes_mimo_sick(self):
+        grid, state = small_world(), pet(inventory={"apple": 1, "red_mushroom": 2})
+        state["vitals"].update(hunger=40.0, health=50.0)
+        finish_step(start_step({"kind": "eat", "item": "apple"}, state, grid, 0.0), state, grid, 1.6)
+        self.assertEqual(state["vitals"]["hunger"], 55.0)
+        step = start_step({"kind": "eat", "item": "red_mushroom"}, state, grid, 2.0)
+        self.assertEqual(finish_step(step, state, grid, 3.6), ("sick", "Pip ate red mushroom and felt sick."))
+        self.assertEqual((state["vitals"]["hunger"], state["vitals"]["health"]), (61.0, 40.0))
+        state["vitals"]["health"] = 4.0
+        finish_step(start_step({"kind": "eat", "item": "red_mushroom"}, state, grid, 4.0), state, grid, 5.6)
+        self.assertEqual(state["vitals"]["health"], 1.0)
 
+    def test_fish_cooks_in_five_seconds_at_a_campfire_without_fuel(self):
+        grid, state = small_world(), pet(inventory={"raw_fish": 2})
+        with self.assertRaises(ValueError) as caught:
+            start_step({"kind": "smelt", "item": "raw_fish"}, state, grid, 0.0)
+        self.assertEqual(failure_code(caught.exception), "missing_item")
+        grid.put(2, 1, 0, "campfire")
+        step = start_step({"kind": "smelt", "item": "raw_fish"}, state, grid, 0.0)
+        self.assertEqual(step["ends_at"], 5.0)
+        self.assertEqual(finish_step(step, state, grid, 5.0), ("smelt", "Pip smelted raw fish."))
+        self.assertEqual(state["inventory"], {"raw_fish": 1, "cooked_fish": 1})
+
+
+
+
+
+class CookingRecipeTests(unittest.TestCase):
+    def test_bread_needs_a_crafting_table_and_a_campfire_needs_none(self):
+        self.assertEqual(craft({"wheat": 4}, "bread", {"crafting_table"}), {"wheat": 1, "bread": 1})
+        with self.assertRaisesRegex(ValueError, "crafting_table"):
+            craft({"wheat": 3}, "bread", set())
+        self.assertEqual(craft({"oak_log": 2, "sticks": 3}, "campfire", set()), {"campfire": 1})
+
+    def test_fish_needs_a_fire_but_ore_still_needs_a_furnace_and_fuel(self):
+        self.assertEqual(smelt({"raw_fish": 1}, "raw_fish", {"furnace"}), {"cooked_fish": 1})
+        with self.assertRaisesRegex(ValueError, "campfire or furnace"):
+            smelt({"raw_fish": 1}, "raw_fish", {"crafting_table"})
+        self.assertEqual(smelt({"iron_ore": 1, "coal": 1}, "iron_ore", {"furnace"}), {"iron_ingot": 1})
+        with self.assertRaisesRegex(ValueError, "A placed furnace"):
+            smelt({"iron_ore": 1, "coal": 1}, "iron_ore", {"campfire"})
 
 
 class CellTests(unittest.TestCase):
