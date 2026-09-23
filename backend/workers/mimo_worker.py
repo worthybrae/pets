@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import random
 import signal
 import sqlite3
 import time
@@ -66,7 +67,11 @@ def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | No
     """
     between = None
     if chooser is not None:
-        rules = Chooser(env={}, executor=InlineExecutor(), rng=chooser.rng, scale=chooser.scale)
+        # A fresh Random, not chooser.rng itself: chooser's own decide() calls can still be
+        # running in its background executor's thread while this rules chooser polls inline on
+        # the calling thread, and random.Random is not safe to mutate from two threads at once.
+        rules_rng = random.Random(chooser.rng.random())
+        rules = Chooser(env={}, executor=InlineExecutor(), rng=rules_rng, scale=chooser.scale)
 
         def between(at: float) -> None:
             try:

@@ -21,13 +21,15 @@ tick: a malformed step or a broken planner must not freeze a life (M3 will plug 
 here, so this must be airtight).
 
 A walk step starts with a path search (route(), inside start_step); on real terrain a search
-that exhausts its budget costs around 250ms. Catching up after a long gap can call advance_actions
-many times inside one advance_world (one per catch-up step, plus a final call), all sharing one
-ActionContext, so the search budget lives on the context (`searches_left`, from
+that exhausts its budget costs around 250ms. advance_world calls advance_actions at most twice in
+one write transaction (once mid-step, once for the final catch-up to its `timestamp`), both
+sharing one ActionContext, so the search budget lives on the context (`searches_left`, from
 MAX_SEARCHES_PER_TICK) instead of resetting every call: once it reaches zero, a walk at the front
 of the queue (or just re-queued by an unfinished segment) is left there and waits for the next
 advance_actions call instead of searching (Task 3 review ruling; Task 6 fix round 1 made the
-budget span the whole tick instead of one call). Because that walk is left unpopped and unstarted,
+budget span one call's whole transaction). Since M5 Task 10, a long gap is caught up one
+60-game-second step per advance_world call, each its own transaction (tick.tick_life), so the
+budget covers one step, not the whole catch-up. Because that walk is left unpopped and unstarted,
 no step with an empty path is ever built.
 
 A mind can take over through `context.interrupt` (the brain's reflexes). It is asked before every
@@ -90,11 +92,13 @@ class ActionContext:
     """What advance_actions needs besides the state: the world, the game clock, a planner, an event list.
 
     `searches_left` is one path-search budget shared by every advance_actions call made from the
-    same advance_world call (it is created once per tick and mutated down as walks start), so a
-    long catch-up cannot run more than MAX_SEARCHES_PER_TICK searches in one write transaction.
-    Planners that search themselves spend it through `take_search`. `observe` hears about every
-    step that finished well. `db` is the world's connection inside the tick's transaction, for
-    minds that keep memory; tests without a database leave it None.
+    same advance_world call (it is created once per advance_world call, one write transaction, and
+    mutated down as walks start), so one 60-game-second catch-up step cannot run more than
+    MAX_SEARCHES_PER_TICK searches; a long catch-up spends this budget once per step
+    (tick.tick_life), not once for the whole gap. Planners that search themselves spend it through
+    `take_search`. `observe` hears about every step that finished well. `db` is the world's
+    connection inside the tick's transaction, for minds that keep memory; tests without a database
+    leave it None.
     """
 
     grid: Grid

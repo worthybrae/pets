@@ -181,7 +181,9 @@ def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: flo
     """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive.
 
     A gap longer than one catch-up step (60 game seconds) is advanced one step per transaction,
-    calling `between(at)` after each step but the last while Mimo lives."""
+    calling `between(at)` after a step only when a whole further step still remains (fix round 1:
+    an ordinary tick's small leftover, such as the worker's ~1 s sleep running a hair past one
+    step, must not itself wake the rules chooser) while Mimo lives."""
     life = registry.active_life()
     if life is None:
         return None
@@ -195,7 +197,7 @@ def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: flo
         state = advance_world(world, at, scale, mind, action_scale)
         if at >= timestamp or state["died_at"] is not None:
             break
-        if between is not None:
+        if between is not None and timestamp - at >= MAX_STEP_SECONDS / scale:
             between(at)
     if state["died_at"] is not None:
         registry.mark_dead(life["id"], state["died_at"], state["cause"])

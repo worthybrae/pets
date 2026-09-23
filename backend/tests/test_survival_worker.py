@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.survival.choosing import Chooser, InlineExecutor
+from backend.survival.choosing import Chooser, InlineExecutor, decide
 from backend.survival.hatch import hatch
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
@@ -42,14 +42,29 @@ class SurvivalWorkerTests(unittest.TestCase):
         asked = []
         chooser = Chooser(env={"TYPESAFE_API_KEY": "k"}, http=lambda *args: asked.append(args) or {},
                           executor=InlineExecutor(), rng=random.Random(8), scale=60.0)
-        with patch.dict(os.environ, {"MIMO_TIME_SCALE": "60", "MIMO_ACTION_SCALE": "60"}):
-            line = run_once(self.registry, None, timestamp=1000.0 + 2 * 60, mind=WORKER_MIND, chooser=chooser)
+        # Fix round 1: `asked` only sees calls made through chooser's own http lambda. The
+        # between-steps rules chooser (run_once's `rules`, built with env={}) is never given that
+        # lambda, so a regression like passing it chooser.env instead of {} would route it to Jev
+        # and call the module's real, network-hitting post_json by default -- invisible to `asked`.
+        # Spy on decide() itself (looked up fresh on every call, unlike a bound default argument)
+        # and require every call not using chooser's own http to have kept an empty, rules-only env.
+        stray_envs = []
+
+        def spy(ask, env, http, rng):
+            if http is not chooser.http and env:
+                stray_envs.append(env)
+            return decide(ask, env, http, rng)
+
+        with patch("backend.survival.choosing.decide", side_effect=spy):
+            with patch.dict(os.environ, {"MIMO_TIME_SCALE": "60", "MIMO_ACTION_SCALE": "60"}):
+                line = run_once(self.registry, None, timestamp=1000.0 + 2 * 60, mind=WORKER_MIND, chooser=chooser)
         self.assertIn(life["name"], line)
         events = SurvivalWorld(self.registry.world_path(life)).events(5000)
         kinds = [event["kind"] for event in events]
         self.assertGreater(kinds.count("purpose"), 5)
         self.assertIn("ate", kinds)
         self.assertLessEqual(len(asked), 1)  # at most the last ask goes to Jev; the catch-up ran on rules
+        self.assertEqual(stray_envs, [])  # the rules chooser never picked up the main chooser's env
 
     def test_tick_seconds_defaults_to_one(self):
         with patch.dict(os.environ, {"MIMO_TICK_SECONDS": "0.5"}):

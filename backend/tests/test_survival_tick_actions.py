@@ -6,11 +6,12 @@ from unittest.mock import patch
 
 from backend.services.worldgen import terrain_height
 from backend.survival import steps as steps_module
+from backend.survival.actions import MAX_SEARCHES_PER_TICK
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
 from backend.survival.brain import BRAIN
 from backend.survival.once import forget_logged
-from backend.survival.tick import Mind, tick_life
+from backend.survival.tick import MAX_STEP_SECONDS, Mind, tick_life
 from backend.survival.triggers import new_brain
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.workers import mimo_worker
@@ -85,14 +86,35 @@ class TickActionTests(unittest.TestCase):
             self.world.put_block(x + step, y, z, "air")
         self.edit(position={"x": float(x), "y": float(y), "z": float(z)}, action=None, recent_actions=[],
                   actions_at=BORN, queue=[{"kind": "walk", "target": [x + step, y, z]} for step in range(1, 6)])
-        between = []
+        between, searches_before = [], []
         with patch("backend.survival.steps.route", wraps=steps_module.route) as spy:
-            state = tick_life(self.registry, BORN + 300, scale=1, between=between.append)  # 5 steps
+            def record(at):
+                between.append(at)
+                searches_before.append(spy.call_count)
+            state = tick_life(self.registry, BORN + 300, scale=1, between=record)  # 5 steps
         self.assertIsNone(state["died_at"])
         self.assertEqual(spy.call_count, 5)  # every walk started, one after another
         self.assertEqual(between, [BORN + 60, BORN + 120, BORN + 180, BORN + 240])
         self.assertEqual(state["last_tick_at"], BORN + 300)
         self.assertEqual(state["position"]["x"], x + 5)
+        # each step's own budget (fix round 1): the snapshots taken between steps, plus the final
+        # total, must never show a single step spending more than MAX_SEARCHES_PER_TICK searches.
+        per_step = [searches_before[0], *(b - a for a, b in zip(searches_before, searches_before[1:])),
+                    spy.call_count - searches_before[-1]]
+        self.assertEqual(len(per_step), 5)
+        for count in per_step:
+            self.assertLessEqual(count, MAX_SEARCHES_PER_TICK)
+
+    def test_a_gap_a_little_over_one_step_never_calls_between(self):
+        """Fix round 1: between fires only when a whole further step still remains after the one
+        just run. A real-time gap of 1.05 steps (the worker's ordinary ~1 s-over-budget sleep at
+        MIMO_TIME_SCALE=60, scaled here to scale=1) needs two advance_world calls to catch up but
+        never has a whole further step left over, so the rules chooser never gets woken for it."""
+        between = []
+        state = tick_life(self.registry, BORN + 1.05 * MAX_STEP_SECONDS, scale=1, between=between.append)
+        self.assertIsNone(state["died_at"])
+        self.assertEqual(between, [])
+        self.assertEqual(state["last_tick_at"], BORN + 1.05 * MAX_STEP_SECONDS)
 
     def test_the_worker_runs_the_brain(self):
         self.assertIs(mimo_worker.WORKER_MIND, BRAIN)

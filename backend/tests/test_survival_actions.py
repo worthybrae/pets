@@ -292,14 +292,15 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual(state["actions_at"], 5.0)
 
     def test_the_engine_shares_its_search_budget_across_calls_on_one_context(self):
-        """Controller ruling (Task 3 review, tightened in Task 6 fix round 1): at most
-        MAX_SEARCHES_PER_TICK route()/start_step(walk) searches across every advance_actions call
-        sharing one ActionContext (context.searches_left), not a fresh budget per call, so a long
-        catch-up (which calls advance_actions many times inside one advance_world, all on the same
-        context) cannot blow up the tick's write transaction. A queue of 5 short,
-        independently-reachable walks with a huge elapsed time would finish all 5 (and search 5
-        times) without the cap; with it, only 2 searches run, even split across two separate
-        advance_actions calls that reuse the same context."""
+        """Controller ruling (Task 3 review, tightened in Task 6 fix round 1; scoped to one
+        60-game-second catch-up step by M5 Task 10, fix round 1): at most MAX_SEARCHES_PER_TICK
+        route()/start_step(walk) searches across every advance_actions call sharing one
+        ActionContext (context.searches_left), not a fresh budget per call, so one write
+        transaction (one catch-up step; advance_world calls advance_actions at most twice on the
+        same context) cannot blow up. A queue of 5 short, independently-reachable walks with a
+        huge elapsed time would finish all 5 (and search 5 times) without the cap; with it, only 2
+        searches run, even split across two separate advance_actions calls that reuse the same
+        context."""
         grid, state = small_world(), pet()
         state["queue"] = [{"kind": "walk", "target": [x, 1, 0]} for x in (1, 2, 3, 4, 5)]
         ctx = context(grid)
