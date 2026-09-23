@@ -23,6 +23,7 @@ from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, craft, smelt, take_items
 from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
 from backend.survival.memory import create_memory_tables
+from backend.survival.renewal import create_growth_table
 from backend.survival.triggers import mark_trigger
 from backend.survival.vitals import START_VITALS
 
@@ -106,6 +107,7 @@ def create_world_tables(db: sqlite3.Connection) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
     create_block_tables(db)
     create_memory_tables(db)
+    create_growth_table(db)
 
 
 def read_state(db: sqlite3.Connection) -> dict:

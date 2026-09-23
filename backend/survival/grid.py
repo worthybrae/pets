@@ -2,7 +2,8 @@
 
 The pathfinder and the action system ask about thousands of cells in a tick. A Grid caches
 natural blocks and loads saved edits one 16x16 chunk at a time. `put` records an edit and
-passes it to the world's write_block, so viewers receive it through block sync.
+passes it to the world's write_block, so viewers receive it through block sync. It also keeps
+each change until `take_changes` collects it, so renewal can react to what Mimo changed.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ class Grid:
         self._natural_cache: dict[Cell, str] = {}
         self._loaded_chunks: set[tuple[int, int]] = set()
         self.edits: dict[Cell, str] = {}
+        self.changes: list[tuple[Cell, str, str]] = []
 
     def _load(self, x: int, z: int) -> None:
         if self._load_edits is None:
@@ -64,10 +66,16 @@ class Grid:
         return natural
 
     def put(self, x: int, y: int, z: int, material: str) -> None:
-        self._load(x, z)
+        before = self.material(x, y, z)
         self.edits[(x, y, z)] = material
+        self.changes.append(((x, y, z), before, material))
         if self._write is not None:
             self._write(x, y, z, material)
+
+    def take_changes(self) -> list[tuple[Cell, str, str]]:
+        """(cell, before, after) for every put since the last call, oldest first."""
+        changes, self.changes = self.changes, []
+        return changes
 
     def solid(self, cell: Cell) -> bool:
         return is_solid(self.material(*cell))
