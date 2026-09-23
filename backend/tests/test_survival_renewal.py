@@ -132,7 +132,36 @@ class RenewalSafetyTests(unittest.TestCase):
             renew(state, ctx, 10.0)
         self.assertEqual(ctx.grid.material(5, 1, 0), "berry_bush_ripe")
         self.assertEqual(ctx.grid.material(3, 1, 0), "berry_bush")
-        self.assertEqual(scheduled(ctx.db), [((3, 1, 0), "berry_bush_ripe", 5.0)])
+        # Kept, but not due again for 10 game minutes, so the same catch-up does not retry it.
+        self.assertEqual(scheduled(ctx.db), [((3, 1, 0), "berry_bush_ripe", 610.0)])
+
+    def test_a_row_that_keeps_failing_costs_a_few_queries_and_goes_after_five_failures(self):
+        ctx = world(field({(3, 1, 0): "berry_bush"}), scale=60.0)
+        state = pet()
+        schedule(ctx.db, (3, 1, 0), "berry_bush_ripe", 5.0)
+        statements = []
+        ctx.db.set_trace_callback(statements.append)
+        forget_logged()
+        with patch("backend.survival.renewal.apply_entry", side_effect=RuntimeError("boom")), \
+                self.assertLogs("backend.survival.renewal", logging.ERROR):
+            renew(state, ctx, 10.0)
+            self.assertLessEqual(len(statements), 8)
+            self.assertEqual(scheduled(ctx.db), [((3, 1, 0), "berry_bush_ripe", 20.0)])
+            for at in (20.0, 30.0, 40.0):
+                renew(state, ctx, at)
+            self.assertEqual(scheduled(ctx.db), [((3, 1, 0), "berry_bush_ripe", 50.0)])
+            renew(state, ctx, 50.0)
+        self.assertEqual(scheduled(ctx.db), [])
+
+    def test_the_failure_count_column_is_added_to_an_older_growth_table(self):
+        db = sqlite3.connect(":memory:")
+        db.execute("CREATE TABLE growth (x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, "
+                   "block TEXT NOT NULL, ready_at REAL NOT NULL, PRIMARY KEY (x, y, z))")
+        schedule(db, (1, 1, 0), "berry_bush_ripe", 5.0)
+        create_growth_table(db)
+        create_growth_table(db)
+        self.assertIn("failures", [row[1] for row in db.execute("PRAGMA table_info(growth)")])
+        self.assertEqual(scheduled(db), [((1, 1, 0), "berry_bush_ripe", 5.0)])
 
     def test_a_crash_does_not_make_the_next_react_reschedule_renewals_own_writes(self):
         ctx = world(field({(0, 0, 0): "farmland", (0, 1, 0): "wheat_1", (3, 1, 0): "berry_bush"}))

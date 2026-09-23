@@ -22,7 +22,8 @@ long gap regrows the world in time order. Each call:
 2. Applies every entry due by then, oldest first. An entry only happens while its cell still
    holds what it grows from (the unripe bush, the crop one stage earlier, the bare farmland);
    otherwise it is dropped. A crop stage that happens schedules the next one from its own due
-   time, so a long catch-up still grows a crop through every stage.
+   time, so a long catch-up still grows a crop through every stage. An entry whose apply
+   crashes is tried again 10 game minutes later and dropped after 5 crashes (`failures`).
 3. Lets fish stocks recover, one fish per region per game day (nature.recover_fish).
 Mined ore never comes back: nothing schedules it.
 """
@@ -55,6 +56,8 @@ DECAY_SECONDS = (60.0, 360.0)
 DECAY_CHANNEL = 36
 DROP_REACH = 16.0
 DECAYS_KEPT = 24
+FAILED_RETRY = 600.0  # game seconds before an entry whose apply crashed is tried again
+FAILED_LIMIT = 5  # crashes after which the entry is dropped
 SAPLING_GROWS = DAY_SECONDS
 SAPLING_RETRY = 600.0
 MUSHROOM_RESPAWN = DAY_SECONDS
@@ -67,9 +70,12 @@ Entry = tuple[Cell, str, float]
 
 
 def create_growth_table(db: sqlite3.Connection) -> None:
-    """Create the growth table. Run it inside the caller's BEGIN IMMEDIATE."""
+    """Create the growth table, or add the `failures` column to one made before it existed. Run it
+    inside the caller's BEGIN IMMEDIATE."""
     db.execute("CREATE TABLE IF NOT EXISTS growth (x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, "
-               "block TEXT NOT NULL, ready_at REAL NOT NULL, PRIMARY KEY (x, y, z))")
+               "block TEXT NOT NULL, ready_at REAL NOT NULL, failures INTEGER, PRIMARY KEY (x, y, z))")
+    if "failures" not in {row[1] for row in db.execute("PRAGMA table_info(growth)")}:
+        db.execute("ALTER TABLE growth ADD COLUMN failures INTEGER")
     db.execute("CREATE INDEX IF NOT EXISTS growth_by_time ON growth(ready_at)")
 
 
@@ -309,15 +315,26 @@ def decay(state: dict, leaf: Cell, at: float) -> None:
     state["decays"] = [*state.get("decays", []), puff][-DECAYS_KEPT:]
 
 
+def put_off(db: sqlite3.Connection, entry: Entry, at: float, scale: float) -> None:
+    """An entry whose apply crashed: try it again FAILED_RETRY game seconds after `at`, so the same
+    catch-up does not retry it, and drop it after its FAILED_LIMIT-th crash."""
+    cell, _, ready_at = entry
+    db.execute("UPDATE growth SET failures = COALESCE(failures, 0) + 1, ready_at = ? "
+               "WHERE x=? AND y=? AND z=? AND ready_at=?", (later(at, FAILED_RETRY, scale), *cell, ready_at))
+    db.execute("DELETE FROM growth WHERE x=? AND y=? AND z=? AND failures >= ?", (*cell, FAILED_LIMIT))
+
+
 def renew(state: dict, context, at: float) -> None:
     """The world's own changes up to `at` (see the module docstring). Needs the tick's database.
 
     Each due entry is applied and only then deleted, inside its own try/except: a crash in
-    apply_entry (or the grid's write callback) is logged once and leaves that row scheduled for
-    retry on a later call, instead of losing the row's effect and half-applying the batch. A row
-    that keeps failing is not retried again within this same call, so it cannot starve the rest
-    of the batch. grid.take_changes() always runs (even if something above still slips through),
-    so renewal's own writes are never left for the next call's react() to mistake for Mimo's.
+    apply_entry (or the grid's write callback) is logged once and puts that row off for 10 game
+    minutes (put_off), instead of losing the row's effect and half-applying the batch; after 5
+    crashes the row is dropped. A row that fails is not retried within this same call, and the
+    loop stops as soon as a pass consumes no row, so a row that keeps failing costs a few queries,
+    not one per MAX_APPLIED. grid.take_changes() always runs (even if something above still slips
+    through), so renewal's own writes are never left for the next call's react() to mistake for
+    Mimo's.
     """
     db, grid = context.db, context.grid
     if db is None:
@@ -328,10 +345,8 @@ def renew(state: dict, context, at: float) -> None:
         applied = 0
         failed: set[Cell] = set()
         while applied < MAX_APPLIED:
-            entries = due(db, at, MAX_APPLIED - applied)
-            if not entries:
-                break
-            for entry in entries:
+            consumed = 0
+            for entry in due(db, at, MAX_APPLIED - applied):
                 cell, _, ready_at = entry
                 if cell not in failed:
                     try:
@@ -340,10 +355,17 @@ def renew(state: dict, context, at: float) -> None:
                         # same cell (a crop's next stage, a sapling's retry), and only the row we
                         # just consumed should go.
                         db.execute("DELETE FROM growth WHERE x=? AND y=? AND z=? AND ready_at=?", (*cell, ready_at))
+                        consumed += 1
                     except Exception as error:
                         log_once(logger, "renewal entry", error)
                         failed.add(cell)
+                        try:
+                            put_off(db, entry, at, scale)
+                        except Exception as error:
+                            log_once(logger, "renewal retry", error)
                 applied += 1
+            if not consumed:
+                break
     finally:
         grid.take_changes()  # renewal's own writes need no reaction
     nature.recover_fish(state, at, scale)
