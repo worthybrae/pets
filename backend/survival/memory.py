@@ -10,11 +10,17 @@ Places are cells worth coming back to, each with the time it was found and last 
   it still had, "seen_at": when}
 - fire: a campfire or furnace Mimo placed and left, the note says which (exact cells)
 - farm: where Mimo tilled its first plot (one per 16 blocks)
-M5 adds its own kinds (beds, chests) the same way. A place's `data` is a JSON object that
-`update_place` merges into. Places are read in a bounded box around a cell, since memory keeps
-growing. Recipes are the ones Mimo crafted or smelted successfully; facts are things it learned,
-like that red mushrooms are poisonous. A new life's world starts with empty tables: that is what
-"fresh start" wipes.
+A place's `data` is a JSON object that `update_place` merges into. Places are read in a bounded
+box around a cell, since memory keeps growing. Recipes are the ones Mimo crafted or smelted
+successfully; facts are things it learned, like that red mushrooms are poisonous.
+
+M5: what Mimo built. The `structures` table keeps each structure it started (kind, name, anchor,
+status "building" or "done", and its design as JSON) and `structure_cells` every cell the design
+claims, with its part and block, so damage can be found and diggers leave it alone
+(backend.survival.structures). When a shelter is done, `set_home` moves home into it, noted
+"built" (BUILT); the old home is remembered as a shelter.
+
+A new life's world starts with empty tables: that is what "fresh start" wipes.
 """
 
 from __future__ import annotations
@@ -51,6 +57,13 @@ def create_memory_tables(db: sqlite3.Connection) -> None:
                "uses INTEGER NOT NULL DEFAULT 1)")
     db.execute("CREATE TABLE IF NOT EXISTS memory_knowledge (subject TEXT NOT NULL, fact TEXT NOT NULL, "
                "learned_at REAL NOT NULL, PRIMARY KEY (subject, fact))")
+    db.execute("CREATE TABLE IF NOT EXISTS structures (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, "
+               "name TEXT NOT NULL, x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, status TEXT NOT NULL, "
+               "started_at REAL NOT NULL, built_at REAL, data TEXT NOT NULL DEFAULT '{}')")
+    db.execute("CREATE TABLE IF NOT EXISTS structure_cells (x INTEGER NOT NULL, y INTEGER NOT NULL, "
+               "z INTEGER NOT NULL, structure INTEGER NOT NULL, part TEXT NOT NULL, block TEXT NOT NULL, "
+               "PRIMARY KEY (x, y, z))")
+    db.execute("CREATE INDEX IF NOT EXISTS structure_cells_by_column ON structure_cells(x, z)")
 
 
 def places(db: sqlite3.Connection, kinds: tuple[str, ...] | None = None, around: Cell | None = None,
@@ -109,7 +122,9 @@ def remember(db: sqlite3.Connection, kind: str, cell: Cell, at: float, note: str
 
 
 def forget(db: sqlite3.Connection, kind: str, cell: Cell) -> None:
-    db.execute("DELETE FROM memory_places WHERE kind=? AND x=? AND y=? AND z=?", (kind, *cell))
+    """Forget a place. A home Mimo built is never forgotten: only set_home moves it."""
+    db.execute("DELETE FROM memory_places WHERE kind=? AND x=? AND y=? AND z=? "
+               "AND NOT (kind='home' AND note=?)", (kind, *cell, BUILT))
 
 
 def visit(db: sqlite3.Connection, cell: Cell, at: float, reach: int = 2) -> None:
@@ -159,3 +174,52 @@ def nearest(found: list[dict], here: Cell, kinds: tuple[str, ...], max_distance:
         if distance <= max_distance and (best is None or distance < best[0]):
             best = (distance, place)
     return best[1] if best else None
+
+
+# What Mimo built (M5) -------------------------------------------------------------------------
+
+BUILT = "built"  # the note on a home Mimo built itself
+STRUCTURE_COLUMNS = ("id", "kind", "name", "x", "y", "z", "status", "started_at", "built_at", "data")
+
+
+def set_home(db: sqlite3.Connection, cell: Cell, at: float, note: str = BUILT) -> None:
+    """Make `cell` home, noted `note`: the shelter Mimo built. remember() never moves home, since
+    the first sheltered spot stays home until Mimo builds a better one. The old home is
+    remembered as a shelter."""
+    old = db.execute("SELECT x, y, z FROM memory_places WHERE kind='home'").fetchone()
+    db.execute("DELETE FROM memory_places WHERE kind='home'")
+    if old is not None and tuple(old) != tuple(cell):
+        db.execute("INSERT OR IGNORE INTO memory_places(kind,x,y,z,note,found_at) VALUES ('shelter',?,?,?,'',?)",
+                   (*tuple(old), at))
+    db.execute("DELETE FROM memory_places WHERE kind='shelter' AND x=? AND y=? AND z=?", tuple(cell))
+    db.execute("INSERT INTO memory_places(kind,x,y,z,note,found_at) VALUES ('home',?,?,?,?,?)", (*cell, note, at))
+
+
+def add_structure(db: sqlite3.Connection, kind: str, name: str, anchor: Cell, at: float, data: dict,
+                  cells: list[tuple[Cell, str, str]]) -> int:
+    """Remember a structure Mimo started building and the (cell, part, block) cells it claims."""
+    cursor = db.execute("INSERT INTO structures(kind,name,x,y,z,status,started_at,data) VALUES (?,?,?,?,?,?,?,?)",
+                        (kind, name, *anchor, "building", at, json.dumps(data)))
+    number = cursor.lastrowid
+    db.executemany("INSERT OR REPLACE INTO structure_cells(x,y,z,structure,part,block) VALUES (?,?,?,?,?,?)",
+                   [(*cell, number, part, block) for cell, part, block in cells])
+    return number
+
+
+def structures(db: sqlite3.Connection, kinds: tuple[str, ...] | None = None) -> list[dict]:
+    """Every structure Mimo started, oldest first, as dicts with its design decoded in `data`."""
+    query, params = f"SELECT {','.join(STRUCTURE_COLUMNS)} FROM structures", []
+    if kinds:
+        query += f" WHERE kind IN ({','.join('?' * len(kinds))})"
+        params.extend(kinds)
+    rows = db.execute(query + " ORDER BY id", params).fetchall()
+    found = []
+    for row in rows:
+        structure = dict(zip(STRUCTURE_COLUMNS, tuple(row)))
+        structure["data"] = json.loads(structure["data"] or "{}")
+        found.append(structure)
+    return found
+
+
+def finish_structure(db: sqlite3.Connection, number: int, at: float) -> None:
+    db.execute("UPDATE structures SET status='done', built_at=? WHERE id=?", (at, number))

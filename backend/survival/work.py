@@ -10,11 +10,12 @@ gather_stone needs a pickaxe:
 it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
 tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
 pickaxe and no iron ore seen yet, it keeps digging to prospect for iron. It never digs into
-water, lava, bedrock, a hole or a cave, or a block it cannot mine, and never digs up farmland or
-a sapling. It never digs back the way it came, and never mines the floor of an open cell below
-the natural surface (a stair or tunnel it dug earlier, or a cave) unless the same stair just
-opened that cell, so it cannot cut its own staircase. The staircase stays climbable, and from
-its third stair it is sheltered, so it often becomes Mimo's first home.
+water, lava, bedrock, a hole or a cave, or a block it cannot mine, and never digs up farmland, a
+sapling or anything Mimo built, its door or the way in (structures.reserved). It never digs back
+the way it came, and never mines the floor of an open cell below the natural surface (a stair or
+tunnel it dug earlier, or a cave) unless the same stair just opened that cell, so it cannot cut
+its own staircase. The staircase stays climbable, and from its third stair it is sheltered, so it
+often becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
 
@@ -39,6 +40,7 @@ from backend.survival.nature import SOIL
 from backend.survival.senses import by_distance, failed_columns, standing_logs, trunks_near
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
+from backend.survival.structures import reserved
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -55,7 +57,6 @@ TUNNEL_DEPTH = 10
 LOWEST_FLOOR = -3
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 FLUIDS = ("water", "lava")
-TENDED = ("farmland", "sapling")  # Mimo's own plots and plantings
 ORE_RANGE = 48.0
 ORE_REACH = 3.0
 ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late in the day
@@ -96,7 +97,7 @@ def sapling_spots(s: Situation) -> list[Cell]:
     for dx in range(-4, 5):
         for dz in range(-4, 5):
             for cell in ((x + dx, y, z + dz), (x + dx, y + 1, z + dz), (x + dx, y - 1, z + dz)):
-                if 1.0 <= math.dist(cell, s.here) <= REACH and sapling_fits(s, cell):
+                if 1.0 <= math.dist(cell, s.here) <= REACH and sapling_fits(s, cell) and not reserved(s.grid, cell):
                     candidates.append(cell)
                     break
     spots = []
@@ -169,8 +170,8 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
         material = look(grid, changed, cell)
         if material in FLUIDS:
             return None
-        if material in TENDED or look(grid, changed, (nx, cell[1] + 1, nz)) in TENDED:
-            return None  # never dig up Mimo's farm or a sapling it planted
+        if reserved(grid, cell) or reserved(grid, (nx, cell[1] + 1, nz)):
+            return None  # never dig up Mimo's farm, a sapling it planted or anything it built
         if not is_solid(material):
             continue
         if hardness(material) is None or not can_harvest(material, inventory):

@@ -13,7 +13,8 @@ already placed within reach is used as it is and left there. One tool per choice
 Below the natural surface an open cell beside Mimo may be its only way out, and the cell above
 its head is the headroom it needs to climb, so there Mimo digs a niche into a solid side wall
 (under a solid ceiling, so no floor is dug away) and puts the station in it. The reflex warm_up
-places a carried furnace the same way.
+places a carried furnace the same way. A station never goes where something Mimo built keeps its
+room, door or way in (structures.reserved), so inside its shelter Mimo makes no tools.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from backend.survival.grid import Cell
 from backend.survival.purposes import Purpose, register, underground
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
+from backend.survival.structures import reserved
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -98,7 +100,7 @@ def free_cells(s: Situation) -> list[Cell]:
     for dx, dy, dz in NEIGHBOURS:
         cell = (x + dx, y + dy, z + dz)
         material = s.grid.material(*cell)
-        if material != "water" and is_replaceable(material):
+        if material != "water" and is_replaceable(material) and not reserved(s.grid, cell):
             cells.append(cell)
     return cells
 

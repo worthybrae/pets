@@ -9,7 +9,8 @@ for it); far from its farm Mimo does no farm work. Each batch does the most usef
 at most 4 plots:
 1. harvest ripe crops within 24 blocks and plant each plot again with what it gave;
 2. plant empty farmland, carrots first (they feed Mimo) and then seeds;
-3. till new plots next to the farm, up to 9, for the carrots and seeds left over;
+3. till new plots next to the farm, up to 9, for the carrots and seeds left over, never where
+   something Mimo built keeps its ground (structures.reserved);
 4. with nothing to plant, break tall grass within 16 blocks for seeds (1 in 5 gives some, and 1
    in 20 a carrot).
 The purpose ends when none of these is left, or after 6 batches. It is day work. Plots, grass
@@ -31,6 +32,7 @@ from backend.survival.nature import CROP_BLOCKS, HARVESTS, RIPE_CROPS, TILLABLE,
 from backend.survival.purposes import Purpose, late_penalty, register
 from backend.survival.senses import by_distance, grass_near, near_failure, shores_near
 from backend.survival.situation import Situation
+from backend.survival.structures import reserved
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -94,7 +96,8 @@ def new_plots(s: Situation, anchor: Cell) -> list[Cell]:
         surface = terrain_height(ax + dx, az + dz, s.seed)
         for y in (ay, ay + 1, ay - 1):
             ground = (ax + dx, y, az + dz)
-            if y >= surface and s.grid.material(*ground) in TILLABLE and open_above(s, ground):
+            if (y >= surface and s.grid.material(*ground) in TILLABLE and open_above(s, ground)
+                    and not reserved(s.grid, ground) and not reserved(s.grid, above(ground))):
                 found.append(ground)
                 break
     return found
