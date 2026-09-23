@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { blockId } from './blocks'
+import { AIR, blockId } from './blocks'
 import { columnIndex } from './worldgen'
 import { columnsTouching, WorldStore } from './worldStore'
 
@@ -100,6 +100,25 @@ describe('WorldStore', () => {
     const cells = []
     for (let i = 0; i < edits.length; i += 4) cells.push(edits.slice(i, i + 4))
     expect(cells).toContainEqual([5, 30, 5, blockId('limestone')])
+  })
+
+  it('turns a plant into air when the cell below has a server edit', () => {
+    const store = new WorldStore()
+    const column = new Uint8Array(16 * 16 * 128)
+    column[columnIndex(5, 20, 5)] = blockId('tall_grass')
+    store.setBaseColumn(0, 0, column)
+    expect(store.getBlock(5, 20, 5)).toBe(blockId('tall_grass'))
+    store.applyServerChanges([{ x: 5, y: 19, z: 5, material: 'stone' }])
+    expect(store.getBlock(5, 20, 5)).toBe(AIR)
+  })
+
+  it('turns a plant into air when the cell below has only an overlay edit', () => {
+    const store = new WorldStore()
+    const column = new Uint8Array(16 * 16 * 128)
+    column[columnIndex(5, 20, 5)] = blockId('tall_grass')
+    store.setBaseColumn(0, 0, column)
+    store.setOverlay([{ x: 5, y: 19, z: 5, material: 'stone' }])
+    expect(store.getBlock(5, 20, 5)).toBe(AIR)
   })
 
   it('tells subscribers which columns changed', () => {

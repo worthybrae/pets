@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AIR, blockId } from './blocks'
 import { buildPaddedVolume, ColumnCache } from './columnVolume'
 import { paddedIndex } from './mesher'
 import { columnIndex, WORLD_MIN_Y } from './worldgen'
@@ -29,6 +30,24 @@ describe('buildPaddedVolume', () => {
     const volume = buildPaddedVolume(0, 0, columnAt, edits)
     expect(volume[paddedIndex(1, 20 - WORLD_MIN_Y, 1)]).toBe(7)
     expect(volume[paddedIndex(0, 20 - WORLD_MIN_Y, 1)]).toBe(8)
+  })
+
+  it('turns a plant into air when the cell below it was edited', () => {
+    const withPlant = filled(0)
+    withPlant[columnIndex(5, 20, 5)] = blockId('tall_grass')
+    const columnAt = (cx: number, cz: number) => (cx === 0 && cz === 0 ? withPlant : filled(9))
+    const edits = Int32Array.from([5, 19, 5, blockId('stone')])
+    const volume = buildPaddedVolume(0, 0, columnAt, edits)
+    expect(volume[paddedIndex(6, 20 - WORLD_MIN_Y, 6)]).toBe(AIR)
+  })
+
+  it('keeps an edit made directly on the plant cell', () => {
+    const withPlant = filled(0)
+    withPlant[columnIndex(5, 20, 5)] = blockId('tall_grass')
+    const columnAt = (cx: number, cz: number) => (cx === 0 && cz === 0 ? withPlant : filled(9))
+    const edits = Int32Array.from([5, 20, 5, blockId('flower_pink'), 5, 19, 5, blockId('stone')])
+    const volume = buildPaddedVolume(0, 0, columnAt, edits)
+    expect(volume[paddedIndex(6, 20 - WORLD_MIN_Y, 6)]).toBe(blockId('flower_pink'))
   })
 })
 

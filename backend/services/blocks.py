@@ -28,3 +28,9 @@ def is_replaceable(material: str) -> bool:
     """True for cells a placed or falling block may take over: air, water and plants."""
     index = BLOCK_IDS.get(material)
     return index is not None and bool(BLOCK_LIST[index].get("replaceable"))
+
+
+def is_plant(material: str) -> bool:
+    """True for natural decorations with the cutout layer: tall grass and flowers."""
+    index = BLOCK_IDS.get(material)
+    return index is not None and BLOCK_LIST[index].get("layer") == "cutout"

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.live_mimo import MimoStore, _jev_decision, _model_decision, observe_world, run_tick, validate_decision
-from backend.services.worldgen import terrain_height
+from backend.services.worldgen import plant_at, terrain_height
 
 
 class LiveMimoTests(unittest.TestCase):
@@ -358,6 +358,35 @@ class LiveMimoTests(unittest.TestCase):
             self.store.put_block(90, 120, 0, "stone")
         with self.assertRaises(ValueError):
             self.store.put_block(90, -9, 0, "stone")
+
+    def test_plant_becomes_air_when_the_cell_below_it_is_dug(self):
+        seed = self.store.world_seed
+        found = None
+        for x in range(20, 140):
+            if found:
+                break
+            if abs(x) < 13:
+                continue
+            for z in range(-60, 60):
+                if abs(z) < 13:
+                    continue
+                if plant_at(x, z, seed):
+                    found = (x, z)
+                    break
+        self.assertIsNotNone(found, "no natural plant found for this seed in the scanned range")
+        x, z = found
+        h = terrain_height(x, z, seed)
+        self.assertEqual(self.store.material_at(x, h + 1, z), plant_at(x, z, seed))
+        self.store.put_block(x, h, z, "air")
+        self.assertEqual(self.store.material_at(x, h + 1, z), "air")
+
+    def test_placed_flower_on_an_edited_cell_stays(self):
+        seed = self.store.world_seed
+        x, z = 90, 30
+        h = terrain_height(x, z, seed)
+        self.store.put_block(x, h, z, "stone")
+        self.store.put_block(x, h + 1, z, "flower_pink")
+        self.assertEqual(self.store.material_at(x, h + 1, z), "flower_pink")
 
     def test_observation_columns_reach_tree_canopies(self):
         state = self.store.snapshot()

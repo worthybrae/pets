@@ -1,3 +1,4 @@
+import { AIR, LAYER_BY_ID, LAYER_CUTOUT } from './blocks'
 import { PADDED, paddedIndex } from './mesher'
 import { CHUNK_SIZE, columnIndex, generateColumn, WORLD_HEIGHT, WORLD_MIN_Y } from './worldgen'
 
@@ -47,12 +48,25 @@ export function buildPaddedVolume(cx: number, cz: number, columnAt: (cx: number,
       }
     }
   }
+  const editedIndices = new Set<number>()
   for (let i = 0; i < edits.length; i += 4) {
     const px = edits[i] - cx * CHUNK_SIZE + 1
     const layer = edits[i + 1] - WORLD_MIN_Y
     const pz = edits[i + 2] - cz * CHUNK_SIZE + 1
     if (px < 0 || px >= PADDED || pz < 0 || pz >= PADDED || layer < 0 || layer >= WORLD_HEIGHT) continue
-    volume[paddedIndex(px, layer, pz)] = edits[i + 3]
+    const index = paddedIndex(px, layer, pz)
+    volume[index] = edits[i + 3]
+    editedIndices.add(index)
+  }
+  // A natural plant left floating over an edit (a dug or built-on cell) does not belong.
+  for (let i = 0; i < edits.length; i += 4) {
+    const px = edits[i] - cx * CHUNK_SIZE + 1
+    const layer = edits[i + 1] - WORLD_MIN_Y + 1
+    const pz = edits[i + 2] - cz * CHUNK_SIZE + 1
+    if (px < 0 || px >= PADDED || pz < 0 || pz >= PADDED || layer < 0 || layer >= WORLD_HEIGHT) continue
+    const above = paddedIndex(px, layer, pz)
+    if (editedIndices.has(above)) continue
+    if (LAYER_BY_ID[volume[above]] === LAYER_CUTOUT) volume[above] = AIR
   }
   return volume
 }

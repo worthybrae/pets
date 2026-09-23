@@ -1,4 +1,4 @@
-import { AIR, blockDef, blockId } from './blocks'
+import { AIR, blockDef, blockId, LAYER_BY_ID, LAYER_CUTOUT } from './blocks'
 import { blockAt, CHUNK_SIZE, columnIndex, DEFAULT_WORLD_SEED, WORLD_MAX_Y, WORLD_MIN_Y } from './worldgen'
 
 export interface PlacedBlock {
@@ -78,8 +78,17 @@ export class WorldStore {
     const overlayEdit = this.overlayEdit(column, cell)
     if (overlayEdit !== undefined) return overlayEdit
     const base = this.base.get(column)
-    if (base) return base[columnIndex(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE)]
-    return blockId(blockAt(x, y, z, this.seed))
+    const natural = base ? base[columnIndex(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE)] : blockId(blockAt(x, y, z, this.seed))
+    // A natural plant with an edit directly below it (dug or built on) has nothing left to stand on.
+    if (LAYER_BY_ID[natural] === LAYER_CUTOUT && this.editAt(column, x, y - 1, z) !== undefined) return AIR
+    return natural
+  }
+
+  private editAt(column: string, x: number, y: number, z: number): number | undefined {
+    const cell = cellKey(x, y, z)
+    const serverEdit = this.server.get(column)?.get(cell)
+    if (serverEdit !== undefined) return serverEdit
+    return this.overlayEdit(column, cell)
   }
 
   /** Later-created layers are checked last so they win on overlap. */

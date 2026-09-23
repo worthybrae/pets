@@ -1,6 +1,6 @@
 import unittest
 
-from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, TILES, is_replaceable
+from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, TILES, is_plant, is_replaceable
 from backend.services.crafting import BLOCKS
 
 # Gameplay properties as they were before the registry moved to shared/blocks.json.
@@ -62,6 +62,12 @@ class BlockRegistryTests(unittest.TestCase):
             self.assertTrue(is_replaceable(name), name)
         for name in ("stone", "leaves", "glass", "not_a_block"):
             self.assertFalse(is_replaceable(name), name)
+
+    def test_is_plant_identifies_the_cutout_natural_decorations(self):
+        for name in ("tall_grass", "flower_orange", "flower_pink", "flower_yellow"):
+            self.assertTrue(is_plant(name), name)
+        for name in ("air", "stone", "leaves", "glass", "water", "not_a_block"):
+            self.assertFalse(is_plant(name), name)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from backend.services.blocks import is_replaceable
+from backend.services.blocks import is_plant, is_replaceable
 from backend.services.crafting import BLOCKS, RECIPES, SMELTING, add_item, can_harvest, craft, smelt, take_items
 from backend.services.worldgen import (
     LEGACY_RADIUS, LEGACY_WORLD_SEED, SEA_LEVEL, WORLD_MAX_Y, WORLD_MIN_Y, base_material, terrain_height,
@@ -59,6 +59,26 @@ LUNA_ACTION_SCHEMA = {
     },
     "required": ["action", "kind", "candidate_id", "x", "y", "z", "material", "recipe", "input_item", "thought"],
 }
+
+
+def resolve_block(x: int, y: int, z: int, seed: str, edits: dict[tuple[int, int, int], str]) -> str:
+    """The material at a cell: its edit if any, else the natural block, with a natural
+    plant resolved to air once the cell below it has been edited (dug out or built on)."""
+    edit = edits.get((x, y, z))
+    if edit is not None:
+        return edit
+    natural = base_material(x, y, z, seed)
+    if is_plant(natural) and (x, y - 1, z) in edits:
+        return "air"
+    return natural
+
+
+def _material_in(db: sqlite3.Connection, x: int, y: int, z: int, seed: str) -> str:
+    """Material at a cell, reading it and the cell below in one query for the plant rule."""
+    rows = db.execute("SELECT y, material FROM mimo_blocks WHERE x=? AND z=? AND y IN (?, ?)",
+                      (x, z, y, y - 1)).fetchall()
+    edits = {(x, row["y"], z): row["material"] for row in rows}
+    return resolve_block(x, y, z, seed, edits)
 
 
 def now() -> float:
@@ -247,8 +267,7 @@ class MimoStore:
 
     def material_at(self, x: int, y: int, z: int) -> str:
         with self.connect() as db:
-            row = db.execute("SELECT material FROM mimo_blocks WHERE x=? AND y=? AND z=?", (x, y, z)).fetchone()
-        return row["material"] if row else base_material(x, y, z, self.world_seed)
+            return _material_in(db, x, y, z, self.world_seed)
 
     def nearby_stations(self, position: dict, radius: int = 6) -> set[str]:
         with self.connect() as db:
@@ -266,7 +285,7 @@ class MimoStore:
             ).fetchall()}
             for row in rows:
                 x, y, z, material = row["x"], row["y"], row["z"], row["material"]
-                below = edits.get((x, y - 1, z), base_material(x, y - 1, z, self.world_seed))
+                below = resolve_block(x, y - 1, z, self.world_seed, edits)
                 if not is_replaceable(below) or y <= -5:
                     continue
                 self._write_block(db, x, y, z, "air")
@@ -341,8 +360,7 @@ class MimoStore:
                 for dx, dz in ((2, 0), (0, 2), (-2, 0), (0, -2), (3, 0), (0, 3), (-3, 0), (0, -3)):
                     x, z = px + dx, pz + dz
                     y = terrain_height(x, z, self.world_seed) + 1
-                    row_at = db.execute("SELECT material FROM mimo_blocks WHERE x=? AND y=? AND z=?", (x, y, z)).fetchone()
-                    here = row_at["material"] if row_at else base_material(x, y, z, self.world_seed)
+                    here = _material_in(db, x, y, z, self.world_seed)
                     if is_replaceable(here) and here != "water":
                         candidate = (x, y, z)
                         break
@@ -405,7 +423,7 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
     for x, z in ((px, pz), (px + 2, pz), (px - 2, pz), (px, pz + 2), (px, pz - 2)):
         top = max(3, terrain_height(x, z, seed) + 7)
         columns.append({"x": x, "z": z,
-                        "layers": [{"y": y, "material": edited.get((x, y, z), base_material(x, y, z, seed))}
+                        "layers": [{"y": y, "material": resolve_block(x, y, z, seed, edited)}
                                    for y in range(top, -5, -1)]})
     return {"pet_position": state["position"], "features": features[-14:],
             "pond": {"x": -5, "z": 4}, "candidate_sites": candidates,
