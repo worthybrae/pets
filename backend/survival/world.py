@@ -35,7 +35,10 @@ ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", 
 RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to skip repeats
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6
-MACHINES = ("crafting_table", "furnace")
+MACHINES = ("crafting_table", "furnace")  # what the owner may place beside the pet
+# Placed blocks the owner's craft and smelt count as nearby stations: the machines, and a campfire,
+# where raw fish cooks as it does at a furnace.
+STATIONS = (*MACHINES, "campfire")
 MACHINE_OFFSETS = ((2, 0), (0, 2), (-2, 0), (0, -2), (3, 0), (0, 3), (-3, 0), (0, -3))
 
 
@@ -247,14 +250,15 @@ class SurvivalWorld:
             return {"mood": state["vitals"]["mood"], "noticed_at": timestamp}
 
     def owner_action(self, action: str, item: str, timestamp: float) -> dict:
-        """The owner helps craft, place a workstation or smelt, with the legacy station rules."""
+        """The owner helps craft, place a workstation or smelt, with the legacy station rules. Raw
+        fish cooks at a campfire as well as a furnace; the owner can place only the machines."""
         with self.transaction() as db:
             state = read_state(db)
             if state["died_at"] is not None:
                 raise LifeOver(f"{state['name']} has died")
             check_not_behind(state, timestamp)
             position = state["position"]
-            stations = {material for x, _, z, material in placed_near(db, position, STATION_REACH, MACHINES)
+            stations = {material for x, _, z, material in placed_near(db, position, STATION_REACH, STATIONS)
                         if math.hypot(x - position["x"], z - position["z"]) <= STATION_REACH}
             if action == "craft":
                 state["inventory"] = craft(state["inventory"], item, stations)

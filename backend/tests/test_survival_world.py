@@ -126,6 +126,15 @@ class SurvivalWorldTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.world.owner_action("juggle", "planks", 1504.0)
 
+    def test_owner_can_cook_raw_fish_at_a_campfire_but_not_place_one(self):
+        x, z = SPAWN["x"] + 2, SPAWN["z"]
+        self.world.put_block(x, terrain_height(x, z, SEED) + 1, z, "campfire")
+        self.set_state(inventory={"raw_fish": 1, "campfire": 1}, last_tick_at=1495.0)
+        result = self.world.owner_action("smelt", "raw_fish", 1500.0)
+        self.assertEqual(result["inventory"], {"cooked_fish": 1, "campfire": 1})
+        with self.assertRaises(ValueError):
+            self.world.owner_action("place_machine", "campfire", 1501.0)
+
     def test_a_dead_pet_cannot_be_greeted_or_helped(self):
         self.set_state(died_at=1800.0, cause="starvation", status="dead")
         with self.assertRaises(LifeOver):
