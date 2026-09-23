@@ -369,6 +369,20 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual(state["last_failure"]["code"], "missing_item")
         self.assertEqual(state["queue"], [mine_back])
 
+    def test_a_kept_steps_own_failure_is_not_charged_to_the_purpose(self):
+        """A cleanup step (`keep`, a portable station's mine-back) that itself fails - here it is
+        out of reach after something else moved Mimo - is still recorded, but must not become
+        `last_failure`: brain.new_failure spends the current purpose's one re-plan on that, and
+        the cleanup step was never the purpose's own doing."""
+        state = pet()
+        mine_back = {"kind": "mine", "target": [9, 1, 0], "keep": True, "purpose": "gather_stone"}
+        state["queue"] = [mine_back]
+        advance_actions(state, context(small_world({(9, 1, 0): "dirt"})), 1.0)
+        failed = state["recent_actions"][-1]
+        self.assertEqual((failed["kind"], failed["result"], failed["reason"]), ("mine", "failed", "out of reach"))
+        self.assertIsNone(state["last_failure"])
+        self.assertEqual((state["action"], state["queue"]), (None, []))
+
     def test_a_running_step_keeps_the_purpose_that_planned_it(self):
         grid, state = small_world({(1, 1, 0): "dirt"}), pet()
         state["queue"] = [{"kind": "mine", "target": [1, 1, 0], "purpose": "gather_stone"}]

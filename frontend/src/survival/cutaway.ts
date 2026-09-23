@@ -16,8 +16,9 @@ export const CUTAWAY_RADIUS = 8
 export const CUT_CLEARANCE = 1.5
 /** How far up the column over Mimo's head to look for cover. */
 export const COVER_SEARCH = 12
-/** A tree's canopy and trunk are not ground: Mimo under a tree stays drawn with the tree. */
-const NOT_COVER = new Set(['leaves', 'oak_log'])
+/** A tree's canopy and trunk, and a placed station or fixture, are not ground: Mimo under one of
+ * these stays drawn with it instead of having the terrain around it cut away. */
+const NOT_COVER = new Set(['leaves', 'oak_log', 'crafting_table', 'furnace', 'lantern', 'glass'])
 
 export interface BlockReader {
   getBlock(x: number, y: number, z: number): number

@@ -231,7 +231,7 @@ def plan_avoid_drop(s: Situation, context: ActionContext) -> list[dict]:
     if context.db is not None:
         remember(context.db, "danger", cell, s.at, why)
     if what == "mine":
-        spec = s.state["queue"][0]
+        spec = s.state["queue"].pop(0)  # popped first: a vetoed step must never be kept
         fail(s.state, as_started(spec, s.at), s.at, "that would be a long fall", "blocked")
         return list(s.state["queue"])  # the plan's cleanup steps, which fail() kept
     action = s.state["action"]

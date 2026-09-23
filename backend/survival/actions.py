@@ -165,11 +165,14 @@ def kept_steps(queue: list[dict]) -> list[dict]:
 def fail(state: dict, step: dict, at: float, reason: str, code: str = "bad_step") -> None:
     """Record a failed step, keep it as the last failure and drop the rest of the plan but its
     cleanup steps, so the planner plans again. `seq` counts failures, so two alike failures at the
-    same moment differ."""
+    same moment differ. A cleanup step (`keep`, a portable station's mine-back) is recorded like
+    any other failure but never becomes `last_failure`: it is not the current purpose's doing, and
+    charging it would spend the purpose's one re-plan on someone else's mistake."""
     record(state, step, at, "failed", reason, code)
-    seq = (state.get("last_failure") or {}).get("seq", 0) + 1
-    state["last_failure"] = {"code": code, "reason": reason, "kind": step["kind"], "cell": step.get("target"),
-                             "purpose": step.get("purpose"), "at": at, "seq": seq}
+    if not step.get("keep"):
+        seq = (state.get("last_failure") or {}).get("seq", 0) + 1
+        state["last_failure"] = {"code": code, "reason": reason, "kind": step["kind"], "cell": step.get("target"),
+                                 "purpose": step.get("purpose"), "at": at, "seq": seq}
     state["action"] = None
     state["queue"] = kept_steps(state["queue"])
 
@@ -182,7 +185,7 @@ def as_started(spec: dict, at: float) -> dict:
     is exactly the field most likely to be the malformed one; a value as_point cannot make sense
     of is kept as-is rather than raising a second time from inside a failure handler.
     """
-    step = {key: spec[key] for key in ("block", "item", "recipe", "purpose") if key in spec}
+    step = {key: spec[key] for key in ("block", "item", "recipe", "purpose", "keep") if key in spec}
     step.update(kind=spec.get("kind", "unknown"), started_at=at)
     if "target" in spec:
         try:

@@ -127,6 +127,30 @@ class ReflexTests(unittest.TestCase):
                          ("blocked", "that would be a long fall"))
         self.assertEqual([(place["kind"], place["note"]) for place in places(ctx.db)], [("danger", "drop")])
 
+    def test_a_kept_mine_step_over_a_deep_drop_is_vetoed_once_and_never_runs(self):
+        """A cleanup step (`keep`, a portable station's mine-back) that targets the block under
+        Mimo over a deep drop must stay vetoed. Task 8 review: the vetoed spec was still at
+        queue[0] when fail() ran, so kept_steps kept it (it has `keep`) and the reflex re-vetoed
+        the very same step on the next pass instead of dropping it - up to MAX_TAKEOVERS times,
+        after which the interrupt check is skipped and the dangerous mine runs anyway."""
+        state = pet()
+        mine_back = {"kind": "mine", "target": [0, 0, 0], "purpose": "gather_stone", "keep": True}
+        state["queue"] = [dict(mine_back)]
+        grid = holed((0, 0), {(0, 0, 0): "dirt"})
+        db = sqlite3.connect(":memory:")
+        create_memory_tables(db)
+        ctx = ActionContext(grid=grid, clock_at=lambda at: DAY, planner=lambda state, context, at: [],
+                            events=[], db=db, interrupt=reflex_hook)
+        advance_actions(state, ctx, 1.0)
+        self.assertEqual(grid.material(0, 0, 0), "dirt")
+        self.assertEqual(state["position"]["y"], 1.0)
+        self.assertEqual(state["inventory"], {})
+        for until in (2.0, 3.0, 4.0):
+            state["queue"] = [dict(mine_back)]
+            advance_actions(state, ctx, until)
+        self.assertEqual(grid.material(0, 0, 0), "dirt")
+        self.assertEqual(state["position"]["y"], 1.0)
+
     def test_avoid_drop_cuts_a_walk_whose_next_cell_lost_its_floor(self):
         state = pet()
         choose(state, "explore")

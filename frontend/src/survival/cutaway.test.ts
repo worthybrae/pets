@@ -33,6 +33,13 @@ describe('underground', () => {
   it('counts a roof Mimo stands under', () => {
     expect(underground(ground({ '0,3,0': 'planks' }), { x: 0, y: 1, z: 0 })).toBe(true)
   })
+
+  it('is false with a crafting table, furnace, lantern or glass in the headroom', () => {
+    expect(underground(ground({ '0,2,0': 'crafting_table' }), { x: 0, y: 1, z: 0 })).toBe(false)
+    expect(underground(ground({ '0,2,0': 'furnace' }), { x: 0, y: 1, z: 0 })).toBe(false)
+    expect(underground(ground({ '0,2,0': 'lantern' }), { x: 0, y: 1, z: 0 })).toBe(false)
+    expect(underground(ground({ '0,2,0': 'glass' }), { x: 0, y: 1, z: 0 })).toBe(false)
+  })
 })
 
 describe('cutawayFor', () => {
