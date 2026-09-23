@@ -340,10 +340,10 @@ class LiveMimoTests(unittest.TestCase):
         self.store.owner_action("craft", "furnace")
         self.store.owner_action("place_machine", "furnace")
         self.store.owner_action("smelt", "iron_ore")
-        saved = MimoStore(self.path).snapshot()
-        self.assertEqual(saved["inventory"]["iron_ingot"], 1)
-        self.assertEqual(len([block for block in saved["block_edits"] if block["material"] in ("crafting_table", "furnace")]), 2)
-        self.assertEqual(saved["events"][0]["kind"], "owner")
+        saved = MimoStore(self.path)
+        self.assertEqual(saved.snapshot()["inventory"]["iron_ingot"], 1)
+        self.assertEqual(len([block for block in saved.block_edits() if block["material"] in ("crafting_table", "furnace")]), 2)
+        self.assertEqual(saved.snapshot()["events"][0]["kind"], "owner")
 
     def test_sand_falls_through_plants(self):
         height = terrain_height(80, 0, self.store.world_seed)

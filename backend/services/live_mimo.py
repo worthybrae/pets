@@ -180,12 +180,30 @@ class MimoStore:
         finally:
             connection.close()
 
+    @staticmethod
+    def _write_block(db: sqlite3.Connection, x: int, y: int, z: int, material: str) -> int:
+        """Every block write goes through here so viewers can fetch changes by seq."""
+        db.execute("UPDATE mimo_meta SET value = value + 1 WHERE key='blocks_seq'")
+        seq = db.execute("SELECT value FROM mimo_meta WHERE key='blocks_seq'").fetchone()["value"]
+        db.execute("INSERT INTO mimo_blocks(x,y,z,material,seq) VALUES(?,?,?,?,?) "
+                   "ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material, seq=excluded.seq",
+                   (x, y, z, material, seq))
+        return seq
+
     def initialize(self) -> None:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS mimo_state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL, lease_until REAL NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_worker (id INTEGER PRIMARY KEY CHECK (id=1), seen_at REAL NOT NULL)")
-            db.execute("CREATE TABLE IF NOT EXISTS mimo_blocks (x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, material TEXT NOT NULL, PRIMARY KEY(x,y,z))")
+            db.execute("CREATE TABLE IF NOT EXISTS mimo_blocks (x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, material TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(x,y,z))")
+            db.execute("CREATE TABLE IF NOT EXISTS mimo_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+            if "seq" not in {row["name"] for row in db.execute("PRAGMA table_info(mimo_blocks)")}:
+                # Worlds saved before block sync get sequence numbers in row order.
+                db.execute("ALTER TABLE mimo_blocks ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
+                db.execute("UPDATE mimo_blocks SET seq = rowid")
+            db.execute("CREATE INDEX IF NOT EXISTS mimo_blocks_by_seq ON mimo_blocks(seq)")
+            db.execute("INSERT OR IGNORE INTO mimo_meta(key, value) VALUES('blocks_seq', 0)")
+            db.execute("UPDATE mimo_meta SET value = MAX(value, (SELECT COALESCE(MAX(seq), 0) FROM mimo_blocks)) WHERE key='blocks_seq'")
             timestamp = now()
             inserted = db.execute("INSERT OR IGNORE INTO mimo_state (id,data) VALUES (1,?)", (json.dumps(new_state(timestamp)),))
             if inserted.rowcount:
@@ -199,10 +217,7 @@ class MimoStore:
             ).fetchall()]
             worker = db.execute("SELECT seen_at FROM mimo_worker WHERE id=1").fetchone()
             state["worker_last_seen_at"] = worker["seen_at"] if worker else None
-            state["block_edits"] = [dict(row) for row in db.execute(
-                "SELECT x,y,z,material FROM mimo_blocks ORDER BY x,y,z LIMIT 20000"
-            ).fetchall()]
-            state["catalog"] = BLOCKS
+            state["blocks_seq"] = db.execute("SELECT value FROM mimo_meta WHERE key='blocks_seq'").fetchone()["value"]
             state["recipes"] = RECIPES
             return state
 
@@ -210,12 +225,25 @@ class MimoStore:
         with self.connect() as db:
             return [dict(row) for row in db.execute("SELECT x,y,z,material FROM mimo_blocks").fetchall()]
 
+    def blocks_since(self, since: int, limit: int = 5000) -> dict:
+        """Block changes after `since`, oldest first. Removed blocks come back as air."""
+        limit = max(1, min(limit, 5000))
+        with self.connect() as db:
+            # Read the latest seq first so a write landing mid-query is fetched next time.
+            latest = db.execute("SELECT value FROM mimo_meta WHERE key='blocks_seq'").fetchone()["value"]
+            rows = db.execute("SELECT x,y,z,material,seq FROM mimo_blocks WHERE seq > ? AND seq <= ? "
+                              "ORDER BY seq LIMIT ?", (since, latest, limit + 1)).fetchall()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        return {"seq": rows[-1]["seq"] if more else latest,
+                "changes": [{"x": row["x"], "y": row["y"], "z": row["z"], "material": row["material"]} for row in rows],
+                "more": more}
+
     def put_block(self, x: int, y: int, z: int, material: str) -> None:
         if material not in BLOCK_TYPES or not (WORLD_MIN_Y <= y <= WORLD_MAX_Y) or abs(x) > 4096 or abs(z) > 4096:
             raise ValueError("Invalid block position or material")
         with self.connect() as db:
-            db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,?) ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material",
-                       (x, y, z, material))
+            self._write_block(db, x, y, z, material)
 
     def material_at(self, x: int, y: int, z: int) -> str:
         with self.connect() as db:
@@ -241,8 +269,8 @@ class MimoStore:
                 below = edits.get((x, y - 1, z), base_material(x, y - 1, z, self.world_seed))
                 if not is_replaceable(below) or y <= -5:
                     continue
-                db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,'air') ON CONFLICT(x,y,z) DO UPDATE SET material='air'", (x, y, z))
-                db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,?) ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material", (x, y - 1, z, material))
+                self._write_block(db, x, y, z, "air")
+                self._write_block(db, x, y - 1, z, material)
                 edits[(x, y, z)] = "air"
                 edits[(x, y - 1, z)] = material
                 moved += 1
@@ -273,7 +301,7 @@ class MimoStore:
                 state["mood"] = min(100, max(state["mood"], current["mood"]))
             db.execute("UPDATE mimo_state SET data=?,lease_until=0 WHERE id=1", (json.dumps(state),))
             if block_edit:
-                db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,?) ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material", block_edit)
+                self._write_block(db, *block_edit)
             if event:
                 db.execute("INSERT INTO mimo_events(at,kind,text) VALUES(?,?,?)", (now(), *event))
 
@@ -320,7 +348,7 @@ class MimoStore:
                         break
                 if candidate is None:
                     raise ValueError("No open block beside Mimo for that machine")
-                db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,?) ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material", (*candidate, item))
+                self._write_block(db, *candidate, item)
                 state["inventory"] = inventory
                 message = f"You placed {item.replace('_', ' ')} beside Mimo."
             elif action == "smelt":
@@ -690,7 +718,7 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                 store.finish(state)
                 return True
             snapshot = store.snapshot()
-            observation = observe_world(state, snapshot["block_edits"])
+            observation = observe_world(state, store.block_edits())
             events = snapshot["events"]
             if decide is _autonomous_decision and not model_configured():
                 raise RuntimeError("Set TYPESAFE_API_KEY for Jev or OPENAI_API_KEY for GPT-6 Luna.")
