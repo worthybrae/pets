@@ -47,15 +47,17 @@ def failed_columns(state: dict) -> set[tuple[int, int]]:
 
 
 def standing_logs(grid: Grid, seed: str, here: Cell, skip: set[tuple[int, int]] | frozenset = frozenset(),
-                  radius: int = TREE_SEARCH) -> list[Cell]:
+                  radius: int = TREE_SEARCH, grown: set[tuple[int, int]] | frozenset = frozenset()) -> list[Cell]:
     """The logs still standing in the nearest tree worth trying, lowest first; [] when there is none.
-    Trees grown from saplings count too: their logs are placed blocks."""
+    Trees grown from saplings Mimo planted count too, in the `grown` columns: their logs are placed
+    blocks. Other placed logs (something built) are not trees."""
     x, _, z = here
     trunks: dict[tuple[int, int], set[Cell]] = {}
     for tx, tz, base in trees_near(seed, x, z, radius):
         trunks.setdefault((tx, tz), set()).update((tx, y, tz) for y in range(base + 1, base + TRUNK_HEIGHT + 1))
     for cell, _ in grid.placed_cells(x, z, radius, (LOG,)):
-        trunks.setdefault((cell[0], cell[2]), set()).add(cell)
+        if (cell[0], cell[2]) in grown:
+            trunks.setdefault((cell[0], cell[2]), set()).add(cell)
     best: tuple[float, tuple[int, int], list[Cell]] | None = None
     for (tx, tz), cells in trunks.items():
         if (tx, tz) in skip:

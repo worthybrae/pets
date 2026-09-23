@@ -2,20 +2,23 @@
 Mimo has seen.
 
 gather_wood chops the nearest standing tree within 24 blocks, lowest log first, until Mimo
-carries 8 logs' worth of wood (craft_tools turns logs into planks). Trees only come back when
-Mimo plants saplings (they drop from leaves), so each batch first plants up to 2 carried
-saplings on open ground within reach, 3 blocks or more from any trunk or other sapling, on the
-natural surface (never in Mimo's own staircase) and 2 blocks or more from a home or shelter.
+carries 8 logs' worth of wood (craft_tools turns logs into planks), and while a shelter Mimo
+started waits for blocks, that many more as logs (building.building_need). A tree is a generated
+one or one grown from a sapling Mimo planted (remembered as a `tree` place); other placed logs are
+something built, not a tree. Trees only come back when Mimo plants saplings (they drop from
+leaves), so each batch first plants up to 2 carried saplings on open ground within reach, 3
+blocks or more from any trunk or other sapling, on the natural surface (never in Mimo's own
+staircase) and 2 blocks or more from a home or shelter.
 gather_stone needs a pickaxe:
 it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
-tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
-pickaxe and no iron ore seen yet, it keeps digging to prospect for iron. It never digs into
-water, lava, bedrock, a hole or a cave, or a block it cannot mine, and never digs up farmland, a
-sapling or anything Mimo built, its door or the way in (structures.reserved). It never digs back
-the way it came, and never mines the floor of an open cell below the natural surface (a stair or
-tunnel it dug earlier, or a cave) unless the same stair just opened that cell, so it cannot cut
-its own staircase. The staircase stays climbable, and from its third stair it is sheltered, so it
-often becomes Mimo's first home.
+tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone (and the
+blocks a started shelter still waits for); with a stone pickaxe and no iron ore seen yet, it
+keeps digging to prospect for iron. It never digs into water, lava, bedrock, a hole or a cave, or
+a block it cannot mine, and never digs up farmland, a sapling or anything Mimo built, its door or
+the way in (structures.reserved). It never digs back the way it came, and never mines the floor
+of an open cell below the natural surface (a stair or tunnel it dug earlier, or a cave) unless
+the same stair just opened that cell, so it cannot cut its own staircase. The staircase stays
+climbable, and from its third stair it is sheltered, so it often becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
 
@@ -35,6 +38,7 @@ from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
+from backend.survival.building import building_need
 from backend.survival.farming import plant
 from backend.survival.nature import SOIL
 from backend.survival.senses import by_distance, failed_columns, standing_logs, trunks_near
@@ -57,6 +61,7 @@ TUNNEL_DEPTH = 10
 LOWEST_FLOOR = -3
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 FLUIDS = ("water", "lava")
+TREE = "tree"  # a remembered place: a sapling Mimo planted, so the tree there is its to chop
 ORE_RANGE = 48.0
 ORE_REACH = 3.0
 ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late in the day
@@ -74,7 +79,15 @@ def has_pickaxe(inventory: dict) -> bool:
 # gather_wood -----------------------------------------------------------------------------------
 
 def logs_to_chop(s: Situation) -> list[Cell]:
-    return standing_logs(s.grid, s.seed, s.here, failed_columns(s.state))
+    """The nearest tree's logs: a generated tree, or one grown from a sapling Mimo planted (placed
+    logs anywhere else, like a wall, are not trees)."""
+    grown = {(place["x"], place["z"]) for place in s.places if place["kind"] == TREE}
+    return standing_logs(s.grid, s.seed, s.here, failed_columns(s.state), grown=grown)
+
+
+def wood_goal(s: Situation) -> float:
+    """8 logs of wood, and the shelter's missing blocks as logs (4 planks each) on top."""
+    return WOOD_GOAL + building_need(s) / 4
 
 
 def wood_score(s: Situation) -> float:
@@ -128,7 +141,7 @@ def plant_saplings(s: Situation) -> list[dict]:
 
 
 def plan_wood(s: Situation, context: ActionContext) -> list[dict]:
-    if wood(s.inventory) >= WOOD_GOAL:
+    if wood(s.inventory) >= wood_goal(s):
         return []
     logs = logs_to_chop(s)
     if not logs:
@@ -138,7 +151,7 @@ def plan_wood(s: Situation, context: ActionContext) -> list[dict]:
 
 register(Purpose(
     "gather_wood", "gather wood", "Chop the nearest tree for logs, the start of every tool.",
-    valid=lambda s: wood(s.inventory) < WOOD_GOAL and bool(logs_to_chop(s)),
+    valid=lambda s: wood(s.inventory) < wood_goal(s) and bool(logs_to_chop(s)),
     facts=wood_facts, score=wood_score, plan=plan_wood,
     thoughts=("I need wood. That tree looks good.", "Wood first. Everything starts with wood.")))
 
@@ -208,8 +221,13 @@ def prospecting(s: Situation) -> bool:
             and not any(place["kind"] == "ore" and place["note"] == "iron_ore" for place in s.places))
 
 
+def stone_goal(s: Situation) -> float:
+    """12 cobblestone, and the shelter's missing blocks on top."""
+    return STONE_GOAL + building_need(s)
+
+
 def wants_stone(s: Situation) -> bool:
-    return has_pickaxe(s.inventory) and (s.count("cobblestone") < STONE_GOAL or prospecting(s))
+    return has_pickaxe(s.inventory) and (s.count("cobblestone") < stone_goal(s) or prospecting(s))
 
 
 def stone_score(s: Situation) -> float:
@@ -230,7 +248,7 @@ def plan_stone(s: Situation, context: ActionContext) -> list[dict]:
     cobblestone = s.count("cobblestone")
     if not wants_stone(s):
         return []
-    goal = math.inf if prospecting(s) else STONE_GOAL
+    goal = math.inf if prospecting(s) else stone_goal(s)
     heading = dig_heading(s)
     if heading is None:
         return []

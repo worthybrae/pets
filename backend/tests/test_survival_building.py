@@ -12,6 +12,7 @@ from backend.survival.reflexes import by_name
 from backend.survival.situation import Situation
 from backend.survival.structures import blueprint_of, todo
 from backend.survival.vitals import START_VITALS
+from backend.survival.work import stone_goal, wood_goal
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 AFTERNOON = {**DAY, "seconds_into_day": 1500.0}
@@ -172,6 +173,17 @@ class ShelterTests(unittest.TestCase):
         self.assertFalse(PURPOSES["build_shelter"].valid(world.situation()))
         world.state["position"] = {"x": 200.0, "y": 1.0, "z": 1.0}
         self.assertTrue(PURPOSES["build_shelter"].valid(world.situation()))
+
+    def test_a_shelter_waiting_for_blocks_makes_gathering_aim_higher(self):
+        world = World({"cobblestone": 20, "wooden_pickaxe": 1})
+        self.assertEqual((stone_goal(world.situation()), wood_goal(world.situation())), (12, 8))
+        world.carry_out(world.plan())
+        world.carry_out(world.plan())
+        s = world.situation()
+        self.assertEqual((stone_goal(s), wood_goal(s)), (12 + 19, 8 + 19 / 4))
+        self.assertFalse(PURPOSES["gather_stone"].valid(s))  # never a staircase inside the house
+        world.state["position"] = {"x": 8.0, "y": 1.0, "z": 8.0}
+        self.assertTrue(PURPOSES["gather_stone"].valid(world.situation()))
 
 
 class HomeTests(unittest.TestCase):

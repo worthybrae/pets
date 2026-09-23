@@ -82,8 +82,16 @@ class GrownTreeTests(unittest.TestCase):
         grid = meadow()
         for y in (1, 2, 3, 4):
             grid.put(6, y, 0, "oak_log")
-        self.assertEqual(standing_logs(grid, SEED, (0, 1, 0)), [(6, 1, 0), (6, 2, 0), (6, 3, 0), (6, 4, 0)])
-        self.assertEqual(standing_logs(grid, SEED, (0, 1, 0), skip={(6, 0)}), [])
+        grown = {(6, 0)}  # a sapling Mimo planted there
+        self.assertEqual(standing_logs(grid, SEED, (0, 1, 0), grown=grown), [(6, 1, 0), (6, 2, 0), (6, 3, 0), (6, 4, 0)])
+        self.assertEqual(standing_logs(grid, SEED, (0, 1, 0), skip={(6, 0)}, grown=grown), [])
+
+    @patch("backend.survival.senses.trees_near", lambda seed, x, z, radius: [])
+    def test_placed_logs_that_did_not_grow_from_a_sapling_are_not_a_tree(self):
+        grid = meadow()
+        for y in (1, 2):
+            grid.put(6, y, 0, "oak_log")  # a log wall, say
+        self.assertEqual(standing_logs(grid, SEED, (0, 1, 0)), [])
 
 
 class FailureTests(unittest.TestCase):

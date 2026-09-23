@@ -116,6 +116,15 @@ class WoodTests(unittest.TestCase):
                                     "target": {"x": 5, "y": 1, "z": 0}, "reason": "no way there", "code": "no_path"}]
         self.assertFalse(PURPOSES["gather_wood"].valid(situation(state, forest())))
 
+    def test_a_tree_grown_from_a_planted_sapling_is_chopped_and_a_log_wall_is_not(self):
+        placed = ground()
+        for y in (1, 2, 3, 4):
+            placed.put(9, y, 0, "oak_log")
+        with patch("backend.survival.senses.trees_near", lambda seed, x, z, radius: []):
+            self.assertFalse(PURPOSES["gather_wood"].valid(situation(pet(), placed)))
+            grown = situation(pet(), placed, places_seen=[("tree", (9, 1, 0), "")])
+            self.assertEqual(PURPOSES["gather_wood"].plan(grown, context(placed))[:2], [walk(9, 1, 0, 2.0), mine(9, 1, 0)])
+
 
 @patch("backend.survival.work.terrain_height", lambda x, z, seed: 0)
 class StoneTests(unittest.TestCase):
