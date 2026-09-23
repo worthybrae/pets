@@ -19,10 +19,13 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   onChanged: () => Promise<void>
   onOpenLives?: () => void
 }) {
-  const store = useMemo(() => new WorldStore(state.world_seed), [state.world_seed])
-  const sync = useMemo(() => new BlockSync(blocksFetcher(null), (changes, reset) => {
+  // Keyed on the life id too: a new life always needs its own store and sync, even in the
+  // unlikely case its world seed matched the previous life's.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const store = useMemo(() => new WorldStore(state.world_seed), [state.world_seed, state.life.id])
+  const sync = useMemo(() => new BlockSync(blocksFetcher(state.life.id), (changes, reset) => {
     store.applyServerChanges(changes, reset)
-  }), [store])
+  }), [store, state.life.id])
   const [following, setFollowing] = useState(true)
   const [helloCount, setHelloCount] = useState(0)
   const [busy, setBusy] = useState(false)

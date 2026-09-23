@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from './lib/supabase'
 import HeaderBar from './components/ui/HeaderBar'
@@ -7,6 +7,14 @@ import Hatch from './pages/Hatch'
 import Guide from './pages/Guide'
 import VoxelTest from './pages/VoxelTest'
 import WorldPreview from './pages/WorldPreview'
+
+/** Hides the global "cradl" header on /preview: the survival HUD already shows the pet's
+ * name near the top there, and the fixed header sits on top of it. */
+function HeaderGate(props: Parameters<typeof HeaderBar>[0]) {
+  const location = useLocation()
+  if (location.pathname === '/preview') return null
+  return <HeaderBar {...props} />
+}
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -134,7 +142,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <HeaderBar
+      <HeaderGate
         isLoggedIn={!!session}
         hasPet={!!pet}
         foodBalance={pet?.food_balance}

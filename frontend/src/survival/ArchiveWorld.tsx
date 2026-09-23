@@ -18,8 +18,12 @@ function ArchiveScene({ lifeId, detail, onBack }: { lifeId: number; detail: Life
     [state])
 
   useEffect(() => {
-    const sync = new BlockSync(blocksFetcher(lifeId), (changes, reset) => { store.applyServerChanges(changes, reset) })
-    sync.syncTo(state.blocks_seq).catch(() => setSyncError('Some block changes could not be loaded.'))
+    let cancelled = false
+    const sync = new BlockSync(blocksFetcher(lifeId), (changes, reset) => {
+      if (!cancelled) store.applyServerChanges(changes, reset)
+    })
+    sync.syncTo(state.blocks_seq).catch(() => { if (!cancelled) setSyncError('Some block changes could not be loaded.') })
+    return () => { cancelled = true }
   }, [store, lifeId, state.blocks_seq])
   useEffect(() => { store.setOverlay(overlay, 'legacy-builds') }, [store, overlay])
 
