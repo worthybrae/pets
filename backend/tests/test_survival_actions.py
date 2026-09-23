@@ -97,6 +97,22 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual((fall["kind"], fall["ended_at"]), ("fall", round(0.6 + math.sqrt(16 / 32), 3)))
         self.assertEqual(ctx.events[-1][1:], ("fall", "Pip fell 8 blocks and got hurt."))
 
+    def test_a_hazard_records_the_interrupted_plan_once(self):
+        grid, state = small_world(), pet(position=(0, 9, 0))
+        state["queue"] = [{"kind": "mine", "target": [5, 1, 0]}, {"kind": "wait", "seconds": 1}]
+        ctx = context(grid)
+        advance_actions(state, ctx, 1.0)
+        kinds = [(entry["kind"], entry["result"], entry.get("reason")) for entry in state["recent_actions"]]
+        self.assertEqual(kinds, [("mine", "failed", "interrupted: fall"), ("fall", "done", None)])
+        self.assertEqual(state["recent_actions"][0]["target"], {"x": 5, "y": 1, "z": 0})
+        self.assertEqual(state["queue"], [])
+
+    def test_a_hazard_does_not_record_an_interrupted_wait(self):
+        grid, state = small_world(), pet(position=(0, 9, 0))
+        state["queue"] = [{"kind": "wait", "seconds": 5}]
+        advance_actions(state, context(grid), 1.0)
+        self.assertEqual([entry["kind"] for entry in state["recent_actions"]], ["fall"])
+
     def test_falls_of_three_or_into_water_do_not_hurt(self):
         state = pet(position=(0, 4, 0))
         advance_actions(state, context(small_world()), 2.0)

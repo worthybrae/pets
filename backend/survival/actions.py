@@ -5,7 +5,9 @@ finishes in order, so several short steps can finish in one tick, and each next 
 moment the one before it ended. When the queue is empty the planner is asked for more steps.
 Before a new step starts, two hazards come first: Mimo falls when nothing holds it up
 ((blocks - 3) x 10 damage, none when it lands on water), and it swims straight up when its cell
-is water (a fallback until the brain's surface reflex in M3).
+is water (a fallback until the brain's surface reflex in M3). Either hazard drops the running
+step or the queue it interrupts (recorded once, "interrupted: fall" or "interrupted: swim") so a
+purpose layer can later tell its plan was abandoned.
 
 A crashing planner, or one returning something other than a list of dicts, is logged once and
 replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
@@ -135,6 +137,16 @@ def landing(grid: Grid, cell: Cell) -> Cell:
     return x, y, z
 
 
+def interrupt_plan(state: dict, at: float, hazard: str) -> None:
+    """Record the plan a fall or swim hazard is about to drop, once per hazard: the running step
+    if there is one, else the first queued one. A wait, like any UNRECORDED kind, stays silent."""
+    dropped = state["action"] or (state["queue"][0] if state["queue"] else None)
+    if dropped is None:
+        return
+    step = dropped if dropped is state["action"] else as_started(dropped, at)
+    record(state, step, at, "failed", f"interrupted: {hazard}")
+
+
 def start_hazard(state: dict, grid: Grid, at: float) -> bool:
     """Start a swim up or a fall when Mimo's cell calls for one. Returns True when one started."""
     here = as_cell(state["position"])
@@ -146,6 +158,7 @@ def start_hazard(state: dict, grid: Grid, at: float) -> bool:
             path.append({**as_point((x, y, z)), "at": round(path[-1]["at"] + SWIM_SECONDS, 3), "swim": True})
         if len(path) == 1:
             return False  # a ceiling holds Mimo under; air keeps draining
+        interrupt_plan(state, at, "swim")
         state["action"] = {"kind": "swim", "started_at": at, "ends_at": path[-1]["at"], "path": path}
     elif grid.supported(here):
         return False
@@ -153,6 +166,7 @@ def start_hazard(state: dict, grid: Grid, at: float) -> bool:
         land = landing(grid, here)
         blocks = here[1] - land[1]
         ends_at = round(at + math.sqrt(2 * blocks / GRAVITY), 3)
+        interrupt_plan(state, at, "fall")
         state["action"] = {"kind": "fall", "started_at": at, "ends_at": ends_at, "blocks": blocks,
                            "path": [{**as_point(here), "at": at}, {**as_point(land), "at": ends_at}]}
     state["queue"] = []
