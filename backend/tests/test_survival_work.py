@@ -143,6 +143,11 @@ class StoneTests(unittest.TestCase):
         self.assertEqual(stair(ground(), {}, (1, 0, 0), (1, 0), inventory, "1")[0],
                          [mine(2, 0, 0), mine(2, -1, 0), walk(2, -1, 0)])
 
+    def test_a_stair_never_digs_up_farmland_or_a_sapling(self):
+        inventory = {"wooden_pickaxe": 1}
+        self.assertIsNone(stair(ground({(1, 0, 0): "farmland"}), {}, (0, 1, 0), (1, 0), inventory, "1"))
+        self.assertIsNone(stair(ground({(1, 1, 0): "sapling"}), {}, (0, 1, 0), (1, 0), inventory, "1"))
+
     def test_with_a_stone_pickaxe_it_digs_on_for_iron_until_it_sees_some(self):
         stocked = {"stone_pickaxe": 1, "cobblestone": 12}
         s = situation(pet(inventory=stocked), ground())

@@ -6,11 +6,11 @@ carries 8 logs' worth of wood (craft_tools turns logs into planks). gather_stone
 it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
 tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
 pickaxe and no iron ore seen yet, it keeps digging to prospect for iron. It never digs into
-water, lava, bedrock, a hole or a cave, or a block it cannot mine. It never digs back the way it
-came, and never mines the floor of an open cell below the natural surface (a stair or tunnel it
-dug earlier, or a cave) unless the same stair just opened that cell, so it cannot cut its own
-staircase. The staircase stays climbable, and from its third stair it is sheltered, so it often
-becomes Mimo's first home.
+water, lava, bedrock, a hole or a cave, or a block it cannot mine, and never digs up farmland or
+a sapling. It never digs back the way it came, and never mines the floor of an open cell below
+the natural surface (a stair or tunnel it dug earlier, or a cave) unless the same stair just
+opened that cell, so it cannot cut its own staircase. The staircase stays climbable, and from
+its third stair it is sheltered, so it often becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
 
@@ -45,6 +45,7 @@ TUNNEL_DEPTH = 10
 LOWEST_FLOOR = -3
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 FLUIDS = ("water", "lava")
+TENDED = ("farmland", "sapling")  # Mimo's own plots and plantings
 ORE_RANGE = 48.0
 ORE_REACH = 3.0
 ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late in the day
@@ -119,6 +120,8 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
         material = look(grid, changed, cell)
         if material in FLUIDS:
             return None
+        if material in TENDED or look(grid, changed, (nx, cell[1] + 1, nz)) in TENDED:
+            return None  # never dig up Mimo's farm or a sapling it planted
         if not is_solid(material):
             continue
         if hardness(material) is None or not can_harvest(material, inventory):
