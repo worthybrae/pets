@@ -1,0 +1,236 @@
+"""Gathering purposes: wood from trees, stone from a staircase dug into the ground, and ores
+Mimo has seen.
+
+gather_wood chops the nearest standing tree within 24 blocks, lowest log first, until Mimo
+carries 8 logs' worth of wood (craft_tools turns logs into planks). gather_stone needs a pickaxe:
+it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
+tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
+pickaxe and no iron ore seen yet, it keeps digging to prospect for iron. It never digs into
+water, lava, bedrock, a hole or a cave, or a block it cannot mine. The staircase stays
+climbable, and from its third stair it is sheltered, so it often becomes Mimo's first home.
+mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
+blocks, and mines it.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import TYPE_CHECKING
+
+from backend.services.blocks import hardness, is_solid
+from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest
+from backend.services.worldgen import terrain_height
+from backend.survival.grid import Cell, Grid
+from backend.survival.memory import cell_of, forget
+from backend.survival.purposes import Purpose, register, walk_to
+from backend.survival.senses import failed_columns, standing_logs
+from backend.survival.situation import Situation
+from backend.survival.steps import REACH
+
+if TYPE_CHECKING:
+    from backend.survival.actions import ActionContext
+
+WOOD_GOAL = 8.0
+STAND_REACH = 2.0  # close enough to the lowest log that the top one (3 higher) stays within reach
+STONE_GOAL = 12
+STAIRS_PER_BATCH = 4
+TUNNEL_DEPTH = 10
+LOWEST_FLOOR = -3
+DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
+FLUIDS = ("water", "lava")
+ORE_RANGE = 48.0
+ORE_REACH = 3.0
+
+
+def wood(inventory: dict) -> float:
+    """Wood carried, counted in logs: a log is 1, a plank a quarter, a stick an eighth."""
+    return inventory.get("oak_log", 0) + inventory.get("planks", 0) / 4 + inventory.get("sticks", 0) / 8
+
+
+def has_pickaxe(inventory: dict) -> bool:
+    return any(inventory.get(tool, 0) > 0 for tool in TOOL_RANK)
+
+
+# gather_wood -----------------------------------------------------------------------------------
+
+def logs_to_chop(s: Situation) -> list[Cell]:
+    return standing_logs(s.grid, s.seed, s.here, failed_columns(s.state))
+
+
+def wood_score(s: Situation) -> float:
+    base = 65.0 if wood(s.inventory) < 3 else 40.0
+    return base + s.trait("diligence") / 10 + s.trait("thrift") / 20
+
+
+def wood_facts(s: Situation) -> str:
+    logs = logs_to_chop(s)
+    tree = f"a tree {round(s.distance(logs[0]))} blocks away" if logs else "no tree near"
+    return f"{wood(s.inventory):g} logs of wood carried, {tree}"
+
+
+def plan_wood(s: Situation, context: ActionContext) -> list[dict]:
+    if wood(s.inventory) >= WOOD_GOAL:
+        return []
+    logs = logs_to_chop(s)
+    if not logs:
+        return []
+    return [walk_to(logs[0], STAND_REACH), *({"kind": "mine", "target": list(log)} for log in logs)]
+
+
+register(Purpose(
+    "gather_wood", "gather wood", "Chop the nearest tree for logs, the start of every tool.",
+    valid=lambda s: wood(s.inventory) < WOOD_GOAL and bool(logs_to_chop(s)),
+    facts=wood_facts, score=wood_score, plan=plan_wood,
+    thoughts=("I need wood. That tree looks good.", "Wood first. Everything starts with wood.")))
+
+
+# gather_stone ----------------------------------------------------------------------------------
+
+def look(grid: Grid, changed: dict[Cell, str], cell: Cell) -> str:
+    return changed.get(cell) or grid.material(*cell)
+
+
+def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, int], inventory: dict,
+          seed: str) -> tuple[list[dict], Cell, int] | None:
+    """One stair down (or, deep enough, one level tunnel step) from `at` toward `heading`.
+
+    Returns the steps, where Mimo ends up and how many cobblestone the mining yields, or None
+    when the way is blocked. `changed` holds the cells earlier stairs of the same plan opened.
+    """
+    x, y, z = at
+    nx, nz = x + heading[0], z + heading[1]
+    down = y - 1 >= max(LOWEST_FLOOR, terrain_height(nx, nz, seed) - TUNNEL_DEPTH)
+    to = (nx, y - 1, nz) if down else (nx, y, nz)
+    if not is_solid(look(grid, changed, (nx, to[1] - 1, nz))):
+        return None  # a hole or a cave below: never dig into it
+    steps, stones = [], 0
+    for cell in ([(nx, y, nz), to] if down else [to]):
+        material = look(grid, changed, cell)
+        if material in FLUIDS:
+            return None
+        if not is_solid(material):
+            continue
+        if hardness(material) is None or not can_harvest(material, inventory):
+            return None
+        steps.append({"kind": "mine", "target": list(cell)})
+        stones += 1 if BLOCKS.get(material, {}).get("drop") == "cobblestone" else 0
+        changed[cell] = "air"
+    steps.append(walk_to(to))
+    return steps, to, stones
+
+
+def dig_heading(s: Situation) -> tuple[int, int] | None:
+    """Where to dig: the last heading if it still works, else toward the highest ground nearby."""
+    x, _, z = s.here
+    headings = sorted(DIRECTIONS, key=lambda d: -terrain_height(x + 3 * d[0], z + 3 * d[1], s.seed))
+    last = s.brain.get("dig_heading")
+    if last:
+        headings = [tuple(last), *(heading for heading in headings if heading != tuple(last))]
+    for heading in headings:
+        if stair(s.grid, {}, s.here, heading, s.inventory, s.seed) is not None:
+            return heading
+    return None
+
+
+def prospecting(s: Situation) -> bool:
+    """Digging on for iron: Mimo has a stone pickaxe, still wants iron and has seen none."""
+    return (s.count("stone_pickaxe") > 0 and "iron_ore" in wanted_ores(s)
+            and not any(place["kind"] == "ore" and place["note"] == "iron_ore" for place in s.places))
+
+
+def wants_stone(s: Situation) -> bool:
+    return has_pickaxe(s.inventory) and (s.count("cobblestone") < STONE_GOAL or prospecting(s))
+
+
+def stone_score(s: Situation) -> float:
+    if s.count("cobblestone") >= STONE_GOAL:  # prospecting for iron
+        return 40.0 + s.trait("curiosity") / 10
+    return 50.0 + s.trait("diligence") / 10 + s.trait("thrift") / 20
+
+
+def stone_facts(s: Situation) -> str:
+    if s.count("cobblestone") >= STONE_GOAL:
+        return f"{s.count('cobblestone')} cobblestone carried; digging on for iron ore, none seen yet"
+    return f"{s.count('cobblestone')} cobblestone carried, a pickaxe in hand"
+
+
+def plan_stone(s: Situation, context: ActionContext) -> list[dict]:
+    cobblestone = s.count("cobblestone")
+    if not wants_stone(s):
+        return []
+    goal = math.inf if prospecting(s) else STONE_GOAL
+    heading = dig_heading(s)
+    if heading is None:
+        return []
+    s.brain["dig_heading"] = list(heading)
+    changed: dict[Cell, str] = {}
+    steps, at = [], s.here
+    for _ in range(STAIRS_PER_BATCH):
+        result = stair(s.grid, changed, at, heading, s.inventory, s.seed)
+        if result is None:
+            break
+        more, at, stones = result
+        steps.extend(more)
+        cobblestone += stones
+        if cobblestone >= goal:
+            break
+    return steps
+
+
+register(Purpose(
+    "gather_stone", "gather stone", "Dig a staircase into the ground for cobblestone, and on for iron ore.",
+    valid=lambda s: wants_stone(s) and dig_heading(s) is not None,
+    facts=stone_facts, score=stone_score, plan=plan_stone,
+    thoughts=("Time to dig for stone.", "Stone makes better tools than wood.")))
+
+
+# mine_ore --------------------------------------------------------------------------------------
+
+def wanted_ores(s: Situation) -> tuple[str, ...]:
+    """Coal until Mimo carries 8; iron until it has 3 ore or ingots (or an iron pickaxe)."""
+    wanted = []
+    if s.count("coal") < 8:
+        wanted.append("coal_ore")
+    if s.count("iron_ore", "iron_ingot") < 3 and not s.count("iron_pickaxe"):
+        wanted.append("iron_ore")
+    return tuple(wanted)
+
+
+def ore_targets(s: Situation) -> list[dict]:
+    """Remembered, wanted ores Mimo can harvest within 48 blocks, nearest first."""
+    wanted, (x, _, z) = wanted_ores(s), s.here
+    found = [place for place in s.places
+             if place["kind"] == "ore" and place["note"] in wanted and can_harvest(place["note"], s.inventory)
+             and math.hypot(place["x"] - x, place["z"] - z) <= ORE_RANGE]
+    return sorted(found, key=lambda place: s.distance(cell_of(place)))
+
+
+def ore_score(s: Situation) -> float:
+    iron = any(place["note"] == "iron_ore" for place in ore_targets(s))
+    return 50.0 + s.trait("bravery") / 10 + s.trait("curiosity") / 20 + (15.0 if iron else 0.0)
+
+
+def ore_facts(s: Situation) -> str:
+    targets = ore_targets(s)
+    nearest = targets[0]
+    return (f"{len(targets)} ores remembered; the nearest is {nearest['note'].replace('_', ' ')} "
+            f"{round(s.distance(cell_of(nearest)))} blocks away")
+
+
+def plan_ore(s: Situation, context: ActionContext) -> list[dict]:
+    """Walk within reach of the nearest wanted ore and mine it. Ores that are gone are forgotten."""
+    for place in ore_targets(s):
+        cell = cell_of(place)
+        if s.grid.material(*cell) != place["note"]:
+            if s.db is not None:
+                forget(s.db, "ore", cell)
+            continue
+        steps = [] if s.distance(cell) <= REACH else [walk_to(cell, ORE_REACH)]
+        return [*steps, {"kind": "mine", "target": list(cell)}]
+    return []
+
+
+register(Purpose(
+    "mine_ore", "mine ore", "Go back to coal or iron ore seen while digging and mine it.",
+    valid=lambda s: bool(ore_targets(s)), facts=ore_facts, score=ore_score, plan=plan_ore,
+    thoughts=("I remember seeing ore down there.", "That ore will make something good.")))
