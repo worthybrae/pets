@@ -9,6 +9,7 @@ import { compileWorldPlan, ORBITAL_STATION, overlayBlocks, type WorldPlan } from
 import BlockWorld, { type ViewStats } from '../engine/BlockWorld'
 import { AIR, BLOCKS } from '../engine/blocks'
 import { BlockSync, type BlocksPage } from '../engine/blockSync'
+import { fogRange } from '../engine/fog'
 import { DEFAULT_WORLD_SEED, terrainHeight } from '../engine/worldgen'
 import { WorldStore } from '../engine/worldStore'
 
@@ -176,6 +177,8 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   const cameraY = viewingStation ? ORBITAL_STATION.centerY
     : viewingWilderness ? terrainHeight(WILDERNESS.x, WILDERNESS.z, worldSeed) + 2
       : state.position.y ?? 1
+  const cameraDistance = viewingStation ? 84 : viewingWilderness ? 52 : state.progress < 100 ? 30 : 26
+  const [fogNear, fogFar] = fogRange(viewDistance, cameraDistance)
   const blockTypes = BLOCKS.filter((block) => block.id !== AIR)
 
   const sayHello = async () => {
@@ -199,10 +202,10 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   return (
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
       <div className="absolute inset-0">
-        <Canvas camera={{ position: [initialPosition.x + 18, 14, initialPosition.z + 18], fov: 48, near: 0.1, far: 280 }}
+        <Canvas camera={{ position: [initialPosition.x + 18, 14, initialPosition.z + 18], fov: 48, near: 0.1, far: 320 }}
           gl={{ antialias: true }} dpr={[1, 2]}>
           <color attach="background" args={['#dce9eb']} />
-          <fog attach="fog" args={['#dce9eb', viewDistance * 16 * 0.6, viewDistance * 16 + 8]} />
+          <fog attach="fog" args={['#dce9eb', fogNear, fogFar]} />
           <ambientLight intensity={0.8} />
           <directionalLight position={[12, 24, 16]} intensity={1.7} />
           <directionalLight position={[-10, 8, -12]} intensity={0.35} color="#d5eaff" />
@@ -223,7 +226,7 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
             </mesh>
           </PetEntity>
           <BuildCamera focus={cameraFocus} focusY={cameraY} initialFocus={initialPosition} initialFocusY={initialPosition.y ?? 1}
-            distance={viewingStation ? 84 : viewingWilderness ? 52 : state.progress < 100 ? 30 : 26} follow={following}
+            distance={cameraDistance} follow={following}
             onOrbit={() => setFollowing(false)}
             onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />
         </Canvas>
