@@ -62,6 +62,17 @@ class FarmTests(unittest.TestCase):
         self.assertTrue(PURPOSES["farm"].valid(s))
         self.assertEqual(plan(s), [till(2, 0, 0), sow(2, 1, 0, "seeds"), till(1, 0, 0), sow(1, 1, 0, "seeds")])
 
+    @patch("backend.survival.farming.shores_near", lambda grid, seed, here, radius: [])
+    def test_with_no_shore_the_first_plot_goes_on_the_natural_surface_never_in_a_pit(self):
+        # Two stairs down (Mimo at y -1): the plot goes on the grass beside the pit, not under Mimo.
+        deep = situation(pet(inventory={"seeds": 1}, position={"x": 0.0, "y": -1.0, "z": 0.0}),
+                         meadow({(0, 0, 0): "air", (0, -1, 0): "air"}))
+        self.assertEqual(plan(deep), [till(-1, 0, 0), sow(-1, 1, 0, "seeds")])
+        # One stair down: the dirt Mimo stands on lies below the natural surface, so it is left alone.
+        shallow = situation(pet(inventory={"seeds": 1}, position={"x": 0.0, "y": 0.0, "z": 0.0}),
+                            meadow({(0, 0, 0): "air"}))
+        self.assertEqual(plan(shallow), [till(-1, 0, 0), sow(-1, 1, 0, "seeds")])
+
     def test_ripe_crops_are_harvested_and_planted_again_then_new_plots_take_the_rest(self):
         grid = meadow({(1, 0, 0): "farmland", (2, 0, 0): "farmland", (3, 0, 0): "farmland",
                        (1, 1, 0): "wheat_3", (2, 1, 0): "carrot_3", (3, 1, 0): "carrot_1"})

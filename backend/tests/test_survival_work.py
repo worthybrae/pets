@@ -9,7 +9,7 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ores_around
 from backend.survival.situation import Situation
 from backend.survival import work  # noqa: F401  (registers the gathering purposes)
-from backend.survival.work import dig_heading, stair
+from backend.survival.work import dig_heading, sapling_fits, stair
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
@@ -96,6 +96,19 @@ class WoodTests(unittest.TestCase):
         roofed = ground({(-1, 3, 0): "stone", **{(5, y, 0): "oak_log" for y in (1, 2, 3, 4)}})
         s = situation(pet(inventory={"sapling": 1}), roofed)
         self.assertEqual(PURPOSES["gather_wood"].plan(s, context(roofed))[0], sapling(0, 1, -1))
+
+    def test_saplings_go_on_the_natural_surface_and_away_from_home(self):
+        logs = {(5, y, 0): "oak_log" for y in (1, 2, 3, 4)}
+        sapling = lambda x, y, z: {"kind": "plant", "target": [x, y, z], "item": "sapling"}  # noqa: E731
+        # The first stair of a staircase dug west: an open cell on dirt below the grass.
+        stairs = situation(pet(inventory={"sapling": 1}), ground({(-1, 0, 0): "air", **logs}))
+        self.assertFalse(sapling_fits(stairs, (-1, 0, 0)))
+        self.assertTrue(sapling_fits(stairs, (0, 1, -1)))
+        home = situation(pet(inventory={"sapling": 1}), ground(logs), places_seen=[("home", (-1, 1, 0), "")])
+        self.assertEqual(PURPOSES["gather_wood"].plan(home, context(home.grid))[0], sapling(1, 1, 0))
+        sheltered = situation(pet(inventory={"sapling": 1}), ground(logs), places_seen=[("shelter", (1, 1, 0), "")])
+        self.assertFalse(sapling_fits(sheltered, (1, 1, 1)))
+        self.assertTrue(sapling_fits(sheltered, (-1, 1, 0)))
 
     def test_a_tree_where_a_step_failed_is_left_alone(self):
         state = pet()

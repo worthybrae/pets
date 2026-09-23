@@ -2,9 +2,11 @@
 
 The farm is where Mimo tilled first (a remembered `farm` place). With no farm yet, the first
 plot goes beside the nearest shore within 16 blocks, where crops grow three times as fast, or
-else under Mimo's feet. A farm more than 24 blocks away is walked to first, but only when there
-is work waiting there (ripe crops, or something to plant and a plot for it); far from its farm
-Mimo does no farm work. Each batch does the most useful work it can, at most 4 plots:
+else on the natural surface where Mimo is. Plots are only ever tilled on the natural surface or
+above, never in Mimo's own staircase or tunnels. A farm more than 24 blocks away is walked to
+first, but only when there is work waiting there (ripe crops, or something to plant and a plot
+for it); far from its farm Mimo does no farm work. Each batch does the most useful work it can,
+at most 4 plots:
 1. harvest ripe crops within 24 blocks and plant each plot again with what it gave;
 2. plant empty farmland, carrots first (they feed Mimo) and then seeds;
 3. till new plots next to the farm, up to 9, for the carrots and seeds left over;
@@ -21,6 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.services.blocks import is_replaceable
+from backend.services.worldgen import terrain_height
 from backend.survival.foraging import FOOD_WANTED, food_need, reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.memory import cell_of, nearest
@@ -65,13 +68,14 @@ def farm_place(s: Situation) -> dict | None:
 
 def farm_anchor(s: Situation) -> Cell:
     """The ground cell new plots go around: the remembered farm, else beside the nearest shore
-    within 16 blocks, else under Mimo."""
+    within 16 blocks, else the natural surface of Mimo's column (not under Mimo, who may stand
+    in its own staircase)."""
     farm = farm_place(s)
     if farm is not None:
         return cell_of(farm)
     shores = s.sensed("farm_shores", lambda: shores_near(s.grid, s.seed, s.here, SITE_SEARCH))
-    x, y, z = shores[0][0] if shores else s.here
-    return x, y - 1, z
+    x, _, z = shores[0][0] if shores else s.here
+    return x, terrain_height(x, z, s.seed), z
 
 
 def reachable(s: Situation, cells) -> list[Cell]:
@@ -80,15 +84,17 @@ def reachable(s: Situation, cells) -> list[Cell]:
 
 
 def new_plots(s: Situation, anchor: Cell) -> list[Cell]:
-    """Ground cells next to the farm that can be tilled, nearest the anchor first."""
+    """Ground cells next to the farm that can be tilled, nearest the anchor first. Only ground on
+    the natural surface or above counts: below it lie Mimo's own stairs and tunnels."""
     ax, ay, az = anchor
     found = []
     for dx, dz in PLOT_OFFSETS:
         if near_failure(s.state, (ax + dx, ay, az + dz)):
             continue
+        surface = terrain_height(ax + dx, az + dz, s.seed)
         for y in (ay, ay + 1, ay - 1):
             ground = (ax + dx, y, az + dz)
-            if s.grid.material(*ground) in TILLABLE and open_above(s, ground):
+            if y >= surface and s.grid.material(*ground) in TILLABLE and open_above(s, ground):
                 found.append(ground)
                 break
     return found

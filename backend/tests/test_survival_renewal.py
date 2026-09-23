@@ -11,6 +11,7 @@ from backend.services.worldgen import is_leaf
 from backend.survival.actions import ActionContext
 from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
+from backend.survival.memory import create_memory_tables, remember
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
 from backend.survival.renewal import MAX_APPLIED, apply_entry, create_growth_table, renew, schedule, scheduled
@@ -31,6 +32,7 @@ def world(grid=None, scale=1.0):
     """A tick's context with a growth table, over `grid`."""
     db = sqlite3.connect(":memory:")
     create_growth_table(db)
+    create_memory_tables(db)
     return ActionContext(grid=grid or field(), clock_at=lambda at: {"time_scale": scale}, planner=lambda *args: [],
                          events=[], db=db)
 
@@ -269,6 +271,27 @@ class TreeTests(unittest.TestCase):
         self.assertEqual(ctx.grid.material(2, 5, 1), "leaves")
         self.assertEqual(ctx.events[-1][1:], ("grow", "A sapling grew into a tree."))
         self.assertEqual(scheduled(ctx.db), [])
+
+    def test_a_tree_never_grows_into_mimo_its_headroom_or_its_home(self):
+        for position, shelter in (((2.0, 4.0, 1.0), None),  # the canopy would fill Mimo's headroom
+                                  ((1.0, 5.0, 0.0), None),  # or Mimo's own cell
+                                  ((8.0, 1.0, 0.0), ("home", (2, 4, -1))),
+                                  ((8.0, 1.0, 0.0), ("shelter", (1, 5, 0)))):
+            ctx = world()
+            if shelter:
+                remember(ctx.db, *shelter, 0.0)
+            state = pet(position=dict(zip("xyz", position)))
+            ctx.grid.put(0, 1, 0, "sapling")
+            renew(state, ctx, 0.0)
+            renew(state, ctx, 3600.0)
+            self.assertEqual(ctx.grid.material(0, 1, 0), "sapling", (position, shelter))
+            self.assertEqual(scheduled(ctx.db), [((0, 1, 0), "oak_log", 4200.0)])
+        ctx = world()
+        remember(ctx.db, "home", (3, 5, 0), 0.0)  # beside the canopy, not in it
+        ctx.grid.put(0, 1, 0, "sapling")
+        renew(pet(), ctx, 0.0)
+        renew(pet(), ctx, 3600.0)
+        self.assertEqual(ctx.grid.material(0, 1, 0), "oak_log")
 
     def test_a_sapling_without_room_tries_again_later(self):
         ctx = world(field({(0, 3, 0): "stone"}))

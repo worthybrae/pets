@@ -12,7 +12,8 @@ long gap regrows the world in time order. Each call:
    - farmland turns back into dirt after 2 game days without a crop (tilled, or a crop taken
      from it), unless a crop grows on it by then;
    - a planted sapling grows into a tree after 1 game day if there is room for the trunk and
-     canopy (worldgen's tree shape), and tries again every 10 game minutes until there is;
+     canopy (worldgen's tree shape) clear of Mimo, the cell above its head and any home or
+     shelter (and the cell above it), and tries again every 10 game minutes until there is;
    - a log that goes (chopped, or any other way) leaves the leaves that no longer reach a log
      within 4 steps (through leaves and logs) to decay 1 to 6 game minutes later. A decaying
      leaf may drop a sapling (1 in 12) or an apple (1 in 20), which Mimo gathers when it is
@@ -40,6 +41,7 @@ from backend.services.worldgen import biome_at, is_leaf, terrain_height
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import CHUNK, Cell, Grid
+from backend.survival.memory import SHELTER_KINDS, cell_of, places
 from backend.survival.once import log_once
 from backend.survival.senses import LOG, TRUNK_HEIGHT
 
@@ -60,6 +62,7 @@ FAILED_RETRY = 600.0  # game seconds before an entry whose apply crashed is trie
 FAILED_LIMIT = 5  # crashes after which the entry is dropped
 SAPLING_GROWS = DAY_SECONDS
 SAPLING_RETRY = 600.0
+CANOPY_REACH = 2  # blocks the canopy spreads from the trunk
 MUSHROOM_RESPAWN = DAY_SECONDS
 MUSHROOM_CAP = 3
 MUSHROOM_SPOT_CHANNEL = 37
@@ -284,7 +287,8 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
             grid.put(*cell, "dirt")
     elif block == LOG:
         if here == "sapling":
-            if tree_fits(grid, cell) and pet_cell(state) not in tree_cells(cell)[0]:
+            trunk, canopy = tree_cells(cell)
+            if tree_fits(grid, cell) and not kept_clear(db, state, cell).intersection(trunk + canopy):
                 grow_tree(grid, cell)
                 events.append((ready_at, "grow", "A sapling grew into a tree."))
             else:
@@ -303,6 +307,14 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
 def pet_cell(state: dict) -> Cell:
     position = state["position"]
     return round(position["x"]), round(position["y"]), round(position["z"])
+
+
+def kept_clear(db: sqlite3.Connection, state: dict, sapling: Cell) -> set[Cell]:
+    """Cells a tree grown from `sapling` must leave open: Mimo's cell and the one above its head,
+    and each home or shelter near enough for the canopy to reach, with the cell above it."""
+    stands = [pet_cell(state)] + [cell_of(place) for place in places(db, SHELTER_KINDS, around=sapling,
+                                                                     reach=CANOPY_REACH)]
+    return {(x, y + dy, z) for x, y, z in stands for dy in (0, 1)}
 
 
 def decay(state: dict, leaf: Cell, at: float) -> None:

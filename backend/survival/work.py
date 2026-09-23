@@ -4,7 +4,8 @@ Mimo has seen.
 gather_wood chops the nearest standing tree within 24 blocks, lowest log first, until Mimo
 carries 8 logs' worth of wood (craft_tools turns logs into planks). Trees only come back when
 Mimo plants saplings (they drop from leaves), so each batch first plants up to 2 carried
-saplings on open ground within reach, 3 blocks or more from any trunk or other sapling.
+saplings on open ground within reach, 3 blocks or more from any trunk or other sapling, on the
+natural surface (never in Mimo's own staircase) and 2 blocks or more from a home or shelter.
 gather_stone needs a pickaxe:
 it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
 tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
@@ -31,7 +32,7 @@ from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid
-from backend.survival.memory import cell_of, forget
+from backend.survival.memory import SHELTER_KINDS, cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
 from backend.survival.farming import plant
 from backend.survival.nature import SOIL
@@ -47,6 +48,7 @@ STAND_REACH = 2.0  # close enough to the lowest log that the top one (3 higher) 
 SAPLINGS_PER_BATCH = 2
 SAPLING_ROOM = 3.0  # blocks between a planted sapling and any trunk or other sapling
 TREE_SPACE = 6  # open cells a sapling needs above its ground for the trunk and canopy
+HOME_ROOM = 2.0  # blocks between a planted sapling and a home or shelter
 STONE_GOAL = 12
 STAIRS_PER_BATCH = 4
 TUNNEL_DEPTH = 10
@@ -106,8 +108,12 @@ def sapling_spots(s: Situation) -> list[Cell]:
 
 
 def sapling_fits(s: Situation, cell: Cell) -> bool:
+    """Soil on the natural surface (never the floor of Mimo's staircase, a tunnel or a cave), at
+    least HOME_ROOM from a home or shelter, with room for a tree above."""
     x, y, z = cell
-    if s.grid.material(x, y - 1, z) not in SOIL["sapling"]:
+    if y - 1 < terrain_height(x, z, s.seed) or s.grid.material(x, y - 1, z) not in SOIL["sapling"]:
+        return False
+    if any(place["kind"] in SHELTER_KINDS and math.dist(cell, cell_of(place)) < HOME_ROOM for place in s.places):
         return False
     return all(is_replaceable(material) and material != "water"
                for material in (s.grid.material(x, y + dy, z) for dy in range(TREE_SPACE)))
