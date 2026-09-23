@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { ColumnRenderer, type WorldStats } from './columnRenderer'
+import { ColumnRenderer, type Cutaway, type WorldStats } from './columnRenderer'
 import type { WorldStore } from './worldStore'
 
 export interface ViewStats extends WorldStats {
@@ -16,11 +16,13 @@ interface BlockWorldProps {
   viewDistance: number
   /** Called every frame for the terrain brightness (1 day, 0.35 night). Omit for full daylight. */
   daylight?: () => number
+  /** Called every frame for the terrain to cut away over an underground pet (null: none). */
+  cutaway?: () => Cutaway | null
   onStats?: (stats: ViewStats) => void
   onError?: (message: string) => void
 }
 
-export default function BlockWorld({ store, centerX, centerZ, viewDistance, daylight, onStats, onError }: BlockWorldProps) {
+export default function BlockWorld({ store, centerX, centerZ, viewDistance, daylight, cutaway, onStats, onError }: BlockWorldProps) {
   const { gl } = useThree()
   const [group] = useState(() => new THREE.Group())
   const renderer = useRef<ColumnRenderer | null>(null)
@@ -53,6 +55,7 @@ export default function BlockWorld({ store, centerX, centerZ, viewDistance, dayl
     const current = renderer.current
     if (!current) return
     current.setDaylight(daylight ? daylight() : 1)
+    current.setCutaway(cutaway ? cutaway() : null)
     current.tick(delta)
     if (!onStats) return
     const clock = statsClock.current

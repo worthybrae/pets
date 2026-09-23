@@ -64,6 +64,18 @@ describe('applyDaylight', () => {
     expect(shader.fragmentShader).toContain('diffuseColor.rgb *= mix(uDaylight, 1.0, vGlow);')
     expect(material.customProgramCacheKey()).toBe('terrain-daylight')
   })
+
+  it('can also cut terrain away above an underground pet', () => {
+    const cutaway = { value: new THREE.Vector4(1, 2, 3, 8) }
+    const material = new THREE.MeshBasicMaterial({ vertexColors: true })
+    applyDaylight(material, { value: 1 }, cutaway)
+    const shader = compile(material)
+    expect(shader.uniforms.uCutaway).toBe(cutaway)
+    expect(shader.vertexShader).toContain('vCutWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;')
+    expect(shader.fragmentShader).toContain('uniform vec4 uCutaway;')
+    expect(shader.fragmentShader).toContain('discard;')
+    expect(material.customProgramCacheKey()).toBe('terrain-daylight-cutaway')
+  })
 })
 
 describe('ColumnRenderer', () => {
@@ -145,6 +157,18 @@ describe('ColumnRenderer', () => {
     expect(shader.uniforms.uDaylight.value).toBe(0.35)
     renderer.setDaylight(4)
     expect(shader.uniforms.uDaylight.value).toBe(1)
+  })
+
+  it('drives the cutaway uniform, off when there is none', () => {
+    const { group, worker, renderer } = setup()
+    renderer.setView(8, 8, 0)
+    worker.reply(meshed(worker.posted[0]))
+    const shader = compile((group.children[0] as THREE.Mesh).material as THREE.Material)
+    expect(shader.uniforms.uCutaway.value.toArray()).toEqual([0, 0, 0, 0])
+    renderer.setCutaway({ x: 1.5, y: -3.5, z: 2.5, radius: 8 })
+    expect(shader.uniforms.uCutaway.value.toArray()).toEqual([1.5, -3.5, 2.5, 8])
+    renderer.setCutaway(null)
+    expect(shader.uniforms.uCutaway.value.w).toBe(0)
   })
 
   it('reports a worker crash and cleans up on dispose', () => {

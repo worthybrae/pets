@@ -9,6 +9,7 @@ import { focusPoint } from './motion'
 import { REPLAY_DELAY, replayAt } from './replay'
 import { daylightFactor } from './sky'
 import ActionEffects from './ActionEffects'
+import { cutawayFor } from './cutaway'
 import SurvivalPet from './SurvivalPet'
 import type { FinishedAction, MimoAction } from './types'
 
@@ -27,6 +28,7 @@ function pickViewDistance(): number {
  * With `seconds` (game seconds into the day) the sky, lights and terrain follow day and night;
  * without it the scene stays in daylight. `arrival` starts the camera high so it flies down.
  * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
+ * When the pet is underground, the terrain over it is cut away (cutaway.ts).
  */
 export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, serverTime }: {
   store: WorldStore
@@ -59,6 +61,9 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
     const { step, rest } = replayAt(action, recentActions, position, t)
     return focusPoint(step, rest, t)
   }, [action, recentActions, position, replayTime])
+  // Underground, the terrain over the drawn pet is cut away so the camera can still see it.
+  const cutawayAt = useCallback(() => cutawayFor(store, serverTime ? focusAt() : position),
+    [store, serverTime, focusAt, position])
 
   return (
     <>
@@ -76,6 +81,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           )}
           <BlockWorld key={engineKey} store={store} centerX={cameraChunk.x * 16 + 8} centerZ={cameraChunk.z * 16 + 8}
             viewDistance={viewDistance} daylight={seconds ? () => daylightFactor(seconds()) : undefined}
+            cutaway={cutawayAt}
             onStats={debug ? setStats : undefined} onError={setEngineError} />
           <SurvivalPet action={action} recent={recentActions} position={position} now={replayTime} onPetClick={onPetClick} hopSignal={hopSignal}>
             {[-0.25, 1.25].map((x) => (

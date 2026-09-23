@@ -34,20 +34,59 @@ export interface DaylightUniform {
 }
 
 /**
+ * Terrain cut away over an underground pet: fragments above height `y` are discarded within
+ * `radius` blocks of (`x`, `z`) and inside the cone from the camera to the pet (a point one block
+ * below `y`) that is `radius` wide at the pet. See survival/cutaway.ts, which mirrors the test.
+ */
+export interface Cutaway {
+  x: number
+  y: number
+  z: number
+  radius: number
+}
+
+/** A shared uniform: (x, y, z, radius) of the cutaway, radius 0 when there is none. */
+export interface CutawayUniform {
+  value: THREE.Vector4
+}
+
+const CUTAWAY_FRAGMENT = `
+if (uCutaway.w > 0.0 && vCutWorld.y > uCutaway.y) {
+  if (length(vCutWorld.xz - uCutaway.xz) < uCutaway.w) discard;
+  vec3 cutAxis = vec3(uCutaway.x, uCutaway.y - 1.0, uCutaway.z) - cameraPosition;
+  float cutAlong = dot(vCutWorld - cameraPosition, cutAxis) / max(dot(cutAxis, cutAxis), 1e-4);
+  if (cutAlong > 0.0 && cutAlong < 1.0
+      && length(vCutWorld - cameraPosition - cutAxis * cutAlong) < uCutaway.w * cutAlong) discard;
+}`
+
+/**
  * Multiplies a terrain material's color by the daylight uniform. Vertices with the `glow`
  * attribute set to 1 (lanterns, furnaces, lava, later torches and campfires) keep full brightness.
+ * With a cutaway uniform, the material also discards fragments over an underground pet.
  */
-export function applyDaylight(material: THREE.Material, daylight: DaylightUniform): void {
+export function applyDaylight(material: THREE.Material, daylight: DaylightUniform, cutaway?: CutawayUniform): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uDaylight = daylight
+    let vertexCommon = '#include <common>\nattribute float glow;\nvarying float vGlow;'
+    let vertexBegin = '#include <begin_vertex>\nvGlow = glow;'
+    let fragmentCommon = '#include <common>\nuniform float uDaylight;\nvarying float vGlow;'
+    let fragmentStart = '#include <clipping_planes_fragment>'
+    if (cutaway) {
+      shader.uniforms.uCutaway = cutaway
+      vertexCommon += '\nvarying vec3 vCutWorld;'
+      vertexBegin += '\nvCutWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      fragmentCommon += '\nuniform vec4 uCutaway;\nvarying vec3 vCutWorld;'
+      fragmentStart += CUTAWAY_FRAGMENT
+    }
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float glow;\nvarying float vGlow;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow;')
+      .replace('#include <common>', vertexCommon)
+      .replace('#include <begin_vertex>', vertexBegin)
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uDaylight;\nvarying float vGlow;')
+      .replace('#include <common>', fragmentCommon)
+      .replace('#include <clipping_planes_fragment>', fragmentStart)
       .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(uDaylight, 1.0, vGlow);')
   }
-  material.customProgramCacheKey = () => 'terrain-daylight'
+  material.customProgramCacheKey = () => (cutaway ? 'terrain-daylight-cutaway' : 'terrain-daylight')
 }
 
 function toGeometry(buffers: LayerBuffers): THREE.BufferGeometry | null {
@@ -73,6 +112,7 @@ export class ColumnRenderer {
   private readonly texture: THREE.DataTexture
   private readonly materials: Record<LayerName, THREE.MeshBasicMaterial>
   private readonly daylight: DaylightUniform = { value: 1 }
+  private readonly cutaway: CutawayUniform = { value: new THREE.Vector4(0, 0, 0, 0) }
   private readonly entries = new Map<string, ColumnEntry>()
   private readonly unsubscribe: () => void
   private queue: string[] = []
@@ -101,7 +141,7 @@ export class ColumnRenderer {
       cutout: new THREE.MeshBasicMaterial({ map: this.texture, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
       translucent: new THREE.MeshBasicMaterial({ map: this.texture, vertexColors: true, transparent: true, depthWrite: false }),
     }
-    for (const material of Object.values(this.materials)) applyDaylight(material, this.daylight)
+    for (const material of Object.values(this.materials)) applyDaylight(material, this.daylight, this.cutaway)
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.receive(event.data)
     this.worker.onerror = (event) => {
       event.preventDefault()
@@ -137,6 +177,12 @@ export class ColumnRenderer {
   /** Terrain brightness: 1 by day, 0.35 at night. Glowing blocks ignore it. */
   setDaylight(value: number): void {
     this.daylight.value = Math.min(1, Math.max(0, value))
+  }
+
+  /** Cut terrain away over an underground pet, or stop cutting with null. */
+  setCutaway(cut: Cutaway | null): void {
+    if (cut) this.cutaway.value.set(cut.x, cut.y, cut.z, cut.radius)
+    else this.cutaway.value.setW(0)
   }
 
   tick(delta: number): void {
