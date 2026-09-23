@@ -1,6 +1,8 @@
 import unittest
 
-from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, TILES, is_plant, is_replaceable, is_solid
+from backend.services.blocks import (
+    BLOCK_IDS, BLOCK_LIST, TILES, hardness, is_plant, is_replaceable, is_solid, mining_tool,
+)
 from backend.services.crafting import BLOCKS
 
 # Gameplay properties as they were before the registry moved to shared/blocks.json.
@@ -40,8 +42,10 @@ class BlockRegistryTests(unittest.TestCase):
         self.assertEqual(len(BLOCK_IDS), len(BLOCK_LIST), "block names must be unique")
 
     def test_existing_block_properties_are_unchanged(self):
+        mining_keys = {"hardness", "tool"}
         for name, properties in LEGACY_BLOCKS.items():
-            self.assertEqual(BLOCKS[name], properties, name)
+            gameplay = {key: value for key, value in BLOCKS[name].items() if key not in mining_keys}
+            self.assertEqual(gameplay, properties, name)
         self.assertNotIn("air", BLOCKS)
 
     def test_every_block_face_uses_a_defined_tile(self):
@@ -74,6 +78,28 @@ class BlockRegistryTests(unittest.TestCase):
             self.assertTrue(is_solid(name), name)
         for name in ("air", "water", "lava", "tall_grass", "not_a_block"):
             self.assertFalse(is_solid(name), name)
+
+    def test_hardness_follows_the_spec_table(self):
+        expected = {"dirt": 0.6, "grass": 0.6, "sand": 0.6, "gravel": 0.6, "leaves": 0.3, "tall_grass": 0.1,
+                    "flower_pink": 0.1, "oak_log": 2.0, "planks": 2.0, "stone": 4.0, "cobblestone": 4.0,
+                    "coal_ore": 5.0, "iron_ore": 5.0, "copper_ore": 5.0}
+        for name, seconds in expected.items():
+            self.assertEqual(hardness(name), seconds, name)
+        for name in ("bedrock", "air", "water", "lava", "not_a_block"):
+            self.assertIsNone(hardness(name), name)
+
+    def test_every_block_declares_a_hardness(self):
+        for block in BLOCK_LIST:
+            self.assertIn("hardness", block, block["name"])
+            self.assertTrue(block["hardness"] is None or block["hardness"] > 0, block["name"])
+
+    def test_pickaxes_help_with_stone_and_axes_with_wood(self):
+        for name in ("stone", "cobblestone", "coal_ore", "iron_ore", "furnace", "brick"):
+            self.assertEqual(mining_tool(name), "pickaxe", name)
+        for name in ("oak_log", "planks", "crafting_table"):
+            self.assertEqual(mining_tool(name), "axe", name)
+        for name in ("dirt", "leaves", "tall_grass", "bedrock", "not_a_block"):
+            self.assertIsNone(mining_tool(name), name)
 
 
 if __name__ == "__main__":

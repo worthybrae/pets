@@ -40,3 +40,18 @@ def is_solid(material: str) -> bool:
     """True for blocks Mimo can stand on or shelter under (the registry's `solid`)."""
     index = BLOCK_IDS.get(material)
     return index is not None and bool(BLOCK_LIST[index].get("solid"))
+
+
+def hardness(material: str) -> float | None:
+    """Seconds to mine the block by hand (registry `hardness`), or None when it cannot be mined."""
+    index = BLOCK_IDS.get(material)
+    if index is None:
+        return None
+    seconds = BLOCK_LIST[index].get("hardness")
+    return None if seconds is None else float(seconds)
+
+
+def mining_tool(material: str) -> str | None:
+    """The tool that speeds up mining the block (registry `tool`): "pickaxe", "axe" or None."""
+    index = BLOCK_IDS.get(material)
+    return None if index is None else BLOCK_LIST[index].get("tool")
