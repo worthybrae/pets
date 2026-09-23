@@ -9,8 +9,8 @@ is water (a fallback until the brain's surface reflex in M3). Either hazard drop
 step or the queue it interrupts (recorded once, "interrupted: fall" or "interrupted: swim") so a
 purpose layer can later tell its plan was abandoned.
 
-A crashing planner, or one returning something other than a list of dicts, is logged once and
-replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
+A crashing planner, or one returning something other than a list of dicts, is logged once per
+distinct error and replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
 way (not the StepFailed/ValueError/KeyError start_step and finish_step already raise for bad
 game state) is recorded failed with reason "bad step" instead of raising. Neither ever stops the
 tick: a malformed step or a broken planner must not freeze a life (M3 will plug new planners in
@@ -31,12 +31,14 @@ from __future__ import annotations
 
 import logging
 import math
+import sqlite3
 from dataclasses import dataclass
 from typing import Callable
 
 from backend.services.worldgen import WORLD_MIN_Y
 from backend.survival.clock import is_night
 from backend.survival.grid import Cell, Grid
+from backend.survival.once import log_once
 from backend.survival.pathing import SWIM_SECONDS
 from backend.survival.steps import as_cell, as_point, finish_step, position_of, start_step
 
@@ -57,7 +59,10 @@ UNRECORDED = frozenset({"wait"})
 RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe")
 
 Event = tuple[float, str, str]
-Planner = Callable[[dict, Grid, float, dict], list[dict]]
+# A planner gets the state, the tick's ActionContext and the time, and returns the next steps.
+Planner = Callable[[dict, "ActionContext", float], list[dict]]
+# An observer hears about each step that finished well: (state, finished step, context, time).
+Observe = Callable[[dict, dict, "ActionContext", float], None]
 
 
 @dataclass
@@ -67,6 +72,9 @@ class ActionContext:
     `searches_left` is one path-search budget shared by every advance_actions call made from the
     same advance_world call (it is created once per tick and mutated down as walks start), so a
     long catch-up cannot run more than MAX_SEARCHES_PER_TICK searches in one write transaction.
+    Planners that search themselves spend it through `take_search`. `observe` hears about every
+    step that finished well. `db` is the world's connection inside the tick's transaction, for
+    minds that keep memory; tests without a database leave it None.
     """
 
     grid: Grid
@@ -74,6 +82,16 @@ class ActionContext:
     planner: Planner
     events: list[Event]
     searches_left: int = MAX_SEARCHES_PER_TICK
+    observe: Observe | None = None
+    db: sqlite3.Connection | None = None
+
+
+def take_search(context: ActionContext) -> bool:
+    """Spend one path search from the tick's budget. False when none is left this tick."""
+    if context.searches_left <= 0:
+        return False
+    context.searches_left -= 1
+    return True
 
 
 def ensure_actions(state: dict) -> None:
@@ -214,6 +232,16 @@ def begin(state: dict, spec: dict, at: float, events: list[Event]) -> None:
         events.append((at, "sleep", f"{state['name']} fell asleep."))
 
 
+def notify(context: ActionContext, state: dict, step: dict, at: float) -> None:
+    """Tell the observer about a step that finished well. A crashing observer is logged once."""
+    if context.observe is None:
+        return
+    try:
+        context.observe(state, step, context, at)
+    except Exception as error:
+        log_once(logger, "observe", error)
+
+
 def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
     """Apply a step that ended at `at`. Returns True when it killed Mimo."""
     grid, events = context.grid, context.events
@@ -223,14 +251,15 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
     if step["kind"] == "swim":
         state["position"] = position_of(step["path"][-1])
         record(state, step, at, "done")
+        notify(context, state, step, at)
         return False
     try:
         event = finish_step(step, state, grid, at)
     except (ValueError, KeyError) as error:
         fail(state, step, at, str(error))
         return False
-    except Exception:
-        logger.exception("finish_step crashed on %r", step)
+    except Exception as error:
+        log_once(logger, "finish_step", error)
         fail(state, step, at, "bad step")
         return False
     record(state, step, at, "done")
@@ -243,26 +272,26 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
         target = step["target"]
         state["queue"].insert(0, {"kind": "walk", "target": [target["x"], target["y"], target["z"]],
                                   "reach": step["reach"], "segments": step["segments"] + 1})
+    notify(context, state, step, at)
     return False
 
 
-def safe_plan(context: ActionContext, state: dict, grid: Grid, at: float) -> list[dict]:
+def safe_plan(context: ActionContext, state: dict, at: float) -> list[dict]:
     """Ask the planner for the next steps. A crash, or a result that is not a list of dicts, is
-    logged once and replaced with rest_plan: M3 plugs new planners in here, so this must be
-    airtight against whatever one of them does wrong."""
-    clock = context.clock_at(at)
+    logged once per distinct error and replaced with rest_plan: minds plug their planners in
+    here, so this must be airtight against whatever one of them does wrong."""
     try:
-        plan = context.planner(state, grid, at, clock)
-    except Exception:
-        logger.exception("planner crashed")
+        plan = context.planner(state, context, at)
+    except Exception as error:
+        log_once(logger, "planner", error)
         plan = None
     else:
         if not (isinstance(plan, list) and all(isinstance(spec, dict) for spec in plan)):
-            logger.error("planner returned %r, not a list of steps", plan)
+            log_once(logger, "planner", TypeError(f"planner returned {type(plan).__name__}, not a list of steps"))
             plan = None
     if plan is None:
-        from backend.survival.script import rest_plan  # imported here to sidestep any future cycle
-        plan = rest_plan(state, grid, at, clock)
+        from backend.survival.script import rest_plan  # imported here to sidestep an import cycle
+        plan = rest_plan(state, context, at)
     return list(plan)
 
 
@@ -277,22 +306,20 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             if start_hazard(state, grid, at):
                 continue
             if not state["queue"]:
-                state["queue"] = safe_plan(context, state, grid, at)
+                state["queue"] = safe_plan(context, state, at)
                 if not state["queue"]:
                     break
             spec = state["queue"][0]
-            if spec.get("kind") == "walk" and context.searches_left <= 0:
+            if spec.get("kind") == "walk" and not take_search(context):
                 break  # search budget spent this tick; try this walk again next advance_actions
             state["queue"].pop(0)
-            if spec.get("kind") == "walk":
-                context.searches_left -= 1
             try:
                 state["action"] = start_step(spec, state, grid, at)
             except (ValueError, KeyError) as error:
                 fail(state, as_started(spec, at), at, str(error))
                 break  # plan again at the next advance, not in a tight loop
-            except Exception:
-                logger.exception("start_step crashed on %r", spec)
+            except Exception as error:
+                log_once(logger, "start_step", error)
                 fail(state, as_started(spec, at), at, "bad step")
                 break
             begin(state, spec, at, context.events)

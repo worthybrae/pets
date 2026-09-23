@@ -17,17 +17,16 @@ import time
 
 from dotenv import load_dotenv
 
-from backend.survival.actions import Planner
 from backend.survival.registry import LifeRegistry, data_dir
-from backend.survival.script import rest_plan, scripted_plan
-from backend.survival.tick import tick_life
+from backend.survival.script import scripted_plan
+from backend.survival.tick import RESTING, Mind, tick_life
 from backend.survival.world import WorldMissing
 
 logger = logging.getLogger("mimo_worker")
 stopping = False
 
-# What the pet does between vitals. The brain milestone (M3) replaces this interim script.
-WORKER_PLANNER: Planner = scripted_plan
+# What runs the pet. The brain (M3 Task 13) replaces this interim script.
+WORKER_MIND = Mind(plan=scripted_plan)
 
 
 def stop(_signum, _frame):
@@ -51,12 +50,12 @@ def should_log_data_error(error: BaseException, last: str | None) -> tuple[bool,
 
 
 def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | None = None,
-             planner: Planner = rest_plan) -> str:
+             mind: Mind = RESTING) -> str:
     """Tick the active life once. Logs a line when the pet's status changes and returns it.
 
-    `planner` defaults to the plain sleep rule; `main` passes WORKER_PLANNER.
+    `mind` defaults to the plain sleep rule; `main` passes WORKER_MIND.
     """
-    state = tick_life(registry, timestamp, planner=planner)
+    state = tick_life(registry, timestamp, mind=mind)
     if state is None:
         line = "No pet is alive. Waiting for the egg to hatch."
     elif state["died_at"] is not None:
@@ -82,7 +81,7 @@ def main():
         try:
             if registry is None:
                 registry = LifeRegistry()
-            previous = run_once(registry, previous, planner=WORKER_PLANNER)
+            previous = run_once(registry, previous, mind=WORKER_MIND)
             last_data_error = None
         except (WorldMissing, OSError, sqlite3.Error) as error:
             log_it, last_data_error = should_log_data_error(error, last_data_error)

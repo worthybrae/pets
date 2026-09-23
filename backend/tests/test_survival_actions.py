@@ -2,9 +2,12 @@ import math
 import unittest
 from unittest.mock import patch
 
+import logging
+
 from backend.survival import steps as steps_module
-from backend.survival.actions import ActionContext, activity_of, advance_actions, ensure_actions
+from backend.survival.actions import ActionContext, activity_of, advance_actions, ensure_actions, take_search
 from backend.survival.grid import Grid
+from backend.survival.once import forget_logged, log_once
 from backend.survival.steps import start_step
 from backend.survival.vitals import START_VITALS
 
@@ -33,7 +36,7 @@ class Plans:
         self.plans = list(plans)
         self.calls = 0
 
-    def __call__(self, state, grid, at, clock):
+    def __call__(self, state, context, at):
         self.calls += 1
         return self.plans.pop(0) if self.plans else []
 
@@ -213,9 +216,10 @@ class ActionEngineTests(unittest.TestCase):
             self.assertEqual((state["action"], state["queue"]), (None, []), msg=spec)
 
     def test_a_crashing_planner_falls_back_to_rest_and_the_tick_keeps_going(self):
-        def broken(state, grid, at, clock):
+        def broken(state, context, at):
             raise RuntimeError("boom")
 
+        forget_logged()
         state = pet()
         state["vitals"]["energy"] = 5.0  # below EXHAUSTED_BELOW, so rest_plan sleeps regardless of time of day
         with self.assertLogs("backend.survival.actions", level="ERROR"):
@@ -225,7 +229,7 @@ class ActionEngineTests(unittest.TestCase):
 
     def test_a_non_list_of_dicts_plan_falls_back_to_rest_too(self):
         for bad_result in (None, "nope", {"kind": "wait"}, [1, 2, 3]):
-            def bad_planner(state, grid, at, clock, result=bad_result):
+            def bad_planner(state, context, at, result=bad_result):
                 return result
 
             state = pet()
@@ -273,6 +277,60 @@ class ActionEngineTests(unittest.TestCase):
             # The same context, asked again: the spent budget carries over, so no more searches run.
             advance_actions(state, ctx, 2000.0)
         self.assertEqual(spy.call_count, 2)
+
+    def test_observe_hears_every_step_that_finished_well(self):
+        heard = []
+        state = pet(inventory={"planks": 1})
+        state["queue"] = [{"kind": "place", "target": [1, 1, 0], "block": "planks"},
+                          {"kind": "mine", "target": [9, 1, 0]}]
+        ctx = context(small_world())
+        ctx.observe = lambda state, step, context, at: heard.append((step["kind"], at))
+        advance_actions(state, ctx, 1.0)
+        self.assertEqual(heard, [("place", 0.3)])  # the mine failed (out of reach), so it is not heard
+
+    def test_a_crashing_observer_is_logged_once_and_the_steps_still_count(self):
+        def broken(state, step, context, at):
+            raise RuntimeError("boom")
+
+        forget_logged()
+        state = pet(inventory={"planks": 2})
+        state["queue"] = [{"kind": "place", "target": [1, 1, 0], "block": "planks"},
+                          {"kind": "place", "target": [0, 1, 1], "block": "planks"}]
+        ctx = context(small_world())
+        ctx.observe = broken
+        with self.assertLogs("backend.survival.actions", level="ERROR") as logs:
+            advance_actions(state, ctx, 1.0)
+        self.assertEqual(len(logs.output), 1)
+        self.assertEqual([entry["result"] for entry in state["recent_actions"]], ["done", "done"])
+
+    def test_a_planner_that_keeps_crashing_is_logged_once(self):
+        def broken(state, context, at):
+            raise RuntimeError("boom")
+
+        forget_logged()
+        with self.assertLogs("backend.survival.actions", level="ERROR") as logs:
+            for until in (1.0, 2.0, 3.0):
+                advance_actions(pet(), context(small_world(), broken), until)
+        self.assertEqual(len(logs.output), 1)
+
+    def test_take_search_spends_the_shared_budget(self):
+        ctx = context(small_world())
+        self.assertEqual([take_search(ctx), take_search(ctx), take_search(ctx)], [True, True, False])
+        self.assertEqual(ctx.searches_left, 0)
+
+
+class OnceLogTests(unittest.TestCase):
+    def test_each_distinct_error_is_logged_once(self):
+        forget_logged()
+        logger = logging.getLogger("once-test")
+        with self.assertLogs("once-test", level="ERROR") as logs:
+            self.assertTrue(log_once(logger, "planner", RuntimeError("boom")))
+            self.assertFalse(log_once(logger, "planner", RuntimeError("boom")))
+            self.assertTrue(log_once(logger, "planner", RuntimeError("bang")))
+            self.assertTrue(log_once(logger, "observe", RuntimeError("boom")))
+        self.assertEqual(len(logs.output), 3)
+        self.assertTrue(logs.output[0].startswith("ERROR:once-test:planner crashed: boom"))
+
 
 
 if __name__ == "__main__":

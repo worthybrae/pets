@@ -3,21 +3,27 @@
 The worker calls `tick_life` about once a second. A longer gap (a laptop that slept) is
 caught up in steps of at most 60 game seconds, so a pet can starve while nobody watches.
 Each step first runs Mimo's timed actions up to the step's start (backend.survival.actions),
-then advances vitals with the activity and surroundings at that moment. A planner decides the
-next steps whenever Mimo runs out: `rest_plan` (M1's sleep rule) unless the caller passes
-another; the worker passes the interim `scripted_plan` until the brain arrives.
+then advances vitals with the activity and surroundings at that moment. A `Mind` decides the
+steps: its `plan` fills an empty queue (M1's `rest_plan` in the default `RESTING` mind), and its
+optional hooks let a brain (backend.survival.brain) hear about finished steps (`observe`) and
+notice each vitals step (`notice`). Minds never call a model here: the tick holds the world's
+write transaction.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
+from dataclasses import dataclass
+from typing import Callable
 
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
-from backend.survival.actions import ActionContext, Planner, activity_of, advance_actions, ensure_actions
+from backend.survival.actions import ActionContext, Observe, Planner, activity_of, advance_actions, ensure_actions
 from backend.survival.clock import DAY_SECONDS, clock_at, is_night, time_scale
 from backend.survival.grid import world_grid
+from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry
 from backend.survival.script import rest_plan
 from backend.survival.vitals import (
@@ -25,11 +31,27 @@ from backend.survival.vitals import (
 )
 from backend.survival.world import SurvivalWorld, log_event, placed_near, read_state, write_state
 
+logger = logging.getLogger(__name__)
+
 MAX_STEP_SECONDS = 60.0
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
 
 Event = tuple[float, str, str]
+# After each vitals step: (state, context, vitals before the step, surroundings, step start, step end).
+Notice = Callable[[dict, ActionContext, dict, Surroundings, float, float], None]
+
+
+@dataclass(frozen=True)
+class Mind:
+    """What runs Mimo inside a tick. `plan` fills an empty queue; the hooks are optional."""
+
+    plan: Planner = rest_plan
+    observe: Observe | None = None
+    notice: Notice | None = None
+
+
+RESTING = Mind()
 
 
 def surroundings_at(db: sqlite3.Connection, seed: str, position: dict) -> Surroundings:
@@ -74,7 +96,18 @@ def record_death(state: dict, cause: str, at: float, scale: float, events: list[
     events.append((at, "death", f"{state['name']} died of {CAUSE_TEXT[cause]} on day {day}."))
 
 
-def advance_world(world: SurvivalWorld, timestamp: float, scale: float, planner: Planner = rest_plan) -> dict:
+def run_notice(mind: Mind, state: dict, context: ActionContext, before: dict, surroundings: Surroundings,
+               since: float, at: float) -> None:
+    """Call the mind's notice hook. A crashing hook is logged once and the tick goes on."""
+    if mind.notice is None:
+        return
+    try:
+        mind.notice(state, context, before, surroundings, since, at)
+    except Exception as error:
+        log_once(logger, "notice", error)
+
+
+def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mind = RESTING) -> dict:
     """Catch the world up to `timestamp` in one transaction and return the saved state."""
     with world.transaction() as db:
         state = read_state(db)
@@ -82,8 +115,9 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, planner:
             return state
         ensure_actions(state)
         events: list[Event] = []
-        context = ActionContext(grid=world_grid(db, world.seed), planner=planner, events=events,
-                                clock_at=lambda at: clock_at(state["born_at"], at, scale))
+        context = ActionContext(grid=world_grid(db, world.seed), planner=mind.plan, events=events,
+                                clock_at=lambda at: clock_at(state["born_at"], at, scale),
+                                observe=mind.observe, db=db)
         cursor = state["last_tick_at"]
         remaining = (timestamp - cursor) * scale
         while remaining > 1e-9:
@@ -95,16 +129,18 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, planner:
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
+            surroundings = surroundings_at(db, world.seed, state["position"])
             state["vitals"], cause = step_vitals(
-                before, step, night=night, activity=activity_of(state),
-                surroundings=surroundings_at(db, world.seed, state["position"]),
+                before, step, night=night, activity=activity_of(state), surroundings=surroundings,
                 lonely=(cursor - last_hello) * scale > DAY_SECONDS)
+            since = cursor
             cursor += step / scale
             remaining -= step
             note_crossings(state, before, cursor, events)
             if cause:
                 record_death(state, cause, cursor, scale, events)
                 break
+            run_notice(mind, state, context, before, surroundings, since, cursor)
         if state["died_at"] is None:
             fell_at = advance_actions(state, context, timestamp)
             if fell_at is not None:
@@ -117,14 +153,14 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, planner:
 
 
 def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: float | None = None,
-              planner: Planner = rest_plan) -> dict | None:
+              mind: Mind = RESTING) -> dict | None:
     """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive."""
     life = registry.active_life()
     if life is None:
         return None
     timestamp = time.time() if timestamp is None else timestamp
     scale = time_scale() if scale is None else scale
-    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale, planner)
+    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale, mind)
     if state["died_at"] is not None:
         registry.mark_dead(life["id"], state["died_at"], state["cause"])
     return state

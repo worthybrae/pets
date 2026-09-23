@@ -8,8 +8,9 @@ from backend.services.worldgen import terrain_height
 from backend.survival import steps as steps_module
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
+from backend.survival.once import forget_logged
 from backend.survival.script import scripted_plan
-from backend.survival.tick import tick_life
+from backend.survival.tick import Mind, tick_life
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.workers import mimo_worker
 
@@ -38,7 +39,7 @@ class TickActionTests(unittest.TestCase):
         return round(position["x"]), round(position["z"])
 
     def test_one_tick_can_walk_chop_and_craft(self):
-        state = tick_life(self.registry, BORN + 120, scale=1, planner=scripted_plan)
+        state = tick_life(self.registry, BORN + 120, scale=1, mind=Mind(plan=scripted_plan))
         self.assertIsNone(state["died_at"])
         self.assertGreaterEqual(state["inventory"].get("planks", 0), 4)
         self.assertIn("air", [change["material"] for change in self.world.blocks_since(0)["changes"]])
@@ -93,20 +94,20 @@ class TickActionTests(unittest.TestCase):
         self.assertGreaterEqual(spy_next.call_count, 1)
 
     def test_the_worker_runs_the_interim_script(self):
-        self.assertIs(mimo_worker.WORKER_PLANNER, scripted_plan)
+        self.assertIs(mimo_worker.WORKER_MIND.plan, scripted_plan)
 
     def test_a_crashing_planner_never_freezes_the_life(self):
         """Reviewer-reported bug (Task 7 final review): an exception escaping advance_actions
         rolled back the whole tick's write transaction, so last_tick_at never advanced and every
         later tick replayed the same state and raised again. A broken planner (M3 will plug new
         ones in) must not be able to do that."""
-        def broken(state, grid, at, clock):
+        def broken(state, context, at):
             raise RuntimeError("boom")
 
-        state = tick_life(self.registry, BORN + 5, scale=1, planner=broken)
+        state = tick_life(self.registry, BORN + 5, scale=1, mind=Mind(plan=broken))
         self.assertIsNone(state["died_at"])
         self.assertEqual(state["last_tick_at"], BORN + 5)
-        again = tick_life(self.registry, BORN + 10, scale=1, planner=broken)
+        again = tick_life(self.registry, BORN + 10, scale=1, mind=Mind(plan=broken))
         self.assertEqual(again["last_tick_at"], BORN + 10)
 
     def test_a_malformed_queued_step_never_freezes_the_life(self):
@@ -133,6 +134,27 @@ class TickActionTests(unittest.TestCase):
         self.assertTrue(all(event["at"] <= state["died_at"] for event in events),
                         [(event["kind"], event["at"]) for event in events])
         self.assertEqual([event["kind"] for event in events].count("death"), 1)
+
+    def test_a_mind_notices_every_vitals_step(self):
+        seen = []
+
+        def notice(state, context, before, surroundings, since, at):
+            self.assertIsNotNone(context.db)
+            seen.append((round(since - BORN), round(at - BORN), before["hunger"] > state["vitals"]["hunger"]))
+
+        tick_life(self.registry, BORN + 150, scale=1, mind=Mind(notice=notice))
+        self.assertEqual(seen, [(0, 60, True), (60, 120, True), (120, 150, True)])
+
+    def test_a_crashing_notice_is_logged_once_and_never_freezes_the_life(self):
+        def broken(*args):
+            raise RuntimeError("boom")
+
+        forget_logged()
+        with self.assertLogs("backend.survival.tick", level="ERROR") as logs:
+            state = tick_life(self.registry, BORN + 150, scale=1, mind=Mind(notice=broken))
+        self.assertEqual(state["last_tick_at"], BORN + 150)
+        self.assertEqual(len(logs.output), 1)
+
 
 
 if __name__ == "__main__":

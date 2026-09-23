@@ -9,12 +9,16 @@ trees when none is near.
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 from backend.services.worldgen import terrain_height, trees_in_chunk
 from backend.survival.clock import is_night
 from backend.survival.grid import CHUNK, Cell, Grid
 from backend.survival.steps import as_cell
 from backend.survival.vitals import EXHAUSTED_BELOW
+
+if TYPE_CHECKING:
+    from backend.survival.actions import ActionContext
 
 NIGHTFALL = 2400.0
 MAX_WAIT = 60.0
@@ -28,8 +32,9 @@ WANDER_REACH = 3.0
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 
 
-def rest_plan(state: dict, grid: Grid, at: float, clock: dict) -> list[dict]:
+def rest_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     """Sleep at night or when exhausted; otherwise wait (at most a minute) for nightfall."""
+    clock = context.clock_at(at)
     night = is_night(clock["phase"])
     if night or state["vitals"]["energy"] < EXHAUSTED_BELOW:
         thought = "It's dark. Time to curl up and sleep." if night else "I'm too tired to keep my eyes open."
@@ -77,9 +82,10 @@ def wander_target(state: dict, clock: dict) -> list[int]:
     return [tx, terrain_height(tx, tz, state["world_seed"]) + 1, tz]
 
 
-def scripted_plan(state: dict, grid: Grid, at: float, clock: dict) -> list[dict]:
+def scripted_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     """By day: planks from logs, else chop the nearest tree, else look further out. Rest as rest_plan."""
-    rest = rest_plan(state, grid, at, clock)
+    grid, clock = context.grid, context.clock_at(at)
+    rest = rest_plan(state, context, at)
     if rest[0]["kind"] == "sleep":
         return rest
     if state["inventory"].get(LOG, 0) > 0:
