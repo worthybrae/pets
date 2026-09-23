@@ -3,12 +3,16 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import * as THREE from 'three'
+import { easeOffset, type Vec3 } from './camera'
 import { fogRange } from '../engine/fog'
 
 interface Focus {
   x: number
   z: number
 }
+
+/** The camera's normal follow direction (before scaling to `distance`), about a 35° elevation. */
+const NORMAL_DIRECTION: Vec3 = [18, 13, 18]
 
 /** Orbit controls that glide after a focus point, keep the fog past it and report chunk changes. */
 export default function FollowCamera({ focus, focusY, initialFocus, initialFocusY, distance, follow, viewDistance, onOrbit, onChunkChange }: {
@@ -35,8 +39,8 @@ export default function FollowCamera({ focus, focusY, initialFocus, initialFocus
       controls.target.add(movement)
       camera.position.add(movement)
       const offset = camera.position.clone().sub(controls.target)
-      const currentDistance = offset.length()
-      camera.position.addScaledVector(offset.normalize(), (distance - currentDistance) * (1 - Math.exp(-2 * delta)))
+      const [ex, ey, ez] = easeOffset([offset.x, offset.y, offset.z], NORMAL_DIRECTION, distance, delta)
+      camera.position.set(controls.target.x + ex, controls.target.y + ey, controls.target.z + ez)
       controls.update()
     }
     // Fog follows the live camera distance, so zooming out does not fade Mimo into fog early.

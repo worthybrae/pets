@@ -9,6 +9,9 @@ import type { Received } from '../survival/screens'
 import SurvivalWorld from '../survival/SurvivalWorld'
 import type { LifeSummary, ServerEgg } from '../survival/types'
 
+/** How long the fly-in plays before `arrival` clears itself, so it only ever plays once. */
+const ARRIVAL_MS = 3000
+
 /** The egg and last-life props EggHatch was showing at the moment the owner pressed Hatch. */
 interface HatchSnapshot {
   egg: ServerEgg
@@ -43,6 +46,14 @@ export default function WorldPreview() {
     const timer = window.setInterval(() => { void refresh() }, 1000)
     return () => { window.clearTimeout(initial); window.clearInterval(timer) }
   }, [refresh])
+
+  // One-shot: the fly-in plays once per arrival, then this clears it so re-mounting the
+  // world (e.g. coming back from the archive) starts at the normal camera angle, not high up.
+  useEffect(() => {
+    if (!arrival) return
+    const timer = window.setTimeout(() => { setArrival(false) }, ARRIVAL_MS)
+    return () => window.clearTimeout(timer)
+  }, [arrival])
 
   if (openLife !== null) return <ArchiveWorld key={openLife} lifeId={openLife} onBack={() => setOpenLife(null)} />
 
