@@ -4,8 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.survival.actions import ActionContext, ensure_actions
+from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.brain import BRAIN, brain_plan, notice_step, observe_step
+from backend.survival.choosing import Choice, apply_choice
+from backend.survival.clock import clock_at
+from backend.survival.pickers import options, utility_pick
+from backend.survival.reflexes import reflex_hook
+from backend.survival.situation import in_tick
 from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
 from backend.survival.memory import create_memory_tables, known_recipes, places, remember
@@ -190,6 +195,40 @@ class NoticeAndObserveTests(unittest.TestCase):
         observe_step(state, {"kind": "walk", "path": path}, ctx, 6.0)
         self.assertEqual(ctx.events[-1][1:], ("discovered", "Pip found water."))
         self.assertEqual(state["brain"]["found"], ["coal_ore", "water"])
+
+
+class DuskTests(unittest.TestCase):
+    def test_a_pet_outdoors_near_dusk_goes_home_and_sleeps_without_going_back_out(self):
+        """Exploring on open ground 40 minutes into the afternoon with a home 20 blocks away: the
+        head_home reflex walks it home, and the utility picker, asked whenever a choice is
+        pending, keeps it there until it sleeps at night."""
+        db = sqlite3.connect(":memory:")
+        create_memory_tables(db)
+        remember(db, "home", (20, 1, 0), 0.0)
+        state = pet()
+        choose(state, "explore")
+        state["queue"] = [{"kind": "walk", "target": [0, 1, 40], "reach": 3.0, "purpose": "explore"}]
+        grid, rng = flat(), random.Random(3)
+        clock = lambda at: clock_at(0.0, 2000.0 + at)  # noqa: E731  (2,040 s into the day at 40)
+        walks_after_home = set()
+        for at in range(0, 440):
+            ctx = ActionContext(grid=grid, clock_at=clock, planner=brain_plan, events=[], db=db,
+                                interrupt=reflex_hook)
+            advance_actions(state, ctx, float(at))
+            if state["brain"]["pending"] is not None:
+                pick = utility_pick(options(in_tick(state, ctx, float(at))), rng)
+                apply_choice(state, Choice(pick, "utility", "Hm.", {"model": 0, "luna": 0, "reflections": 0}),
+                             float(at))
+            home_at = state["brain"]["reflex_ends"].get("head_home")
+            if home_at is not None:
+                walks_after_home |= {(entry["started_at"], entry.get("purpose")) for entry in state["recent_actions"]
+                                     if entry["kind"] == "walk" and entry["ended_at"] > home_at
+                                     and entry.get("purpose") not in ("head_home", "go_home")}
+        self.assertEqual(clock(439.0)["phase"], "night")
+        self.assertEqual((state["action"] or {}).get("kind"), "sleep")
+        self.assertEqual(state["position"], {"x": 20.0, "y": 1.0, "z": 0.0})
+        self.assertEqual(walks_after_home, set())
+        self.assertIn("head_home", state["brain"]["reflex_ends"])
 
 
 class BrainTickTests(unittest.TestCase):

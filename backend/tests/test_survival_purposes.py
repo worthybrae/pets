@@ -97,6 +97,15 @@ class SimplePurposeTests(unittest.TestCase):
         self.assertEqual(names(home), ["rest", "sleep"])
         self.assertEqual(PURPOSES["sleep"].plan(home, context()), [{"kind": "wait", "seconds": 60.0}])
 
+    def test_sleep_is_on_offer_at_home_from_the_head_home_window_until_night(self):
+        window = {**DAY, "seconds_into_day": 2040.0}
+        self.assertIn("sleep", names(situation(clock=window, places=[("home", (1, 1, 0))])))
+        self.assertEqual(PURPOSES["sleep"].plan(situation(clock=window, places=[("home", (1, 1, 0))]), context()),
+                         [{"kind": "wait", "seconds": 60.0}])
+        self.assertNotIn("sleep", names(situation(clock={**DAY, "seconds_into_day": 2030.0},
+                                                  places=[("home", (1, 1, 0))])))
+        self.assertNotIn("sleep", names(situation(clock=window, places=[("home", (30, 1, 0))])))
+
     def test_rest_lasts_until_a_trigger_for_at_most_ten_game_minutes(self):
         s = situation()
         s.brain.update(pending=None, chosen_at=0.0, batches=12)

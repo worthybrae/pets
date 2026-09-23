@@ -43,6 +43,9 @@ EXPLORE_DISTANCE = 48
 EXPLORE_REACH = 3.0
 HEADINGS = 8
 LATE_DAY = DUSK - 300.0  # 5 game minutes before dusk
+LATE_PENALTY = 30.0  # outdoor work scores this much lower late in the day
+HEAD_HOME_LEAD = 180.0  # the head_home reflex's window opens this many game seconds before dusk
+HOMEWARD = DUSK - HEAD_HOME_LEAD
 EAT_BELOW = 70.0
 FULL = 90.0
 
@@ -101,6 +104,23 @@ def late_day(s: Situation) -> bool:
     return s.phase == "dusk" or (s.phase == "day" and s.clock["seconds_into_day"] >= LATE_DAY)
 
 
+def late_penalty(s: Situation, outdoors: bool = True) -> float:
+    """How much lower outdoor work scores now: 30 late in the day, so sleep (60) and go_home win
+    at dusk over work that would take Mimo away from home."""
+    return LATE_PENALTY if outdoors and late_day(s) else 0.0
+
+
+def homeward(s: Situation) -> bool:
+    """The head_home window: from 3 game minutes before dusk until nightfall."""
+    return not s.night and HOMEWARD <= s.clock["seconds_into_day"] < NIGHTFALL
+
+
+def underground(s: Situation) -> bool:
+    """Mimo stands below the natural surface: in its own staircase, a tunnel or a cave."""
+    x, y, z = s.here
+    return y <= terrain_height(x, z, s.seed)
+
+
 def wait_for_nightfall(s: Situation) -> dict:
     return {"kind": "wait", "seconds": max(1.0, min(60.0, s.seconds_to(NIGHTFALL) / s.scale))}
 
@@ -149,7 +169,8 @@ register(Purpose(
 # sleep -----------------------------------------------------------------------------------------
 
 def sleep_valid(s: Situation) -> bool:
-    return s.night or s.vitals["energy"] < TIRED_BELOW or (s.phase == "dusk" and at_home(s))
+    """At night, when tired, or at home from the head_home window on (to wait there for night)."""
+    return s.night or s.vitals["energy"] < TIRED_BELOW or (homeward(s) and at_home(s))
 
 
 def sleep_facts(s: Situation) -> str:
@@ -191,9 +212,7 @@ def explore_score(s: Situation) -> float:
     score = 20.0 + s.trait("curiosity") / 5
     if not trees_near(s.seed, x, z, TREE_SEARCH):
         score += 25.0
-    if late_day(s):
-        score -= 30.0
-    return score
+    return score - late_penalty(s)
 
 
 def explore_facts(s: Situation) -> str:

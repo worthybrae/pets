@@ -13,6 +13,10 @@ staircase. The staircase stays climbable, and from its third stair it is shelter
 becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
+
+Late in the day, work that takes Mimo away from home scores 30 lower (purposes.late_penalty), so
+sleep and go_home win at dusk: gather_wood always, gather_stone when it would start from the
+surface, and mine_ore when the ore is more than 16 blocks away. craft_tools needs no trip.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import cell_of, forget
-from backend.survival.purposes import Purpose, register, walk_to
+from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
 from backend.survival.senses import failed_columns, standing_logs
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
@@ -43,6 +47,7 @@ DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 FLUIDS = ("water", "lava")
 ORE_RANGE = 48.0
 ORE_REACH = 3.0
+ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late in the day
 
 
 def wood(inventory: dict) -> float:
@@ -62,7 +67,7 @@ def logs_to_chop(s: Situation) -> list[Cell]:
 
 def wood_score(s: Situation) -> float:
     base = 65.0 if wood(s.inventory) < 3 else 40.0
-    return base + s.trait("diligence") / 10 + s.trait("thrift") / 20
+    return base + s.trait("diligence") / 10 + s.trait("thrift") / 20 - late_penalty(s)
 
 
 def wood_facts(s: Situation) -> str:
@@ -155,9 +160,11 @@ def wants_stone(s: Situation) -> bool:
 
 
 def stone_score(s: Situation) -> float:
+    """Starting a new staircase from the surface is outdoor work; digging on underground is not."""
+    late = late_penalty(s, outdoors=not underground(s))
     if s.count("cobblestone") >= STONE_GOAL:  # prospecting for iron
-        return 40.0 + s.trait("curiosity") / 10
-    return 50.0 + s.trait("diligence") / 10 + s.trait("thrift") / 20
+        return 40.0 + s.trait("curiosity") / 10 - late
+    return 50.0 + s.trait("diligence") / 10 + s.trait("thrift") / 20 - late
 
 
 def stone_facts(s: Situation) -> str:
@@ -218,8 +225,12 @@ def ore_targets(s: Situation) -> list[dict]:
 
 
 def ore_score(s: Situation) -> float:
-    iron = any(place["note"] == "iron_ore" for place in ore_targets(s))
-    return 50.0 + s.trait("bravery") / 10 + s.trait("curiosity") / 20 + (15.0 if iron else 0.0)
+    """A trip to a far ore is outdoor work late in the day; a near one is not."""
+    targets = ore_targets(s)
+    iron = any(place["note"] == "iron_ore" for place in targets)
+    far = bool(targets) and s.distance(cell_of(targets[0])) > ORE_FAR
+    return (50.0 + s.trait("bravery") / 10 + s.trait("curiosity") / 20 + (15.0 if iron else 0.0)
+            - late_penalty(s, outdoors=far))
 
 
 def ore_facts(s: Situation) -> str:

@@ -18,7 +18,8 @@ steps whenever Mimo's queue runs dry:
 
 Reflexes (backend.survival.reflexes) take over through the interrupt hook. When a reflex's steps
 run out, brain_plan ends it and resumes the purpose's steps it set aside (only their cleanup
-steps when no purpose is left).
+steps when no purpose is left). head_home ends the purpose instead, so the choice after it is
+made at home.
 
 `observe_step` hears about finished steps: ores around a mined block, recipes learned, water swum
 in, places visited. `notice_step` runs after each vitals step: vital crossings (urgent), dawn and
@@ -36,7 +37,7 @@ from backend.survival.escape import plan_escape
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, Purpose, is_valid
-from backend.survival.reflexes import end_reflex, reflex_hook
+from backend.survival.reflexes import by_name, end_reflex, reflex_hook
 from backend.survival.script import rest_plan
 from backend.survival.senses import ORES, ores_around
 from backend.survival.situation import Situation, in_tick
@@ -112,7 +113,10 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     """The next steps for Mimo's purpose. See the module docstring for the rules."""
     brain = ensure_brain(state)
     if brain["reflex"] is not None:
+        reflex = by_name(brain["reflex"])
         resumed = end_reflex(state, at)
+        if reflex is not None and reflex.ends_purpose and brain["purpose"] is not None:
+            finish_purpose(state, at, "reflex_ended")
         if brain["purpose"] is None:
             resumed = kept_steps(resumed)
         if resumed:

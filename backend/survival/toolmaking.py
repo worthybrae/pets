@@ -22,9 +22,8 @@ from typing import TYPE_CHECKING
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest
-from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell
-from backend.survival.purposes import Purpose, register
+from backend.survival.purposes import Purpose, register, underground
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
 
@@ -87,12 +86,6 @@ def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int 
             steps.append({"kind": "smelt", "item": ore})
         else:
             raise Short(item)
-
-
-def underground(s: Situation) -> bool:
-    """Mimo stands below the natural surface: in its own staircase, a tunnel or a cave."""
-    x, y, z = s.here
-    return y <= terrain_height(x, z, s.seed)
 
 
 def free_cells(s: Situation) -> list[Cell]:

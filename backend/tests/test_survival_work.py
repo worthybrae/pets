@@ -13,6 +13,7 @@ from backend.survival.work import dig_heading, stair
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
+LATE = {**DAY, "seconds_into_day": 2100.0}
 TREE = (5, 0, 0)  # trunk x, trunk z, ground height: logs at y 1 to 4
 
 
@@ -47,12 +48,18 @@ def pet(position=(0, 1, 0), **changes):
     return state
 
 
-def situation(state, grid, places_seen=()):
+def situation(state, grid, places_seen=(), clock=DAY):
     db = sqlite3.connect(":memory:")
     create_memory_tables(db)
     for kind, cell, note in places_seen:
         remember(db, kind, cell, 0.0, note)
-    return Situation(state, grid, DAY, 0.0, db)
+    return Situation(state, grid, clock, 0.0, db)
+
+
+def late_drop(name, state, grid, places_seen=()):
+    """How much lower `name` scores late in the day than by day."""
+    return (PURPOSES[name].score(situation(state, grid, places_seen))
+            - PURPOSES[name].score(situation(state, grid, places_seen, LATE)))
 
 
 def context(grid):
@@ -166,6 +173,19 @@ class OreTests(unittest.TestCase):
         self.assertTrue(PURPOSES["mine_ore"].valid(situation(pet(inventory={"wooden_pickaxe": 1}), grid, seen)))
         stocked = pet(inventory={"wooden_pickaxe": 1, "coal": 8})
         self.assertFalse(PURPOSES["mine_ore"].valid(situation(stocked, grid, seen)))
+
+
+@patch("backend.survival.purposes.terrain_height", lambda x, z, seed: 0)
+class LateDayTests(unittest.TestCase):
+    def test_outdoor_work_scores_lower_late_in_the_day(self):
+        self.assertEqual(late_drop("gather_wood", pet(), forest()), 30.0)
+        picks = {"wooden_pickaxe": 1}
+        self.assertEqual(late_drop("gather_stone", pet(inventory=picks), ground()), 30.0)  # starting on the surface
+        self.assertEqual(late_drop("gather_stone", pet((4, -3, 0), inventory=picks), ground({(4, -3, 0): "air"})), 0.0)
+        near = [("ore", (3, -3, 0), "coal_ore")]
+        self.assertEqual(late_drop("mine_ore", pet(inventory=picks), ground({(3, -3, 0): "coal_ore"}), near), 0.0)
+        far = [("ore", (30, -3, 0), "coal_ore")]
+        self.assertEqual(late_drop("mine_ore", pet(inventory=picks), ground({(30, -3, 0): "coal_ore"}), far), 30.0)
 
 
 class SensesTests(unittest.TestCase):

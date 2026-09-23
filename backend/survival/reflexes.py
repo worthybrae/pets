@@ -10,7 +10,9 @@ holds and whose planner returns steps takes over:
   reflex can take over from a running one; a less urgent one waits.
 - When the reflex's steps run out, `end_reflex` brings the set-aside steps back, starts the
   reflex's cooldown and asks for a new choice (`reflex_ended`). The set-aside steps include the
-  plan's cleanup steps (`keep`), which come back even when the purpose changed meanwhile.
+  plan's cleanup steps (`keep`), which come back even when the purpose changed meanwhile. A
+  reflex with `ends_purpose` (head_home) finishes the purpose instead of resuming it, keeping
+  only the cleanup steps, so Mimo chooses again at home rather than walking back out.
 - A veto reflex (avoid_drop) does not set anything aside: it fails or replaces only the step that
   would fall too far, even when it has no steps of its own.
 
@@ -34,8 +36,8 @@ from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
-from backend.survival.purposes import AT_HOME, HOME_RANGE, foods, home_of, meal, walk_to
-from backend.survival.situation import DUSK, NIGHTFALL, Situation, in_tick
+from backend.survival.purposes import AT_HOME, HOME_RANGE, HOMEWARD, foods, home_of, meal, walk_to
+from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
 from backend.survival.toolmaking import place_station, station_spots
 from backend.survival.triggers import ensure_brain, mark_trigger
@@ -47,7 +49,6 @@ SURFACE_BELOW = 40.0
 EAT_NOW_BELOW = 15.0
 EAT_NOW_FULL = 40.0
 WARM_UP_BELOW = 25.0
-HEAD_HOME_LEAD = 180.0  # game seconds before dusk
 SHORE_SEARCH = 2000
 FIRE_STAND = 2.0
 
@@ -62,6 +63,9 @@ class Reflex:
     event: str  # "{name} ..." for the event log
     cooldown: float = 10.0  # real seconds before it may fire again after it ended
     veto: bool = False
+    # When it ends, drop the purpose and its set-aside steps (but their cleanup), so the next
+    # choice starts from where the reflex left Mimo instead of undoing it.
+    ends_purpose: bool = False
 
 
 REFLEXES: list[Reflex] = []
@@ -278,7 +282,7 @@ register(Reflex("warm_up", 50, trigger=lambda s: s.vitals["warmth"] < WARM_UP_BE
 # head_home -------------------------------------------------------------------------------------
 
 def head_home_due(s: Situation) -> bool:
-    if not DUSK - HEAD_HOME_LEAD <= s.clock["seconds_into_day"] < NIGHTFALL:
+    if not HOMEWARD <= s.clock["seconds_into_day"] < NIGHTFALL:
         return False
     if s.brain["purpose"] in ("go_home", "sleep"):
         return False
@@ -292,7 +296,7 @@ def head_home_due(s: Situation) -> bool:
 register(Reflex("head_home", 60, trigger=head_home_due,
                 plan=lambda s, context: [walk_to(cell_of(home_of(s)))],
                 thought="It's getting dark. Home, quickly.", event="{name} hurried home before dark.",
-                cooldown=60.0))
+                cooldown=60.0, ends_purpose=True))
 
 
 # collapse --------------------------------------------------------------------------------------
