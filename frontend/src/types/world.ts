@@ -8,6 +8,8 @@ export interface Voxel {
   a: number;
   metadata_id?: string;
   material?: string;
+  size?: [number, number, number];
+  offset?: [number, number, number];
 }
 
 export interface BlockEdit {

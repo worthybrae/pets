@@ -12,6 +12,7 @@ import json
 import heapq
 import math
 import os
+import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -23,6 +24,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from backend.services.crafting import BLOCKS, RECIPES, SMELTING, add_item, can_harvest, craft, smelt, take_items
+from backend.services.worldgen import LEGACY_RADIUS, LEGACY_WORLD_SEED, SEA_LEVEL, base_material, terrain_height
 
 STATION = {"kind": "station", "site": {"x": 48, "z": 0}, "variant": 0,
            "observation": "A wide, empty stretch of sky above the eastern plain.", "clearance": 41}
@@ -64,16 +66,10 @@ def distance(a: dict, b: dict) -> float:
     return math.hypot(a["x"] - b["x"], a["z"] - b["z"])
 
 
-def terrain_height(x: int, z: int) -> int:
-    if math.hypot(x, z) < 17 or math.hypot(x - 48, z) < 27:
-        return 0
-    wave = math.sin(x * 0.085) + math.cos(z * 0.075) + math.sin((x + z) * 0.037)
-    return 3 if wave > 1.65 else 2 if wave > 1.15 else 1 if wave > 0.65 else 0
-
-
 def new_state(timestamp: float) -> dict:
     return {
         "name": "Mimo", "born_at": timestamp,
+        "world_seed": str(secrets.randbits(64)),
         "personality": {"curiosity": 82, "creativity": 91, "sociability": 66, "patience": 73},
         "position": {"x": 73.0, "y": 1.0, "z": 0.0}, "energy": 100.0, "mood": 70.0,
         "explore_target": None,
@@ -109,7 +105,9 @@ def normalize_state(state: dict) -> dict:
     state.setdefault("luna_decisions_today", 0)
     state.setdefault("explore_target", None)
     state.setdefault("visited_sites", [])
-    state["position"].setdefault("y", terrain_height(round(state["position"]["x"]), round(state["position"]["z"])) + 1)
+    state.setdefault("world_seed", LEGACY_WORLD_SEED)
+    state["position"].setdefault("y", terrain_height(round(state["position"]["x"]),
+                                                     round(state["position"]["z"]), state["world_seed"]) + 1)
     return state
 
 
@@ -117,8 +115,9 @@ def next_walk_position(state: dict, target: dict, max_steps: int = 8) -> dict:
     """A* over terrain and existing footprints; return one bounded movement step."""
     start = (round(state["position"]["x"]), round(state["position"]["z"]))
     end = (round(target["x"]), round(target["z"]))
+    seed = state["world_seed"]
     if start == end:
-        return {"x": float(end[0]), "y": float(terrain_height(*end) + 1), "z": float(end[1])}
+        return {"x": float(end[0]), "y": float(terrain_height(*end, seed) + 1), "z": float(end[1])}
     completed = state["plans"][:state["currentIndex"]]
     def blocked(x: int, z: int) -> bool:
         return any(math.hypot(x - plan["site"]["x"], z - plan["site"]["z"]) < RADII[plan["kind"]] + 1
@@ -138,7 +137,7 @@ def next_walk_position(state: dict, target: dict, max_steps: int = 8) -> dict:
             neighbor = (point[0] + dx, point[1] + dz)
             if blocked(*neighbor) or abs(neighbor[0] - start[0]) > 100 or abs(neighbor[1] - start[1]) > 100:
                 continue
-            slope = abs(terrain_height(*neighbor) - terrain_height(*point))
+            slope = abs(terrain_height(*neighbor, seed) - terrain_height(*point, seed))
             next_cost = cost + 1 + slope * 1.5
             if next_cost >= best_cost.get(neighbor, math.inf):
                 continue
@@ -154,7 +153,7 @@ def next_walk_position(state: dict, target: dict, max_steps: int = 8) -> dict:
         path.append(point)
         point = previous[point]
     point = path[-min(max_steps, len(path))]
-    return {"x": float(point[0]), "y": float(terrain_height(*point) + 1), "z": float(point[1])}
+    return {"x": float(point[0]), "y": float(terrain_height(*point, seed) + 1), "z": float(point[1])}
 
 
 class MimoStore:
@@ -162,6 +161,9 @@ class MimoStore:
         self.path = Path(path or os.environ.get("MIMO_DB_PATH") or DEFAULT_DB)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
+        with self.connect() as db:
+            saved = json.loads(db.execute("SELECT data FROM mimo_state WHERE id=1").fetchone()["data"])
+        self.world_seed = saved.get("world_seed", LEGACY_WORLD_SEED)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -215,7 +217,7 @@ class MimoStore:
     def material_at(self, x: int, y: int, z: int) -> str:
         with self.connect() as db:
             row = db.execute("SELECT material FROM mimo_blocks WHERE x=? AND y=? AND z=?", (x, y, z)).fetchone()
-        return row["material"] if row else base_material(x, y, z)
+        return row["material"] if row else base_material(x, y, z, self.world_seed)
 
     def nearby_stations(self, position: dict, radius: int = 6) -> set[str]:
         with self.connect() as db:
@@ -233,7 +235,7 @@ class MimoStore:
             ).fetchall()}
             for row in rows:
                 x, y, z, material = row["x"], row["y"], row["z"], row["material"]
-                below = edits.get((x, y - 1, z), base_material(x, y - 1, z))
+                below = edits.get((x, y - 1, z), base_material(x, y - 1, z, self.world_seed))
                 if below not in ("air", "water") or y <= -5:
                     continue
                 db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,'air') ON CONFLICT(x,y,z) DO UPDATE SET material='air'", (x, y, z))
@@ -307,9 +309,9 @@ class MimoStore:
                 candidate = None
                 for dx, dz in ((2, 0), (0, 2), (-2, 0), (0, -2), (3, 0), (0, 3), (-3, 0), (0, -3)):
                     x, z = px + dx, pz + dz
-                    y = terrain_height(x, z) + 1
+                    y = terrain_height(x, z, self.world_seed) + 1
                     row_at = db.execute("SELECT material FROM mimo_blocks WHERE x=? AND y=? AND z=?", (x, y, z)).fetchone()
-                    if (row_at["material"] if row_at else base_material(x, y, z)) == "air":
+                    if (row_at["material"] if row_at else base_material(x, y, z, self.world_seed)) == "air":
                         candidate = (x, y, z)
                         break
                 if candidate is None:
@@ -327,28 +329,9 @@ class MimoStore:
             return {"message": message, "inventory": state["inventory"]}
 
 
-def base_material(x: int, y: int, z: int) -> str:
-    if y < -5:
-        return "bedrock"
-    if y == -5:
-        return "bedrock"
-    if -4 <= y < -1:
-        ore_seed = abs(x * 31 + z * 17 + y * 101)
-        return "iron_ore" if ore_seed % 37 == 0 else "coal_ore" if ore_seed % 19 == 0 else "stone"
-    if y == -1:
-        return "dirt"
-    height = terrain_height(x, z)
-    if y == 0 and ((x + 5) / 3.2) ** 2 + ((z - 4) / 2.4) ** 2 < 1:
-        return "water"
-    if y == height:
-        return "grass"
-    if 0 <= y < height:
-        return "dirt" if y >= height - 1 else "stone"
-    return "air"
-
-
 def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
     """Give the brain landmarks and validated free sites from the persisted world."""
+    seed = state["world_seed"]
     plans = state["plans"]
     origin = plans[-1]["site"]
     features = [{"kind": plan["kind"], "x": plan["site"]["x"], "z": plan["site"]["z"],
@@ -365,11 +348,14 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
             if any(distance(point, {"x": feature["x"], "z": feature["z"]}) < feature["radius"] + 10
                    for feature in features):
                 continue
-            if any(terrain_height(x, z) != 0 for x in range(point["x"] - 7, point["x"] + 8)
-                   for z in range(point["z"] - 7, point["z"] + 8)):
+            heights = [terrain_height(x, z, seed) for x in range(point["x"] - 7, point["x"] + 8)
+                       for z in range(point["z"] - 7, point["z"] + 8)]
+            if max(heights) - min(heights) > 1:
+                continue
+            if math.hypot(point["x"], point["z"]) > LEGACY_RADIUS and min(heights) < SEA_LEVEL:
                 continue
             nearest = min(features, key=lambda feature: distance(point, {"x": feature["x"], "z": feature["z"]}))
-            candidates.append({"id": len(candidates), **point, "clearance": 15,
+            candidates.append({"id": len(candidates), **point, "base_y": max(heights), "clearance": 15,
                                "nearest": nearest["kind"],
                                "distance_to_nearest": round(distance(point, {"x": nearest["x"], "z": nearest["z"]}))})
             if len(candidates) >= 16:
@@ -385,9 +371,10 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
     px, pz = round(state["position"]["x"]), round(state["position"]["z"])
     columns = []
     for x, z in ((px, pz), (px + 2, pz), (px - 2, pz), (px, pz + 2), (px, pz - 2)):
+        top = max(3, terrain_height(x, z, seed) + 3)
         columns.append({"x": x, "z": z,
-                        "layers": [{"y": y, "material": edited.get((x, y, z), base_material(x, y, z))}
-                                   for y in range(3, -5, -1)]})
+                        "layers": [{"y": y, "material": edited.get((x, y, z), base_material(x, y, z, seed))}
+                                   for y in range(top, -5, -1)]})
     return {"pet_position": state["position"], "features": features[-14:],
             "pond": {"x": -5, "z": 4}, "candidate_sites": candidates,
             "explorable_site_ids": explorable_site_ids,
@@ -619,7 +606,8 @@ def validate_decision(decision: dict, observation: dict) -> dict:
         return {"action": action, "x": x, "y": y, "z": z, "material": material, "thought": thought}
     candidate_id = decision.get("candidate_id")
     if action == "build" and decision.get("kind") == "boardwalk":
-        return {"action": action, "kind": "boardwalk", "site": observation["pond"], "thought": thought}
+        return {"action": action, "kind": "boardwalk", "site": {**observation["pond"], "base_y": 0},
+                "thought": thought}
     if not isinstance(candidate_id, int) or candidate_id < 0 or candidate_id >= len(observation["candidate_sites"]):
         raise ValueError("Model chose a site outside the observed free space")
     if action == "explore" and candidate_id not in observation["explorable_site_ids"]:
@@ -627,7 +615,11 @@ def validate_decision(decision: dict, observation: dict) -> dict:
     site = observation["candidate_sites"][candidate_id]
     if action == "build" and decision.get("kind") not in BUILD_KINDS:
         raise ValueError("Model chose an unknown structure")
-    return {"action": action, "kind": decision.get("kind"), "site": {"x": site["x"], "z": site["z"]},
+    point = {"x": site["x"], "z": site["z"]}
+    if action == "build":
+        point["base_y"] = site["base_y"]
+    return {"action": action, "kind": decision.get("kind"),
+            "site": point,
             "nearby": site["nearest"], "distance": site["distance_to_nearest"], "thought": thought}
 
 
@@ -710,7 +702,8 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                 site = choice["site"]
                 reason = ("Mimo observed the pond and chose to cross it." if kind == "boardwalk" else
                           f"Mimo found a 15×15 clearing {choice['distance']} blocks from {choice['nearby']}.")
-                state["plans"].append({"kind": kind, "site": site, "variant": len(state["plans"]),
+                state["plans"].append({"kind": kind, "site": {"x": site["x"], "z": site["z"]},
+                                       "base_y": site.get("base_y", 0), "variant": len(state["plans"]),
                                        "observation": reason, "clearance": 15})
                 state["currentIndex"] = len(state["plans"]) - 1
                 state["progress"] = 0

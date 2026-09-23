@@ -9,12 +9,15 @@ import WorldManager from '../components/world/WorldManager'
 import { previewPet } from '../components/world/previewWorld'
 import { applyBlockEdits, ensureTerrainAround, ORBITAL_STATION } from '../components/world/expandingWorld'
 import { compileWorldPlan, worldForPlannerState, type WorldPlan } from '../components/world/worldPlanner'
+import { DEFAULT_WORLD_SEED, terrainHeight } from '../components/world/worldgen'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const WILDERNESS = { x: 260, z: 120 }
 interface Point { x: number; y?: number; z: number }
 interface MimoEvent { id: number; at: number; kind: string; text: string }
 interface LiveMimoState {
   name: string
+  world_seed: string
   position: Point
   energy: number
   mood: number
@@ -84,10 +87,12 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   onAction: (action: string, item: string) => Promise<string>
   connectionError: string
 }) {
+  const worldSeed = state.world_seed || DEFAULT_WORLD_SEED
   const [initialPosition] = useState<Point>(() => ({ ...state.position }))
   const [cameraChunk, setCameraChunk] = useState(() => ({ x: Math.floor(state.position.x / 16), z: Math.floor(state.position.z / 16) }))
   const [following, setFollowing] = useState(true)
   const [viewingStation, setViewingStation] = useState(false)
+  const [viewingWilderness, setViewingWilderness] = useState(false)
   const [helloCount, setHelloCount] = useState(0)
   const [showSystems, setShowSystems] = useState(false)
   const [interactionError, setInteractionError] = useState('')
@@ -123,12 +128,14 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   }, [state.currentIndex, targetStepIndex])
   const chunks = useMemo(() => {
     const viewCenter = { x: cameraChunk.x * 16, z: cameraChunk.z * 16 }
-    const built = worldForPlannerState({ plans: state.plans, currentIndex: state.currentIndex, stepIndex }, viewCenter)
+    const built = worldForPlannerState({ plans: state.plans, currentIndex: state.currentIndex, stepIndex },
+      viewCenter, 112, worldSeed)
     const nearbyEdits = state.block_edits.filter((edit) =>
-      Math.abs(edit.x - viewCenter.x) <= 96 && Math.abs(edit.z - viewCenter.z) <= 96)
-    const edited = applyBlockEdits(built, nearbyEdits, state.catalog)
-    return ensureTerrainAround(edited, cameraChunk.x * 16, cameraChunk.z * 16, 5)
-  }, [state.plans, state.currentIndex, state.block_edits, state.catalog, stepIndex, cameraChunk.x, cameraChunk.z])
+      Math.abs(edit.x - viewCenter.x) <= 112 && Math.abs(edit.z - viewCenter.z) <= 112)
+    const edited = applyBlockEdits(built, nearbyEdits, state.catalog, worldSeed)
+    return ensureTerrainAround(edited, cameraChunk.x * 16, cameraChunk.z * 16, 6, worldSeed)
+  }, [state.plans, state.currentIndex, state.block_edits, state.catalog, worldSeed,
+    stepIndex, cameraChunk.x, cameraChunk.z])
   const pet = useMemo(() => ({
     ...previewPet, position: { ...previewPet.position, x: initialPosition.x, y: initialPosition.y ?? 1, z: initialPosition.z },
   }), [initialPosition])
@@ -138,8 +145,12 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
     (block.material === 'crafting_table' || block.material === 'furnace') &&
     Math.hypot(block.x - state.position.x, block.z - state.position.z) <= 6
   ).map((block) => block.material))
-  const cameraFocus = viewingStation ? ORBITAL_STATION : state.position
-  const cameraY = viewingStation ? ORBITAL_STATION.centerY : 1
+  const cameraFocus = viewingStation ? ORBITAL_STATION : viewingWilderness ? WILDERNESS : state.progress < 100
+    ? { x: (state.position.x + plan.site.x) / 2, z: (state.position.z + plan.site.z) / 2 }
+    : state.position
+  const cameraY = viewingStation ? ORBITAL_STATION.centerY
+    : viewingWilderness ? terrainHeight(WILDERNESS.x, WILDERNESS.z, worldSeed) + 2
+      : state.position.y ?? 1
 
   const sayHello = async () => {
     setInteractionError('')
@@ -162,15 +173,15 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   return (
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
       <div className="absolute inset-0">
-        <Canvas camera={{ position: [initialPosition.x + 30, 23, initialPosition.z + 30], fov: 48, near: 0.1, far: 280 }}
+        <Canvas camera={{ position: [initialPosition.x + 18, 14, initialPosition.z + 18], fov: 48, near: 0.1, far: 280 }}
           gl={{ antialias: true }} dpr={[1, 2]}>
           <color attach="background" args={['#dce9eb']} />
-          <fog attach="fog" args={['#dce9eb', 100, 200]} />
-          <ambientLight intensity={1.3} />
-          <directionalLight position={[12, 24, 16]} intensity={2.4} />
-          <directionalLight position={[-10, 8, -12]} intensity={0.8} color="#d5eaff" />
-          <WorldManager chunks={chunks} cameraChunkX={cameraChunk.x} cameraChunkZ={cameraChunk.z} viewDistance={5} />
-          <PetEntity pet={pet}
+          <fog attach="fog" args={['#dce9eb', 68, 116]} />
+          <ambientLight intensity={0.8} />
+          <directionalLight position={[12, 24, 16]} intensity={1.7} />
+          <directionalLight position={[-10, 8, -12]} intensity={0.35} color="#d5eaff" />
+          <WorldManager chunks={chunks} cameraChunkX={cameraChunk.x} cameraChunkZ={cameraChunk.z} viewDistance={6} />
+          <PetEntity pet={pet} scale={0.31}
             destination={{ x: state.position.x, y: state.position.y, z: state.position.z, token: Math.round(state.last_action_at) }}
             onPetClick={() => { void sayHello() }} hopSignal={helloCount}>
             {[-0.25, 1.25].map((x) => (
@@ -184,8 +195,8 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
               <meshStandardMaterial color="#cd8a84" />
             </mesh>
           </PetEntity>
-          <BuildCamera focus={cameraFocus} focusY={viewingStation ? cameraY : state.position.y ?? 1} initialFocus={initialPosition} initialFocusY={initialPosition.y ?? 1}
-            distance={viewingStation ? 84 : 38} follow={following}
+          <BuildCamera focus={cameraFocus} focusY={cameraY} initialFocus={initialPosition} initialFocusY={initialPosition.y ?? 1}
+            distance={viewingStation ? 84 : viewingWilderness ? 52 : state.progress < 100 ? 30 : 26} follow={following}
             onOrbit={() => setFollowing(false)}
             onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />
         </Canvas>
@@ -225,12 +236,16 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
           <div className="mt-4 flex gap-2">
             <button type="button" onClick={() => { void sayHello() }}
               className="flex-1 rounded-xl bg-[#315e58] px-3 py-2.5 text-sm font-medium text-white hover:bg-[#244b47]">Say hello</button>
-            <button type="button" onClick={() => { setViewingStation(false); setFollowing(true) }}
+            <button type="button" onClick={() => { setViewingStation(false); setViewingWilderness(false); setFollowing(true) }}
               className="flex-1 rounded-xl border border-[#bfd5cd] px-3 py-2.5 text-sm font-medium text-[#315e58] hover:bg-white">Follow Mimo</button>
           </div>
-          <button type="button" onClick={() => { setViewingStation(true); setFollowing(true) }}
+          <button type="button" onClick={() => { setViewingStation(true); setViewingWilderness(false); setFollowing(true) }}
             className="mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4">
             Visit the orbital station
+          </button>
+          <button type="button" onClick={() => { setViewingStation(false); setViewingWilderness(true); setFollowing(true) }}
+            className="ml-4 mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4">
+            Explore the wilderness
           </button>
           <button type="button" onClick={() => setShowSystems(true)}
             className="ml-4 mt-3 text-sm font-medium text-[#315e58] underline decoration-[#8cafa2] underline-offset-4">
@@ -261,6 +276,7 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
               <button type="button" onClick={() => setShowSystems(false)} aria-label="Close blocks and crafting" className="rounded-xl bg-[#e1eee7] px-3 py-1.5 text-xl">×</button>
             </div>
             <p className="mt-3 max-w-xl text-sm leading-6 text-[#54726e]">Mimo can mine, place, craft, and smelt these materials. You can help with crafting here. Inventory and machines persist when you leave.</p>
+            <p className="mt-2 text-xs text-[#54726e]">World seed: <code>{worldSeed}</code></p>
             <h3 className="mt-6 text-sm font-semibold">Mimo's inventory</h3>
             <div className="mt-2 flex flex-wrap gap-2 text-sm">
               {Object.entries(state.inventory).filter(([, amount]) => amount > 0).map(([item, amount]) =>

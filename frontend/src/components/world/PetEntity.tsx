@@ -19,6 +19,7 @@ interface PetEntityProps {
   children?: ReactNode
   destination?: { x: number; y?: number; z: number; token: number }
   onArrive?: () => void
+  scale?: number
 }
 
 function randomTarget(origin: { x: number; z: number }, radius: number) {
@@ -31,7 +32,7 @@ function randomTarget(origin: { x: number; z: number }, radius: number) {
   )
 }
 
-export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, onPetClick, hopSignal = 0, children, destination, onArrive }: PetEntityProps) {
+export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, onPetClick, hopSignal = 0, children, destination, onArrive, scale = 1 }: PetEntityProps) {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const timeRef = useRef(0)
@@ -151,6 +152,7 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
     <group
       ref={groupRef}
       position={[pet.position.x, pet.position.y, pet.position.z]}
+      scale={scale}
       onClick={(event) => {
         event.stopPropagation()
         hopTime.current = 0.7

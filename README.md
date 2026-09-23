@@ -23,7 +23,7 @@ docker compose up -d --force-recreate api mimo-worker
 
 The worker checks Mimo every five seconds. After a small action, Mimo can choose again on the next pass; it does not wait for a decision cooldown. Travel and active building also progress on each pass. Each choice uses energy. When energy runs low or Mimo chooses to rest, it sleeps and recovers before acting again. A default limit of 8,000 Jev decision attempts and 64 Luna creative attempts per UTC day guards against runaway API use; lower `MIMO_MAX_DECISIONS_PER_DAY` or `MIMO_MAX_LUNA_DECISIONS_PER_DAY` for a tighter budget. `MIMO_TICK_SECONDS` controls travel and build updates.
 
-The preview refreshes the saved world every second. During construction it reveals the blocks in each persisted progress update one at a time, and the block counter follows what is visible.
+The preview refreshes the saved world every second. During construction it reveals the blocks in each persisted progress update one at a time, and the block counter follows what is visible. Instanced block meshes initialize before becoming visible, avoiding the blank white frames that previously appeared during updates.
 
 For 24/7 operation, run the API and worker on an always-on host with a persistent `/data` volume and a configured model. A laptop sleeping or Docker being stopped pauses Mimo; the stored world remains intact.
 
@@ -31,16 +31,17 @@ For 24/7 operation, run the API and worker on an always-on host with a persisten
 
 - Mimo has persistent energy, mood, traits, inventory, projects, individual block edits, and an activity log.
 - Its observation includes known structures, the pond, nearby vertical block columns, and validated open sites. Mimo remembers visited clearings and excludes them from new exploration choices while keeping them available for building. Build choices are limited to available space and a set of structure compilers.
-- The world has 24 block types, including transparent glass and water, glowing blocks, ore, wood, sand, and gravel. Ground has small hills; Mimo can place blocks above ground and dig to four blocks below it.
+- Each world has a persisted 64-bit seed. The viewer generates nearby 16×16 terrain chunks from that seed as the camera follows Mimo or visits the wilderness. The server uses the same height, biome, cave, and ore math for observations and mining. The original 192-block home region retains its earlier terrain so saved buildings stay in place; the next 48 blocks blend into the generated landscape.
+- Generated terrain has meadow, forest, desert, and alpine biomes, hills, sea-level water, trees, surface materials, caves, and underground ores. Surface layers are rendered; deeper blocks are generated as they are exposed by digging. Mimo can place blocks above ground and dig to four blocks below it.
 - Placed sand and gravel fall one cell per world tick when unsupported. Water is translucent and gently animated in the viewer; it does not flow yet.
 - Mining yields materials. Logs become planks and sticks; a placed crafting table unlocks furnace and pickaxe recipes. A placed furnace consumes fuel to smelt ore or sand. Inventory and placed machines survive restart.
 - The **Blocks & crafting** panel lets the owner help by crafting, placing the table or furnace, and smelting. These actions use the same persistent inventory as Mimo's autonomous actions.
 
-The current large structures are compiled from parameterized designs. The model selects the project and site; it does not yet generate arbitrary voxel schematics. This is a functional base for a Minecraft-style world, not a full one-to-one recreation: player movement, multiplayer, fluid simulation, lighting propagation, redstone-style circuits, biomes, and broad crafting progression remain future work. Owner actions currently have no account authentication, so add authentication before exposing this API publicly.
+The current large structures are compiled from parameterized designs. The model selects the project and site; it does not yet generate arbitrary voxel schematics. This is a functional base for a Minecraft-style world, not a full one-to-one recreation: player movement, multiplayer, fluid simulation, lighting propagation, redstone-style circuits, and broad crafting progression remain future work. Owner actions currently have no account authentication, so add authentication before exposing this API publicly.
 
 ## Checks
 
 ```bash
-python3 -m unittest backend.tests.test_live_mimo -v
+python3 -m unittest discover -s backend/tests
 cd frontend && npm run build
 ```

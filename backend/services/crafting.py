@@ -6,6 +6,7 @@ from copy import deepcopy
 
 BLOCKS = {
     "grass": {"color": [127, 173, 137], "drop": "dirt"},
+    "snow": {"color": [236, 241, 243], "drop": "dirt"},
     "dirt": {"color": [126, 105, 89], "drop": "dirt"},
     "stone": {"color": [153, 151, 148], "drop": "cobblestone", "requires": "wooden_pickaxe"},
     "cobblestone": {"color": [130, 137, 137], "drop": "cobblestone"},

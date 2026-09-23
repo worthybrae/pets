@@ -1,8 +1,11 @@
 import type { Chunk, Voxel } from '../../types/world'
+import { CHUNK_SIZE } from '../../types/world'
 import {
   ensureTerrainAround, makeProject, ORBITAL_STATION, placeVoxels, worldForProgress,
   type BuildProject,
 } from './expandingWorld'
+import { previewChunks } from './previewWorld'
+import { DEFAULT_WORLD_SEED } from './worldgen'
 
 type Point = { x: number; z: number }
 type Color = readonly [number, number, number]
@@ -14,6 +17,7 @@ export interface WorldPlan {
   variant: number
   observation: string
   clearance: number
+  base_y?: number
 }
 
 export interface PlannerState {
@@ -37,12 +41,22 @@ function block(x: number, y: number, z: number, color: Color, material?: Voxel['
   return { x, y, z, r: color[0], g: color[1], b: color[2], a: 255, material }
 }
 
+const planCache = new Map<string, BuildProject>()
+
 export function compileWorldPlan(plan: WorldPlan): BuildProject {
-  if (plan.kind === 'station') return makeProject(0)
+  const key = `${plan.kind}:${plan.site.x},${plan.site.z}:${plan.variant}:${plan.base_y ?? 0}`
+  const cached = planCache.get(key)
+  if (cached) return cached
+  if (plan.kind === 'station') {
+    const station = makeProject(0)
+    planCache.set(key, station)
+    return station
+  }
   const { site, kind, variant } = plan
+  const baseY = plan.base_y ?? 0
   const voxels: Voxel[] = []
   const add = (x: number, y: number, z: number, color: Color, material?: Voxel['material']) =>
-    voxels.push(block(site.x + x, y, site.z + z, color, material))
+    voxels.push(block(site.x + x, baseY + y, site.z + z, color, material))
   const pale: Color = [227, 211, 181]
   const stone: Color = [169, 183, 178]
   const dark: Color = [82, 104, 111]
@@ -110,18 +124,31 @@ export function compileWorldPlan(plan: WorldPlan): BuildProject {
     for (const x of [-5, 5]) for (const z of [-5, 5]) for (let y = 1; y <= 3; y++) add(x, y, z, wood)
   }
 
-  return { name: names[kind], site, standOff: radii[kind] + 3, voxels }
+  const project = { name: names[kind], site, standOff: radii[kind] + 3, voxels }
+  planCache.set(key, project)
+  if (planCache.size > 256) planCache.delete(planCache.keys().next().value!)
+  return project
 }
 
-export function worldForPlannerState(state: PlannerState, center?: Point, visibleRadius = 96): Chunk[] {
-  let chunks = worldForProgress({ projectIndex: 0, stepIndex: 0 })
+export function worldForPlannerState(state: PlannerState, center?: Point, visibleRadius = 96,
+  seed = DEFAULT_WORLD_SEED): Chunk[] {
+  let chunks = center ? ensureTerrainAround([], center.x, center.z, 5, seed)
+    : worldForProgress({ projectIndex: 0, stepIndex: 0 })
+  if (center && Math.hypot(center.x, center.z) <= visibleRadius + 16) {
+    chunks = placeVoxels(chunks, previewChunks.flatMap((chunk) => chunk.voxels.map((value) => ({
+      ...value,
+      x: value.x + chunk.chunk_x * CHUNK_SIZE,
+      y: value.y + chunk.chunk_y * CHUNK_SIZE,
+      z: value.z + chunk.chunk_z * CHUNK_SIZE,
+    }))), seed)
+  }
   for (let index = 0; index <= state.currentIndex; index++) {
     const plan = state.plans[index]
     if (center && Math.hypot(plan.site.x - center.x, plan.site.z - center.z) > visibleRadius + radii[plan.kind]) continue
     const project = compileWorldPlan(plan)
-    chunks = ensureTerrainAround(chunks, project.site.x, project.site.z)
+    if (!center) chunks = ensureTerrainAround(chunks, project.site.x, project.site.z, 2, seed)
     const count = index < state.currentIndex ? project.voxels.length : Math.min(state.stepIndex, project.voxels.length)
-    chunks = placeVoxels(chunks, project.voxels.slice(0, count))
+    chunks = placeVoxels(chunks, project.voxels.slice(0, count), seed)
   }
   return chunks
 }

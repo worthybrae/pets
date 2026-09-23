@@ -19,9 +19,9 @@ const leaves: Color[] = [[86, 145, 117], [100, 160, 126], [112, 170, 132]]
 
 const voxels = new Map<string, Voxel>()
 
-function add(x: number, y: number, z: number, color: Color) {
+function add(x: number, y: number, z: number, color: Color, size?: Voxel['size'], offset?: Voxel['offset']) {
   voxels.set(`${x},${y},${z}`, { x, y, z, r: color[0], g: color[1], b: color[2], a: 255,
-    material: color === water ? 'water' : undefined })
+    material: color === water ? 'water' : undefined, size, offset })
 }
 
 function hash(x: number, z: number) {
@@ -87,10 +87,10 @@ for (const [x, z, color] of [
   [1, -6, [243, 164, 168]], [8, 1, [246, 192, 124]], [7, 5, [250, 218, 139]],
   [-1, 7, [243, 164, 168]], [3, 7, [246, 192, 124]],
 ] as const) {
-  add(x, 1, z, [90, 151, 113])
-  add(x, 2, z, color)
+  add(x, 1, z, [90, 151, 113], [0.14, 0.55, 0.14])
+  add(x, 2, z, color, [0.36, 0.36, 0.36], [0, -0.62, 0])
 }
-for (const [x, z] of [[-3, 2], [-2, 1], [3, 2], [4, 1]] as const) add(x, 1, z, [218, 207, 181])
+for (const [x, z] of [[-3, 2], [-2, 1], [3, 2], [4, 1]] as const) add(x, 1, z, [218, 207, 181], [0.75, 0.18, 0.75])
 
 function chunkFor(voxel: Voxel) {
   const chunkX = Math.floor(voxel.x / CHUNK_SIZE)
