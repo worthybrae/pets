@@ -21,6 +21,9 @@ SEEDS = [LEGACY_WORLD_SEED, GENERATED_SEED]
 LEGACY_CHUNKS = [(cx, cz) for cz in range(2, 12) for cx in range(2, 12)]
 WILD_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(16, 46)]
 WILD_NEG_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(-46, -16)]
+# Survival lives spawn 3,000-6,000 blocks out and may roam to the +/-30,000 limit.
+FAR_CHUNKS = [(cx, cz) for cz in range(-8, 8) for cx in range(250, 270)]
+FAR_LIMIT = 30000
 
 
 def _trees(seed: str, chunks: list[tuple[int, int]], count: int,
@@ -72,6 +75,15 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
             cells |= {(seed, x, y, z) for x, y, z in _biome_patch(seed, biome)}
         for _ in range(1500):
             cells.add((seed, rng.randint(-700, 700), rng.randint(-8, 40), rng.randint(-700, 700)))
+    far = random.Random(11)
+    for seed in SEEDS:
+        for tx, tz, base in _trees(seed, FAR_CHUNKS, 2):
+            cells |= {(seed, tx + dx, base + dy, tz + dz)
+                      for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 8)}
+        for _ in range(600):
+            x = far.choice((-1, 1)) * far.randint(2500, FAR_LIMIT)
+            z = far.randint(-FAR_LIMIT, FAR_LIMIT)
+            cells.add((seed, x, far.randint(-8, terrain_height(x, z, seed) + 8), z))
     return sorted(cells, key=lambda cell: (SEEDS.index(cell[0]), cell[1], cell[2], cell[3]))
 
 

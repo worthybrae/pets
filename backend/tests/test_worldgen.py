@@ -112,6 +112,14 @@ class FixtureTests(unittest.TestCase):
         self.assertTrue(any(x < -16 for _, x, _, _, material in fixture["cells"] if material == oak_log),
                         "fixture has no oak_log cells with x < -16")
 
+    def test_fixture_covers_far_survival_coordinates(self):
+        fixture = json.loads(FIXTURE_PATH.read_text())
+        oak_log = fixture["materials"].index("oak_log")
+        far = [cell for cell in fixture["cells"] if max(abs(cell[1]), abs(cell[3])) >= 2500]
+        self.assertGreater(len(far), 1000)
+        self.assertTrue(any(cell[4] == oak_log for cell in far), "fixture has no far oak_log cells")
+        self.assertTrue(any(max(abs(cell[1]), abs(cell[3])) >= 25000 for cell in far))
+
 
 if __name__ == "__main__":
     unittest.main()
