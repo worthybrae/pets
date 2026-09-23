@@ -7,6 +7,8 @@ export interface TileRecipe {
   pattern: string
   color: Rgb
   accent?: Rgb
+  /** Growth stage for crop sprites, 1 (just planted) to 4 (ripe). */
+  size?: number
 }
 
 export interface FaceTextures {

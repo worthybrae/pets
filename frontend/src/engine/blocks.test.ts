@@ -42,4 +42,18 @@ describe('block registry', () => {
     expect(FLUID_BY_ID[blockId('water')]).toBe(1)
     expect(LAYER_BY_ID[MISSING_ID]).toBe(LAYER_OPAQUE)
   })
+
+  it('adds the food and camp blocks after the existing ones, so older ids never change', () => {
+    expect(blockId('berry_bush')).toBe(blockId('flower_yellow') + 1)
+    expect(blockId('chest')).toBe(BLOCKS.length - 1)
+    for (const name of ['berry_bush_ripe', 'red_mushroom', 'wheat_2', 'carrot_3', 'sapling', 'campfire', 'torch']) {
+      expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
+      expect(blockDef(blockId(name)).solid, name).toBe(false)
+    }
+    expect(LAYER_BY_ID[blockId('farmland')]).toBe(LAYER_OPAQUE)
+    expect(blockDef(blockId('farmland')).textures).toEqual({ top: 'farmland_top', side: 'dirt', bottom: 'dirt' })
+    expect(GLOW_BY_ID[blockId('campfire')]).toBe(1)
+    expect(GLOW_BY_ID[blockId('torch')]).toBe(1)
+    expect(GLOW_BY_ID[blockId('sapling')]).toBe(0)
+  })
 })

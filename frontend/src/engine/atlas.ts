@@ -137,6 +137,74 @@ export const PATTERNS: Record<string, Painter> = {
     if ((i === 3 && j >= 4) || (i === 2 && j === 5) || (i === 4 && j === 6)) return tone(accent ?? color, jitter(random))
     return CLEAR
   }),
+  sprite_bush: ({ color, accent }, random) => {
+    const berries = accent ? [[1, 4], [3, 3], [5, 5], [2, 6], [6, 3]] : []
+    return grid((i, j) => {
+      const dx = (i - 3.5) / 4, dy = (j - 4.6) / 3.4
+      if (dx * dx + dy * dy > 1) return CLEAR
+      if (accent && berries.some(([x, y]) => x === i && y === j)) return tone(accent, jitter(random))
+      return tone(color, (random() < 0.22 ? 0.76 : 1) * jitter(random, 0.14))
+    })
+  },
+  sprite_mushroom: ({ color, accent }, random) => grid((i, j) => {
+    if (j >= 5 && (i === 3 || i === 4)) return tone(accent ?? color, (i === 4 ? 0.88 : 1) * jitter(random))
+    const cap = (j === 2 && i >= 2 && i <= 5) || ((j === 3 || j === 4) && i >= 1 && i <= 6)
+    if (!cap) return CLEAR
+    const spot = j < 4 && (i + j) % 3 === 0
+    return tone(color, (spot ? 1.3 : j === 4 ? 0.82 : 1) * jitter(random))
+  }),
+  furrows: ({ color }, random) => grid((_i, j) => tone(color, (j % 3 === 2 ? 0.7 : 1.06) * jitter(random))),
+  sprite_crop: ({ color, accent, size = 4 }, random) => {
+    const stalks = [1, 3, 4, 6]
+    const heights = stalks.map(() => Math.max(1, size * 2 - Math.floor(random() * 2)))
+    return grid((i, j) => {
+      const index = stalks.indexOf(i)
+      if (index < 0 || j < N - heights[index]) return CLEAR
+      const ear = accent !== undefined && j < N - heights[index] + 3
+      return tone(ear ? accent : color, jitter(random, 0.14))
+    })
+  },
+  sprite_leafy: ({ color, accent, size = 4 }, random) => {
+    const top = N - size * 2
+    return grid((i, j) => {
+      if (accent && j === N - 1 && (i === 2 || i === 5)) return tone(accent, jitter(random))
+      if (j < top) return CLEAR
+      const spread = 1 + Math.floor((j - top) / 2)
+      if (Math.abs(i - 3.5) > spread || (i + j) % 3 === 0) return CLEAR
+      return tone(color, (j - top < 2 ? 1.1 : 1) * jitter(random, 0.14))
+    })
+  },
+  sprite_sapling: ({ color, accent }, random) => grid((i, j) => {
+    if (j >= 4 && i === 3) return tone(accent ?? color, jitter(random))
+    const leaf = (j === 1 && i >= 2 && i <= 4) || (j === 2 && i >= 1 && i <= 5) || (j === 3 && (i === 2 || i === 4 || i === 5))
+    return leaf ? tone(color, (random() < 0.25 ? 0.8 : 1) * jitter(random, 0.14)) : CLEAR
+  }),
+  sprite_campfire: ({ color, accent }, random) => grid((i, j) => {
+    if (j >= 6) return (j === 6 ? i >= 1 && i <= 6 : i !== 3 && i !== 4) ? tone(accent ?? color, (i % 2 ? 0.86 : 1) * jitter(random)) : CLEAR
+    const half = (j - 1) * 0.55
+    if (j < 1 || Math.abs(i - 3.5) > half) return CLEAR
+    return tone(color, (Math.abs(i - 3.5) < 1 && j >= 3 ? 1.18 : 1) * jitter(random, 0.06))
+  }),
+  sprite_torch: ({ color, accent }, random) => grid((i, j) => {
+    if (i !== 3 && i !== 4) return CLEAR
+    if (j >= 3) return tone(accent ?? color, (i === 4 ? 0.86 : 1) * jitter(random))
+    return j >= 1 ? tone(color, (j === 2 ? 1 : 1.15) * jitter(random, 0.06)) : CLEAR
+  }),
+  bed_top: ({ color, accent }, random) => grid((i, j) => {
+    if (j <= 2) return tone(accent ?? color, (edge(i, j) ? 0.9 : 1) * jitter(random, 0.04))
+    return tone(color, (i === 0 || i === N - 1 ? 0.84 : 1) * jitter(random))
+  }),
+  bed_side: ({ color, accent }, random) => grid((i, j) => {
+    if (j <= 3) return tone(color, (j === 3 ? 0.84 : 1) * jitter(random))
+    return tone(accent ?? color, (j >= 6 && i > 0 && i < N - 1 ? 0.55 : 1) * jitter(random))
+  }),
+  chest_top: ({ color, accent }, random) => grid((i, j) =>
+    edge(i, j) ? tone(accent ?? color, jitter(random)) : tone(color, (j % 4 === 3 ? 0.84 : 1) * jitter(random))),
+  chest_side: ({ color, accent }, random) => grid((i, j) => {
+    if ((i === 3 || i === 4) && (j === 3 || j === 4)) return tone([226, 192, 126], jitter(random, 0.04))
+    if (edge(i, j) || j === 3) return tone(accent ?? color, jitter(random))
+    return tone(color, jitter(random))
+  }),
 }
 
 function tileOrigin(tile: number): [number, number] {

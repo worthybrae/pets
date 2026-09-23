@@ -50,6 +50,30 @@ describe('atlas', () => {
     expect(Math.max(...alphas('water'))).toBeLessThan(255)
   })
 
+  it('draws the food and camp sprites on see-through tiles and the new cubes solid', () => {
+    const alphas = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!).map((pixel) => pixel[3])
+    for (const name of ['berry_bush', 'berry_bush_ripe', 'brown_mushroom', 'red_mushroom', 'wheat_0', 'wheat_3',
+      'carrot_0', 'carrot_3', 'sapling', 'campfire', 'torch']) {
+      expect(alphas(name), name).toContain(0)
+    }
+    for (const name of ['farmland_top', 'bed_top', 'bed_side', 'chest_top', 'chest_side']) {
+      expect(Math.min(...alphas(name)), name).toBe(255)
+    }
+  })
+
+  it('grows crop sprites with each stage and puts berries on the ripe bush only', () => {
+    const shown = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!).filter((pixel) => pixel[3] > 0).length
+    expect(shown('wheat_0')).toBeLessThan(shown('wheat_1'))
+    expect(shown('wheat_1')).toBeLessThan(shown('wheat_2'))
+    expect(shown('wheat_2')).toBeLessThan(shown('wheat_3'))
+    expect(shown('carrot_0')).toBeLessThan(shown('carrot_1'))
+    expect(shown('carrot_1')).toBeLessThan(shown('carrot_2'))
+    const red = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!)
+      .filter((pixel) => pixel[3] > 0 && pixel[0] > pixel[1] + 60).length
+    expect(red('berry_bush')).toBe(0)
+    expect(red('berry_bush_ripe')).toBeGreaterThan(3)
+  })
+
   it('insets uvs by a quarter texel', () => {
     const inset = 0.25 / ATLAS_SIZE
     expect(tileUv(0)).toEqual([inset, inset, 8 / 128 - inset, 8 / 128 - inset])

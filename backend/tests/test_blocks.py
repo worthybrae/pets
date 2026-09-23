@@ -33,6 +33,11 @@ LEGACY_BLOCKS = {
     "crafting_table": {"color": [169, 117, 72], "drop": "crafting_table"},
     "furnace": {"color": [88, 91, 89], "drop": "furnace", "glow": True},
 }
+# M4's blocks, in registry order after the older ones.
+FOOD_AND_CAMP = ("berry_bush", "berry_bush_ripe", "brown_mushroom", "red_mushroom", "farmland",
+                 "wheat_0", "wheat_1", "wheat_2", "wheat_3", "carrot_0", "carrot_1", "carrot_2", "carrot_3",
+                 "sapling", "campfire", "torch", "bed", "chest")
+CUBES = ("farmland", "bed", "chest")
 
 
 class BlockRegistryTests(unittest.TestCase):
@@ -100,6 +105,30 @@ class BlockRegistryTests(unittest.TestCase):
             self.assertEqual(mining_tool(name), "axe", name)
         for name in ("dirt", "leaves", "tall_grass", "bedrock", "not_a_block"):
             self.assertIsNone(mining_tool(name), name)
+
+    def test_food_and_camp_blocks_come_after_the_older_blocks(self):
+        names = [block["name"] for block in BLOCK_LIST]
+        self.assertEqual(names[BLOCK_IDS["flower_yellow"] + 1:], list(FOOD_AND_CAMP))
+
+    def test_plants_crops_and_fires_are_see_through_and_kept_when_building(self):
+        for name in FOOD_AND_CAMP:
+            if name in CUBES:
+                self.assertTrue(is_solid(name), name)
+                continue
+            self.assertTrue(is_plant(name), name)
+            self.assertFalse(is_solid(name), name)
+            self.assertFalse(is_replaceable(name), name)
+        self.assertTrue(BLOCKS["campfire"]["glow"])
+        self.assertTrue(BLOCKS["torch"]["glow"])
+        self.assertEqual(hardness("wheat_2"), 0.1)
+        self.assertEqual(mining_tool("campfire"), "axe")
+
+    def test_plants_drop_what_grows_on_them(self):
+        drops = {"wheat_0": "seeds", "wheat_3": "wheat", "carrot_1": "carrot", "sapling": "sapling",
+                 "brown_mushroom": "brown_mushroom", "berry_bush_ripe": None, "farmland": "dirt", "campfire": "campfire"}
+        for name, drop in drops.items():
+            self.assertEqual(BLOCKS[name]["drop"], drop, name)
+
 
 
 if __name__ == "__main__":
