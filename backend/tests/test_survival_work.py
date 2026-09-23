@@ -9,8 +9,9 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ores_around
 from backend.survival.situation import Situation
 from backend.survival import work  # noqa: F401  (registers the gathering purposes)
-from backend.survival.work import dig_heading, sapling_fits, stair
+from backend.survival.work import dig_heading, sapling_fits, stair, stone_goal
 from backend.survival.vitals import START_VITALS
+from backend.tests.test_survival_building import World
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 LATE = {**DAY, "seconds_into_day": 2100.0}
@@ -188,6 +189,21 @@ class StoneTests(unittest.TestCase):
         self.assertEqual(len(PURPOSES["gather_stone"].plan(s, context(s.grid))), 11)
         seen = situation(pet(inventory=stocked), ground(), [("ore", (9, -3, 9), "iron_ore")])
         self.assertFalse(PURPOSES["gather_stone"].valid(seen))
+
+    def test_with_a_started_shelter_waiting_gather_stone_scores_as_stone_work_not_prospecting(self):
+        world = World({"cobblestone": 55, "wooden_pickaxe": 1})
+        world.carry_out(world.plan())
+        world.carry_out(world.plan())
+        s = world.situation()
+        # After building, some cobblestone is left and shelter is waiting for more blocks
+        # With 20+ cobblestone carried and a started shelter, facts should not mention iron ore
+        cobblestone_carried = s.count("cobblestone")
+        self.assertGreaterEqual(cobblestone_carried, 20)
+        facts = PURPOSES["gather_stone"].facts(s)
+        self.assertNotIn("iron ore", facts)
+        # Score should be in normal stone band (50 + diligence/10 + thrift/20 ...),
+        # not prospecting band (40 + curiosity/10 ...)
+        self.assertIn("cobblestone carried, a pickaxe in hand", facts)
 
 
 class OreTests(unittest.TestCase):

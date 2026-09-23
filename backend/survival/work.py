@@ -233,13 +233,13 @@ def wants_stone(s: Situation) -> bool:
 def stone_score(s: Situation) -> float:
     """Starting a new staircase from the surface is outdoor work; digging on underground is not."""
     late = late_penalty(s, outdoors=not underground(s))
-    if s.count("cobblestone") >= STONE_GOAL:  # prospecting for iron
+    if s.count("cobblestone") >= stone_goal(s) and prospecting(s):  # prospecting for iron
         return 40.0 + s.trait("curiosity") / 10 - late
     return 50.0 + s.trait("diligence") / 10 + s.trait("thrift") / 20 - late
 
 
 def stone_facts(s: Situation) -> str:
-    if s.count("cobblestone") >= STONE_GOAL:
+    if s.count("cobblestone") >= stone_goal(s) and prospecting(s):
         return f"{s.count('cobblestone')} cobblestone carried; digging on for iron ore, none seen yet"
     return f"{s.count('cobblestone')} cobblestone carried, a pickaxe in hand"
 
