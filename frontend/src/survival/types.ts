@@ -16,6 +16,43 @@ export interface Point {
   z: number
 }
 
+export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
+
+/** One cell of a walk, swim or fall, with the server time Mimo gets there. */
+export interface PathPoint extends Point {
+  at: number
+  /** True on water-surface cells. */
+  swim?: boolean
+}
+
+/** The step Mimo is doing now (backend/survival/steps.py and actions.py). */
+export interface MimoAction {
+  kind: ActionKind
+  started_at: number
+  /** Null while sleeping: sleep ends once Mimo is rested and it is not night. */
+  ends_at: number | null
+  path?: PathPoint[]
+  target?: Point
+  block?: string
+  item?: string
+  recipe?: string
+  /** How far a fall drops. */
+  blocks?: number
+}
+
+/** A step that finished, oldest first. Waits are left out. */
+export interface FinishedAction {
+  kind: ActionKind
+  started_at: number
+  ended_at: number
+  result: 'done' | 'failed'
+  target?: Point
+  block?: string
+  item?: string
+  recipe?: string
+  reason?: string
+}
+
 export interface Clock {
   day_number: number
   seconds_into_day: number
@@ -82,6 +119,8 @@ export interface SurvivalState {
   server_time: number
   died_at: number | null
   cause: string | null
+  action: MimoAction | null
+  recent_actions: FinishedAction[]
 }
 
 export interface AliveResponse extends SurvivalState {
