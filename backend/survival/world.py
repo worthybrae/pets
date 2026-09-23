@@ -22,6 +22,8 @@ from backend.services.block_table import (
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, craft, smelt, take_items
 from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
+from backend.survival.memory import create_memory_tables
+from backend.survival.triggers import mark_trigger
 from backend.survival.vitals import START_VITALS
 
 COORDINATE_LIMIT = 30_000
@@ -98,6 +100,7 @@ def create_world_tables(db: sqlite3.Connection) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS survival_state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
     create_block_tables(db)
+    create_memory_tables(db)
 
 
 def read_state(db: sqlite3.Connection) -> dict:
@@ -200,6 +203,7 @@ class SurvivalWorld:
             check_not_behind(state, timestamp)
             state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + 5)
             state["last_hello_at"] = timestamp
+            mark_trigger(state, "hello", timestamp)
             write_state(db, state)
             log_event(db, timestamp, "hello", f"You said hello to {state['name']}.")
             return {"mood": state["vitals"]["mood"], "noticed_at": timestamp}
