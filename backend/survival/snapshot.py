@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
+import sqlite3
 
 from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
+from backend.survival.memory import structures
 from backend.survival.registry import LifeRegistry
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld
 
@@ -77,6 +79,17 @@ def open_archive(registry: LifeRegistry, life: dict) -> MimoStore | SurvivalWorl
     return SurvivalWorld(path, read_only=True)
 
 
+def built_view(world: SurvivalWorld) -> list[dict]:
+    """What Mimo built, oldest first: kind, name, status and anchor. A world from before M5 that
+    is only read (an archive) has no structures table yet, and so built nothing."""
+    try:
+        with world.connect() as db:
+            found = structures(db)
+    except sqlite3.OperationalError:
+        return []
+    return [{key: structure[key] for key in ("id", "kind", "name", "status", "x", "y", "z")} for structure in found]
+
+
 def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
     """A survival world's state. A dead life's clock stops at its death."""
     state = world.state()
@@ -102,6 +115,9 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "recent_actions": replayable(state.get("recent_actions", []), now),
         # Leaves that decayed lately ({x, y, z, at}), so the viewer can show a puff as each goes.
         "decays": recent_decays(state.get("decays", []), now),
+        # M5: what Mimo built, and what its chests hold ({"x,y,z": {item: count}}).
+        "structures": built_view(world),
+        "chests": state.get("chests", {}),
         **brain_view(state.get("brain")),
     }
 

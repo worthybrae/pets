@@ -15,6 +15,7 @@ from backend.api.mimo import (
     CareRequest, OwnerAction, act_with_mimo, care_for_mimo, get_mimo, get_mimo_blocks, greet_mimo,
 )
 from backend.services.live_mimo import MimoStore
+from backend.survival.memory import add_structure
 from backend.survival.registry import LifeRegistry
 from backend.survival.snapshot import notable, recent_decays, replayable
 from backend.survival.tick import tick_life
@@ -69,6 +70,7 @@ class SurvivalApiTests(unittest.TestCase):
         self.assertEqual(state["clock"]["day_number"], 1)
         self.assertEqual(state["care"], {"snack": 1, "bandage": 1})
         self.assertEqual(state["decays"], [])
+        self.assertEqual((state["structures"], state["chests"]), ([], {}))
         self.assertNotIn("plans", state)
         self.assertEqual(self.status_of(hatch_egg), 409)
 
@@ -256,6 +258,19 @@ class SurvivalApiTests(unittest.TestCase):
         new = {**old, "started_at": 30.0, "ended_at": 30.9}
         self.assertEqual(replayable([old, new], 35.0), [{k: v for k, v in old.items() if k != "path"}, new])
         self.assertIn("path", old)
+
+    def test_what_mimo_built_and_its_chests_are_streamed(self):
+        hatch_egg()
+        world = self.active_world()
+        with world.transaction() as db:
+            add_structure(db, "shelter", "Pip's Snug Cottage", (5, 6, 7), 10.0, {}, [((5, 6, 7), "passage", "air")])
+            state = read_state(db)
+            state["chests"] = {"6,6,8": {"dirt": 9}}
+            write_state(db, state)
+        state = get_mimo()
+        self.assertEqual(state["structures"], [{"id": 1, "kind": "shelter", "name": "Pip's Snug Cottage",
+                                                "status": "building", "x": 5, "y": 6, "z": 7}])
+        self.assertEqual(state["chests"], {"6,6,8": {"dirt": 9}})
 
     def test_only_leaves_that_decayed_in_the_last_ten_seconds_are_streamed(self):
         decays = [{"x": 1, "y": 6, "z": 1, "at": 20.0}, {"x": 2, "y": 6, "z": 1, "at": 25.0},

@@ -306,3 +306,12 @@ def note_building(state: dict, step: dict, context, at: float) -> None:
             finish_if_built(state, context, number, at)
         if kind == "place" and step.get("block") == "torch":
             state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + TORCH_MOOD)
+
+
+def building_payload(s: Situation) -> dict:
+    """What a model is told about building: home, what Mimo built and what it could build now."""
+    home = nearest(s.places, s.here, ("home",), HOME_RANGE)
+    built = [{"kind": found["kind"], "name": found["name"], "status": found["status"]}
+             for found in structures_near(s, "shelter") + structures_near(s, "farm")]
+    return {"home": None if home is None else (home["note"] or "found"), "built": built,
+            "shelter": shelter_facts(s), "blocks_short": building_need(s)}

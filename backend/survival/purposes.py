@@ -9,7 +9,9 @@ Modules register their purposes on import: this one registers rest, sleep, explo
 eat; backend.survival.work registers gather_wood, gather_stone and mine_ore; and
 backend.survival.toolmaking registers craft_tools; M4's backend.survival.foraging registers
 forage and fish, backend.survival.farming farm, and backend.survival.cooking cook.
-backend.survival.brain imports them all. M5 registers build_* and light_up the same way.
+M5's backend.survival.building registers build_shelter, backend.survival.storage build_storage
+and drop_items, backend.survival.lighting light_up and backend.survival.farmstead build_farm.
+backend.survival.brain imports them all.
 
 Scores fall in bands, so a new purpose fits in with the others. These are the real ranges before
 the utility picker's random nudge (0 to 6) and its 30-point penalty for a purpose that just
@@ -27,6 +29,11 @@ dusk:
   food, capped at 80). Late takes 30 off the outdoor ones, down to 10.
 - leisure, 0-65: rest 10-40 and explore 20-65 (45 and up with no tree in sight), explore minus
   late but never below 0.
+- M5's building purposes sit in the same bands. build_shelter 60-80 while Mimo has no shelter of
+  its own (70 and up from the afternoon on), 75 to repair one and 45-55 to furnish it; light_up
+  72 in the evening at home, so the torches go up before sleep; build_storage 50-70, rising as
+  Mimo's arms fill (55 to take food out); drop_items 30-78, from leisure into needs as the arms
+  fill; build_farm 45-55, minus late.
 """
 
 from __future__ import annotations
