@@ -215,12 +215,21 @@ def wanted_ores(s: Situation) -> tuple[str, ...]:
     return tuple(wanted)
 
 
+def passage_floor(s: Situation, cell: Cell) -> bool:
+    """The block is the floor of an open cell below the natural surface: a stair or tunnel Mimo dug,
+    or a cave. Mining it can cut Mimo's way back up (a stair one step higher is then out of reach),
+    so ores there are left alone, as `stair` leaves such floors alone."""
+    x, y, z = cell
+    return y + 1 <= terrain_height(x, z, s.seed) and not is_solid(s.grid.material(x, y + 1, z))
+
+
 def ore_targets(s: Situation) -> list[dict]:
-    """Remembered, wanted ores Mimo can harvest within 48 blocks, nearest first."""
+    """Remembered, wanted ores Mimo can harvest within 48 blocks, nearest first, leaving out ores
+    that are the floor of a passage."""
     wanted, (x, _, z) = wanted_ores(s), s.here
     found = [place for place in s.places
              if place["kind"] == "ore" and place["note"] in wanted and can_harvest(place["note"], s.inventory)
-             and math.hypot(place["x"] - x, place["z"] - z) <= ORE_RANGE]
+             and math.hypot(place["x"] - x, place["z"] - z) <= ORE_RANGE and not passage_floor(s, cell_of(place))]
     return sorted(found, key=lambda place: s.distance(cell_of(place)))
 
 

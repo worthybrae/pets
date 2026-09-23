@@ -174,6 +174,14 @@ class OreTests(unittest.TestCase):
         stocked = pet(inventory={"wooden_pickaxe": 1, "coal": 8})
         self.assertFalse(PURPOSES["mine_ore"].valid(situation(stocked, grid, seen)))
 
+    def test_an_ore_in_the_floor_of_a_stair_is_left_alone(self):
+        seen = [("ore", (3, -3, 0), "iron_ore")]
+        cut = situation(pet(inventory={"stone_pickaxe": 1}), ground({(3, -3, 0): "iron_ore", (3, -2, 0): "air",
+                                                                     (3, -1, 0): "air"}), seen)
+        self.assertFalse(PURPOSES["mine_ore"].valid(cut))
+        buried = situation(pet(inventory={"stone_pickaxe": 1}), ground({(3, -3, 0): "iron_ore"}), seen)
+        self.assertTrue(PURPOSES["mine_ore"].valid(buried))
+
 
 @patch("backend.survival.purposes.terrain_height", lambda x, z, seed: 0)
 class LateDayTests(unittest.TestCase):
