@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  actionText, careLabel, causeText, clockTime, dayLabel, lifeLine, purposeText, statusText, thingName, vitalBars,
-  workerOnline,
+  actionText, careLabel, causeText, chestText, clockTime, dayLabel, homeText, lifeLine, purposeText, statusText, thingName,
+  vitalBars, workerOnline,
 } from './hud'
 
 const vitals = { health: 100, hunger: 14.6, warmth: 34, energy: 62.4, air: 100, mood: 70 }
@@ -80,10 +80,38 @@ describe('purposeText', () => {
   it('names a reflex first, then the purpose, then whether Mimo is choosing', () => {
     expect(purposeText({ purpose: 'gather_wood', reflex: 'head_home', choosing: false })).toBe('Hurrying home before dark')
     expect(purposeText({ purpose: 'gather_wood', reflex: null, choosing: true })).toBe('Gathering wood')
-    expect(purposeText({ purpose: 'build_shelter', reflex: null, choosing: false })).toBe('Build shelter')
+    expect(purposeText({ purpose: 'build_shelter', reflex: null, choosing: false })).toBe('Building a shelter')
+    expect(purposeText({ purpose: 'light_up', reflex: null, choosing: false })).toBe('Lighting torches')
+    expect(purposeText({ purpose: 'mend_fences', reflex: null, choosing: false })).toBe('Mend fences')
     expect(purposeText({ purpose: 'forage', reflex: null, choosing: false })).toBe('Foraging for food')
     expect(purposeText({ purpose: 'farm', reflex: null, choosing: false })).toBe('Tending the farm')
     expect(purposeText({ purpose: null, reflex: null, choosing: true })).toBe('Deciding what to do')
     expect(purposeText({ purpose: null, reflex: null, choosing: false })).toBe('Taking it easy')
+  })
+})
+
+describe('building', () => {
+  const hut = { id: 1, kind: 'shelter' as const, name: "Pip's Snug Cottage", status: 'building' as const, x: 1, y: 2, z: 3 }
+
+  it('names the chest and hand work', () => {
+    expect(actionText({ kind: 'store', started_at: 0, ends_at: 0.3, item: 'dirt' }, 'storing')).toBe('Putting away dirt')
+    expect(actionText({ kind: 'take', started_at: 0, ends_at: 0.3, item: 'bread' }, 'taking')).toBe('Taking out bread')
+    expect(actionText({ kind: 'drop', started_at: 0, ends_at: 0.3, item: 'red_mushroom' }, 'dropping'))
+      .toBe('Dropping red mushroom')
+    expect(actionText({ kind: 'place', started_at: 0, ends_at: 0.3, block: 'cobblestone' }, 'building'))
+      .toBe('Placing cobblestone')
+  })
+
+  it('says where home is: the shelter Mimo built, or the one it is building', () => {
+    expect(homeText([])).toBeNull()
+    expect(homeText([hut])).toBe("Building Pip's Snug Cottage")
+    expect(homeText([{ ...hut, status: 'done' }, { ...hut, id: 2, kind: 'farm', name: "Pip's farm" }]))
+      .toBe("Home: Pip's Snug Cottage")
+  })
+
+  it('sums up what the chests hold, most first', () => {
+    expect(chestText({})).toBeNull()
+    expect(chestText({ '1,2,3': { dirt: 40, red_mushroom: 2 }, '5,2,3': { dirt: 2, gravel: 5, sand: 0 } }))
+      .toBe('42 dirt, 5 gravel, 2 red mushroom')
   })
 })

@@ -1,4 +1,4 @@
-import type { ActionKind, CareKind, ClockPhase, LifeRow, MimoAction, SurvivalState, VitalName, Vitals } from './types'
+import type { ActionKind, Built, CareKind, Chests, ClockPhase, LifeRow, MimoAction, SurvivalState, VitalName, Vitals } from './types'
 
 export type VitalLevel = 'ok' | 'low' | 'critical'
 
@@ -55,7 +55,8 @@ export function statusText(status: string): string {
 const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
   walk: 'Walking', swim: 'Swimming', fall: 'Falling!', mine: 'Mining', place: 'Placing', eat: 'Eating',
   craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping', pick: 'Picking', harvest: 'Harvesting',
-  till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking',
+  till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking', store: 'Putting away', take: 'Taking out',
+  drop: 'Dropping',
 }
 
 /** A block or item in plain words: a crop's stage and a bush's ripeness are left out. */
@@ -75,7 +76,9 @@ const PURPOSE_TEXT: Record<string, string> = {
   gather_wood: 'Gathering wood', gather_stone: 'Digging for stone', mine_ore: 'Mining ore',
   craft_tools: 'Making a tool', explore: 'Exploring', go_home: 'Going home', sleep: 'Settling down to sleep',
   rest: 'Resting', eat: 'Having a meal', escape: 'Digging out of a pit', forage: 'Foraging for food',
-  fish: 'Fishing', farm: 'Tending the farm', cook: 'Cooking a meal',
+  fish: 'Fishing', farm: 'Tending the farm', cook: 'Cooking a meal', build_shelter: 'Building a shelter',
+  build_farm: 'Laying out a farm', build_storage: 'Putting things away', drop_items: 'Dropping what it cannot use',
+  light_up: 'Lighting torches',
 }
 const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
@@ -93,6 +96,23 @@ export function purposeText(state: Pick<SurvivalState, 'purpose' | 'reflex' | 'c
   if (state.reflex) return REFLEX_TEXT[state.reflex] ?? sentence(state.reflex)
   if (state.purpose) return PURPOSE_TEXT[state.purpose] ?? sentence(state.purpose)
   return state.choosing ? 'Deciding what to do' : 'Taking it easy'
+}
+
+/** Mimo's home in a few words: the shelter it built (or is building), or null before it starts one. */
+export function homeText(structures: Built[]): string | null {
+  const shelter = [...structures].reverse().find((built) => built.kind === 'shelter')
+  if (!shelter) return null
+  return shelter.status === 'done' ? `Home: ${shelter.name}` : `Building ${shelter.name}`
+}
+
+/** What Mimo keeps in its chests, most first, like "40 dirt, 5 gravel"; null when they are empty. */
+export function chestText(chests: Chests): string | null {
+  const totals = new Map<string, number>()
+  for (const chest of Object.values(chests)) {
+    for (const [item, count] of Object.entries(chest)) totals.set(item, (totals.get(item) ?? 0) + count)
+  }
+  const items = [...totals].filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  return items.length ? items.map(([item, count]) => `${count} ${item.replaceAll('_', ' ')}`).join(', ') : null
 }
 
 export function careLabel(kind: CareKind, remaining: number): string {

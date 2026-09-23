@@ -1,5 +1,5 @@
 import { dialPosition } from './clock'
-import { actionText, careLabel, clockTime, dayLabel, purposeText, vitalBars, type VitalLevel } from './hud'
+import { actionText, careLabel, clockTime, dayLabel, homeText, purposeText, vitalBars, type VitalLevel } from './hud'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -34,6 +34,7 @@ export default function SurvivalHud({ state, online, busy, message, onCare, onHe
 }) {
   const { clock, life } = state
   const careKinds: CareKind[] = ['snack', 'bandage']
+  const home = homeText(state.structures)
   return (
     <>
       <div className="absolute inset-x-4 top-4 z-10 flex flex-col gap-3 sm:inset-x-8 sm:top-8 sm:flex-row sm:items-start sm:justify-between">
@@ -46,6 +47,7 @@ export default function SurvivalHud({ state, online, busy, message, onCare, onHe
             <SkyDial secondsIntoDay={clock.seconds_into_day} />
           </div>
           <p className="mt-2 text-sm font-medium leading-5 text-[#315e58]">{purposeText(state)}</p>
+          {home && <p className="mt-0.5 truncate text-xs text-[#54726e]">{home}</p>}
           <p className="mt-0.5 text-xs text-[#54726e]">
             <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}
           </p>

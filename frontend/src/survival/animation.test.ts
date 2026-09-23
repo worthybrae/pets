@@ -15,6 +15,8 @@ describe('moveFor', () => {
     expect(moveFor({ kind: 'pick', started_at: 0, ends_at: 1 }, 0.5)).toBe('place')
     expect(moveFor({ kind: 'till', started_at: 0, ends_at: 1 }, 0.5)).toBe('mine')
     expect(moveFor({ kind: 'cook', started_at: 0, ends_at: 5 }, 1)).toBe('work')
+    expect(moveFor({ kind: 'store', started_at: 0, ends_at: 0.3 }, 0.1)).toBe('place')
+    expect(moveFor({ kind: 'drop', started_at: 0, ends_at: 0.3 }, 0.1)).toBe('place')
   })
 
   it('leans over the water while fishing', () => {

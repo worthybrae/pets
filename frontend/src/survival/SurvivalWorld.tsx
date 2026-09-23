@@ -101,7 +101,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
         onCare={care} onHello={hello} onFollow={() => setFollowing(true)}
         onCrafting={() => setShowCrafting(true)} onOpenLives={onOpenLives} />
       {showCrafting && (
-        <CraftingPanel name={state.life.name} inventory={state.inventory} recipes={state.recipes} stations={stations}
+        <CraftingPanel name={state.life.name} inventory={state.inventory} chests={state.chests} recipes={state.recipes} stations={stations}
           worldSeed={state.world_seed} message={craftMessage} onAction={(action, item) => { void craft(action, item) }}
           onClose={() => setShowCrafting(false)} />
       )}

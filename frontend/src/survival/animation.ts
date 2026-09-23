@@ -25,7 +25,7 @@ export const LIE_DOWN_SECONDS = 0.6
 const MOVES: Record<ActionKind, PetMove> = {
   walk: 'walk', swim: 'swim', fall: 'fall', mine: 'mine', place: 'place', eat: 'eat', sleep: 'sleep',
   craft: 'work', smelt: 'work', wait: 'idle', pick: 'place', harvest: 'mine', till: 'mine', plant: 'place',
-  fish: 'fish', cook: 'work',
+  fish: 'fish', cook: 'work', store: 'place', take: 'place', drop: 'place',
 }
 const HOP_HEIGHT = 0.22
 const SWING_SECONDS = 0.45

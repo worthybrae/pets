@@ -17,7 +17,7 @@ export interface Point {
 }
 
 export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
-  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook'
+  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop'
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -65,6 +65,17 @@ export interface FinishedAction {
 export interface LeafDecay extends Point {
   at: number
 }
+
+/** Something Mimo built or is building (backend/survival/memory.py structures), by its anchor. */
+export interface Built extends Point {
+  id: number
+  kind: 'shelter' | 'farm'
+  name: string
+  status: 'building' | 'done'
+}
+
+/** What each chest holds, keyed "x,y,z". */
+export type Chests = Record<string, Record<string, number>>
 
 export type PickerName = 'jev' | 'luna' | 'utility'
 
@@ -138,6 +149,10 @@ export interface SurvivalState {
   recent_actions: FinishedAction[]
   /** Leaves that decayed lately, newest last, for a puff as each goes. */
   decays: LeafDecay[]
+  /** What Mimo built, oldest first (M5). */
+  structures: Built[]
+  /** What its chests hold (M5). */
+  chests: Chests
   /** The purpose Mimo is working on, like "gather_wood", or null. */
   purpose: string | null
   /** A reflex that took over, like "head_home", or null. */

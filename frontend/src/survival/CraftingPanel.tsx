@@ -1,12 +1,15 @@
 import { AIR, BLOCKS } from '../engine/blocks'
-import type { Recipe } from './types'
+import { chestText } from './hud'
+import type { Chests, Recipe } from './types'
 
 const BLOCK_TYPES = BLOCKS.filter((block) => block.id !== AIR)
 
 /** The owner's crafting help: the same rules and persistent inventory the pet uses. */
-export default function CraftingPanel({ name, inventory, recipes, stations, worldSeed, message, onAction, onClose }: {
+export default function CraftingPanel({ name, inventory, chests, recipes, stations, worldSeed, message, onAction, onClose }: {
   name: string
   inventory: Record<string, number>
+  /** What Mimo keeps in its chests at home. */
+  chests: Chests
   recipes: Record<string, Recipe>
   stations: Set<string>
   worldSeed: string
@@ -15,6 +18,7 @@ export default function CraftingPanel({ name, inventory, recipes, stations, worl
   onClose: () => void
 }) {
   const owned = Object.entries(inventory).filter(([, amount]) => amount > 0)
+  const stored = chestText(chests)
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#203b38]/45 p-4" role="presentation" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-label={`${name}'s blocks and crafting`} onClick={(event) => event.stopPropagation()}
@@ -34,6 +38,7 @@ export default function CraftingPanel({ name, inventory, recipes, stations, worl
           {owned.map(([item, amount]) =>
             <span key={item} className="rounded-lg bg-[#e1eee7] px-3 py-1.5">{item.replaceAll('_', ' ')} ×{amount}</span>)}
         </div>
+        {stored && <p className="mt-2 text-xs text-[#54726e]">In {name}'s chest at home: {stored}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" disabled={!inventory.crafting_table} onClick={() => onAction('place_machine', 'crafting_table')}
             className="rounded-lg bg-[#315e58] px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-35">Place crafting table</button>
