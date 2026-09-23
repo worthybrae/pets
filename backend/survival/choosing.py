@@ -25,6 +25,8 @@ After each tick the worker calls `Chooser.poll`. When the active life has a pend
    the call is counted and the utility picker answers the same ask.
 3. `store_choice` saves the answer in a short transaction, unless the life died, nothing is
    pending any more or the pending id changed (the state moved on). Model calls count either way.
+   A `purpose` event is logged only when the purpose differs from the one chosen last, or when a
+   model's pick brings a new thought, so re-choosing rest after rest stays out of the event log.
 
 While a choice is pending, the brain keeps Mimo on its current plan, or waiting.
 """
@@ -53,7 +55,7 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import from_db
 from backend.survival.triggers import HOUR, ensure_brain
-from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
+from backend.survival.world import SurvivalWorld, log_event, read_state, recent_events, write_state
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +161,7 @@ def prepare(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | N
             return None
         s = from_db(db, state, now, scale)
         choices = options(s)
-        events = [{"text": row[0]} for row in
-                  db.execute("SELECT text FROM mimo_events ORDER BY id DESC LIMIT ?", (EVENTS_SHOWN,)).fetchall()]
-        payload = context_payload(s, events)
+        payload = context_payload(s, recent_events(db, EVENTS_SHOWN))
     if not choices:
         return None
     game_at = max(0.0, now - state["born_at"]) * scale
@@ -246,10 +246,13 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> 
         pending = brain["pending"]
         fresh = pending is not None and pending["id"] == ask.pending_id
         if fresh:
+            new_purpose = choice.purpose != brain.get("last_chosen")
+            new_thought = choice.picker != "utility" and choice.thought != state.get("last_thought")
             apply_choice(state, choice, now)
-            purpose = PURPOSES.get(choice.purpose)
-            phrase = purpose.phrase if purpose else choice.purpose.replace("_", " ")
-            log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}. "{choice.thought}"')
+            if new_purpose or new_thought:
+                purpose = PURPOSES.get(choice.purpose)
+                phrase = purpose.phrase if purpose else choice.purpose.replace("_", " ")
+                log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}. "{choice.thought}"')
         write_state(db, state)
         return choice.purpose if fresh else None
 

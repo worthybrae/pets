@@ -10,12 +10,10 @@ from backend.survival.actions import PATH_WINDOW
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
 from backend.survival.registry import LifeRegistry
-from backend.survival.world import SurvivalWorld
+from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld
 
-# Everyday events that a memorial or archive card leaves out.
-ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
-                            "explore", "owner", "plan", "purpose", "reflex"})
 NOTABLE_LIMIT = 6
+EVENTS_SHOWN = 12
 
 # The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
 # planner's bookkeeping.
@@ -60,6 +58,7 @@ def life_row(life: dict, scale: float, now: float) -> dict:
 
 
 def notable(events: list[dict]) -> list[dict]:
+    """A legacy life's notable events. Survival worlds select theirs in SQL (notable_events)."""
     return [event for event in events if event["kind"] not in ROUTINE_EVENTS][:NOTABLE_LIMIT]
 
 
@@ -81,7 +80,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "position": state["position"],
         "status": state["status"],
         "last_thought": state["last_thought"],
-        "events": world.events(12),
+        "events": world.recent_events(EVENTS_SHOWN),
         "inventory": state["inventory"],
         "recipes": RECIPES,
         "blocks_seq": world.blocks_seq(),
@@ -107,11 +106,11 @@ def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) ->
     archive = open_archive(registry, life)
     if isinstance(archive, MimoStore):
         state = archive.snapshot()
-        events = state["events"]
+        events = notable(state["events"])
     else:
         state = survival_view(archive, now, scale)
-        events = archive.events(40)
-    return {"life": life_row(life, scale, now), "notable_events": notable(events), "state": state}
+        events = archive.notable_events(NOTABLE_LIMIT)
+    return {"life": life_row(life, scale, now), "notable_events": events, "state": state}
 
 
 def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:

@@ -27,6 +27,11 @@ from backend.survival.triggers import mark_trigger
 from backend.survival.vitals import START_VITALS
 
 COORDINATE_LIMIT = 30_000
+# Everyday events: a memorial or archive card leaves them out, and recent-event lists show each
+# distinct one only once.
+ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
+                            "explore", "owner", "plan", "purpose", "reflex"})
+RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to skip repeats
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6
 MACHINES = ("crafting_table", "furnace")
@@ -115,6 +120,29 @@ def log_event(db: sqlite3.Connection, at: float, kind: str, text: str) -> None:
     db.execute("INSERT INTO mimo_events(at,kind,text) VALUES(?,?,?)", (at, kind, text))
 
 
+def notable_events(db: sqlite3.Connection, limit: int) -> list[dict]:
+    """The newest events that are not routine, newest first."""
+    marks = ",".join("?" * len(ROUTINE_EVENTS))
+    return [dict(row) for row in db.execute(
+        f"SELECT id,at,kind,text FROM mimo_events WHERE kind NOT IN ({marks}) ORDER BY id DESC LIMIT ?",
+        (*sorted(ROUTINE_EVENTS), limit)).fetchall()]
+
+
+def recent_events(db: sqlite3.Connection, limit: int) -> list[dict]:
+    """The newest events, newest first, with routine repeats left out: a routine event whose text
+    a newer one already shows is skipped."""
+    shown, seen = [], set()
+    for row in db.execute("SELECT id,at,kind,text FROM mimo_events ORDER BY id DESC LIMIT ?",
+                          (limit * RECENT_WINDOW,)).fetchall():
+        if row["kind"] in ROUTINE_EVENTS and row["text"] in seen:
+            continue
+        seen.add(row["text"])
+        shown.append(dict(row))
+        if len(shown) == limit:
+            break
+    return shown
+
+
 def placed_near(db: sqlite3.Connection, position: dict, reach: float,
                 materials: tuple[str, ...]) -> list[tuple[int, int, int, str]]:
     """Placed blocks of the given materials in the square column around `position`."""
@@ -175,6 +203,14 @@ class SurvivalWorld:
         with self.connect() as db:
             return [dict(row) for row in db.execute(
                 "SELECT id,at,kind,text FROM mimo_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+
+    def notable_events(self, limit: int) -> list[dict]:
+        with self.connect() as db:
+            return notable_events(db, limit)
+
+    def recent_events(self, limit: int = 12) -> list[dict]:
+        with self.connect() as db:
+            return recent_events(db, limit)
 
     def blocks_seq(self) -> int:
         with self.connect() as db:

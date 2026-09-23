@@ -216,6 +216,27 @@ class ChoosingTests(unittest.TestCase):
         self.assertEqual((brain["purpose"], brain["calls"]["model"]), (None, 1))
         self.assertEqual(self.world.events(1)[0]["kind"], "birth")
 
+    def test_a_purpose_event_is_logged_only_for_a_new_purpose_or_a_models_new_thought(self):
+        none = {"model": 0, "luna": 0, "reflections": 0}
+
+        def store(pending_id, choice, at):
+            """The purpose events the choice logged."""
+            def waiting(state):
+                ensure_brain(state).update(pending={"id": pending_id, "reasons": ["plan_done"], "since": at,
+                                                    "urgent": False}, purpose=None)
+            self.edit(waiting)
+            before = {event["id"] for event in self.world.events(50)}
+            store_choice(self.world, self.ask(at, {}), choice, at)
+            return [event["text"] for event in self.world.events(50) if event["id"] not in before]
+
+        self.assertEqual(len(store(5, Choice("rest", "utility", "Hm.", none), BORN + 1)), 1)
+        self.assertEqual(store(6, Choice("rest", "utility", "Hm.", none), BORN + 2), [])
+        self.assertEqual(store(7, Choice("rest", "jev", "Hm.", {**none, "model": 1}), BORN + 3), [])
+        self.assertEqual(store(8, Choice("rest", "jev", "Ahh.", {**none, "model": 1}), BORN + 4),
+                         ['Pip decided to rest. "Ahh."'.replace("Pip", self.life["name"])])
+        self.assertEqual(len(store(9, Choice("explore", "utility", "Go.", none), BORN + 5)), 1)
+        self.assertEqual(self.brain()["last_chosen"], "explore")
+
     def test_a_dead_life_is_left_alone(self):
         ask = self.ask(BORN + 1, {})
         self.edit(lambda state: state.update(died_at=BORN + 2, cause="fall"))

@@ -10,7 +10,7 @@ from backend.services.live_mimo import MimoStore
 from backend.services.worldgen import block_at, terrain_height
 from backend.survival import world as world_module
 from backend.survival.world import (
-    LifeOver, SurvivalWorld, WorldBehind, WorldMissing, new_survival_state, read_state, write_state,
+    LifeOver, SurvivalWorld, WorldBehind, WorldMissing, log_event, new_survival_state, read_state, write_state,
 )
 
 SEED = "123456789123456789"
@@ -47,6 +47,27 @@ class SurvivalWorldTests(unittest.TestCase):
         self.assertEqual(self.world.seed, SEED)
         self.assertEqual([event["kind"] for event in self.world.events()], ["birth"])
         self.assertEqual(self.world.blocks_seq(), 0)
+
+    def log(self, *events):
+        with self.world.transaction() as db:
+            for at, kind, text in events:
+                log_event(db, at, kind, text)
+
+    def test_notable_events_skip_routine_kinds_however_many_there_are(self):
+        self.log((1001.0, "found", "Pip spotted iron ore."), (1002.0, "trapped", "Pip is stuck in a pit."))
+        self.log(*((1003.0 + index, "purpose", f"Pip decided to rest {index}.") for index in range(60)))
+        self.log((1100.0, "death", "Pip died of the cold on day 2."))
+        self.assertEqual([event["kind"] for event in self.world.notable_events(6)],
+                         ["death", "trapped", "found", "birth"])
+
+    def test_recent_events_skip_routine_repeats(self):
+        self.log((1001.0, "craft", "Pip crafted planks."), (1002.0, "craft", "Pip crafted planks."),
+                 (1003.0, "found", "Pip spotted coal ore."), (1004.0, "reflex", "Pip hurried home before dark."),
+                 (1005.0, "reflex", "Pip hurried home before dark."), (1006.0, "hungry", "Pip is getting hungry."),
+                 (1007.0, "hungry", "Pip is getting hungry."))
+        self.assertEqual([event["text"] for event in self.world.recent_events(12)],
+                         ["Pip is getting hungry.", "Pip is getting hungry.", "Pip hurried home before dark.",
+                          "Pip spotted coal ore.", "Pip crafted planks.", "Pip hatched into a brand-new world."])
 
     def test_creating_over_a_leftover_file_replaces_it_with_a_fresh_world(self):
         self.world.put_block(3682, 6, 4143, "lantern")
