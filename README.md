@@ -27,9 +27,18 @@ The preview polls `/api/mimo` every second. Block changes carry sequence numbers
 - When no pet is alive, `/api/mimo` answers `{"phase": "egg"}` with an egg the server rolled (shape, scales, color, size and mist, each common to mythic) and the previous life's summary. `POST /api/lives/hatch` hatches it: a new 64-bit world seed, a spawn 3,000 to 6,000 blocks from the origin on grass or moss with a tree nearby, traits from the egg (rarer eggs raise every trait's floor) and a name.
 - A game day lasts one real hour: 3 minutes of dawn, 34 of day and 3 of dusk, then 20 dark minutes of night and pre-dawn.
 - Vitals run 0 to 100: health, hunger, warmth, energy, air and mood. An unfed pet's hunger empties in about two game days, then starvation costs 1 health every 30 seconds. Warmth moves toward 100 by day and 30 at night (colder in alpine biomes). A roof within 4 blocks overhead with walls on 3 sides, or a furnace within 4 blocks, keeps the pet warm; natural overhangs and caves count. Health recovers while the pet is fed and warm. At 0 health the pet dies for good, its life is archived and a new egg waits.
-- Until the brain milestone, the pet stands where it hatched and sleeps at night or when exhausted.
+- Until the brain milestone, a stand-in script runs the pet by day, and it sleeps at night or when exhausted. See Actions.
 - The owner gets one snack (+30 hunger) and one bandage (+25 health) per UTC day, can say hello (+5 mood), and can still help craft with the pet's inventory.
 - `GET /api/lives` lists every life, newest first. `GET /api/lives/{id}` returns one life's summary and final state (the old snapshot shape for life 1). `GET /api/lives/{id}/blocks?since=` pages its block changes.
+
+## Actions
+
+- Mimo is one block tall. It stands in an open cell with a solid block or water below it. The server finds paths with 3D A*: one block to a side, one block up when there is headroom, or down a drop of at most 3 blocks. On water it swims on the surface at a third of its walking speed and never plans a route under water. A search looks at no more than 20,000 cells within 96 blocks; farther places are reached in segments.
+- Every step takes time: walking 0.3 s per block (0.9 s swimming), mining the block's hardness divided by the tool speed (hand 1; wooden, stone and iron pickaxes 2, 4 and 6 on stone-type blocks), placing 0.3 s, eating 1.6 s, crafting 1 s and smelting 5 s. Sleep lasts until Mimo is rested and it is day. Mimo mines and places within 4 blocks. Mining still needs the right pickaxe and gives the block's drop. `hardness` and `tool` live in `shared/blocks.json`.
+- The worker runs the steps once a second, so several short steps can finish in one tick. The current step, the queue and the last 20 finished steps are saved with the world, so a restarted worker carries on where it stopped.
+- A block dug out from under Mimo makes it fall. A fall deals (blocks − 3) × 10 damage, and water breaks a fall. Air drains while Mimo's cell is water; until the brain milestone Mimo then swims straight up.
+- `/api/mimo` streams the current step (`action`: kind, start and end time, and a timed path or a target block) and `recent_actions`. The viewer moves the pet along the path by server time and animates each step: a hop per block, a swing and growing cracks while mining, particles and an item pop when a block breaks, a bounce when a block is placed, nibbling with crumbs, lying down with floating z's, bobbing in water and a quickening drop when falling.
+- The stand-in script (`backend/survival/script.py`, replaced by the brain milestone): by day Mimo walks to the nearest tree within 24 blocks, chops its logs and crafts them into planks, and walks out to look for trees when none is near. `MIMO_TIME_SCALE` speeds the clock and the vitals, not the steps, so the animations stay watchable in a fast test run.
 
 ## Current world rules
 
