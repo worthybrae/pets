@@ -1,11 +1,25 @@
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.live_mimo import MimoStore
+
+
+def _write_old_schema_database(path: Path) -> None:
+    connection = sqlite3.connect(path)
+    # A database that already went through a run (like the API/worker's) is in WAL
+    # mode already; set it here so the test races the migration, not the one-time
+    # journal mode switch.
+    connection.execute("PRAGMA journal_mode=WAL")
+    with connection:
+        connection.execute("CREATE TABLE mimo_blocks (x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, "
+                           "material TEXT NOT NULL, PRIMARY KEY(x,y,z))")
+        connection.execute("INSERT INTO mimo_blocks VALUES (1,2,3,'stone'), (4,5,6,'air'), (7,8,9,'dirt')")
+    connection.close()
 
 
 class BlockSyncTests(unittest.TestCase):
@@ -86,6 +100,46 @@ class BlockSyncTests(unittest.TestCase):
         self.assertNotIn("catalog", snapshot)
         self.assertIn("recipes", snapshot)
         self.assertEqual(snapshot["blocks_seq"], self.store.blocks_since(0)["seq"])
+
+    def test_repeated_initialize_on_old_schema_keeps_seq_stable(self):
+        path = Path(self.directory.name) / "old_repeat.sqlite3"
+        _write_old_schema_database(path)
+        first = MimoStore(path)
+        before_edits = first.block_edits()
+        before_seq = first.snapshot()["blocks_seq"]
+        second = MimoStore(path)
+        after_edits = second.block_edits()
+        after_seq = second.snapshot()["blocks_seq"]
+        self.assertEqual(before_edits, after_edits)
+        self.assertEqual(before_seq, after_seq)
+
+    def test_concurrent_initialize_on_old_schema_does_not_race(self):
+        for attempt in range(5):
+            path = Path(self.directory.name) / f"race_{attempt}.sqlite3"
+            _write_old_schema_database(path)
+            errors = []
+            barrier = threading.Barrier(4)
+
+            def worker():
+                try:
+                    barrier.wait(timeout=5)
+                    MimoStore(path)
+                except Exception as error:  # noqa: BLE001 - captured for the assertion below
+                    errors.append(error)
+
+            threads = [threading.Thread(target=worker) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(errors, [], f"attempt {attempt}: {errors}")
+            with sqlite3.connect(path) as check:
+                check.row_factory = sqlite3.Row
+                seqs = [row["seq"] for row in check.execute("SELECT seq FROM mimo_blocks ORDER BY seq")]
+            self.assertEqual(len(seqs), 3, f"attempt {attempt}: {seqs}")
+            self.assertEqual(len(seqs), len(set(seqs)), f"attempt {attempt}: duplicate seqs {seqs}")
+            self.assertTrue(all(seq >= 1 for seq in seqs), f"attempt {attempt}: {seqs}")
 
     def test_blocks_endpoint_reads_the_configured_store(self):
         self.store.put_block(80, 20, 0, "stone")

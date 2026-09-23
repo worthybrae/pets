@@ -212,6 +212,12 @@ class MimoStore:
 
     def initialize(self) -> None:
         with self.connect() as db:
+            # One transaction for the whole schema setup and migration: two processes
+            # starting together (API + worker under docker compose) on an old-schema
+            # database would otherwise race the ALTER TABLE and its backfill. The
+            # busy_timeout on this connection makes the second process wait instead
+            # of failing, then it sees the column already there.
+            db.execute("BEGIN IMMEDIATE")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL, lease_until REAL NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_worker (id INTEGER PRIMARY KEY CHECK (id=1), seen_at REAL NOT NULL)")
