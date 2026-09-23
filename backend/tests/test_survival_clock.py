@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from backend.survival.clock import DAY_SECONDS, clock_at, is_night, phase_at, time_scale
+from backend.survival.clock import DAY_SECONDS, action_scale, clock_at, is_night, phase_at, time_scale
 
 
 class ClockTests(unittest.TestCase):
@@ -53,6 +53,18 @@ class ClockTests(unittest.TestCase):
         with patch.dict(os.environ, {}):
             os.environ.pop("MIMO_TIME_SCALE", None)
             self.assertEqual(time_scale(), 1.0)
+
+
+class ActionScaleTests(unittest.TestCase):
+    def test_reads_mimo_action_scale_and_defaults_to_one(self):
+        with patch.dict(os.environ, {"MIMO_ACTION_SCALE": "60"}):
+            self.assertEqual(action_scale(), 60.0)
+        for bad in ("0", "-2", "fast", "inf", "nan"):
+            with patch.dict(os.environ, {"MIMO_ACTION_SCALE": bad}):
+                self.assertEqual(action_scale(), 1.0, bad)
+        with patch.dict(os.environ, {}):
+            os.environ.pop("MIMO_ACTION_SCALE", None)
+            self.assertEqual(action_scale(), 1.0)
 
 
 if __name__ == "__main__":

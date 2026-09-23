@@ -341,6 +341,25 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual((state["recent_actions"][-1]["result"], state["recent_actions"][-1]["purpose"]),
                          ("done", "gather_stone"))
 
+    def test_the_newest_finished_paths_are_kept_for_replay(self):
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "walk", "target": [x, 1, 0]} for x in range(1, 7)]
+        for until in range(1, 5):
+            advance_actions(state, context(grid), float(until))  # a fresh budget each call, like a tick
+        walks = state["recent_actions"]
+        self.assertEqual(len(walks), 6)
+        self.assertEqual(["path" in entry for entry in walks], [False, False, True, True, True, True])
+        self.assertEqual(walks[-1]["path"][-1], {"x": 6, "y": 1, "z": 0, "at": walks[-1]["ended_at"]})
+
+    def test_the_context_action_scale_speeds_up_steps(self):
+        grid, state = small_world({(1, 1, 0): "oak_log"}), pet()
+        state["queue"] = [{"kind": "mine", "target": [1, 1, 0]}]
+        ctx = context(grid)
+        ctx.action_scale = 60.0
+        advance_actions(state, ctx, 0.1)
+        self.assertEqual(state["recent_actions"][-1]["ended_at"], 0.033)
+
+
 
 
 class OnceLogTests(unittest.TestCase):

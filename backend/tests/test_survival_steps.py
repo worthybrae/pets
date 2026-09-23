@@ -153,6 +153,15 @@ class StepTests(unittest.TestCase):
         self.assertEqual(failure_code(KeyError("recipe")), "bad_step")
         self.assertEqual(failure_code(StepFailed("the dirt is gone", "gone")), "gone")
 
+    def test_the_action_scale_divides_step_times_but_not_waits(self):
+        grid, state = small_world({(1, 1, 0): "oak_log"}), pet()
+        self.assertEqual(start_step({"kind": "mine", "target": [1, 1, 0]}, state, grid, 100.0, scale=4.0)["ends_at"],
+                         100.5)
+        walk = start_step({"kind": "walk", "target": [3, 1, 0]}, state, small_world(), 10.0, scale=3.0)
+        self.assertEqual([entry["at"] for entry in walk["path"]], [10.0, 10.1, 10.2, 10.3])
+        self.assertEqual(start_step({"kind": "wait", "seconds": 5}, state, grid, 1.0, scale=4.0)["ends_at"], 6.0)
+
+
 
 
 class CellTests(unittest.TestCase):

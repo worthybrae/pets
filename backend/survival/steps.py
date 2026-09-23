@@ -158,8 +158,13 @@ def validate_step(spec: dict) -> None:
         raise StepFailed("bad step: seconds")
 
 
-def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
-    """Check a queued step against the world and return it running, from `at` to its end time."""
+def start_step(spec: dict, state: dict, grid: Grid, at: float, scale: float = 1.0) -> dict:
+    """Check a queued step against the world and return it running, from `at` to its end time.
+
+    `scale` (MIMO_ACTION_SCALE, 1 outside manual tests) divides the duration of walks, mining,
+    placing, eating, crafting and smelting. Waits time things against the clock and sleep has no
+    fixed end, so neither is scaled.
+    """
     validate_step(spec)
     kind = spec.get("kind")
     here = as_cell(state["position"])
@@ -173,7 +178,7 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
         cells, reached = route(grid, here, target, reach)
         if not cells and not reached:
             raise StepFailed("no way there", "no_path")
-        path = timed_path(grid, here, cells, at)
+        path = timed_path(grid, here, cells, at, scale)
         return {"kind": "walk", "started_at": at, "ends_at": path[-1]["at"], "path": path,
                 "target": as_point(target), "reach": reach, "reached": reached, "segments": segments}
     if kind == "mine":
@@ -186,7 +191,7 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
             raise StepFailed(f"{label(material)} cannot be mined", "blocked")
         if not can_harvest(material, inventory):
             raise StepFailed(f"a stronger pickaxe is needed for {label(material)}", "missing_item")
-        return {"kind": "mine", "started_at": at, "ends_at": round(at + seconds, 3),
+        return {"kind": "mine", "started_at": at, "ends_at": round(at + seconds / scale, 3),
                 "target": as_point(target), "block": material}
     if kind == "place":
         target, block = as_cell(spec["target"]), spec["block"]
@@ -200,7 +205,7 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
             raise StepFailed("that is where it stands", "blocked")
         if not is_replaceable(grid.material(*target)):
             raise StepFailed("that cell is taken", "blocked")
-        return {"kind": "place", "started_at": at, "ends_at": round(at + PLACE_SECONDS, 3),
+        return {"kind": "place", "started_at": at, "ends_at": round(at + PLACE_SECONDS / scale, 3),
                 "target": as_point(target), "block": block}
     if kind == "eat":
         item = spec["item"]
@@ -208,13 +213,15 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
             raise StepFailed(f"{label(item)} is not food")
         if inventory.get(item, 0) < 1:
             raise StepFailed(f"no {label(item)} to eat", "missing_item")
-        return {"kind": "eat", "started_at": at, "ends_at": round(at + EAT_SECONDS, 3), "item": item}
+        return {"kind": "eat", "started_at": at, "ends_at": round(at + EAT_SECONDS / scale, 3), "item": item}
     if kind == "craft":
         craft(inventory, spec["recipe"], stations_near(grid, here))
-        return {"kind": "craft", "started_at": at, "ends_at": round(at + CRAFT_SECONDS, 3), "recipe": spec["recipe"]}
+        return {"kind": "craft", "started_at": at, "ends_at": round(at + CRAFT_SECONDS / scale, 3),
+                "recipe": spec["recipe"]}
     if kind == "smelt":
         smelt(inventory, spec["item"], stations_near(grid, here))
-        return {"kind": "smelt", "started_at": at, "ends_at": round(at + SMELT_SECONDS, 3), "item": spec["item"]}
+        return {"kind": "smelt", "started_at": at, "ends_at": round(at + SMELT_SECONDS / scale, 3),
+                "item": spec["item"]}
     if kind == "sleep":
         # Sleep has no fixed end: actions.py ends it once Mimo is rested and it is not night.
         return {"kind": "sleep", "started_at": at, "ends_at": None}

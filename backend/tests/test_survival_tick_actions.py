@@ -155,6 +155,16 @@ class TickActionTests(unittest.TestCase):
         self.assertEqual(state["last_tick_at"], BORN + 150)
         self.assertEqual(len(logs.output), 1)
 
+    def test_tick_life_passes_the_action_scale_to_the_steps(self):
+        x, z = self.spawn_column()
+        y = terrain_height(x, z, self.world.seed) + 1
+        self.world.put_block(x + 1, y, z, "oak_log")
+        self.edit(position={"x": float(x), "y": float(y), "z": float(z)}, action=None, recent_actions=[],
+                  actions_at=BORN, queue=[{"kind": "mine", "target": [x + 1, y, z]}])
+        state = tick_life(self.registry, BORN + 0.1, scale=1, action_scale=60)
+        self.assertEqual(state["recent_actions"][-1]["ended_at"], round(BORN + 2.0 / 60, 3))
+
+
 
 
 if __name__ == "__main__":

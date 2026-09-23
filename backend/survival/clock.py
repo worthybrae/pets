@@ -1,7 +1,9 @@
 """The world clock. One game day is 3,600 game seconds and starts at dawn when a life is born.
 
-MIMO_TIME_SCALE (default 1) sets how many game seconds pass per real second. It exists for
-manual testing; automated tests pass the scale in directly.
+MIMO_TIME_SCALE (default 1) sets how many game seconds pass per real second. MIMO_ACTION_SCALE
+(default 1) makes Mimo's steps that many times shorter. Both exist for manual testing (at 60x the
+clock runs fast, so without the action scale a fast run cannot show a whole day of purposes);
+automated tests pass the scales in directly.
 """
 
 from __future__ import annotations
@@ -21,13 +23,23 @@ PHASES: tuple[tuple[str, float, float], ...] = (
 NIGHT_PHASES = frozenset({"night", "pre_dawn"})
 
 
-def time_scale() -> float:
-    """Game seconds per real second from MIMO_TIME_SCALE. Missing or invalid values mean 1."""
+def _positive_setting(name: str) -> float:
+    """A positive finite number from the environment. Missing or invalid values mean 1."""
     try:
-        scale = float(os.environ.get("MIMO_TIME_SCALE", "1"))
+        value = float(os.environ.get(name, "1"))
     except ValueError:
         return 1.0
-    return scale if math.isfinite(scale) and scale > 0 else 1.0
+    return value if math.isfinite(value) and value > 0 else 1.0
+
+
+def time_scale() -> float:
+    """Game seconds per real second from MIMO_TIME_SCALE. Missing or invalid values mean 1."""
+    return _positive_setting("MIMO_TIME_SCALE")
+
+
+def action_scale() -> float:
+    """How many times shorter Mimo's steps are, from MIMO_ACTION_SCALE. Missing or invalid values mean 1."""
+    return _positive_setting("MIMO_ACTION_SCALE")
 
 
 def phase_at(seconds_into_day: float) -> str:

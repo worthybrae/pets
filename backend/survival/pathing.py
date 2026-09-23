@@ -130,13 +130,14 @@ def route(grid: Grid, start: Cell, target: Cell, reach: float = 0.0) -> tuple[li
                      target, slack=math.ceil(reach * math.sqrt(2)))
 
 
-def timed_path(grid: Grid, start: Cell, cells: list[Cell], started_at: float) -> list[dict]:
-    """The start and each cell after it with the time Mimo gets there. Water-surface cells say so."""
+def timed_path(grid: Grid, start: Cell, cells: list[Cell], started_at: float, scale: float = 1.0) -> list[dict]:
+    """The start and each cell after it with the time Mimo gets there. Water-surface cells say so.
+    `scale` (MIMO_ACTION_SCALE) makes every move that many times shorter."""
     at = started_at
     path = [{"x": start[0], "y": start[1], "z": start[2], "at": started_at}]
     for cell in cells:
         swim = grid.swimming(cell)
-        at = round(at + (SWIM_SECONDS if swim else WALK_SECONDS), 3)
+        at = round(at + (SWIM_SECONDS if swim else WALK_SECONDS) / scale, 3)
         entry = {"x": cell[0], "y": cell[1], "z": cell[2], "at": at}
         if swim:
             entry["swim"] = True

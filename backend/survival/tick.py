@@ -21,7 +21,7 @@ from typing import Callable
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
 from backend.survival.actions import ActionContext, Observe, Planner, activity_of, advance_actions, ensure_actions
-from backend.survival.clock import DAY_SECONDS, clock_at, is_night, time_scale
+from backend.survival.clock import DAY_SECONDS, action_scale as action_scale_setting, clock_at, is_night, time_scale
 from backend.survival.grid import world_grid
 from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry
@@ -107,7 +107,8 @@ def run_notice(mind: Mind, state: dict, context: ActionContext, before: dict, su
         log_once(logger, "notice", error)
 
 
-def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mind = RESTING) -> dict:
+def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mind = RESTING,
+                  action_scale: float = 1.0) -> dict:
     """Catch the world up to `timestamp` in one transaction and return the saved state."""
     with world.transaction() as db:
         state = read_state(db)
@@ -117,7 +118,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
         events: list[Event] = []
         context = ActionContext(grid=world_grid(db, world.seed), planner=mind.plan, events=events,
                                 clock_at=lambda at: clock_at(state["born_at"], at, scale),
-                                observe=mind.observe, db=db)
+                                observe=mind.observe, db=db, action_scale=action_scale)
         cursor = state["last_tick_at"]
         remaining = (timestamp - cursor) * scale
         while remaining > 1e-9:
@@ -153,14 +154,15 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
 
 
 def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: float | None = None,
-              mind: Mind = RESTING) -> dict | None:
+              mind: Mind = RESTING, action_scale: float | None = None) -> dict | None:
     """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive."""
     life = registry.active_life()
     if life is None:
         return None
     timestamp = time.time() if timestamp is None else timestamp
     scale = time_scale() if scale is None else scale
-    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale, mind)
+    action_scale = action_scale_setting() if action_scale is None else action_scale
+    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale, mind, action_scale)
     if state["died_at"] is not None:
         registry.mark_dead(life["id"], state["died_at"], state["cause"])
     return state

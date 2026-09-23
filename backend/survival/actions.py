@@ -47,6 +47,9 @@ from backend.survival.steps import as_cell, as_point, failure_code, finish_step,
 logger = logging.getLogger(__name__)
 
 RECENT_LIMIT = 20
+# Finished walks, swims and falls keep their timed path so the viewer can replay a short step it
+# never saw running. Only the newest few entries keep it, so the saved state stays small.
+PATH_KEEP = 4
 MAX_STEPS_PER_ADVANCE = 1000
 MAX_SEARCHES_PER_TICK = 2  # route()/start_step(walk) calls allowed across one whole advance_world call
 GRAVITY = 32.0  # blocks per second squared: a fall of b blocks takes sqrt(2 b / GRAVITY) seconds
@@ -58,7 +61,7 @@ STATUS = {"walk": "walking", "swim": "swimming", "fall": "falling", "mine": "min
           "eat": "eating", "craft": "crafting", "smelt": "smelting", "sleep": "sleeping", "wait": "idle"}
 # Waits tell the viewer nothing and would push real steps out of the recent list.
 UNRECORDED = frozenset({"wait"})
-RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose")
+RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose", "path")
 
 Event = tuple[float, str, str]
 # A planner gets the state, the tick's ActionContext and the time, and returns the next steps.
@@ -86,6 +89,7 @@ class ActionContext:
     searches_left: int = MAX_SEARCHES_PER_TICK
     observe: Observe | None = None
     db: sqlite3.Connection | None = None
+    action_scale: float = 1.0
 
 
 def take_search(context: ActionContext) -> bool:
@@ -125,7 +129,10 @@ def record(state: dict, step: dict, ended_at: float, result: str, reason: str | 
         entry["reason"] = reason
     if code:
         entry["code"] = code
-    state["recent_actions"] = [*state["recent_actions"], entry][-RECENT_LIMIT:]
+    recent = [*state["recent_actions"], entry][-RECENT_LIMIT:]
+    for older in recent[:-PATH_KEEP]:
+        older.pop("path", None)
+    state["recent_actions"] = recent
 
 
 def fail(state: dict, step: dict, at: float, reason: str, code: str = "bad_step") -> None:
@@ -326,7 +333,7 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
                 break  # search budget spent this tick; try this walk again next advance_actions
             state["queue"].pop(0)
             try:
-                state["action"] = start_step(spec, state, grid, at)
+                state["action"] = start_step(spec, state, grid, at, context.action_scale)
             except (ValueError, KeyError) as error:
                 fail(state, as_started(spec, at), at, str(error), failure_code(error))
                 break  # plan again at the next advance, not in a tight loop
