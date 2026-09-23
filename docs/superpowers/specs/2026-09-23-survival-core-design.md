@@ -5,8 +5,8 @@ Sub-project 2 of the "Mimo's world feels like Minecraft" roadmap. It replaces th
 | # | Sub-project | Status |
 |---|-------------|--------|
 | 1 | Voxel engine and soft pixel look | Done (branch `worthy/22_09_2026/voxel_engine_soft_pixel`) |
-| 2 | Survival core | This spec |
-| 3 | Creatures: passive and hostile creatures, night spawning, light levels, fight and flee, creature seeds | Later |
+| 2 | Survival core | This spec (M1 and M2 done, M3 next) |
+| 3 | Living world: surface rocks and outcrops, cave entrances into the existing underground caves, wandering animals Mimo can hunt, hostile night creatures, creature seeds, light levels, fight and flee | Right after sub-project 2 |
 | 4 | Chat with Mimo | Later |
 | 5 | Block updates: flowing water, falling sand entities | Later |
 | 6 | App shell: Capacitor iOS/Android, PWA, hosted API | Later |
@@ -27,6 +27,7 @@ Mimo builds the same seven blueprints forever. Builds are free, needs are shallo
 - **Today's Mimo retires.** Its world, with the station and its 61 builds, becomes the first archived life. The first survival pet hatches into a new world.
 - **The owner is a limited helper.** Crafting help stays. The owner also gets a small daily care budget: one snack and one bandage per real day. Saying hello lifts mood.
 - **The owner wants to chat with Mimo.** That is sub-project 4. This spec leaves room for it (an "owner said something" trigger).
+- **Order after seeing M2 (2026-09-23).** The owner watched the M2 pet chop a tree and asked why the leaves float, why there are no creatures to fight or hunt, why there are only trees to mine (no rocks or caves), and why Mimo has no instinct to make a home. They chose to finish the whole survival core (M3 brain, M4 food, M5 building) first, then build the living world (sub-project 3) right after. Leaf decay moves into M4, because it is where saplings and apples come from.
 
 ## Scope
 
@@ -43,7 +44,7 @@ Each milestone gets its own implementation plan and ships working software on it
 | M1 | Lives and vitals | Life registry, retiring today's Mimo, egg hatch into a new world, world clock, vitals and their rates, death and archive, owner care, HUD, day and night visuals, archive browser |
 | M2 | Physical Mimo | Server pathfinding over real blocks, timed action steps (walk, mine, place, eat, sleep), falls and drowning, viewer animation of actions |
 | M3 | Brain | Reflexes, purposes, planner, memory, purpose pickers (Jev, Luna, rule-based fallback) |
-| M4 | Food and renewal | Berry bushes, mushrooms, crops, saplings, fishing, cooking, regrowth, depletion |
+| M4 | Food and renewal | Berry bushes, mushrooms, crops, saplings, leaf decay, fishing, cooking, regrowth, depletion |
 | M5 | Purposeful building | Shelter, farm, storage and light structures generated from needs and inventory, placed block by block |
 
 M3 onward depends on M2's actions. M4 and M5 depend on M3's purposes.
@@ -148,6 +149,17 @@ Per life, stored in the world database:
 
 Memory is what "fresh start" wipes. A new life begins with empty memory.
 
+### Carried from the M2 review
+
+- **No model call inside the tick.** The worker picks a purpose outside the world's write transaction and stores it. The planner inside the tick only turns the stored purpose into steps.
+- **Planners share the tick's budget.** A planner gets the action context and counts its path searches against the same budget of 2 per tick.
+- **Interrupts.** Reflexes can cancel a running step. A walk snaps to the last cell it reached, the step is recorded as `interrupted`, and the purpose's queue is set aside so it can resume afterwards. Reflexes are checked before every step start and during sleep and waits.
+- **Failures carry codes:** `no_path`, `out_of_reach`, `gone`, `missing_item`, `blocked`, `bad_step`, each with the cell and the purpose that planned it. The last failure is kept for the "re-plan once, then report" rule.
+- **Trapped.** Routes can drop 3 blocks but climb only 1, so Mimo can walk into a pit it cannot leave. Two walk failures in a row with no route out count as trapped: the planner digs a staircase out, or pillars up with a block it carries.
+- **Viewer replay.** The viewer draws Mimo about 1.5 seconds behind server time, and finished walks keep their path in the recent actions. Short steps that start and end between polls still play out instead of jumping.
+- **Crash logs.** A planner or step crash is logged once per distinct error, not on every tick.
+- **Action speed for tests.** `MIMO_ACTION_SCALE` (default 1, test-only, like `MIMO_TIME_SCALE`) divides every step's duration. At 60× the clock runs fast but steps do not, so without it a fast manual run cannot show a whole day of purposes.
+
 ## 6. Physical Mimo (M2)
 
 ### Body and movement
@@ -212,7 +224,8 @@ The viewer interpolates Mimo's position along the path by arrival times and play
 | Raw fish | +8 | Fishing: 20–60 s per catch, success depends on the water body's stock |
 | Cooked fish | +30 | 5 s at a lit campfire or furnace |
 | Seeds | 0 | 20% chance when breaking tall grass |
-| Sapling | 0 | 1 in 12 chance when leaves are removed |
+| Sapling | 0 | 1 in 12 chance when leaves are removed or decay |
+| Apple | 15 | 1 in 20 chance when leaves are removed or decay |
 
 ### Renewal
 
@@ -223,6 +236,7 @@ A `growth` table in the world database holds `(x, y, z, block, ready_at)`. The w
 - A sapling becomes a tree after 1 game day if there is space.
 - Fish stock is tracked per 16×16 water region (starts at 12 and recovers 1 per game day).
 - Tilled farmland reverts to dirt after 2 game days without a crop.
+- **Leaf decay.** When a log is removed, every leaf block that no longer has a log within 4 blocks (counted through leaves and logs) is scheduled to vanish at a random time in the next 1 to 6 game minutes. The drops above apply, and the viewer shows a small puff as each leaf goes.
 - Mined ore never regrows. Mushrooms reappear on dark forest floor at a low rate (one per chunk per game day, capped at 3 per chunk).
 
 ## 8. Purposeful building (M5)
