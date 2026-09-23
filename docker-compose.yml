@@ -15,6 +15,8 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       MIMO_DB_PATH: /data/mimo.sqlite3
+      MIMO_DATA_DIR: /data
+      MIMO_TIME_SCALE: ${MIMO_TIME_SCALE:-1}
       MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
       MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
       MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
@@ -33,13 +35,15 @@ services:
     command: ["python", "-m", "backend.workers.mimo_worker"]
     environment:
       MIMO_DB_PATH: /data/mimo.sqlite3
+      MIMO_DATA_DIR: /data
+      MIMO_TIME_SCALE: ${MIMO_TIME_SCALE:-1}
       MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
       MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
       MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       TYPESAFE_MODEL: ${TYPESAFE_MODEL:-jev-latest}
-      MIMO_TICK_SECONDS: ${MIMO_TICK_SECONDS:-5}
+      MIMO_TICK_SECONDS: ${MIMO_TICK_SECONDS:-1}
       MIMO_MAX_DECISIONS_PER_DAY: ${MIMO_MAX_DECISIONS_PER_DAY:-8000}
       MIMO_MAX_LUNA_DECISIONS_PER_DAY: ${MIMO_MAX_LUNA_DECISIONS_PER_DAY:-64}
     volumes:
