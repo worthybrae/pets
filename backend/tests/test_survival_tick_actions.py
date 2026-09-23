@@ -8,9 +8,10 @@ from backend.services.worldgen import terrain_height
 from backend.survival import steps as steps_module
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
+from backend.survival.brain import BRAIN
 from backend.survival.once import forget_logged
-from backend.survival.script import scripted_plan
 from backend.survival.tick import Mind, tick_life
+from backend.survival.triggers import new_brain
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.workers import mimo_worker
 
@@ -38,12 +39,13 @@ class TickActionTests(unittest.TestCase):
         position = self.world.state()["position"]
         return round(position["x"]), round(position["z"])
 
-    def test_one_tick_can_walk_chop_and_craft(self):
-        state = tick_life(self.registry, BORN + 120, scale=1, mind=Mind(plan=scripted_plan))
+    def test_one_tick_of_the_brain_can_walk_and_chop(self):
+        self.edit(brain={**new_brain(BORN), "purpose": "gather_wood", "pending": None, "chosen_at": BORN})
+        state = tick_life(self.registry, BORN + 120, scale=1, mind=BRAIN)
         self.assertIsNone(state["died_at"])
-        self.assertGreaterEqual(state["inventory"].get("planks", 0), 4)
+        self.assertGreaterEqual(state["inventory"].get("oak_log", 0), 1)
         self.assertIn("air", [change["material"] for change in self.world.blocks_since(0)["changes"]])
-        self.assertIn("craft", [event["kind"] for event in self.world.events(50)])
+        self.assertIn("gather_wood", {entry.get("purpose") for entry in state["recent_actions"]})
 
     def test_a_restarted_worker_resumes_a_stored_walk(self):
         x, z = self.spawn_column()
@@ -93,8 +95,8 @@ class TickActionTests(unittest.TestCase):
             tick_life(self.registry, BORN + 301, scale=1)
         self.assertGreaterEqual(spy_next.call_count, 1)
 
-    def test_the_worker_runs_the_interim_script(self):
-        self.assertIs(mimo_worker.WORKER_MIND.plan, scripted_plan)
+    def test_the_worker_runs_the_brain(self):
+        self.assertIs(mimo_worker.WORKER_MIND, BRAIN)
 
     def test_a_crashing_planner_never_freezes_the_life(self):
         """Reviewer-reported bug (Task 7 final review): an exception escaping advance_actions
