@@ -76,13 +76,15 @@ def report(state: dict, context: ActionContext, purpose_name: str, at: float, wh
     finish_purpose(state, at, "plan_failed")
 
 
-def forget_unreachable_home(context: ActionContext, purpose_name: str, failure: dict) -> None:
-    """A shelter go_home failed twice to find a way to is forgotten, so the next sheltered spot
-    Mimo finds can become home."""
+def forget_unreachable(context: ActionContext, purpose_name: str, failure: dict) -> None:
+    """A place a purpose failed twice to find a way to is forgotten: a shelter go_home was after
+    (so the next sheltered spot Mimo finds can become home), or an ore mine_ore was after (so it
+    is not chosen again and again only to fail)."""
     cell = failure.get("cell")
-    if purpose_name != "go_home" or failure.get("code") != "no_path" or context.db is None or not isinstance(cell, dict):
+    if failure.get("code") != "no_path" or context.db is None or not isinstance(cell, dict):
         return
-    for kind in SHELTER_KINDS:
+    kinds = {"go_home": SHELTER_KINDS, "mine_ore": ("ore",)}.get(purpose_name, ())
+    for kind in kinds:
         forget(context.db, kind, (cell["x"], cell["y"], cell["z"]))
 
 
@@ -127,7 +129,7 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
         if escape:
             return escape
         if brain["replans"] >= 1:
-            forget_unreachable_home(context, purpose.name, failure)
+            forget_unreachable(context, purpose.name, failure)
             report(state, context, purpose.name, at, failure["reason"])
             return waiting(state, context, at)
         brain["replans"] += 1

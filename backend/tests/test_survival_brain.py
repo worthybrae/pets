@@ -109,6 +109,19 @@ class BrainPlanTests(unittest.TestCase):
         self.assertEqual(places(ctx.db), [])
         self.assertIn("go_home", state["brain"]["penalties"])
 
+    def test_an_ore_that_cannot_be_reached_is_forgotten(self):
+        state = pet(inventory={"stone_pickaxe": 1})
+        choose(state, "mine_ore")
+        ctx = brainy(flat({(20, -3, 0): "coal_ore"}))
+        remember(ctx.db, "ore", (20, -3, 0), 0.0, "coal_ore")
+        self.assertEqual(brain_plan(state, ctx, 0.0)[0]["target"], [20, -3, 0])
+        for seq in (1, 2):
+            state["last_failure"] = {"code": "no_path", "reason": "no way there", "kind": "walk",
+                                     "cell": {"x": 20, "y": -3, "z": 0}, "purpose": "mine_ore", "at": 1.0, "seq": seq}
+            brain_plan(state, ctx, 1.0)
+        self.assertEqual(places(ctx.db), [])
+        self.assertIn("mine_ore", state["brain"]["penalties"])
+
     def test_a_purpose_that_is_no_longer_valid_is_finished(self):
         state = pet()
         choose(state, "sleep")
