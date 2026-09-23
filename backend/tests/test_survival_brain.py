@@ -13,7 +13,7 @@ from backend.survival.reflexes import reflex_hook
 from backend.survival.situation import in_tick
 from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
-from backend.survival.memory import create_memory_tables, known_recipes, places, remember
+from backend.survival.memory import create_memory_tables, known, known_recipes, places, remember
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, Purpose, register
 from backend.survival.registry import LifeRegistry
@@ -126,6 +126,21 @@ class BrainPlanTests(unittest.TestCase):
             brain_plan(state, ctx, 1.0)
         self.assertEqual(places(ctx.db), [])
         self.assertIn("mine_ore", state["brain"]["penalties"])
+
+    def test_a_meal_of_red_mushrooms_makes_mimo_sick_only_once(self):
+        state = pet(inventory={"red_mushroom": 3}, vitals={**START_VITALS, "hunger": 20.0})
+        choose(state, "eat")
+        ctx = brainy()
+        ctx.observe = observe_step
+        advance_actions(state, ctx, 30.0)
+        self.assertEqual((state["vitals"]["health"], state["inventory"]), (90.0, {"red_mushroom": 2}))
+        self.assertEqual(known(ctx.db, "poisonous"), ["red_mushroom"])
+
+        starving = pet(inventory={"red_mushroom": 3}, vitals={**START_VITALS, "hunger": 10.0})
+        ctx = brainy()
+        ctx.observe, ctx.interrupt = observe_step, reflex_hook
+        advance_actions(starving, ctx, 30.0)
+        self.assertEqual((starving["vitals"]["health"], starving["inventory"]), (90.0, {"red_mushroom": 2}))
 
     def test_a_purpose_that_is_no_longer_valid_is_finished(self):
         state = pet()

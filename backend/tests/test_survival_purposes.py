@@ -160,9 +160,10 @@ class SimplePurposeTests(unittest.TestCase):
     def test_food_known_to_be_poisonous_is_never_eaten(self):
         hungry = pet(inventory={"red_mushroom": 2, "berries": 1}, vitals={**START_VITALS, "hunger": 20.0})
         s = situation(hungry)
+        # Untried food that can make Mimo sick is tasted once per meal, never eaten by the handful.
         self.assertEqual(PURPOSES["eat"].plan(s, context()),
-                         [{"kind": "eat", "item": "berries"}, {"kind": "eat", "item": "red_mushroom"},
-                          {"kind": "eat", "item": "red_mushroom"}])
+                         [{"kind": "eat", "item": "berries"}, {"kind": "eat", "item": "red_mushroom"}])
+        self.assertEqual(meal({"red_mushroom": 3}, 10.0), [{"kind": "eat", "item": "red_mushroom"}])
         know(s.db, "red_mushroom", "poisonous", 0.0)
         s = Situation(hungry, s.grid, DAY, 0.0, s.db)
         self.assertEqual(PURPOSES["eat"].plan(s, context()), [{"kind": "eat", "item": "berries"}])

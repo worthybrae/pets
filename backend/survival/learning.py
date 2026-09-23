@@ -1,7 +1,8 @@
 """What Mimo learns from the M4 steps it finished, kept in its memory (backend.survival.memory).
 
 - Eating food that made it sick teaches it the food is poisonous; foods() and meal() leave it out
-  from then on, so neither the eat purpose nor the eat-now reflex eats it again.
+  from then on, so neither the eat purpose nor the eat-now reflex eats it again. The eat steps for
+  it still queued (or set aside by a reflex) are dropped at once.
 - Picking wild food remembers the patch (one per 8 blocks) with how many ripe plants it still
   had and when (data {"ripe", "seen_at"}), so forage can come back once it grew again.
 - Placing a campfire or furnace remembers a fire (a warm spot and a place to cook); mining it
@@ -30,6 +31,18 @@ def note_food_patch(db, grid, state: dict, picked, at: float) -> None:
     update_place(db, "food", spot, {"ripe": len(ripe), "seen_at": at})
 
 
+def drop_eats(state: dict, item: str) -> None:
+    """Drop the eat steps for `item` still queued, or set aside by a reflex: it just made Mimo sick."""
+    def keep(spec: dict) -> bool:
+        return not (spec.get("kind") == "eat" and spec.get("item") == item)
+
+    if "queue" in state:
+        state["queue"] = [spec for spec in state["queue"] if keep(spec)]
+    brain = state.get("brain")
+    if brain and brain.get("set_aside"):
+        brain["set_aside"] = [spec for spec in brain["set_aside"] if keep(spec)]
+
+
 def learn_from_step(state: dict, step: dict, context, at: float) -> None:
     db = context.db
     if db is None:
@@ -37,6 +50,7 @@ def learn_from_step(state: dict, step: dict, context, at: float) -> None:
     kind = step["kind"]
     if kind == "eat" and FOOD_HEALTH.get(step["item"], 0.0) < 0:
         know(db, step["item"], "poisonous", at)
+        drop_eats(state, step["item"])
     elif kind == "pick":
         note_food_patch(db, context.grid, state, as_cell(step["target"]), at)
     elif kind == "place" and step["block"] in FIRES:

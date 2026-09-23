@@ -32,7 +32,7 @@ from backend.survival.memory import SHELTER_KINDS, cell_of, nearest
 from backend.survival.once import log_once
 from backend.survival.senses import TREE_SEARCH, trees_near
 from backend.survival.situation import DUSK, NIGHTFALL, Situation
-from backend.survival.steps import FOOD
+from backend.survival.steps import FOOD, FOOD_HEALTH
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -141,12 +141,15 @@ def foods(inventory: dict, avoid=()) -> list[str]:
 
 def meal(inventory: dict, hunger: float, full: float = FULL, avoid=()) -> list[dict]:
     """Eat steps, best food first, until hunger would reach `full` or the food runs out. Food in
-    `avoid` (known to be poisonous) is never eaten."""
-    steps, left = [], dict(inventory)
+    `avoid` (known to be poisonous) is never eaten. Food that can make Mimo sick (steps.FOOD_HEALTH)
+    and is not known to be poisonous yet is only tasted, one per meal: the first bite teaches Mimo
+    (backend.survival.learning), so a meal never eats a handful of red mushrooms."""
+    steps = []
     for item in foods(inventory, avoid):
-        while left.get(item, 0) > 0 and hunger < full:
+        servings = 1 if FOOD_HEALTH.get(item, 0.0) < 0 else inventory[item]
+        while servings > 0 and hunger < full:
             steps.append({"kind": "eat", "item": item})
-            left[item] -= 1
+            servings -= 1
             hunger += FOOD[item]
     return steps
 

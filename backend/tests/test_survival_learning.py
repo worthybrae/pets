@@ -35,6 +35,21 @@ class LearningTests(unittest.TestCase):
         observe_step(pet(), {"kind": "eat", "item": "red_mushroom"}, ctx, 2.0)
         self.assertEqual(known(ctx.db, "poisonous"), ["red_mushroom"])
 
+    def test_being_sick_drops_the_same_food_still_queued_or_set_aside(self):
+        ctx = remembering()
+        state = pet()
+        red, berries = {"kind": "eat", "item": "red_mushroom", "purpose": "eat_now"}, {"kind": "eat", "item": "berries"}
+        walk = {"kind": "walk", "target": [9, 1, 0], "reach": 0.0, "purpose": "explore"}
+        state["queue"] = [dict(red), dict(berries), dict(red)]
+        state["brain"]["set_aside"] = [walk, {**red, "purpose": "eat"}]
+        observe_step(state, {"kind": "eat", "item": "red_mushroom", "purpose": "eat_now"}, ctx, 2.0)
+        self.assertEqual(state["queue"], [berries])
+        self.assertEqual(state["brain"]["set_aside"], [walk])
+        fine = pet()
+        fine["queue"] = [dict(berries), dict(berries)]
+        observe_step(fine, {"kind": "eat", "item": "berries"}, ctx, 3.0)
+        self.assertEqual(fine["queue"], [berries, berries])
+
     def test_picking_remembers_the_patch_with_its_ripe_food_and_when(self):
         ctx = remembering()
         for cell in ((3, 1, 0), (4, 1, 0), (5, 1, 1)):
