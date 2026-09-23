@@ -7,6 +7,13 @@ Before a new step starts, two hazards come first: Mimo falls when nothing holds 
 ((blocks - 3) x 10 damage, none when it lands on water), and it swims straight up when its cell
 is water (a fallback until the brain's surface reflex in M3).
 
+A crashing planner, or one returning something other than a list of dicts, is logged once and
+replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
+way (not the StepFailed/ValueError/KeyError start_step and finish_step already raise for bad
+game state) is recorded failed with reason "bad step" instead of raising. Neither ever stops the
+tick: a malformed step or a broken planner must not freeze a life (M3 will plug new planners in
+here, so this must be airtight).
+
 A walk step starts with a path search (route(), inside start_step); on real terrain a search
 that exhausts its budget costs around 250ms. Catching up after a long gap can call advance_actions
 many times inside one advance_world (one per catch-up step, plus a final call), all sharing one
@@ -20,6 +27,7 @@ no step with an empty path is ever built.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Callable
@@ -29,6 +37,8 @@ from backend.survival.clock import is_night
 from backend.survival.grid import Cell, Grid
 from backend.survival.pathing import SWIM_SECONDS
 from backend.survival.steps import as_cell, as_point, finish_step, position_of, start_step
+
+logger = logging.getLogger(__name__)
 
 RECENT_LIMIT = 20
 MAX_STEPS_PER_ADVANCE = 1000
@@ -100,11 +110,20 @@ def fail(state: dict, step: dict, at: float, reason: str) -> None:
 
 
 def as_started(spec: dict, at: float) -> dict:
-    """A queued step in the shape of a started one, to record a step that could not start."""
+    """A queued step in the shape of a started one, to record a step that could not start.
+
+    Copies the spec's own fields as they are, without re-parsing them: a spec malformed enough to
+    fail start_step must still be recordable. `target` is normalised only best-effort, since that
+    is exactly the field most likely to be the malformed one; a value as_point cannot make sense
+    of is kept as-is rather than raising a second time from inside a failure handler.
+    """
     step = {key: spec[key] for key in ("block", "item", "recipe") if key in spec}
     step.update(kind=spec.get("kind", "unknown"), started_at=at)
     if "target" in spec:
-        step["target"] = as_point(spec["target"])
+        try:
+            step["target"] = as_point(spec["target"])
+        except ValueError:
+            step["target"] = spec["target"]
     return step
 
 
@@ -196,6 +215,10 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
     except (ValueError, KeyError) as error:
         fail(state, step, at, str(error))
         return False
+    except Exception:
+        logger.exception("finish_step crashed on %r", step)
+        fail(state, step, at, "bad step")
+        return False
     record(state, step, at, "done")
     if event:
         events.append((at, *event))
@@ -209,6 +232,26 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
     return False
 
 
+def safe_plan(context: ActionContext, state: dict, grid: Grid, at: float) -> list[dict]:
+    """Ask the planner for the next steps. A crash, or a result that is not a list of dicts, is
+    logged once and replaced with rest_plan: M3 plugs new planners in here, so this must be
+    airtight against whatever one of them does wrong."""
+    clock = context.clock_at(at)
+    try:
+        plan = context.planner(state, grid, at, clock)
+    except Exception:
+        logger.exception("planner crashed")
+        plan = None
+    else:
+        if not (isinstance(plan, list) and all(isinstance(spec, dict) for spec in plan)):
+            logger.error("planner returned %r, not a list of steps", plan)
+            plan = None
+    if plan is None:
+        from backend.survival.script import rest_plan  # imported here to sidestep any future cycle
+        plan = rest_plan(state, grid, at, clock)
+    return list(plan)
+
+
 def advance_actions(state: dict, context: ActionContext, until: float) -> float | None:
     """Run Mimo's actions up to `until`. Returns the time a fall killed Mimo, or None."""
     ensure_actions(state)
@@ -220,7 +263,7 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             if start_hazard(state, grid, at):
                 continue
             if not state["queue"]:
-                state["queue"] = list(context.planner(state, grid, at, context.clock_at(at)))
+                state["queue"] = safe_plan(context, state, grid, at)
                 if not state["queue"]:
                     break
             spec = state["queue"][0]
@@ -234,6 +277,10 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             except (ValueError, KeyError) as error:
                 fail(state, as_started(spec, at), at, str(error))
                 break  # plan again at the next advance, not in a tight loop
+            except Exception:
+                logger.exception("start_step crashed on %r", spec)
+                fail(state, as_started(spec, at), at, "bad step")
+                break
             begin(state, spec, at, context.events)
             continue
         if step["kind"] in ("walk", "swim") and not follow_path(state, step, grid, until):

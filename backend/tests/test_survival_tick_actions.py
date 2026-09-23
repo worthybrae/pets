@@ -95,6 +95,26 @@ class TickActionTests(unittest.TestCase):
     def test_the_worker_runs_the_interim_script(self):
         self.assertIs(mimo_worker.WORKER_PLANNER, scripted_plan)
 
+    def test_a_crashing_planner_never_freezes_the_life(self):
+        """Reviewer-reported bug (Task 7 final review): an exception escaping advance_actions
+        rolled back the whole tick's write transaction, so last_tick_at never advanced and every
+        later tick replayed the same state and raised again. A broken planner (M3 will plug new
+        ones in) must not be able to do that."""
+        def broken(state, grid, at, clock):
+            raise RuntimeError("boom")
+
+        state = tick_life(self.registry, BORN + 5, scale=1, planner=broken)
+        self.assertIsNone(state["died_at"])
+        self.assertEqual(state["last_tick_at"], BORN + 5)
+        again = tick_life(self.registry, BORN + 10, scale=1, planner=broken)
+        self.assertEqual(again["last_tick_at"], BORN + 10)
+
+    def test_a_malformed_queued_step_never_freezes_the_life(self):
+        self.edit(action=None, queue=[{"kind": "mine", "target": None}], recent_actions=[])
+        state = tick_life(self.registry, BORN + 5, scale=1)
+        self.assertEqual(state["last_tick_at"], BORN + 5)
+        self.assertEqual(state["recent_actions"][-1]["reason"], "bad step: target")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,9 @@
 A queued step is a small dict, for example {"kind": "mine", "target": [x, y, z]}. `start_step`
 checks it against the world and returns the running step with its start and end times.
 `finish_step` applies it at its end time. Both raise StepFailed (a ValueError) with a short
-reason; crafting errors from backend.services.crafting are ValueErrors too.
+reason; crafting errors from backend.services.crafting are ValueErrors too. `validate_step` runs
+first inside `start_step`, so a malformed spec (a stray planner bug, a corrupted queue) fails
+with a clean StepFailed instead of a TypeError from as_cell or a dict lookup further in.
 """
 
 from __future__ import annotations
@@ -36,12 +38,31 @@ class StepFailed(ValueError):
     """A step cannot start or finish. The message says why."""
 
 
+def _whole(value) -> int:
+    """`value` as an int, only when it already is one: 3 or 3.0, never 3.5, NaN, inf or a bool."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"not a whole number: {value!r}")
+    if value != int(value):
+        raise ValueError(f"not a whole number: {value!r}")
+    return int(value)
+
+
 def as_cell(value) -> Cell:
-    """A cell from [x, y, z] (queued steps) or {"x", "y", "z"} (running steps, paths and positions)."""
-    if isinstance(value, dict):
-        return round(value["x"]), round(value["y"]), round(value["z"])
-    x, y, z = value
-    return int(x), int(y), int(z)
+    """A cell from [x, y, z] (queued steps) or {"x", "y", "z"} (running steps, paths and positions).
+
+    One rule for both shapes: exactly three integer-valued finite numbers, nothing rounded or
+    truncated. A caller with a genuinely fractional value (the pet's position mid-fall or
+    mid-swim never has one today; see actions.py) needs its own floor/round helper instead of a
+    looser as_cell.
+    """
+    try:
+        if isinstance(value, dict):
+            x, y, z = value["x"], value["y"], value["z"]
+        else:
+            x, y, z = value
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"not a cell: {value!r}")
+    return _whole(x), _whole(y), _whole(z)
 
 
 def as_point(cell) -> dict:
@@ -83,8 +104,44 @@ def stations_near(grid: Grid, here: Cell) -> set[str]:
     return grid.placed_near(here[0], here[2], STATION_REACH, WORKSTATIONS)
 
 
+KNOWN_KINDS = frozenset({"walk", "mine", "place", "eat", "craft", "smelt", "sleep", "wait"})
+CELL_FIELD = {"walk": "target", "mine": "target", "place": "target"}
+STRING_FIELD = {"place": "block", "eat": "item", "craft": "recipe", "smelt": "item"}
+
+
+def _finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def validate_step(spec: dict) -> None:
+    """Check a queued step's shape before it touches the world or an inventory dict.
+
+    A field that is present but the wrong shape (a target that isn't a cell, a block that isn't
+    a string, a non-finite reach or wait) raises StepFailed here, short and clear, instead of a
+    TypeError from as_cell or a dict lookup deeper in start_step. A field that is simply missing
+    is left to the checks below, which already raise their own StepFailed for it.
+    """
+    kind = spec.get("kind")
+    if kind not in KNOWN_KINDS:
+        raise StepFailed(f"unknown step {kind!r}")
+    cell_field = CELL_FIELD.get(kind)
+    if cell_field and cell_field in spec:
+        try:
+            as_cell(spec[cell_field])
+        except ValueError:
+            raise StepFailed(f"bad step: {cell_field}")
+    string_field = STRING_FIELD.get(kind)
+    if string_field and string_field in spec and not isinstance(spec[string_field], str):
+        raise StepFailed(f"bad step: {string_field}")
+    if kind == "walk" and "reach" in spec and not (_finite_number(spec["reach"]) and spec["reach"] >= 0):
+        raise StepFailed("bad step: reach")
+    if kind == "wait" and "seconds" in spec and not _finite_number(spec["seconds"]):
+        raise StepFailed("bad step: seconds")
+
+
 def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
     """Check a queued step against the world and return it running, from `at` to its end time."""
+    validate_step(spec)
     kind = spec.get("kind")
     here = as_cell(state["position"])
     inventory = state["inventory"]

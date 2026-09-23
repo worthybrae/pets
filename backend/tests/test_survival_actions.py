@@ -5,6 +5,7 @@ from unittest.mock import patch
 from backend.survival import steps as steps_module
 from backend.survival.actions import ActionContext, activity_of, advance_actions, ensure_actions
 from backend.survival.grid import Grid
+from backend.survival.steps import start_step
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
@@ -177,6 +178,64 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual(len(state["recent_actions"]), 20)
         self.assertEqual({entry["kind"] for entry in state["recent_actions"]}, {"eat"})
         self.assertEqual(len(ctx.events), 25)
+
+    def test_a_malformed_queued_step_fails_clean_and_the_tick_keeps_going(self):
+        """Reviewer-reported crashes (Task 7 final review): a bad field used to raise a raw
+        TypeError/ValueError out of advance_actions, rolling back the whole tick transaction so
+        last_tick_at never advanced and the pet froze. Each of these must instead fail the one
+        step and let advance_actions finish normally."""
+        cases = [{"kind": "mine", "target": None}, {"kind": "walk", "target": [1, 1, 0], "reach": None},
+                 {"kind": "place", "target": [1, 1, 0], "block": ["x"]}, {"kind": "mine", "target": [1, 2]}]
+        for spec in cases:
+            grid, state = small_world(), pet()
+            state["queue"] = [spec, {"kind": "wait", "seconds": 1}]
+            advance_actions(state, context(grid), 1.0)  # must not raise
+            failed = state["recent_actions"][-1]
+            self.assertEqual(failed["result"], "failed", msg=spec)
+            self.assertIn("bad step", failed["reason"], msg=spec)
+            self.assertEqual(state["actions_at"], 1.0, msg=spec)
+            self.assertEqual((state["action"], state["queue"]), (None, []), msg=spec)
+
+    def test_a_crashing_planner_falls_back_to_rest_and_the_tick_keeps_going(self):
+        def broken(state, grid, at, clock):
+            raise RuntimeError("boom")
+
+        state = pet()
+        state["vitals"]["energy"] = 5.0  # below EXHAUSTED_BELOW, so rest_plan sleeps regardless of time of day
+        with self.assertLogs("backend.survival.actions", level="ERROR"):
+            advance_actions(state, context(small_world(), broken), 1.0)
+        self.assertEqual(state["action"]["kind"], "sleep")
+        self.assertEqual(state["actions_at"], 1.0)
+
+    def test_a_non_list_of_dicts_plan_falls_back_to_rest_too(self):
+        for bad_result in (None, "nope", {"kind": "wait"}, [1, 2, 3]):
+            def bad_planner(state, grid, at, clock, result=bad_result):
+                return result
+
+            state = pet()
+            state["vitals"]["energy"] = 5.0
+            advance_actions(state, context(small_world(), bad_planner), 1.0)
+            self.assertEqual(state["action"]["kind"], "sleep", msg=bad_result)
+            self.assertEqual(state["actions_at"], 1.0, msg=bad_result)
+
+    def test_an_unexpected_crash_starting_a_step_fails_clean_and_continues(self):
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "mine", "target": [1, 1, 0]}]
+        with patch("backend.survival.actions.start_step", side_effect=RuntimeError("boom")):
+            advance_actions(state, context(grid), 1.0)  # must not raise
+        failed = state["recent_actions"][-1]
+        self.assertEqual((failed["kind"], failed["result"], failed["reason"]), ("mine", "failed", "bad step"))
+        self.assertEqual((state["action"], state["queue"], state["actions_at"]), (None, [], 1.0))
+
+    def test_an_unexpected_crash_finishing_a_step_fails_clean_and_continues(self):
+        grid, state = small_world(), pet(inventory={"berries": 1})
+        state["action"] = start_step({"kind": "eat", "item": "berries"}, state, grid, 0.0)
+        with patch("backend.survival.actions.finish_step", side_effect=RuntimeError("boom")):
+            advance_actions(state, context(grid), 5.0)  # must not raise
+        failed = state["recent_actions"][-1]
+        self.assertEqual((failed["kind"], failed["result"], failed["reason"]), ("eat", "failed", "bad step"))
+        self.assertIsNone(state["action"])
+        self.assertEqual(state["actions_at"], 5.0)
 
     def test_the_engine_shares_its_search_budget_across_calls_on_one_context(self):
         """Controller ruling (Task 3 review, tightened in Task 6 fix round 1): at most

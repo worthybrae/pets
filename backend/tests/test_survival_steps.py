@@ -1,7 +1,8 @@
+import math
 import unittest
 
 from backend.survival.grid import Grid
-from backend.survival.steps import FOOD, StepFailed, finish_step, mine_seconds, start_step
+from backend.survival.steps import FOOD, StepFailed, as_cell, finish_step, mine_seconds, start_step
 from backend.survival.vitals import START_VITALS
 
 
@@ -114,6 +115,60 @@ class StepTests(unittest.TestCase):
         grid, state = small_world(), pet()
         self.assertIsNone(start_step({"kind": "sleep"}, state, grid, 0.0)["ends_at"])
         self.assertEqual(start_step({"kind": "wait", "seconds": 5}, state, grid, 1.0)["ends_at"], 6.0)
+        with self.assertRaisesRegex(StepFailed, "unknown step"):
+            start_step({"kind": "dance"}, state, grid, 0.0)
+
+
+class CellTests(unittest.TestCase):
+    def test_lists_and_dicts_agree_on_whole_numbers(self):
+        self.assertEqual(as_cell([1, 2, 3]), (1, 2, 3))
+        self.assertEqual(as_cell({"x": 1, "y": 2, "z": 3}), (1, 2, 3))
+        self.assertEqual(as_cell([1.0, 2.0, 3.0]), (1, 2, 3))
+        self.assertEqual(as_cell({"x": 1.0, "y": 2.0, "z": 3.0}), (1, 2, 3))
+
+    def test_non_integers_bools_and_non_finite_numbers_are_rejected(self):
+        for bad in (3.5, math.nan, math.inf, -math.inf, True, False):
+            with self.assertRaises(ValueError, msg=bad):
+                as_cell([bad, 0, 0])
+            with self.assertRaises(ValueError, msg=bad):
+                as_cell({"x": bad, "y": 0, "z": 0})
+
+    def test_nothing_is_rounded_or_truncated(self):
+        with self.assertRaises(ValueError):
+            as_cell([3.5, 0, 0])
+        self.assertEqual(as_cell([3.0, 0, 0]), (3, 0, 0))
+
+    def test_wrong_shapes_fail_instead_of_crashing(self):
+        for bad in ([1, 2], [1, 2, 3, 4], {"x": 1, "y": 2}, None, "abc", 5):
+            with self.assertRaises(ValueError, msg=bad):
+                as_cell(bad)
+
+
+class BadStepTests(unittest.TestCase):
+    """Reviewer-reported crashes: a malformed field must fail with a short StepFailed reason,
+    never a raw TypeError or ValueError that could escape start_step uncaught."""
+
+    def test_malformed_fields_fail_clean_with_the_field_named(self):
+        grid, state = small_world(), pet()
+        cases = [
+            ({"kind": "mine", "target": None}, "target"),
+            ({"kind": "walk", "target": [1, 1, 0], "reach": None}, "reach"),
+            ({"kind": "place", "target": [1, 1, 0], "block": ["x"]}, "block"),
+            ({"kind": "mine", "target": [1, 2]}, "target"),
+        ]
+        for spec, field in cases:
+            with self.assertRaisesRegex(StepFailed, f"bad step: {field}", msg=spec):
+                start_step(spec, state, grid, 0.0)
+
+    def test_a_missing_field_still_fails_as_before(self):
+        # validate_step only judges a field that is present; a field that is simply absent is
+        # still left to the existing KeyError, unchanged.
+        grid, state = small_world(), pet()
+        with self.assertRaises(KeyError):
+            start_step({"kind": "mine"}, state, grid, 0.0)
+
+    def test_an_unknown_kind_still_says_so(self):
+        grid, state = small_world(), pet()
         with self.assertRaisesRegex(StepFailed, "unknown step"):
             start_step({"kind": "dance"}, state, grid, 0.0)
 
