@@ -32,11 +32,13 @@ from backend.services.blocks import hardness, is_solid
 from backend.services.crafting import can_harvest
 from backend.services.worldgen import WORLD_MIN_Y
 from backend.survival.actions import SAFE_FALL, ActionContext, as_started, fail, take_search
+from backend.survival.foraging import whole_walk
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
 from backend.survival.purposes import AT_HOME, HOME_RANGE, HOMEWARD, foods, home_of, meal, walk_to
+from backend.survival.senses import near_failure
 from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
 from backend.survival.toolmaking import place_station, station_spots
@@ -260,7 +262,9 @@ register(Reflex("eat_now", 40,
 def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
     """Light a carried campfire beside Mimo (or place a carried furnace, which warms the same), else
     walk to the nearest known warm spot: a shelter, or a campfire or furnace within 64 blocks.
-    Below the surface the fire goes in a niche Mimo digs, never in its way out."""
+    Below the surface the fire goes in a niche Mimo digs, never in its way out. A walk to a fire
+    goes all the way or not at all (foraging.whole_walk), and a fire where a step just failed is
+    left alone for a while (senses.near_failure)."""
     fire = next((block for block in WARM_BLOCKS if s.inventory.get(block, 0) > 0), None)
     if fire is not None:
         steps: list[dict] = []
@@ -272,7 +276,8 @@ def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
     if home is not None:
         spots.append((s.distance(cell_of(home)), walk_to(cell_of(home))))
     for cell, _ in s.grid.placed_cells(x, z, HOME_RANGE, WARM_BLOCKS):
-        spots.append((s.distance(cell), walk_to(cell, FIRE_STAND)))
+        if not near_failure(s.state, cell):
+            spots.append((s.distance(cell), whole_walk(cell, FIRE_STAND)))
     spots = [spot for spot in spots if spot[0] > FIRE_STAND]
     return [min(spots, key=lambda spot: spot[0])[1]] if spots else []
 

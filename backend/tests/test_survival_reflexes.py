@@ -203,7 +203,13 @@ class ReflexTests(unittest.TestCase):
         grid.put(12, 1, 0, "campfire")
         wandering = pet(vitals={**START_VITALS, "warmth": 20.0})
         self.assertEqual(reflex_hook(wandering, brainy(grid), 0.0), "warm_up")
-        self.assertEqual(wandering["queue"], [{"kind": "walk", "target": [12, 1, 0], "reach": 2.0, "purpose": "warm_up"}])
+        # All the way or not at all: part of the way to a fire can end in a pit.
+        self.assertEqual(wandering["queue"],
+                         [{"kind": "walk", "target": [12, 1, 0], "reach": 2.0, "whole": True, "purpose": "warm_up"}])
+        stuck = pet(vitals={**START_VITALS, "warmth": 20.0})
+        stuck["recent_actions"] = [{"kind": "walk", "started_at": 0.0, "ended_at": 0.0, "result": "failed",
+                                    "target": {"x": 12, "y": 1, "z": 0}, "reason": "no way there", "code": "no_path"}]
+        self.assertIsNone(reflex_hook(stuck, brainy(grid), 0.0))
 
 
 

@@ -63,6 +63,16 @@ class CookTests(unittest.TestCase):
         self.assertEqual(plan(s), [{"kind": "walk", "target": [20, 1, 0], "reach": 2.0, "whole": True}])
         self.assertFalse(PURPOSES["cook"].valid(situation({"raw_fish": 1})))
 
+    def test_a_fire_where_a_step_just_failed_is_left_alone(self):
+        failed = [{"kind": "walk", "started_at": 0.0, "ended_at": 0.0, "result": "failed",
+                   "target": {"x": 20, "y": 1, "z": 0}, "reason": "no way there", "code": "no_path"}]
+        s = situation({"raw_fish": 1}, meadow({(20, 1, 0): "furnace", (-25, 1, 0): "campfire"}))
+        s.state["recent_actions"] = failed
+        self.assertEqual(plan(s), [{"kind": "walk", "target": [-25, 1, 0], "reach": 2.0, "whole": True}])
+        alone = situation({"raw_fish": 1}, meadow({(20, 1, 0): "furnace"}))
+        alone.state["recent_actions"] = failed
+        self.assertFalse(PURPOSES["cook"].valid(alone))
+
     def test_wheat_bakes_into_bread_at_a_table(self):
         self.assertEqual(plan(situation({"wheat": 7, "planks": 4})),
                          [craft("crafting_table"), place("crafting_table"), craft("bread"), craft("bread"), PICK_UP])

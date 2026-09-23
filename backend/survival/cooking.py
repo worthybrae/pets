@@ -4,7 +4,8 @@
   blocks. With no fire that close, Mimo places a campfire or furnace it carries beside it (in a
   niche it digs when it is below the surface, as toolmaking does), or first crafts a campfire
   from 2 logs and 3 sticks; failing both, it walks to a fire within 32 blocks and cooks there
-  next batch.
+  next batch. A fire within 4 blocks of where a step just failed is left alone for a while
+  (senses.near_failure).
 - Three wheat bake into bread (25) at a crafting table, like craft_tools does it.
 A station or fire the plan placed is mined back into Mimo's inventory at the end. Those steps
 are kept (`keep`), so a new choice does not leave the station behind. cook is offered while
@@ -19,6 +20,7 @@ from backend.services.crafting import FIRES
 from backend.survival.grid import Cell
 from backend.survival.foraging import whole_walk
 from backend.survival.purposes import Purpose, register
+from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
 from backend.survival.toolmaking import Short, make, place_station, station_spots
@@ -71,7 +73,8 @@ def cook_plan(s: Situation) -> list[dict] | None:
     placed: list[Cell] = []
     fish = inventory.get("raw_fish", 0)
     if fish and not near.intersection(FIRES) and not station(inventory, "campfire", spots, steps, placed, FIRES):
-        fires = sorted(s.grid.placed_cells(x, z, FIRE_TRAVEL, FIRES), key=lambda found: s.distance(found[0]))
+        fires = sorted((found for found in s.grid.placed_cells(x, z, FIRE_TRAVEL, FIRES)
+                        if not near_failure(s.state, found[0])), key=lambda found: s.distance(found[0]))
         if fires:
             return [whole_walk(fires[0][0], FIRE_STAND)]
         fish = 0
