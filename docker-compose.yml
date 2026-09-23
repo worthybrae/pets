@@ -1,13 +1,51 @@
-version: "3.8"
-
 services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
 
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      MIMO_DB_PATH: /data/mimo.sqlite3
+      MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
+      MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
+      MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - mimo_data:/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  mimo-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "backend.workers.mimo_worker"]
+    environment:
+      MIMO_DB_PATH: /data/mimo.sqlite3
+      MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
+      MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
+      MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      TYPESAFE_MODEL: ${TYPESAFE_MODEL:-jev-latest}
+      MIMO_TICK_SECONDS: ${MIMO_TICK_SECONDS:-5}
+      MIMO_MAX_DECISIONS_PER_DAY: ${MIMO_MAX_DECISIONS_PER_DAY:-8000}
+      MIMO_MAX_LUNA_DECISIONS_PER_DAY: ${MIMO_MAX_LUNA_DECISIONS_PER_DAY:-64}
+    volumes:
+      - mimo_data:/data
+    restart: unless-stopped
+
 volumes:
   redis_data:
+  mimo_data:

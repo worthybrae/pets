@@ -1,11 +1,10 @@
-import { useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { PetEntity as PetEntityType } from '../../types/world'
 
 type WanderState = 'idle' | 'walking' | 'pausing'
 
-const WANDER_RADIUS = 20
 const WALK_SPEED = 3
 const PAUSE_MIN = 1.5
 const PAUSE_MAX = 4
@@ -14,11 +13,18 @@ const IDLE_BEFORE_FIRST_WALK = 2
 interface PetEntityProps {
   pet: PetEntityType
   onPositionChange?: (pos: { x: number; y: number; z: number }) => void
+  wanderRadius?: number
+  onPetClick?: () => void
+  hopSignal?: number
+  children?: ReactNode
+  destination?: { x: number; y?: number; z: number; token: number }
+  onArrive?: () => void
+  scale?: number
 }
 
-function randomTarget(origin: { x: number; z: number }) {
+function randomTarget(origin: { x: number; z: number }, radius: number) {
   const angle = Math.random() * Math.PI * 2
-  const dist = 4 + Math.random() * (WANDER_RADIUS - 4)
+  const dist = Math.sqrt(Math.random()) * radius
   return new THREE.Vector3(
     origin.x + Math.cos(angle) * dist,
     0,
@@ -26,7 +32,7 @@ function randomTarget(origin: { x: number; z: number }) {
   )
 }
 
-export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
+export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, onPetClick, hopSignal = 0, children, destination, onArrive, scale = 1 }: PetEntityProps) {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const timeRef = useRef(0)
@@ -40,6 +46,26 @@ export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
   const targetPos = useRef(new THREE.Vector3(pet.position.x, 0, pet.position.z))
   const currentRotY = useRef(0)
   const origin = useRef({ x: pet.position.x, z: pet.position.z })
+  const hopTime = useRef(0)
+  const currentHeight = useRef(pet.position.y)
+  const lastHopSignal = useRef(hopSignal)
+  const destinationX = destination?.x
+  const destinationZ = destination?.z
+  const destinationY = destination?.y
+  const destinationToken = destination?.token
+
+  useEffect(() => {
+    if (hopSignal !== lastHopSignal.current) {
+      hopTime.current = 0.7
+      lastHopSignal.current = hopSignal
+    }
+  }, [hopSignal])
+
+  useEffect(() => {
+    if (destinationX === undefined || destinationZ === undefined) return
+    targetPos.current.set(destinationX, 0, destinationZ)
+    wanderState.current = 'walking'
+  }, [destinationX, destinationZ, destinationToken])
 
   useFrame((_, delta) => {
     timeRef.current += delta
@@ -68,8 +94,8 @@ export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
     stateTimer.current -= delta
 
     if (wanderState.current === 'idle') {
-      if (stateTimer.current <= 0) {
-        targetPos.current = randomTarget(origin.current)
+      if (!destination && stateTimer.current <= 0) {
+        targetPos.current = randomTarget(origin.current, wanderRadius)
         wanderState.current = 'walking'
       }
     } else if (wanderState.current === 'walking') {
@@ -81,6 +107,7 @@ export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
         // Arrived — pause
         wanderState.current = 'pausing'
         stateTimer.current = PAUSE_MIN + Math.random() * (PAUSE_MAX - PAUSE_MIN)
+        if (destination) onArrive?.()
       } else {
         dir.normalize()
         const step = Math.min(WALK_SPEED * delta, dist)
@@ -101,17 +128,20 @@ export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
         })
       }
     } else if (wanderState.current === 'pausing') {
-      if (stateTimer.current <= 0) {
-        targetPos.current = randomTarget(origin.current)
+      if (!destination && stateTimer.current <= 0) {
+        targetPos.current = randomTarget(origin.current, wanderRadius)
         wanderState.current = 'walking'
       }
     }
 
     // --- Apply position + bob + rotation ---
     if (groupRef.current) {
+      currentHeight.current = THREE.MathUtils.lerp(currentHeight.current, destinationY ?? pet.position.y, 1 - Math.exp(-5 * delta))
+      hopTime.current = Math.max(0, hopTime.current - delta)
       groupRef.current.position.x = currentPos.current.x
       groupRef.current.position.z = currentPos.current.z
-      groupRef.current.position.y = pet.position.y + Math.sin(timeRef.current * 2) * 0.1
+      const hop = hopTime.current > 0 ? Math.sin((1 - hopTime.current / 0.7) * Math.PI) * 0.8 : 0
+      groupRef.current.position.y = currentHeight.current + Math.sin(timeRef.current * 2) * 0.1 + hop
       groupRef.current.rotation.y = currentRotY.current
     }
   })
@@ -122,6 +152,12 @@ export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
     <group
       ref={groupRef}
       position={[pet.position.x, pet.position.y, pet.position.z]}
+      scale={scale}
+      onClick={(event) => {
+        event.stopPropagation()
+        hopTime.current = 0.7
+        onPetClick?.()
+      }}
     >
       <instancedMesh
         ref={meshRef}
@@ -131,6 +167,7 @@ export default function PetEntity({ pet, onPositionChange }: PetEntityProps) {
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial roughness={0.4} metalness={0.1} />
       </instancedMesh>
+      {children}
     </group>
   )
 }

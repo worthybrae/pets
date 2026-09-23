@@ -249,7 +249,7 @@ function GroundShadow({ phase, eggScaleRef, color }: { phase: Phase; eggScaleRef
   }), [color])
 
   const growthRef = useRef(0)
-  useFrame((_, dt) => {
+  useFrame(() => {
     if (!meshRef.current) return
 
     let targetGrowth = 0

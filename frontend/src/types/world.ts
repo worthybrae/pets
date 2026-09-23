@@ -7,6 +7,16 @@ export interface Voxel {
   b: number;
   a: number;
   metadata_id?: string;
+  material?: string;
+  size?: [number, number, number];
+  offset?: [number, number, number];
+}
+
+export interface BlockEdit {
+  x: number;
+  y: number;
+  z: number;
+  material: string;
 }
 
 export interface Chunk {

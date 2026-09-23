@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react'
+import { useLayoutEffect, useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { Chunk } from '../../types/world'
@@ -9,49 +9,61 @@ interface VoxelChunkProps {
   onVoxelClick?: (metadataId: string) => void
 }
 
+function meshCapacity(count: number) {
+  return 2 ** Math.ceil(Math.log2(Math.max(1, count)))
+}
+
 export default function VoxelChunk({ chunk, onVoxelClick }: VoxelChunkProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null)
+  const glassMeshRef = useRef<THREE.InstancedMesh>(null)
+  const waterMeshRef = useRef<THREE.InstancedMesh>(null)
   const glowMeshRef = useRef<THREE.InstancedMesh>(null)
   const timeRef = useRef(0)
-  const regularInitRef = useRef(false)
-  const glowInitRef = useRef(false)
 
   const worldOffsetX = chunk.chunk_x * CHUNK_SIZE
   const worldOffsetY = chunk.chunk_y * CHUNK_SIZE
   const worldOffsetZ = chunk.chunk_z * CHUNK_SIZE
 
-  const { regularVoxels, glowVoxels } = useMemo(() => {
+  const { regularVoxels, glassVoxels, waterVoxels, glowVoxels } = useMemo(() => {
     const regular: typeof chunk.voxels = []
+    const glass: typeof chunk.voxels = []
+    const water: typeof chunk.voxels = []
     const glow: typeof chunk.voxels = []
     for (const v of chunk.voxels) {
-      if (v.metadata_id) {
+      if (v.metadata_id || v.material === 'lantern' || v.material === 'lava' || v.material === 'furnace') {
         glow.push(v)
+      } else if (v.material === 'glass') {
+        glass.push(v)
+      } else if (v.material === 'water') {
+        water.push(v)
       } else {
         regular.push(v)
       }
     }
-    // Reset init flags when voxels change
-    regularInitRef.current = false
-    glowInitRef.current = false
-    return { regularVoxels: regular, glowVoxels: glow }
-  }, [chunk.voxels])
+    return { regularVoxels: regular, glassVoxels: glass, waterVoxels: water, glowVoxels: glow }
+  }, [chunk])
 
-  useFrame((_, delta) => {
-    timeRef.current += delta
-
-    // Initialize regular mesh (guaranteed ref exists in useFrame)
-    if (meshRef.current && !regularInitRef.current && regularVoxels.length > 0) {
-      regularInitRef.current = true
-      const mesh = meshRef.current
-      const dummy = new THREE.Object3D()
-      const color = new THREE.Color()
-      for (let i = 0; i < regularVoxels.length; i++) {
-        const v = regularVoxels[i]
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D()
+    const color = new THREE.Color()
+    for (const [mesh, voxels] of [
+      [meshRef.current, regularVoxels],
+      [glassMeshRef.current, glassVoxels],
+      [waterMeshRef.current, waterVoxels],
+      [glowMeshRef.current, glowVoxels],
+    ] as const) {
+      if (!mesh) continue
+      mesh.count = voxels.length
+      for (let i = 0; i < voxels.length; i++) {
+        const v = voxels[i]
+        const [width, height, depth] = v.size ?? [1, 1, 1]
+        const [offsetX, offsetY, offsetZ] = v.offset ?? [0, 0, 0]
         dummy.position.set(
-          worldOffsetX + v.x + 0.5,
-          worldOffsetY + v.y + 0.5,
-          worldOffsetZ + v.z + 0.5
+          worldOffsetX + v.x + 0.5 + offsetX,
+          worldOffsetY + v.y + height / 2 + offsetY,
+          worldOffsetZ + v.z + 0.5 + offsetZ,
         )
+        dummy.scale.set(width, height, depth)
         dummy.updateMatrix()
         mesh.setMatrixAt(i, dummy.matrix)
         color.setRGB(v.r / 255, v.g / 255, v.b / 255, THREE.SRGBColorSpace)
@@ -59,46 +71,13 @@ export default function VoxelChunk({ chunk, onVoxelClick }: VoxelChunkProps) {
       }
       mesh.instanceMatrix.needsUpdate = true
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      mesh.visible = true
     }
+  }, [chunk, regularVoxels, glassVoxels, waterVoxels, glowVoxels, worldOffsetX, worldOffsetY, worldOffsetZ])
 
-    // Initialize + animate glow mesh
-    if (glowMeshRef.current && glowVoxels.length > 0) {
-      const mesh = glowMeshRef.current
-      const dummy = new THREE.Object3D()
-
-      if (!glowInitRef.current) {
-        glowInitRef.current = true
-        const color = new THREE.Color()
-        for (let i = 0; i < glowVoxels.length; i++) {
-          const v = glowVoxels[i]
-          dummy.position.set(
-            worldOffsetX + v.x + 0.5,
-            worldOffsetY + v.y + 0.5,
-            worldOffsetZ + v.z + 0.5
-          )
-          dummy.updateMatrix()
-          mesh.setMatrixAt(i, dummy.matrix)
-          color.setRGB(v.r / 255, v.g / 255, v.b / 255, THREE.SRGBColorSpace)
-          mesh.setColorAt(i, color)
-        }
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-      }
-
-      // Pulse animation
-      const pulse = 1 + 0.05 * Math.sin(timeRef.current * 3)
-      for (let i = 0; i < glowVoxels.length; i++) {
-        const v = glowVoxels[i]
-        dummy.position.set(
-          worldOffsetX + v.x + 0.5,
-          worldOffsetY + v.y + 0.5,
-          worldOffsetZ + v.z + 0.5
-        )
-        dummy.scale.setScalar(pulse)
-        dummy.updateMatrix()
-        mesh.setMatrixAt(i, dummy.matrix)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-    }
+  useFrame((_, delta) => {
+    timeRef.current += delta
+    if (waterMeshRef.current) waterMeshRef.current.position.y = Math.sin(timeRef.current * 1.3) * 0.025
   })
 
   const handleGlowClick = (e: THREE.Event & { instanceId?: number }) => {
@@ -115,20 +94,31 @@ export default function VoxelChunk({ chunk, onVoxelClick }: VoxelChunkProps) {
       {regularVoxels.length > 0 && (
         <instancedMesh
           ref={meshRef}
-          args={[undefined, undefined, regularVoxels.length]}
+          args={[undefined, undefined, meshCapacity(regularVoxels.length)]}
+          visible={false}
           frustumCulled={false}
         >
           <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial
-            transparent
-            opacity={0.95}
-          />
+          <meshStandardMaterial roughness={0.85} />
+        </instancedMesh>
+      )}
+      {glassVoxels.length > 0 && (
+        <instancedMesh ref={glassMeshRef} args={[undefined, undefined, meshCapacity(glassVoxels.length)]} visible={false} frustumCulled={false}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshPhysicalMaterial transparent opacity={0.38} depthWrite={false} roughness={0.1} metalness={0.05} side={THREE.DoubleSide} />
+        </instancedMesh>
+      )}
+      {waterVoxels.length > 0 && (
+        <instancedMesh ref={waterMeshRef} args={[undefined, undefined, meshCapacity(waterVoxels.length)]} visible={false} frustumCulled={false}>
+          <boxGeometry args={[1, 0.82, 1]} />
+          <meshPhysicalMaterial transparent opacity={0.58} depthWrite={false} roughness={0.12} metalness={0.1} side={THREE.DoubleSide} />
         </instancedMesh>
       )}
       {glowVoxels.length > 0 && (
         <instancedMesh
           ref={glowMeshRef}
-          args={[undefined, undefined, glowVoxels.length]}
+          args={[undefined, undefined, meshCapacity(glowVoxels.length)]}
+          visible={false}
           frustumCulled={false}
           onClick={handleGlowClick}
         >
