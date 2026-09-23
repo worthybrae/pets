@@ -30,10 +30,10 @@ budget span the whole tick instead of one call). Because that walk is left unpop
 no step with an empty path is ever built.
 
 A mind can take over through `context.interrupt` (the brain's reflexes). It is asked before every
-step starts and at every advance while a walk, sleep or wait is still running; a cut walk has
-already moved to the last cell it reached. The cut step is recorded as "interrupted" with the
-hook's reason. At most MAX_TAKEOVERS takeovers happen per advance_actions call, so a hook that
-always says yes cannot spin the tick.
+step starts and at every advance while an interruptible step (its StepKind in
+backend.survival.steps says so) is still running; a cut walk has already moved to the last cell it
+reached. The cut step is recorded as "interrupted" with the hook's reason. At most MAX_TAKEOVERS
+takeovers happen per advance_actions call, so a hook that always says yes cannot spin the tick.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from backend.survival.clock import is_night
 from backend.survival.grid import Cell, Grid
 from backend.survival.once import log_once
 from backend.survival.pathing import SWIM_SECONDS
-from backend.survival.steps import as_cell, as_point, failure_code, finish_step, position_of, start_step
+from backend.survival.steps import as_cell, as_point, failure_code, finish_step, position_of, start_step, step_kind
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +66,11 @@ GRAVITY = 32.0  # blocks per second squared: a fall of b blocks takes sqrt(2 b /
 SAFE_FALL = 3
 FALL_DAMAGE = 10.0
 WAKE_ENERGY = 95.0
-WORKING = frozenset({"walk", "swim", "mine", "place"})
-STATUS = {"walk": "walking", "swim": "swimming", "fall": "falling", "mine": "mining", "place": "building",
-          "eat": "eating", "craft": "crafting", "smelt": "smelting", "sleep": "sleeping", "wait": "idle"}
+# The engine's own moves, next to the step kinds registered in backend.survival.steps: (status,
+# counts as work).
+HAZARDS = {"swim": ("swimming", True), "fall": ("falling", False)}
 # Waits tell the viewer nothing and would push real steps out of the recent list.
 UNRECORDED = frozenset({"wait"})
-# Running steps a takeover may cut short. The others last a few seconds at most and finish first.
-INTERRUPTIBLE = frozenset({"walk", "sleep", "wait"})
 MAX_TAKEOVERS = 4
 RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose", "path")
 
@@ -116,6 +114,24 @@ def take_search(context: ActionContext) -> bool:
     return True
 
 
+def status_of(kind: str) -> str:
+    """The pet's status while a step or hazard of this kind runs."""
+    step = step_kind(kind)
+    return step.status if step is not None else HAZARDS.get(kind, ("idle", False))[0]
+
+
+def is_working(kind: str) -> bool:
+    """Whether a running step or hazard counts as work for the vitals."""
+    step = step_kind(kind)
+    return step.working if step is not None else HAZARDS.get(kind, ("idle", False))[1]
+
+
+def is_interruptible(kind: str) -> bool:
+    """Whether a takeover may cut a running step of this kind short (its StepKind says)."""
+    step = step_kind(kind)
+    return step is not None and step.interruptible
+
+
 def ensure_actions(state: dict) -> None:
     """Give a state saved before actions existed (an M1 world) its action fields."""
     state.setdefault("action", None)
@@ -132,7 +148,7 @@ def activity_of(state: dict) -> str:
         return "idle"
     if action["kind"] == "sleep":
         return "sleeping"
-    return "working" if action["kind"] in WORKING else "idle"
+    return "working" if is_working(action["kind"]) else "idle"
 
 
 def record(state: dict, step: dict, ended_at: float, result: str, reason: str | None = None,
@@ -412,7 +428,7 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             continue
         end = step_end(step, state, context, until)
         if end is None:
-            if step["kind"] in INTERRUPTIBLE and takeovers < MAX_TAKEOVERS and interrupted(state, context, until):
+            if is_interruptible(step["kind"]) and takeovers < MAX_TAKEOVERS and interrupted(state, context, until):
                 takeovers += 1
                 at = until
                 continue
@@ -423,5 +439,5 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             return end
     state["actions_at"] = until
     action = state["action"]
-    state["status"] = STATUS.get(action["kind"], "idle") if action else "idle"
+    state["status"] = status_of(action["kind"]) if action else "idle"
     return None

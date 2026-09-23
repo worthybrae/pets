@@ -3,7 +3,9 @@ import unittest
 
 from backend.survival.grid import Grid
 from backend.services.crafting import craft, smelt
-from backend.survival.steps import FOOD, StepFailed, as_cell, failure_code, finish_step, mine_seconds, start_step
+from backend.survival.steps import (
+    FOOD, STEP_KINDS, StepFailed, StepKind, as_cell, failure_code, finish_step, mine_seconds, register_step, start_step,
+)
 from backend.survival.vitals import START_VITALS
 
 
@@ -187,6 +189,37 @@ class StepTests(unittest.TestCase):
 
 
 
+
+
+class StepRegistryTests(unittest.TestCase):
+    def test_the_m2_kinds_are_registered_with_how_they_show(self):
+        expected = {"walk": ("walking", True, True), "mine": ("mining", True, False), "place": ("building", True, False),
+                    "eat": ("eating", False, False), "craft": ("crafting", False, False),
+                    "smelt": ("smelting", False, False), "sleep": ("sleeping", False, True), "wait": ("idle", False, True)}
+        for name, shown in expected.items():
+            kind = STEP_KINDS[name]
+            self.assertEqual((kind.status, kind.working, kind.interruptible), shown, name)
+
+    def test_a_registered_kind_is_validated_started_and_finished_through_the_registry(self):
+        def start(spec, state, grid, at, scale):
+            return {"kind": "test_hum", "started_at": at, "ends_at": at + 2.0 / scale, "item": spec["item"]}
+
+        def finish(step, state, grid, at):
+            return "hum", f"{state['name']} hummed {step['item']}."
+
+        register_step(StepKind("test_hum", start, finish, "humming", string_field="item"))
+        try:
+            grid, state = small_world(), pet()
+            step = start_step({"kind": "test_hum", "item": "a tune"}, state, grid, 1.0, scale=2.0)
+            self.assertEqual(step["ends_at"], 2.0)
+            self.assertEqual(finish_step(step, state, grid, 2.0), ("hum", "Pip hummed a tune."))
+            with self.assertRaisesRegex(StepFailed, "bad step: item"):
+                start_step({"kind": "test_hum", "item": 3}, state, grid, 1.0)
+        finally:
+            STEP_KINDS.pop("test_hum", None)
+        with self.assertRaisesRegex(StepFailed, "unknown step 'test_hum'"):
+            start_step({"kind": "test_hum", "item": "a tune"}, pet(), small_world(), 1.0)
+        self.assertIsNone(finish_step({"kind": "test_hum"}, pet(), small_world(), 1.0))
 
 
 class CookingRecipeTests(unittest.TestCase):

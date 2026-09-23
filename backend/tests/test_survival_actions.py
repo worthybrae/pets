@@ -5,10 +5,12 @@ from unittest.mock import patch
 import logging
 
 from backend.survival import steps as steps_module
-from backend.survival.actions import ActionContext, activity_of, advance_actions, ensure_actions, take_search
+from backend.survival.actions import (
+    ActionContext, activity_of, advance_actions, ensure_actions, is_interruptible, is_working, status_of, take_search,
+)
 from backend.survival.grid import Grid
 from backend.survival.once import forget_logged, log_once
-from backend.survival.steps import start_step
+from backend.survival.steps import STEP_KINDS, StepKind, nothing_happens, register_step, start_step
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
@@ -489,6 +491,30 @@ class InterruptTests(unittest.TestCase):
         advance_actions(state, hooked(small_world(), greedy), 0.5)
         self.assertEqual(state["action"]["kind"], "wait")
         self.assertEqual(state["actions_at"], 0.5)
+
+    def test_status_work_and_interrupts_come_from_the_step_registry(self):
+        self.assertEqual([status_of(kind) for kind in ("mine", "place", "swim", "fall", "nope")],
+                         ["mining", "building", "swimming", "falling", "idle"])
+        self.assertEqual([is_working(kind) for kind in ("walk", "swim", "eat", "fall")], [True, True, False, False])
+        self.assertEqual([is_interruptible(kind) for kind in ("sleep", "wait", "mine", "swim")], [True, True, False, False])
+
+    def test_a_registered_interruptible_kind_can_be_cut(self):
+        def start(spec, state, grid, at, scale):
+            return {"kind": "test_listen", "started_at": at, "ends_at": at + 10.0}
+
+        register_step(StepKind("test_listen", start, nothing_happens, "listening", interruptible=True))
+        try:
+            state = pet()
+            state["queue"] = [{"kind": "test_listen"}]
+            ctx = hooked(small_world(), Takeover(lambda state, at: at >= 2.0, [{"kind": "wait", "seconds": 1}], "surface"))
+            advance_actions(state, ctx, 1.0)
+            self.assertEqual(state["status"], "listening")
+            advance_actions(state, ctx, 2.0)
+            cut = state["recent_actions"][-1]
+            self.assertEqual((cut["kind"], cut["result"], cut["reason"]), ("test_listen", "interrupted", "surface"))
+        finally:
+            STEP_KINDS.pop("test_listen", None)
+
 
 
 class OnceLogTests(unittest.TestCase):
