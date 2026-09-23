@@ -33,6 +33,7 @@ from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
+from backend.survival.farming import plant
 from backend.survival.nature import SOIL
 from backend.survival.senses import by_distance, failed_columns, standing_logs, trunks_near
 from backend.survival.situation import Situation
@@ -90,8 +91,8 @@ def sapling_spots(s: Situation) -> list[Cell]:
     x, y, z = s.here
     taken = trunks_near(s.grid, s.seed, x, z, REACH + SAPLING_ROOM)
     candidates = []
-    for dx in range(-3, 4):
-        for dz in range(-3, 4):
+    for dx in range(-4, 5):
+        for dz in range(-4, 5):
             for cell in ((x + dx, y, z + dz), (x + dx, y + 1, z + dz), (x + dx, y - 1, z + dz)):
                 if 1.0 <= math.dist(cell, s.here) <= REACH and sapling_fits(s, cell):
                     candidates.append(cell)
@@ -116,7 +117,7 @@ def plant_saplings(s: Situation) -> list[dict]:
     count = min(SAPLINGS_PER_BATCH, s.count("sapling"))
     if count <= 0:
         return []
-    return [{"kind": "plant", "target": list(cell), "item": "sapling"} for cell in sapling_spots(s)[:count]]
+    return [plant(cell, "sapling") for cell in sapling_spots(s)[:count]]
 
 
 def plan_wood(s: Situation, context: ActionContext) -> list[dict]:
