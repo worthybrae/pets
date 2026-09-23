@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.live_mimo import MimoStore, _jev_decision, _model_decision, observe_world, run_tick, validate_decision
+from backend.services.worldgen import terrain_height
 
 
 class LiveMimoTests(unittest.TestCase):
@@ -343,6 +344,26 @@ class LiveMimoTests(unittest.TestCase):
         self.assertEqual(saved["inventory"]["iron_ingot"], 1)
         self.assertEqual(len([block for block in saved["block_edits"] if block["material"] in ("crafting_table", "furnace")]), 2)
         self.assertEqual(saved["events"][0]["kind"], "owner")
+
+    def test_sand_falls_through_plants(self):
+        height = terrain_height(80, 0, self.store.world_seed)
+        self.store.put_block(80, height + 1, 0, "tall_grass")
+        self.store.put_block(80, height + 2, 0, "sand")
+        self.assertEqual(self.store.step_loose_blocks(), 1)
+        self.assertEqual(self.store.material_at(80, height + 1, 0), "sand")
+
+    def test_block_heights_match_the_viewer_world(self):
+        self.store.put_block(90, 119, 0, "stone")
+        with self.assertRaises(ValueError):
+            self.store.put_block(90, 120, 0, "stone")
+        with self.assertRaises(ValueError):
+            self.store.put_block(90, -9, 0, "stone")
+
+    def test_observation_columns_reach_tree_canopies(self):
+        state = self.store.snapshot()
+        column = observe_world(state)["nearby_columns"][0]
+        top = max(3, terrain_height(column["x"], column["z"], state["world_seed"]) + 7)
+        self.assertEqual(column["layers"][0]["y"], top)
 
 
 if __name__ == "__main__":

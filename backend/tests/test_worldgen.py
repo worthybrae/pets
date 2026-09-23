@@ -1,7 +1,8 @@
 import unittest
 
 from backend.services.worldgen import (
-    LEGACY_WORLD_SEED, base_material, biome_at, cave_at, hash32, terrain_height,
+    LEGACY_WORLD_SEED, base_material, biome_at, block_at, cave_at, hash32, legacy_hash, plant_at,
+    surface_material, terrain_height, trees_in_chunk,
 )
 
 
@@ -32,6 +33,63 @@ class WorldgenTests(unittest.TestCase):
         self.assertIn("stone", materials)
         self.assertIn("air", materials)
         self.assertTrue({"iron_ore", "coal_ore", "copper_ore"} & materials)
+
+
+class NaturalBlockTests(unittest.TestCase):
+    def test_home_clearing_matches_what_the_viewer_always_drew(self):
+        seed = LEGACY_WORLD_SEED
+        expected = {
+            (5, 0, -4): "dirt_path",      # cottage floor
+            (4, 1, -4): "plaster",        # cottage wall
+            (5, 1, -3): "air",            # doorway
+            (5, 2, -6): "glass",          # window
+            (3, 4, -7): "roof_tile",
+            (-6, 3, -4): "oak_log",       # big tree trunk
+            (-6, 5, -4): "oak_log",       # trunk wins over canopy
+            (-7, 5, -4): "leaves",
+            (-6, 7, -4): "leaves",
+            (-8, 1, 0): "flower_orange",
+            (-5, 0, 4): "water",          # pond
+            (-3, 0, 2): "dirt_path",      # stepping stone
+            (3, 0, -2): "dirt_path",      # walkway
+            (0, -1, 0): "dirt",
+        }
+        for (x, y, z), material in expected.items():
+            self.assertEqual(block_at(x, y, z, seed), material, (x, y, z))
+
+    def test_javascript_hash_is_reproduced(self):
+        # Values from the viewer: Math.abs((x * 73856093) ^ (z * 19349663)).
+        self.assertEqual(legacy_hash(0, 0), 0)
+        self.assertEqual(legacy_hash(1, 0), 73856093)
+        self.assertEqual(legacy_hash(100, 100), 882750904)  # 100 * 73856093 overflows int32
+        self.assertEqual(legacy_hash(-7, 3), 497381208)
+
+    def test_generated_trees_have_trunk_and_canopy_inside_their_chunk(self):
+        seed = "123456789123456789"
+        trees = [tree for cx in range(20, 40) for cz in range(-10, 10) for tree in trees_in_chunk(cx, cz, seed)]
+        self.assertGreater(len(trees), 5)
+        for tx, tz, _ in trees:
+            self.assertTrue(3 <= tx % 16 <= 12 and 3 <= tz % 16 <= 12)
+        x, z, base = trees[0]
+        self.assertEqual([block_at(x, base + dy, z, seed) for dy in range(1, 7)],
+                         ["oak_log"] * 4 + ["leaves", "leaves"])
+        if terrain_height(x + 1, z, seed) < base + 5:
+            self.assertEqual(block_at(x + 1, base + 5, z, seed), "leaves")
+
+    def test_plants_grow_on_open_grass_only(self):
+        seed = "123456789123456789"
+        found = {}
+        for x in range(300, 460):
+            for z in range(-80, 80):
+                plant = plant_at(x, z, seed)
+                if plant:
+                    found.setdefault(plant, (x, z))
+                    self.assertIn(surface_material(x, z, seed), ("grass", "moss"))
+        self.assertIn("tall_grass", found)
+        x, z = found["tall_grass"]
+        self.assertEqual(block_at(x, terrain_height(x, z, seed) + 1, z, seed), "tall_grass")
+        self.assertIsNone(plant_at(0, 0, seed))
+        self.assertIs(base_material, block_at)
 
 
 if __name__ == "__main__":

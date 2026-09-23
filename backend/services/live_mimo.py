@@ -23,8 +23,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, RECIPES, SMELTING, add_item, can_harvest, craft, smelt, take_items
-from backend.services.worldgen import LEGACY_RADIUS, LEGACY_WORLD_SEED, SEA_LEVEL, base_material, terrain_height
+from backend.services.worldgen import (
+    LEGACY_RADIUS, LEGACY_WORLD_SEED, SEA_LEVEL, WORLD_MAX_Y, WORLD_MIN_Y, base_material, terrain_height,
+)
 
 STATION = {"kind": "station", "site": {"x": 48, "z": 0}, "variant": 0,
            "observation": "A wide, empty stretch of sky above the eastern plain.", "clearance": 41}
@@ -208,7 +211,7 @@ class MimoStore:
             return [dict(row) for row in db.execute("SELECT x,y,z,material FROM mimo_blocks").fetchall()]
 
     def put_block(self, x: int, y: int, z: int, material: str) -> None:
-        if material not in BLOCK_TYPES or not (-8 <= y <= 128) or abs(x) > 4096 or abs(z) > 4096:
+        if material not in BLOCK_TYPES or not (WORLD_MIN_Y <= y <= WORLD_MAX_Y) or abs(x) > 4096 or abs(z) > 4096:
             raise ValueError("Invalid block position or material")
         with self.connect() as db:
             db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,?) ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material",
@@ -236,7 +239,7 @@ class MimoStore:
             for row in rows:
                 x, y, z, material = row["x"], row["y"], row["z"], row["material"]
                 below = edits.get((x, y - 1, z), base_material(x, y - 1, z, self.world_seed))
-                if below not in ("air", "water") or y <= -5:
+                if not is_replaceable(below) or y <= -5:
                     continue
                 db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,'air') ON CONFLICT(x,y,z) DO UPDATE SET material='air'", (x, y, z))
                 db.execute("INSERT INTO mimo_blocks(x,y,z,material) VALUES(?,?,?,?) ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material", (x, y - 1, z, material))
@@ -311,7 +314,8 @@ class MimoStore:
                     x, z = px + dx, pz + dz
                     y = terrain_height(x, z, self.world_seed) + 1
                     row_at = db.execute("SELECT material FROM mimo_blocks WHERE x=? AND y=? AND z=?", (x, y, z)).fetchone()
-                    if (row_at["material"] if row_at else base_material(x, y, z, self.world_seed)) == "air":
+                    here = row_at["material"] if row_at else base_material(x, y, z, self.world_seed)
+                    if is_replaceable(here) and here != "water":
                         candidate = (x, y, z)
                         break
                 if candidate is None:
@@ -371,7 +375,7 @@ def observe_world(state: dict, edits: list[dict] | None = None) -> dict:
     px, pz = round(state["position"]["x"]), round(state["position"]["z"])
     columns = []
     for x, z in ((px, pz), (px + 2, pz), (px - 2, pz), (px, pz + 2), (px, pz - 2)):
-        top = max(3, terrain_height(x, z, seed) + 3)
+        top = max(3, terrain_height(x, z, seed) + 7)
         columns.append({"x": x, "z": z,
                         "layers": [{"y": y, "material": edited.get((x, y, z), base_material(x, y, z, seed))}
                                    for y in range(top, -5, -1)]})
@@ -718,7 +722,7 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                 state["next_tick_at"] = timestamp + 2
             elif choice["action"] in ("place", "dig"):
                 existing = store.material_at(choice["x"], choice["y"], choice["z"])
-                if choice["action"] == "place" and existing not in ("air", "water"):
+                if choice["action"] == "place" and not is_replaceable(existing):
                     raise ValueError(f"Cannot place into {existing}; dig first")
                 if choice["action"] == "dig" and (existing in ("air", "water") or choice["y"] <= -5):
                     raise ValueError("Nothing diggable at that block")
