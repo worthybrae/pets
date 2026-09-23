@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchMimo } from '../survival/api'
+import ArchiveBrowser from '../survival/ArchiveBrowser'
+import ArchiveWorld from '../survival/ArchiveWorld'
 import SurvivalWorld from '../survival/SurvivalWorld'
 import type { MimoResponse } from '../survival/types'
 
@@ -9,10 +11,12 @@ interface Received {
   receivedAt: number
 }
 
-/** /preview: the living pet. The egg screen, memorial and archive arrive in later tasks. */
+/** /preview: the living pet and the archive of every life. The egg screen arrives in the next task. */
 export default function WorldPreview() {
   const [received, setReceived] = useState<Received | null>(null)
   const [error, setError] = useState('')
+  const [showLives, setShowLives] = useState(false)
+  const [openLife, setOpenLife] = useState<number | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -31,6 +35,8 @@ export default function WorldPreview() {
     return () => { window.clearTimeout(initial); window.clearInterval(timer) }
   }, [refresh])
 
+  if (openLife !== null) return <ArchiveWorld key={openLife} lifeId={openLife} onBack={() => setOpenLife(null)} />
+
   if (!received) return (
     <main className="flex min-h-screen items-center justify-center bg-[#dce9eb] px-6 text-center text-[#315e58]">
       <div><p className="text-2xl font-semibold">Connecting to Mimo’s world…</p>
@@ -41,13 +47,21 @@ export default function WorldPreview() {
   )
 
   const { data, receivedAt } = received
-  if (data.phase === 'alive') {
-    return <SurvivalWorld key={data.life.id} state={data} receivedAt={receivedAt} arrival={false}
-      connectionError={error} onChanged={refresh} />
-  }
+  const openLives = () => setShowLives(true)
+  const screen = data.phase === 'alive'
+    ? <SurvivalWorld key={data.life.id} state={data} receivedAt={receivedAt} arrival={false}
+      connectionError={error} onChanged={refresh} onOpenLives={openLives} />
+    : (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#dce9eb] px-6 text-center text-[#315e58]">
+        <p className="max-w-sm text-xl font-semibold">No pet is alive yet. Hatch the egg with POST /api/lives/hatch.</p>
+        <button type="button" onClick={openLives} className="rounded-xl bg-[#315e58] px-4 py-2 text-sm text-white">Lives</button>
+      </main>
+    )
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#dce9eb] px-6 text-center text-[#315e58]">
-      <p className="max-w-sm text-xl font-semibold">No pet is alive yet. Hatch the egg with POST /api/lives/hatch.</p>
-    </main>
+    <>
+      {screen}
+      {showLives && <ArchiveBrowser onClose={() => setShowLives(false)}
+        onOpen={(lifeId) => { setShowLives(false); setOpenLife(lifeId) }} />}
+    </>
   )
 }
