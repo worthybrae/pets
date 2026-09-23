@@ -7,13 +7,15 @@ import DayNight, { PetGlow } from './DayNight'
 import FollowCamera from './FollowCamera'
 import { focusPoint } from './motion'
 import { daylightFactor } from './sky'
+import ActionEffects from './ActionEffects'
 import SurvivalPet from './SurvivalPet'
-import type { MimoAction } from './types'
+import type { FinishedAction, MimoAction } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
 /** Without a server clock (archives) the pet has no step and stands still. */
 const NO_TIME = () => 0
+const NO_ACTIONS: FinishedAction[] = []
 
 /** Phones and low-core devices draw fewer columns. */
 function pickViewDistance(): number {
@@ -27,7 +29,7 @@ function pickViewDistance(): number {
  * without it the scene stays in daylight. `arrival` starts the camera high so it flies down.
  * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, serverTime }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, serverTime }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -37,6 +39,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   onPetClick?: () => void
   hopSignal?: number
   action?: MimoAction | null
+  recentActions?: FinishedAction[]
   serverTime?: () => number
 }) {
   const [viewDistance] = useState(pickViewDistance)
@@ -82,6 +85,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             </mesh>
             {seconds && <PetGlow seconds={seconds} />}
           </SurvivalPet>
+          {serverTime && <ActionEffects store={store} action={action} recent={recentActions} position={position} now={serverTime} />}
           <FollowCamera focus={position} focusY={position.y} focusAt={serverTime ? focusAt : undefined}
             initialFocus={initial} initialFocusY={initial.y}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}
