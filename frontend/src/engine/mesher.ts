@@ -140,7 +140,8 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
 
         const builder = kind === LAYER_OPAQUE ? opaque : translucent
         const glow = GLOW_BY_ID[id] === 1
-        const lowered = FLUID_BY_ID[id] === 1 && idAt(px, layer + 1, pz) !== id
+        const above = idAt(px, layer + 1, pz)
+        const lowered = FLUID_BY_ID[id] === 1 && above !== id && LAYER_BY_ID[above] !== LAYER_OPAQUE
         FACES.forEach((face, faceIndex) => {
           const [dx, dy, dz] = face.dir
           const nx = px + dx, nl = layer + dy, nz = pz + dz

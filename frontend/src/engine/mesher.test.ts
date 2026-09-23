@@ -57,6 +57,12 @@ describe('meshColumn', () => {
     expect(Math.max(...ys)).toBeCloseTo(11.875)
   })
 
+  it('keeps the water surface flush against an opaque block above it, with no slit', () => {
+    const result = mesh([[5, 10, 5, 'water'], [5, 11, 5, 'stone']])
+    const ys = quads(result.translucent).flatMap((quad) => quad.vertices.map((vertex) => vertex[1]))
+    expect(Math.max(...ys)).toBe(11)
+  })
+
   it('uses neighbor columns to hide border faces', () => {
     expect(quadCount(mesh([[1, 10, 5, 'stone'], [0, 10, 5, 'stone']]).opaque)).toBe(5)
   })
