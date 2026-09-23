@@ -94,7 +94,33 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
   const [systemMessage, setSystemMessage] = useState('')
   const plan = state.plans[state.currentIndex]
   const project = useMemo(() => compileWorldPlan(plan), [plan])
-  const stepIndex = Math.floor(project.voxels.length * state.progress / 100)
+  const targetStepIndex = Math.floor(project.voxels.length * state.progress / 100)
+  const [revealed, setRevealed] = useState(() => ({ projectIndex: state.currentIndex, count: targetStepIndex }))
+  const revealedRef = useRef(revealed)
+  const stepIndex = revealed.projectIndex === state.currentIndex ? Math.min(revealed.count, targetStepIndex) : targetStepIndex
+  const visibleProgress = project.voxels.length ? Math.round(stepIndex / project.voxels.length * 100) : 100
+  useEffect(() => { revealedRef.current = revealed }, [revealed])
+  useEffect(() => {
+    const current = revealedRef.current
+    if (current.projectIndex !== state.currentIndex || current.count > targetStepIndex) {
+      setRevealed({ projectIndex: state.currentIndex, count: targetStepIndex })
+      return
+    }
+    if (current.count >= targetStepIndex) return
+    const startCount = current.count
+    const newBlocks = targetStepIndex - startCount
+    const startedAt = performance.now()
+    let frame = 0
+    const revealFrame = (time: number) => {
+      const fraction = Math.min(1, (time - startedAt) / 4800)
+      const count = startCount + Math.max(1, Math.ceil(newBlocks * fraction))
+      setRevealed((previous) => previous.projectIndex === state.currentIndex && count > previous.count
+        ? { ...previous, count: Math.min(count, targetStepIndex) } : previous)
+      if (fraction < 1) frame = window.requestAnimationFrame(revealFrame)
+    }
+    frame = window.requestAnimationFrame(revealFrame)
+    return () => window.cancelAnimationFrame(frame)
+  }, [state.currentIndex, targetStepIndex])
   const chunks = useMemo(() => {
     const viewCenter = { x: cameraChunk.x * 16, z: cameraChunk.z * 16 }
     const built = worldForPlannerState({ plans: state.plans, currentIndex: state.currentIndex, stepIndex }, viewCenter)
@@ -188,12 +214,13 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
               <p className="text-xs text-[#65817b]">{state.status.replaceAll('_', ' ')}</p>
             </div>
           </div>
-          <p className="mt-4 text-sm font-medium">{state.progress < 100 ? 'Building' : 'Finished'} {project.name}</p>
+          <p className="mt-4 text-sm font-medium">{stepIndex < project.voxels.length ? 'Building' : 'Finished'} {project.name}</p>
+          {stepIndex < project.voxels.length && <p className="mt-1 text-xs text-[#54726e]">{stepIndex} / {project.voxels.length} blocks placed</p>}
           <p className="mt-2 text-xs leading-5 text-[#54726e]">{plan.observation}</p>
           <p className="mt-2 text-xs italic leading-5 text-[#54726e]">“{state.last_thought}”</p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#d9e8df]" role="progressbar"
-            aria-valuenow={state.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${project.name} progress`}>
-            <div className="h-full rounded-full bg-[#4d8c77] transition-[width] duration-500" style={{ width: `${state.progress}%` }} />
+            aria-valuenow={visibleProgress} aria-valuemin={0} aria-valuemax={100} aria-label={`${project.name} progress`}>
+            <div className="h-full rounded-full bg-[#4d8c77] transition-[width] duration-150" style={{ width: `${visibleProgress}%` }} />
           </div>
           <div className="mt-4 flex gap-2">
             <button type="button" onClick={() => { void sayHello() }}
@@ -305,7 +332,7 @@ export default function WorldPreview() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => { void refresh() }, 0)
-    const timer = window.setInterval(() => { void refresh() }, 5000)
+    const timer = window.setInterval(() => { void refresh() }, 1000)
     return () => { window.clearTimeout(initial); window.clearInterval(timer) }
   }, [refresh])
 

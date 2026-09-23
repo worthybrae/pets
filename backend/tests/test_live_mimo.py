@@ -120,6 +120,22 @@ class LiveMimoTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _jev_decision(state, observe_world(state), [])
 
+    def test_luna_budget_does_not_stop_jev_choices(self):
+        def fake_urlopen(request, timeout):
+            criteria = json.loads(request.data)["questions"]["next_action"]["criteria"]
+            self.assertNotIn("creative_plan", criteria)
+            return io.BytesIO(b'{"answers":{"next_action":{"type":"choice","choice":"rest"}}}')
+
+        state = self.store.snapshot()
+        state["luna_decisions_today"] = 2
+        with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-jev-key", "OPENAI_API_KEY": "test-openai-key",
+                                     "MIMO_MAX_LUNA_DECISIONS_PER_DAY": "2"}), \
+             patch("backend.services.live_mimo.urlopen", fake_urlopen), \
+             patch("backend.services.live_mimo._model_decision") as luna:
+            result = _jev_decision(state, observe_world(state), [])
+        self.assertEqual(result["action"], "rest")
+        luna.assert_not_called()
+
     def test_model_chosen_build_keeps_progressing_without_a_browser(self):
         first = self.store.snapshot()
 
@@ -156,6 +172,55 @@ class LiveMimoTests(unittest.TestCase):
         self.assertEqual(updated["status"], "waiting_for_model")
         self.assertEqual(len(updated["plans"]), 1)
         self.assertIn("No model configured", updated["last_error"])
+
+    def test_mimo_acts_on_each_worker_pass_until_energy_requires_sleep(self):
+        calls = []
+
+        def decide(_state, _observation, _events):
+            calls.append(True)
+            if len(calls) == 3:
+                return {"action": "rest", "thought": "I will sleep now."}
+            return {"action": "craft", "recipe": "planks", "thought": "I can make planks."}
+
+        first = self.store.snapshot()
+        run_tick(self.store, decide, first["next_tick_at"] + 1)
+        crafted = self.store.snapshot()
+        self.assertEqual(len(calls), 1)
+        self.assertLess(crafted["energy"], first["energy"])
+        self.assertLessEqual(crafted["next_tick_at"] - crafted["last_tick_at"], 2)
+
+        run_tick(self.store, decide, crafted["next_tick_at"] + 1)
+        self.assertEqual(len(calls), 2)
+        tired = self.store.snapshot()
+        tired["energy"] = 5
+        self.store.finish(tired)
+        run_tick(self.store, decide, tired["next_tick_at"] + 1)
+        asleep = self.store.snapshot()
+        self.assertEqual(asleep["status"], "sleeping")
+        self.assertEqual(len(calls), 2)
+
+        run_tick(self.store, decide, asleep["next_tick_at"] + 1)
+        awake = self.store.snapshot()
+        self.assertGreater(awake["energy"], 50)
+        self.assertEqual(len(calls), 3)
+
+    def test_old_decision_cooldown_is_removed_from_saved_world(self):
+        state = self.store.snapshot()
+        state["status"] = "crafting"
+        state["next_tick_at"] = state["last_tick_at"] + 900
+        self.store.finish(state)
+        self.assertLessEqual(self.store.snapshot()["next_tick_at"] - state["last_tick_at"], 2)
+
+        state["status"] = "travelling"
+        state["progress"] = 0
+        state["next_tick_at"] = state["last_tick_at"] + 20
+        self.store.finish(state)
+        self.assertLessEqual(self.store.snapshot()["next_tick_at"] - state["last_tick_at"], 5)
+
+        state["status"] = "sleeping"
+        state["next_tick_at"] = state["last_tick_at"] + 300
+        self.store.finish(state)
+        self.assertEqual(self.store.snapshot()["next_tick_at"], state["next_tick_at"])
 
     def test_digging_and_loose_block_gravity_are_persistent(self):
         self.store.put_block(73, 0, 0, "air")

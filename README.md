@@ -21,7 +21,9 @@ Luna uses `medium` reasoning and strict Structured Outputs for the action shape.
 docker compose up -d --force-recreate api mimo-worker
 ```
 
-The worker wakes every five seconds to check if an action is due. It advances an active build every 20 seconds and normally asks Jev for one new choice every 15 minutes after a small action. The default cap is 64 decision attempts per UTC day. Set `MIMO_THINK_SECONDS`, `MIMO_TICK_SECONDS`, and `MIMO_MAX_DECISIONS_PER_DAY` to adjust those limits.
+The worker checks Mimo every five seconds. After a small action, Mimo can choose again on the next pass; it does not wait for a decision cooldown. Travel and active building also progress on each pass. Each choice uses energy. When energy runs low or Mimo chooses to rest, it sleeps and recovers before acting again. A default limit of 8,000 Jev decision attempts and 64 Luna creative attempts per UTC day guards against runaway API use; lower `MIMO_MAX_DECISIONS_PER_DAY` or `MIMO_MAX_LUNA_DECISIONS_PER_DAY` for a tighter budget. `MIMO_TICK_SECONDS` controls travel and build updates.
+
+The preview refreshes the saved world every second. During construction it reveals the blocks in each persisted progress update one at a time, and the block counter follows what is visible.
 
 For 24/7 operation, run the API and worker on an always-on host with a persistent `/data` volume and a configured model. A laptop sleeping or Docker being stopped pauses Mimo; the stored world remains intact.
 

@@ -86,14 +86,27 @@ def new_state(timestamp: float) -> dict:
         "last_action_at": timestamp, "last_hello_at": None, "last_error": None,
         "decision_day": datetime.fromtimestamp(timestamp, timezone.utc).date().isoformat(),
         "decisions_today": 0,
+        "luna_decisions_today": 0,
     }
 
 
 def normalize_state(state: dict) -> dict:
     # Preserve worlds created by earlier versions of the local prototype.
+    state.pop("next_think_at", None)
+    state.pop("idle_anchor", None)
+    state.pop("idle_target", None)
+    state.pop("idle_step", None)
+    if (state.get("status") not in ("sleeping", "waiting_for_model")
+            and (state.get("progress", 100) < 100 or state.get("explore_target"))):
+        state["next_tick_at"] = min(state["next_tick_at"], state["last_tick_at"] + float(
+            os.environ.get("MIMO_TICK_SECONDS", "5")))
+    elif state.get("status") in ("crafting", "smelting", "building", "digging", "exploring", "wandering", "thinking"):
+        # Old versions scheduled the next decision 15 minutes after a small action.
+        state["next_tick_at"] = min(state["next_tick_at"], state["last_tick_at"] + 2)
     state.setdefault("inventory", {"oak_log": 8, "cobblestone": 12, "coal": 4, "iron_ore": 3})
     state.setdefault("decision_day", datetime.fromtimestamp(state["born_at"], timezone.utc).date().isoformat())
     state.setdefault("decisions_today", 0)
+    state.setdefault("luna_decisions_today", 0)
     state.setdefault("explore_target", None)
     state.setdefault("visited_sites", [])
     state["position"].setdefault("y", terrain_height(round(state["position"]["x"]), round(state["position"]["z"])) + 1)
@@ -500,7 +513,9 @@ def _jev_decision(state: dict, observation: dict, events: list[dict]) -> dict:
 
     # Jev routes to Luna only when an OpenAI credential is configured. Its
     # selected action is then validated by the same world rules as every option.
-    if os.environ.get("MIMO_MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+    luna_limit = int(os.environ.get("MIMO_MAX_LUNA_DECISIONS_PER_DAY", "64"))
+    if ((os.environ.get("MIMO_MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+            and state.get("luna_decisions_today", 0) < luna_limit):
         options["creative_plan"] = (
             "Ask Luna for a novel detailed voxel action when the fixed choices would feel repetitive.",
             {"action": "creative_plan"})
@@ -535,6 +550,7 @@ def _jev_decision(state: dict, observation: dict, events: list[dict]) -> dict:
         raise ValueError("Jev selected an action outside the offered choices")
     decision = options[selected][1]
     if decision["action"] == "creative_plan":
+        state["luna_decisions_today"] = state.get("luna_decisions_today", 0) + 1
         try:
             proposal = _model_decision(state, observation, events)
             validate_decision(proposal, observation)
@@ -626,7 +642,7 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
     block_edit = None
     try:
         elapsed = max(0, timestamp - state["last_tick_at"])
-        state["energy"] = min(100, state["energy"] + elapsed / 120)
+        state["energy"] = min(100, state["energy"] + elapsed / (5 if state["status"] == "sleeping" else 120))
         state["last_tick_at"] = timestamp
         state["last_error"] = None
         current = state["plans"][state["currentIndex"]]
@@ -639,13 +655,13 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
             if distance(state["position"], target) > 1:
                 state["position"] = next_walk_position(state, target)
                 state["status"] = "travelling"
-                state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_TICK_SECONDS", "20"))
+                state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_TICK_SECONDS", "5"))
             else:
                 if all(distance(target, visited) >= 8 for visited in state["visited_sites"]):
                     state["visited_sites"] = [*state["visited_sites"], {"x": target["x"], "z": target["z"]}][-64:]
                 state["explore_target"] = None
                 state["status"] = "exploring"
-                state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_THINK_SECONDS", "900"))
+                state["next_tick_at"] = timestamp + 2
                 event = ("explore", f"Mimo reached a new clearing at ({target['x']}, {target['z']}).")
             state["last_action_at"] = timestamp
         elif state["progress"] < 100:
@@ -663,13 +679,14 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                     state["mood"] = min(100, state["mood"] + 3)
                     event = ("completed", f"Mimo finished {current['kind'].replace('_', ' ')}.")
             state["last_action_at"] = timestamp
-            state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_TICK_SECONDS", "20"))
+            state["next_tick_at"] = timestamp + (2 if state["progress"] == 100 else float(os.environ.get("MIMO_TICK_SECONDS", "5")))
         else:
             today = datetime.fromtimestamp(timestamp, timezone.utc).date().isoformat()
             if state.get("decision_day") != today:
                 state["decision_day"] = today
                 state["decisions_today"] = 0
-            if state.get("decisions_today", 0) >= int(os.environ.get("MIMO_MAX_DECISIONS_PER_DAY", "64")):
+                state["luna_decisions_today"] = 0
+            if state.get("decisions_today", 0) >= int(os.environ.get("MIMO_MAX_DECISIONS_PER_DAY", "8000")):
                 tomorrow = datetime.fromtimestamp(timestamp, timezone.utc).date() + timedelta(days=1)
                 state["status"] = "sleeping"
                 state["last_thought"] = "I have done enough for today. I'll return tomorrow."
@@ -683,6 +700,7 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                 raise RuntimeError("Set TYPESAFE_API_KEY for Jev or OPENAI_API_KEY for GPT-6 Luna.")
             state["decisions_today"] = state.get("decisions_today", 0) + 1
             choice = validate_decision(decide(state, observation, events), observation)
+            state["energy"] = max(0, state["energy"] - 2)
             state["last_thought"] = choice["thought"]
             state["last_observation"] = json.dumps({"features": observation["features"][-8:], "candidate_sites": observation["candidate_sites"][:5]})
             if choice["action"] == "build":
@@ -724,21 +742,21 @@ def run_tick(store: MimoStore, decide: Callable[[dict, dict, list[dict]], dict] 
                 state["energy"] = max(0, state["energy"] - 1)
                 verb = "placed" if choice["action"] == "place" else "dug"
                 event = ("block", f"Mimo {verb} a block at ({choice['x']}, {choice['y']}, {choice['z']}).")
-                state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_THINK_SECONDS", "900"))
+                state["next_tick_at"] = timestamp + 2
             elif choice["action"] == "craft":
                 state["inventory"] = craft(state["inventory"], choice["recipe"], store.nearby_stations(state["position"]))
                 state["status"] = "crafting"
                 event = ("craft", f"Mimo crafted {choice['recipe'].replace('_', ' ')}.")
-                state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_THINK_SECONDS", "900"))
+                state["next_tick_at"] = timestamp + 2
             elif choice["action"] == "smelt":
                 state["inventory"] = smelt(state["inventory"], choice["input_item"], store.nearby_stations(state["position"]))
                 state["status"] = "smelting"
                 event = ("smelt", f"Mimo smelted {choice['input_item'].replace('_', ' ')}.")
-                state["next_tick_at"] = timestamp + float(os.environ.get("MIMO_THINK_SECONDS", "900"))
+                state["next_tick_at"] = timestamp + 2
             else:
                 state["status"] = "sleeping"
                 event = ("rest", "Mimo chose to rest and think.")
-                state["next_tick_at"] = timestamp + max(300, float(os.environ.get("MIMO_THINK_SECONDS", "900")))
+                state["next_tick_at"] = timestamp + 300
             state["last_action_at"] = timestamp
     except Exception as error:
         state["status"] = "waiting_for_model"
