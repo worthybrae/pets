@@ -106,6 +106,12 @@ class FixtureTests(unittest.TestCase):
                      "water", "sand", "stone", "bedrock", "grass"):
             self.assertIn(name, materials)
 
+    def test_fixture_covers_generated_trees_at_negative_x(self):
+        fixture = json.loads(FIXTURE_PATH.read_text())
+        oak_log = fixture["materials"].index("oak_log")
+        self.assertTrue(any(x < -16 for _, x, _, _, material in fixture["cells"] if material == oak_log),
+                        "fixture has no oak_log cells with x < -16")
+
 
 if __name__ == "__main__":
     unittest.main()

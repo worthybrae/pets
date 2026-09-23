@@ -20,6 +20,7 @@ GENERATED_SEED = "123456789123456789"
 SEEDS = [LEGACY_WORLD_SEED, GENERATED_SEED]
 LEGACY_CHUNKS = [(cx, cz) for cz in range(2, 12) for cx in range(2, 12)]
 WILD_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(16, 46)]
+WILD_NEG_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(-46, -16)]
 
 
 def _trees(seed: str, chunks: list[tuple[int, int]], count: int,
@@ -60,7 +61,7 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
     cells = {(LEGACY_WORLD_SEED, x, y, z) for x in range(-12, 13) for z in range(-12, 13) for y in range(-2, 8)}
     rng = random.Random(7)
     for seed in SEEDS:
-        trees = _trees(seed, LEGACY_CHUNKS, 3) + _trees(seed, WILD_CHUNKS, 3, "forest")
+        trees = _trees(seed, LEGACY_CHUNKS, 3) + _trees(seed, WILD_CHUNKS, 3, "forest") + _trees(seed, WILD_NEG_CHUNKS, 3)
         for tx, tz, base in trees:
             cells |= {(seed, tx + dx, base + dy, tz + dz)
                       for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 8)}
