@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from backend.services.worldgen import terrain_height
+from backend.survival.beds import to_bed
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest
 from backend.survival.once import log_once
 from backend.survival.senses import TREE_SEARCH, trees_near
@@ -210,13 +211,16 @@ def sleep_score(s: Situation) -> float:
 
 
 def plan_sleep(s: Situation, context: ActionContext) -> list[dict]:
-    """Walk to a shelter within 8 blocks, then sleep; at dusk, wait there for nightfall. After a
-    walk there failed, sleep where Mimo stands."""
+    """Walk onto a bed within 8 blocks (M5), else to a shelter within 8 blocks, then sleep; at
+    dusk, wait there for nightfall. After a walk there failed, sleep where Mimo stands."""
     steps = []
     home = nearest(s.places, s.here, SHELTER_KINDS, SLEEP_HOME_REACH)
     tried = (s.state.get("last_failure") or {}).get("purpose") == "sleep"
-    if home is not None and s.distance(cell_of(home)) > 1.0 and not tried:
-        steps.append(walk_to(cell_of(home)))
+    x, y, z = s.here
+    if not tried and s.grid.material(x, y - 1, z) != "bed":
+        steps.extend(to_bed(s))
+        if not steps and home is not None and s.distance(cell_of(home)) > 1.0:
+            steps.append(walk_to(cell_of(home)))
     steps.append({"kind": "sleep"} if s.night or s.vitals["energy"] < TIRED_BELOW else wait_for_nightfall(s))
     return steps
 

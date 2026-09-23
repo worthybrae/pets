@@ -144,12 +144,13 @@ def ensure_actions(state: dict) -> None:
 
 
 def activity_of(state: dict) -> str:
-    """The vitals activity of the current step: sleeping, working (walk, swim, mine, place) or idle."""
+    """The vitals activity of the current step: sleeping (in a bed when Mimo lies on one), working
+    (walk, swim, mine, place) or idle."""
     action = state.get("action")
     if action is None:
         return "idle"
     if action["kind"] == "sleep":
-        return "sleeping"
+        return "sleeping_in_bed" if action.get("bed") else "sleeping"
     return "working" if is_working(action["kind"]) else "idle"
 
 

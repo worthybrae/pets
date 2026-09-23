@@ -18,7 +18,7 @@ holds and whose planner returns steps takes over:
 
 M3 registers surface (10), avoid_drop (20), eat_now (40), warm_up (50), head_home (60) and
 collapse (70). Priority 30 is left for sub-project 3's flee; creature reflexes register
-themselves with `register`.
+themselves with `register`. M5: collapse lies down in a bed within 8 blocks when there is one.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from backend.services.blocks import hardness, is_solid
 from backend.services.crafting import can_harvest
 from backend.services.worldgen import WORLD_MIN_Y
 from backend.survival.actions import SAFE_FALL, ActionContext, as_started, fail, take_search
+from backend.survival.beds import to_bed
 from backend.survival.foraging import whole_walk
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
@@ -314,5 +315,5 @@ register(Reflex("head_home", 60, trigger=head_home_due,
 
 register(Reflex("collapse", 70,
                 trigger=lambda s: s.vitals["energy"] < EXHAUSTED_BELOW and (s.state["action"] or {}).get("kind") != "sleep",
-                plan=lambda s, context: [{"kind": "sleep"}],
+                plan=lambda s, context: [*to_bed(s), {"kind": "sleep"}],
                 thought="I can't keep my eyes open...", event="{name} collapsed from exhaustion.", cooldown=30.0))

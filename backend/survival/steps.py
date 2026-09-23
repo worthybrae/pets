@@ -10,8 +10,9 @@ with a clean StepFailed instead of a TypeError from as_cell or a dict lookup fur
 Every kind of step is a StepKind in the STEP_KINDS registry: how it starts and finishes, the
 pet's status while it runs, whether it counts as work and whether a reflex may cut it short. The
 engine (backend.survival.actions) asks the registry, so a new kind only has to register. M4's
-field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fieldwork. Mining
-leaves or tall grass may drop more (nature.CHANCE_DROPS): saplings, apples, seeds.
+field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fieldwork and M5's
+housework (store, take, drop) in backend.survival.housework. Mining leaves or tall grass may drop
+more (nature.CHANCE_DROPS): saplings, apples, seeds. Sleep on a bed is sleep in a bed.
 """
 
 from __future__ import annotations
@@ -344,8 +345,13 @@ def finish_smelt(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, s
 
 
 def start_sleep(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
-    # Sleep has no fixed end: actions.py ends it once Mimo is rested and it is not night.
-    return {"kind": "sleep", "started_at": at, "ends_at": None}
+    # Sleep has no fixed end: actions.py ends it once Mimo is rested and it is not night. Lying on
+    # a bed (the block under Mimo) it sleeps in the bed, which rests it faster.
+    x, y, z = as_cell(state["position"])
+    step = {"kind": "sleep", "started_at": at, "ends_at": None}
+    if grid.material(x, y - 1, z) == "bed":
+        step["bed"] = True
+    return step
 
 
 def start_wait(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
@@ -366,6 +372,6 @@ register_step(StepKind("smelt", start_smelt, finish_smelt, "smelting", string_fi
 register_step(StepKind("sleep", start_sleep, nothing_happens, "sleeping", interruptible=True))
 register_step(StepKind("wait", start_wait, nothing_happens, "idle", interruptible=True))
 
-# M4's field work (pick, harvest, till, plant, fish, cook) registers itself. It is imported last
-# because it builds on everything above.
-from backend.survival import fieldwork  # noqa: E402,F401
+# M4's field work (pick, harvest, till, plant, fish, cook) and M5's housework (store, take, drop)
+# register themselves. They are imported last because they build on everything above.
+from backend.survival import fieldwork, housework  # noqa: E402,F401
