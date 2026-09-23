@@ -34,7 +34,7 @@ EAT_SECONDS = 1.6
 CRAFT_SECONDS = 1.0
 SMELT_SECONDS = 5.0
 PICKAXE_SPEED = {"wooden_pickaxe": 2.0, "stone_pickaxe": 4.0, "iron_pickaxe": 6.0}
-# Axe recipes arrive with purposeful building (M5). Any axe doubles the speed on wood.
+# Axes are crafting recipes (M5). Any axe doubles the speed on wood.
 AXES = ("wooden_axe", "stone_axe", "iron_axe")
 AXE_SPEED = 2.0
 # Hunger each food restores (spec section 7). A red mushroom fills like a brown one but is poisonous.

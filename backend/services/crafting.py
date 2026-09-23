@@ -19,6 +19,12 @@ RECIPES = {
     "iron_pickaxe": {"ingredients": {"iron_ingot": 3, "sticks": 2}, "output": {"iron_pickaxe": 1}, "station": "crafting_table"},
     "bread": {"ingredients": {"wheat": 3}, "output": {"bread": 1}, "station": "crafting_table"},
     "campfire": {"ingredients": {"oak_log": 2, "sticks": 3}, "output": {"campfire": 1}},
+    "torch": {"ingredients": {"coal": 1, "sticks": 1}, "output": {"torch": 4}},
+    "chest": {"ingredients": {"planks": 8}, "output": {"chest": 1}},
+    "bed": {"ingredients": {"planks": 6}, "output": {"bed": 1}},
+    "wooden_axe": {"ingredients": {"planks": 3, "sticks": 2}, "output": {"wooden_axe": 1}, "station": "crafting_table"},
+    "stone_axe": {"ingredients": {"cobblestone": 3, "sticks": 2}, "output": {"stone_axe": 1}, "station": "crafting_table"},
+    "iron_axe": {"ingredients": {"iron_ingot": 3, "sticks": 2}, "output": {"iron_axe": 1}, "station": "crafting_table"},
 }
 
 TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3}

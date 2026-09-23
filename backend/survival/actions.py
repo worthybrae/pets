@@ -10,7 +10,8 @@ step or the queue it interrupts (recorded once with result "interrupted" and rea
 "swim") so the brain can tell its plan was abandoned, not failed. A step that fails is recorded
 with a failure code (steps.FAILURE_CODES) and kept as `state["last_failure"]` with its cell and
 the purpose that planned it; queued steps carry that purpose as `purpose`. A failure drops the
-rest of the plan except its cleanup steps (`keep`, see kept_steps).
+rest of the plan except its cleanup steps (`keep`, see kept_steps). What a finished step brings
+in beyond what Mimo can carry stays behind (backend.survival.carrying).
 
 A crashing planner, or one returning something other than a list of dicts, is logged once per
 distinct error and replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
@@ -45,6 +46,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.services.worldgen import WORLD_MIN_Y
+from backend.survival.carrying import after_step
 from backend.survival.clock import is_night
 from backend.survival.grid import Cell, Grid
 from backend.survival.once import log_once
@@ -317,6 +319,7 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
         record(state, step, at, "done")
         notify(context, state, step, at)
         return False
+    before = dict(state["inventory"])
     try:
         event = finish_step(step, state, grid, at)
     except (ValueError, KeyError) as error:
@@ -326,6 +329,7 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
         log_once(logger, "finish_step", error)
         fail(state, step, at, "bad step", "bad_step")
         return False
+    after_step(state, before, at)  # what does not fit stays behind (backend.survival.carrying)
     record(state, step, at, "done")
     if event:
         events.append((at, *event))
