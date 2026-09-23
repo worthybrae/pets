@@ -13,7 +13,7 @@ from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
-from backend.survival.renewal import create_growth_table, renew, schedule, scheduled
+from backend.survival.renewal import MAX_APPLIED, apply_entry, create_growth_table, renew, schedule, scheduled
 from backend.survival.tick import tick_life
 from backend.survival.world import SurvivalWorld
 
@@ -108,6 +108,70 @@ class GrowthTests(unittest.TestCase):
         grid.put(1, 0, 0, "farmland")
         self.assertEqual(grid.take_changes(), [((1, 1, 0), "tall_grass", "air"), ((1, 0, 0), "grass", "farmland")])
         self.assertEqual(grid.take_changes(), [])
+
+
+class RenewalSafetyTests(unittest.TestCase):
+    """Task 6/7 review fixes: a failing entry must not lose the batch or corrupt change
+    tracking, and a batch is capped at MAX_APPLIED with the rest waiting for the next call."""
+
+    def test_a_failing_apply_leaves_its_row_scheduled_and_still_applies_the_others(self):
+        ctx = world(field({(3, 1, 0): "berry_bush", (5, 1, 0): "berry_bush"}))
+        state = pet()
+        schedule(ctx.db, (3, 1, 0), "berry_bush_ripe", 5.0)
+        schedule(ctx.db, (5, 1, 0), "berry_bush_ripe", 5.0)
+        real_apply = apply_entry
+
+        def flaky(db, grid, state, entry, scale, events):
+            if entry[0] == (3, 1, 0):
+                raise RuntimeError("boom")
+            return real_apply(db, grid, state, entry, scale, events)
+
+        forget_logged()
+        with patch("backend.survival.renewal.apply_entry", side_effect=flaky), \
+                self.assertLogs("backend.survival.renewal", logging.ERROR):
+            renew(state, ctx, 10.0)
+        self.assertEqual(ctx.grid.material(5, 1, 0), "berry_bush_ripe")
+        self.assertEqual(ctx.grid.material(3, 1, 0), "berry_bush")
+        self.assertEqual(scheduled(ctx.db), [((3, 1, 0), "berry_bush_ripe", 5.0)])
+
+    def test_a_crash_does_not_make_the_next_react_reschedule_renewals_own_writes(self):
+        ctx = world(field({(0, 0, 0): "farmland", (0, 1, 0): "wheat_1", (3, 1, 0): "berry_bush"}))
+        state = pet()
+        schedule(ctx.db, (0, 1, 0), "wheat_2", 5.0)
+        schedule(ctx.db, (3, 1, 0), "berry_bush_ripe", 5.0)
+        real_apply = apply_entry
+
+        def flaky(db, grid, state, entry, scale, events):
+            if entry[0] == (3, 1, 0):
+                raise RuntimeError("boom")
+            return real_apply(db, grid, state, entry, scale, events)
+
+        forget_logged()
+        with patch("backend.survival.renewal.apply_entry", side_effect=flaky), \
+                self.assertLogs("backend.survival.renewal", logging.ERROR):
+            renew(state, ctx, 10.0)
+        self.assertEqual(ctx.grid.material(0, 1, 0), "wheat_2")
+        first_pass = {cell: (block, ready_at) for cell, block, ready_at in scheduled(ctx.db)}
+        self.assertEqual(first_pass[(0, 1, 0)], ("wheat_3", 2165.0))
+
+        renew(state, ctx, 8.0)  # a later call, at an earlier `at`: must not touch the crop's own schedule
+        second_pass = {cell: (block, ready_at) for cell, block, ready_at in scheduled(ctx.db)}
+        self.assertEqual(second_pass[(0, 1, 0)], ("wheat_3", 2165.0))
+
+    def test_more_than_max_applied_entries_wait_for_the_next_call(self):
+        excess = MAX_APPLIED + 1
+        cells = {(i, 1, 0): "berry_bush" for i in range(excess)}
+        ctx, state = world(field(cells)), pet()
+        for i in range(excess):
+            schedule(ctx.db, (i, 1, 0), "berry_bush_ripe", 5.0)
+        renew(state, ctx, 10.0)
+        ripe = sum(1 for i in range(excess) if ctx.grid.material(i, 1, 0) == "berry_bush_ripe")
+        self.assertEqual(ripe, MAX_APPLIED)
+        self.assertEqual(len(scheduled(ctx.db)), 1)
+        renew(state, ctx, 10.0)
+        ripe = sum(1 for i in range(excess) if ctx.grid.material(i, 1, 0) == "berry_bush_ripe")
+        self.assertEqual(ripe, excess)
+        self.assertEqual(scheduled(ctx.db), [])
 
 
 def forest(extra=None):
@@ -212,6 +276,16 @@ class MushroomTests(unittest.TestCase):
         schedule(ctx.db, (9, 1, 9), "brown_mushroom", 5.0)
         renew(pet(), ctx, 10.0)
         self.assertEqual(ctx.grid.material(9, 1, 9), "air")
+
+    def test_two_same_chunk_picks_in_one_batch_get_different_respawn_cells(self):
+        ctx = world(field({(3, 1, 3): "brown_mushroom", (5, 1, 5): "red_mushroom"}))
+        ctx.grid.put(3, 1, 3, "air")
+        ctx.grid.put(5, 1, 5, "air")
+        renew(pet(), ctx, 10.0)
+        coming = scheduled(ctx.db)
+        self.assertEqual(len(coming), 2)
+        cells = [cell for cell, _, _ in coming]
+        self.assertEqual(len(set(cells)), 2)
 
 
 class RenewalTickTests(unittest.TestCase):

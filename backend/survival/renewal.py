@@ -29,6 +29,7 @@ Mined ore never comes back: nothing schedules it.
 
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
 
@@ -38,7 +39,10 @@ from backend.services.worldgen import biome_at, is_leaf, terrain_height
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import CHUNK, Cell, Grid
+from backend.survival.once import log_once
 from backend.survival.senses import LOG, TRUNK_HEIGHT
+
+logger = logging.getLogger(__name__)
 
 BERRY_REGROW = 2 * DAY_SECONDS
 CROP_STAGE_WET = 12 * 60.0
@@ -179,8 +183,11 @@ def grow_tree(grid: Grid, sapling: Cell) -> None:
             grid.put(*cell, "leaves")
 
 
-def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float) -> Cell | None:
-    """An open cell on forest grass or moss in the chunk, picked by the roll; None if 8 tries miss."""
+def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float,
+                 avoid: frozenset[Cell] = frozenset()) -> Cell | None:
+    """An open cell on forest grass or moss in the chunk, picked by the roll; None if 8 tries miss.
+    A cell in `avoid` (already scheduled there, or already chosen earlier in this batch) is
+    skipped in favour of the next attempt, so two picks in one chunk in one call land apart."""
     cx, cz = chunk
     for attempt in range(8):
         pick = nature.roll(seed, (cx, attempt, cz), MUSHROOM_SPOT_CHANNEL, int(at))
@@ -188,8 +195,11 @@ def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float) -> Ce
         if biome_at(x, z, seed) != "forest":
             continue
         y = terrain_height(x, z, seed) + 1
+        cell = (x, y, z)
+        if cell in avoid:
+            continue
         if grid.material(x, y, z) == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR:
-            return x, y, z
+            return cell
     return None
 
 
@@ -201,19 +211,23 @@ def mushrooms_in_chunk(grid: Grid, seed: str, chunk: tuple[int, int]) -> int:
 
 
 def respawn_mushroom(db: sqlite3.Connection, grid: Grid, seed: str, picked: Cell, kind: str, at: float,
-                     scale: float) -> None:
+                     scale: float, chosen: set[Cell]) -> None:
     """Schedule a mushroom on forest floor in the picked one's chunk: a game day after the latest
-    one already coming there, so a chunk regrows at most one per game day."""
+    one already coming there, so a chunk regrows at most one per game day. A spot already
+    scheduled in the chunk, or already claimed earlier in `chosen` this batch, is avoided so two
+    picks in the same chunk in one call get different cells; `chosen` is updated in place."""
     chunk = (picked[0] // CHUNK, picked[2] // CHUNK)
-    spot = forest_floor(grid, seed, chunk, at)
+    x0, z0 = chunk[0] * CHUNK, chunk[1] * CHUNK
+    rows = db.execute("SELECT x, y, z, ready_at FROM growth WHERE block IN (?, ?) AND x BETWEEN ? AND ? "
+                      "AND z BETWEEN ? AND ?", (*nature.MUSHROOMS, x0, x0 + CHUNK - 1, z0, z0 + CHUNK - 1)).fetchall()
+    avoid = chosen | {(row[0], row[1], row[2]) for row in rows}
+    spot = forest_floor(grid, seed, chunk, at, avoid)
     if spot is None:
         return
-    x0, z0 = chunk[0] * CHUNK, chunk[1] * CHUNK
-    latest = db.execute("SELECT MAX(ready_at) FROM growth WHERE block IN (?, ?) AND x BETWEEN ? AND ? "
-                        "AND z BETWEEN ? AND ?", (*nature.MUSHROOMS, x0, x0 + CHUNK - 1, z0, z0 + CHUNK - 1)).fetchone()[0]
+    chosen.add(spot)
     ready_at = later(at, MUSHROOM_RESPAWN, scale)
-    if latest is not None:
-        ready_at = max(ready_at, later(latest, MUSHROOM_RESPAWN, scale))
+    if rows:
+        ready_at = max(ready_at, later(max(row[3] for row in rows), MUSHROOM_RESPAWN, scale))
     schedule(db, spot, kind, ready_at, keep_earlier=True)
 
 
@@ -221,6 +235,7 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
           scale: float) -> None:
     """Schedule what the changed blocks will turn into."""
     seed = state.get("world_seed", "0")
+    chosen: set[Cell] = set()
     for cell, before, after in changes:
         x, y, z = cell
         grown = nature.next_stage(after)
@@ -228,7 +243,7 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
             for leaf in orphaned_leaves(grid, cell):
                 schedule(db, leaf, "air", later(at, decay_seconds(seed, leaf, at), scale), keep_earlier=True)
         if before in nature.MUSHROOMS and after == "air":
-            respawn_mushroom(db, grid, seed, cell, before, at, scale)
+            respawn_mushroom(db, grid, seed, cell, before, at, scale, chosen)
         if after == "sapling":
             schedule(db, cell, LOG, later(at, SAPLING_GROWS, scale))
         elif after == "berry_bush":
@@ -262,13 +277,12 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
         if here == "farmland" and nature.crop_stage(grid.material(x, y + 1, z)) is None:
             grid.put(*cell, "dirt")
     elif block == LOG:
-        if here != "sapling":
-            return
-        if tree_fits(grid, cell) and pet_cell(state) not in tree_cells(cell)[0]:
-            grow_tree(grid, cell)
-            events.append((ready_at, "grow", "A sapling grew into a tree."))
-        else:
-            schedule(db, cell, LOG, later(ready_at, SAPLING_RETRY, scale))
+        if here == "sapling":
+            if tree_fits(grid, cell) and pet_cell(state) not in tree_cells(cell)[0]:
+                grow_tree(grid, cell)
+                events.append((ready_at, "grow", "A sapling grew into a tree."))
+            else:
+                schedule(db, cell, LOG, later(ready_at, SAPLING_RETRY, scale))
     elif block == "air":
         if here == "leaves" and not leaf_supported(grid, cell):
             grid.put(*cell, "air")
@@ -296,20 +310,40 @@ def decay(state: dict, leaf: Cell, at: float) -> None:
 
 
 def renew(state: dict, context, at: float) -> None:
-    """The world's own changes up to `at` (see the module docstring). Needs the tick's database."""
+    """The world's own changes up to `at` (see the module docstring). Needs the tick's database.
+
+    Each due entry is applied and only then deleted, inside its own try/except: a crash in
+    apply_entry (or the grid's write callback) is logged once and leaves that row scheduled for
+    retry on a later call, instead of losing the row's effect and half-applying the batch. A row
+    that keeps failing is not retried again within this same call, so it cannot starve the rest
+    of the batch. grid.take_changes() always runs (even if something above still slips through),
+    so renewal's own writes are never left for the next call's react() to mistake for Mimo's.
+    """
     db, grid = context.db, context.grid
     if db is None:
         return
     scale = context.clock_at(at)["time_scale"]
-    react(db, grid, state, grid.take_changes(), at, scale)
-    applied = 0
-    while applied < MAX_APPLIED:
-        entries = due(db, at, MAX_APPLIED - applied)
-        if not entries:
-            break
-        for entry in entries:
-            db.execute("DELETE FROM growth WHERE x=? AND y=? AND z=?", entry[0])
-            apply_entry(db, grid, state, entry, scale, context.events)
-            applied += 1
-    grid.take_changes()  # renewal's own writes need no reaction
+    try:
+        react(db, grid, state, grid.take_changes(), at, scale)
+        applied = 0
+        failed: set[Cell] = set()
+        while applied < MAX_APPLIED:
+            entries = due(db, at, MAX_APPLIED - applied)
+            if not entries:
+                break
+            for entry in entries:
+                cell, _, ready_at = entry
+                if cell not in failed:
+                    try:
+                        apply_entry(db, grid, state, entry, scale, context.events)
+                        # Match ready_at too: apply_entry may have rescheduled a new entry at the
+                        # same cell (a crop's next stage, a sapling's retry), and only the row we
+                        # just consumed should go.
+                        db.execute("DELETE FROM growth WHERE x=? AND y=? AND z=? AND ready_at=?", (*cell, ready_at))
+                    except Exception as error:
+                        log_once(logger, "renewal entry", error)
+                        failed.add(cell)
+                applied += 1
+    finally:
+        grid.take_changes()  # renewal's own writes need no reaction
     nature.recover_fish(state, at, scale)
