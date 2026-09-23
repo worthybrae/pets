@@ -164,6 +164,18 @@ class TickActionTests(unittest.TestCase):
         state = tick_life(self.registry, BORN + 0.1, scale=1, action_scale=60)
         self.assertEqual(state["recent_actions"][-1]["ended_at"], round(BORN + 2.0 / 60, 3))
 
+    def test_a_mind_can_interrupt_inside_the_tick(self):
+        asked = []
+
+        def hook(state, context, at):
+            asked.append(at)
+            return None
+
+        tick_life(self.registry, BORN + 5, scale=1, mind=Mind(interrupt=hook))
+        self.assertTrue(asked)
+        self.assertTrue(all(BORN <= at <= BORN + 5 for at in asked))
+
+
 
 
 

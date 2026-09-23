@@ -20,7 +20,9 @@ from typing import Callable
 
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
-from backend.survival.actions import ActionContext, Observe, Planner, activity_of, advance_actions, ensure_actions
+from backend.survival.actions import (
+    ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
+)
 from backend.survival.clock import DAY_SECONDS, action_scale as action_scale_setting, clock_at, is_night, time_scale
 from backend.survival.grid import world_grid
 from backend.survival.once import log_once
@@ -47,6 +49,7 @@ class Mind:
     """What runs Mimo inside a tick. `plan` fills an empty queue; the hooks are optional."""
 
     plan: Planner = rest_plan
+    interrupt: Interrupt | None = None
     observe: Observe | None = None
     notice: Notice | None = None
 
@@ -118,7 +121,8 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
         events: list[Event] = []
         context = ActionContext(grid=world_grid(db, world.seed), planner=mind.plan, events=events,
                                 clock_at=lambda at: clock_at(state["born_at"], at, scale),
-                                observe=mind.observe, db=db, action_scale=action_scale)
+                                observe=mind.observe, db=db, action_scale=action_scale,
+                                interrupt=mind.interrupt)
         cursor = state["last_tick_at"]
         remaining = (timestamp - cursor) * scale
         while remaining > 1e-9:

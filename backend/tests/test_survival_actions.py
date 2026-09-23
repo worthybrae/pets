@@ -45,6 +45,28 @@ def context(grid, planner=None, clock=None):
     return ActionContext(grid=grid, clock_at=clock or (lambda at: DAY), planner=planner or Plans(), events=[])
 
 
+class Takeover:
+    """An interrupt hook that takes over once, when `when(state, at)` holds, with `plan`."""
+
+    def __init__(self, when, plan, reason="reflex"):
+        self.when, self.plan, self.reason = when, plan, reason
+        self.fired = False
+
+    def __call__(self, state, context, at):
+        if self.fired or not self.when(state, at):
+            return None
+        self.fired = True
+        state["queue"] = [dict(spec) for spec in self.plan]
+        return self.reason
+
+
+def hooked(grid, hook, clock=None):
+    ctx = context(grid, clock=clock)
+    ctx.interrupt = hook
+    return ctx
+
+
+
 class ActionEngineTests(unittest.TestCase):
     def test_several_steps_can_finish_in_one_advance(self):
         grid, state = small_world(), pet(inventory={"planks": 2})
@@ -360,6 +382,75 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual(state["recent_actions"][-1]["ended_at"], 0.033)
 
 
+
+
+class InterruptTests(unittest.TestCase):
+    def test_a_takeover_before_a_step_replaces_the_queue(self):
+        grid, state = small_world(), pet(inventory={"planks": 1})
+        state["queue"] = [{"kind": "wait", "seconds": 1}, {"kind": "mine", "target": [9, 1, 0]}]
+        hook = Takeover(lambda state, at: at >= 1.0, [{"kind": "place", "target": [1, 1, 0], "block": "planks"}])
+        advance_actions(state, hooked(grid, hook), 2.0)
+        self.assertEqual(grid.material(1, 1, 0), "planks")
+        self.assertEqual([(entry["kind"], entry["result"]) for entry in state["recent_actions"]], [("place", "done")])
+
+    def test_a_takeover_cuts_a_walk_at_the_last_cell_it_reached(self):
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "walk", "target": [8, 1, 0], "purpose": "explore"}]
+        ctx = hooked(grid, Takeover(lambda state, at: at >= 1.0, [{"kind": "wait", "seconds": 5}], "head_home"))
+        advance_actions(state, ctx, 0.5)
+        advance_actions(state, ctx, 1.0)
+        self.assertEqual(state["position"], {"x": 3.0, "y": 1.0, "z": 0.0})
+        cut = state["recent_actions"][-1]
+        self.assertEqual((cut["kind"], cut["result"], cut["reason"], cut["ended_at"], cut["purpose"]),
+                         ("walk", "interrupted", "head_home", 1.0, "explore"))
+        self.assertIsNone(state["last_failure"])
+        self.assertEqual((state["action"]["kind"], state["action"]["started_at"]), ("wait", 1.0))
+
+    def test_sleep_can_be_cut(self):
+        state = pet()
+        state["vitals"]["energy"] = 50.0
+        state["queue"] = [{"kind": "sleep"}]
+        hook = Takeover(lambda state, at: state["vitals"]["air"] < 40, [{"kind": "wait", "seconds": 1}], "surface")
+        ctx = hooked(small_world(), hook, clock=lambda at: NIGHT)
+        advance_actions(state, ctx, 5.0)
+        self.assertEqual(state["status"], "sleeping")
+        state["vitals"]["air"] = 30.0
+        advance_actions(state, ctx, 6.0)
+        cut = state["recent_actions"][-1]
+        self.assertEqual((cut["kind"], cut["result"], cut["reason"]), ("sleep", "interrupted", "surface"))
+        self.assertEqual(state["action"]["kind"], "wait")
+
+    def test_short_steps_finish_before_a_takeover(self):
+        grid, state = small_world({(1, 1, 0): "oak_log"}), pet()
+        state["queue"] = [{"kind": "mine", "target": [1, 1, 0]}]
+        ctx = hooked(grid, Takeover(lambda state, at: at >= 0.5, [{"kind": "wait", "seconds": 1}]))
+        advance_actions(state, ctx, 1.0)
+        self.assertEqual(state["action"]["kind"], "mine")
+        advance_actions(state, ctx, 3.0)
+        self.assertEqual(state["recent_actions"][-1]["result"], "done")
+        self.assertEqual(grid.material(1, 1, 0), "air")
+
+    def test_a_crashing_hook_is_logged_once_and_ignored(self):
+        def broken(state, context, at):
+            raise RuntimeError("boom")
+
+        forget_logged()
+        state = pet(inventory={"planks": 1})
+        state["queue"] = [{"kind": "place", "target": [1, 1, 0], "block": "planks"}]
+        with self.assertLogs("backend.survival.actions", level="ERROR") as logs:
+            advance_actions(state, hooked(small_world(), broken), 1.0)
+        self.assertEqual(len(logs.output), 1)
+        self.assertEqual(state["recent_actions"][-1]["result"], "done")
+
+    def test_a_hook_that_always_takes_over_cannot_spin(self):
+        def greedy(state, context, at):
+            state["queue"] = [{"kind": "wait", "seconds": 1}]
+            return "greedy"
+
+        state = pet()
+        advance_actions(state, hooked(small_world(), greedy), 0.5)
+        self.assertEqual(state["action"]["kind"], "wait")
+        self.assertEqual(state["actions_at"], 0.5)
 
 
 class OnceLogTests(unittest.TestCase):

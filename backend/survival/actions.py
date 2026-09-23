@@ -61,6 +61,9 @@ STATUS = {"walk": "walking", "swim": "swimming", "fall": "falling", "mine": "min
           "eat": "eating", "craft": "crafting", "smelt": "smelting", "sleep": "sleeping", "wait": "idle"}
 # Waits tell the viewer nothing and would push real steps out of the recent list.
 UNRECORDED = frozenset({"wait"})
+# Running steps a takeover may cut short. The others last a few seconds at most and finish first.
+INTERRUPTIBLE = frozenset({"walk", "sleep", "wait"})
+MAX_TAKEOVERS = 4
 RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose", "path")
 
 Event = tuple[float, str, str]
@@ -68,6 +71,8 @@ Event = tuple[float, str, str]
 Planner = Callable[[dict, "ActionContext", float], list[dict]]
 # An observer hears about each step that finished well: (state, finished step, context, time).
 Observe = Callable[[dict, dict, "ActionContext", float], None]
+# An interrupt hook may take over: it fills the queue with its own steps and returns a reason.
+Interrupt = Callable[[dict, "ActionContext", float], "str | None"]
 
 
 @dataclass
@@ -90,6 +95,7 @@ class ActionContext:
     observe: Observe | None = None
     db: sqlite3.Connection | None = None
     action_scale: float = 1.0
+    interrupt: Interrupt | None = None
 
 
 def take_search(context: ActionContext) -> bool:
@@ -314,20 +320,49 @@ def safe_plan(context: ActionContext, state: dict, at: float) -> list[dict]:
     return list(plan)
 
 
+def interrupted(state: dict, context: ActionContext, at: float) -> bool:
+    """Ask the interrupt hook whether something takes over at `at`.
+
+    The hook sees the running step (if any) and, to take over, fills the queue with its own steps
+    and returns a reason. The running step is then recorded as interrupted and cleared. A
+    crashing hook is logged once and counts as no takeover.
+    """
+    if context.interrupt is None:
+        return False
+    try:
+        reason = context.interrupt(state, context, at)
+    except Exception as error:
+        log_once(logger, "interrupt", error)
+        return False
+    if not reason:
+        return False
+    step = state["action"]
+    if step is not None:
+        record(state, step, at, "interrupted", reason)
+        state["action"] = None
+    return True
+
+
 def advance_actions(state: dict, context: ActionContext, until: float) -> float | None:
     """Run Mimo's actions up to `until`. Returns the time a fall killed Mimo, or None."""
     ensure_actions(state)
     grid = context.grid
     at = min(state["actions_at"], until)
+    takeovers = 0
     for _ in range(MAX_STEPS_PER_ADVANCE):
         step = state["action"]
         if step is None:
             if start_hazard(state, grid, at):
                 continue
+            if takeovers < MAX_TAKEOVERS and interrupted(state, context, at):
+                takeovers += 1
+                continue
             if not state["queue"]:
                 state["queue"] = safe_plan(context, state, at)
                 if not state["queue"]:
                     break
+                if context.interrupt is not None:
+                    continue  # a fresh plan gets the same takeover check before its first step
             spec = state["queue"][0]
             if spec.get("kind") == "walk" and not take_search(context):
                 break  # search budget spent this tick; try this walk again next advance_actions
@@ -351,6 +386,10 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             continue
         end = step_end(step, state, context, until)
         if end is None:
+            if step["kind"] in INTERRUPTIBLE and takeovers < MAX_TAKEOVERS and interrupted(state, context, until):
+                takeovers += 1
+                at = until
+                continue
             break
         state["action"] = None
         at = end
