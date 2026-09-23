@@ -1,27 +1,40 @@
 """Seeded headless runs of the real brain: the BRAIN mind in the tick plus the worker's Chooser.
 
 Each run hatches a life on a fixed seed and ticks it for a game day at 1x in coarse steps, the
-way the worker would (tick, then let the chooser answer). The fake Jev answers at once with a
-seeded random pick among the offered purposes and never touches the network.
+way the worker would (tick, then let the chooser answer), once with the utility picker and once
+with a fake Jev that answers at once with a seeded random pick and never touches the network.
+Set MIMO_SLOW_TESTS=1 for longer runs on more seeds.
 """
 
+import logging
+import os
 import random
 import tempfile
 import unittest
 from pathlib import Path
 
 from backend.survival.brain import BRAIN
-from backend.survival.choosing import Chooser, InlineExecutor
+from backend.survival.choosing import MODEL_BUDGET, Chooser, InlineExecutor
+from backend.survival.escape import TRAPPED_LIMIT, reachable_count
+from backend.survival.grid import world_grid
 from backend.survival.hatch import hatch
+from backend.survival.memory import cell_of, places
+from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
+from backend.survival.steps import as_cell
 from backend.survival.tick import tick_life
 from backend.survival.triggers import HOUR
+from backend.survival.world import SurvivalWorld, read_state
 
 BORN = 1_000_000.0
 DAY = 3600.0
-STEP = 10.0  # real seconds per tick: coarse, so a game day takes a few seconds
-SEEDS = (3, 11)
-MODEL_BUDGET = 8
+SLOW = os.environ.get("MIMO_SLOW_TESTS") == "1"
+SEEDS = (3, 11, 5, 21) if SLOW else (3, 11)
+LENGTH = 2 * DAY if SLOW else DAY
+STEP = 5.0 if SLOW else 15.0  # real seconds per tick: coarse, so a game day takes a few seconds
+SAMPLE = 30.0  # game seconds between reachability checks
+PURPOSE_EVENTS_PER_HOUR = 24  # the first hour is busy: wood, tools, stone, ores, better tools
+TRAPPED_AT_MOST = 180.0  # game seconds
 
 
 class FakeJev:
@@ -38,34 +51,89 @@ class FakeJev:
         return {"answers": {"purpose": {"choice": self.rng.choice(offered)}}}
 
 
+class Errors(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.ERROR)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
 def most_in_an_hour(times: list[float]) -> int:
-    """The most calls in any rolling game hour."""
+    """The most of `times` (game seconds) in any rolling game hour."""
     return max((sum(1 for other in times if at - HOUR < other <= at) for at in times), default=0)
 
 
-def run_life(seed: int, jev: bool, seconds: float = DAY, step: float = STEP) -> dict:
-    with tempfile.TemporaryDirectory() as root:
-        registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
-        hatch(registry, random.Random(seed), timestamp=BORN)
-        fake = FakeJev(seed)
-        chooser = Chooser(env={"TYPESAFE_API_KEY": "k"} if jev else {}, http=fake, executor=InlineExecutor(),
-                          rng=random.Random(seed), scale=1.0)
-        t = 0.0
-        while t < seconds:
-            t += step
-            state = tick_life(registry, BORN + t, scale=1.0, mind=BRAIN, action_scale=1.0)
-            if state is None or state["died_at"] is not None:
-                break
-            fake.now = t
-            chooser.poll(registry, BORN + t)
-        return {"calls": fake.calls, "state": state}
+def sample(world: SurvivalWorld) -> tuple[int, int | None]:
+    """How many cells Mimo can reach, and how many its home can (None while it has no home)."""
+    with world.connect() as db:
+        state = read_state(db)
+        grid = world_grid(db, state["world_seed"])
+        homes = places(db, ("home",))
+        here = reachable_count(grid, as_cell(state["position"]), TRAPPED_LIMIT)
+        home = reachable_count(grid, cell_of(homes[0]), TRAPPED_LIMIT) if homes else None
+    return here, home
+
+
+def run_life(seed: int, jev: bool) -> dict:
+    forget_logged()
+    errors = Errors()
+    logging.getLogger("backend").addHandler(errors)
+    try:
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            life = hatch(registry, random.Random(seed), timestamp=BORN)
+            world = SurvivalWorld(registry.world_path(life))
+            fake = FakeJev(seed)
+            chooser = Chooser(env={"TYPESAFE_API_KEY": "k"} if jev else {}, http=fake, executor=InlineExecutor(),
+                              rng=random.Random(seed), scale=1.0)
+            t, trapped_since, trapped_longest, homes = 0.0, None, 0.0, []
+            while t < LENGTH:
+                t += STEP
+                state = tick_life(registry, BORN + t, scale=1.0, mind=BRAIN, action_scale=1.0)
+                if state is None or state["died_at"] is not None:
+                    break
+                fake.now = t
+                chooser.poll(registry, BORN + t)
+                if t % SAMPLE < STEP:
+                    here, home = sample(world)
+                    if here < TRAPPED_LIMIT:
+                        trapped_since = t if trapped_since is None else trapped_since
+                        trapped_longest = max(trapped_longest, t - trapped_since)
+                    else:
+                        trapped_since = None
+                    if home is not None:
+                        homes.append(home)
+            events = world.events(100_000)
+            return {"state": world.state(), "calls": fake.calls, "trapped": trapped_longest, "homes": homes,
+                    "purposes": [event["at"] - BORN for event in events if event["kind"] == "purpose"],
+                    "errors": [record.getMessage() for record in errors.records]}
+    finally:
+        logging.getLogger("backend").removeHandler(errors)
 
 
 class HeadlessBrainTests(unittest.TestCase):
+    def check(self, run: dict, seed: int) -> None:
+        self.assertIsNone(run["state"]["died_at"])
+        self.assertEqual(run["errors"], [])
+        self.assertLessEqual(run["trapped"], TRAPPED_AT_MOST)
+        self.assertTrue(run["homes"], f"seed {seed} found no home")
+        self.assertTrue(all(home >= TRAPPED_LIMIT for home in run["homes"]), run["homes"])
+        self.assertLessEqual(most_in_an_hour(run["purposes"]), PURPOSE_EVENTS_PER_HOUR)
+
+    def test_the_utility_brain_lives_a_day_with_its_home_in_reach(self):
+        for seed in SEEDS:
+            with self.subTest(seed=seed):
+                run = run_life(seed, jev=False)
+                self.check(run, seed)
+                self.assertEqual(run["calls"], [])
+
     def test_a_fake_jev_is_asked_at_most_eight_times_in_any_game_hour(self):
         for seed in SEEDS:
             with self.subTest(seed=seed):
                 run = run_life(seed, jev=True)
+                self.check(run, seed)
                 self.assertGreater(len(run["calls"]), 0)
                 self.assertLessEqual(most_in_an_hour(run["calls"]), MODEL_BUDGET)
 
