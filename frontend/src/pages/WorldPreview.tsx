@@ -51,13 +51,14 @@ async function fetchBlocksPage(since: number): Promise<BlocksPage> {
   return await response.json() as BlocksPage
 }
 
-function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, follow, onOrbit, onChunkChange }: {
+function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, follow, viewDistance, onOrbit, onChunkChange }: {
   focus: Point
   focusY: number
   initialFocus: Point
   initialFocusY: number
   distance: number
   follow: boolean
+  viewDistance: number
   onOrbit: () => void
   onChunkChange: (x: number, z: number) => void
 }) {
@@ -65,7 +66,7 @@ function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, fol
   const lastChunk = useRef('0,0')
   const { camera } = useThree()
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const controls = controlsRef.current
     if (!controls) return
     if (follow) {
@@ -77,6 +78,14 @@ function BuildCamera({ focus, focusY, initialFocus, initialFocusY, distance, fol
       const currentDistance = offset.length()
       camera.position.addScaledVector(offset.normalize(), (distance - currentDistance) * (1 - Math.exp(-2 * delta)))
       controls.update()
+    }
+    // Fog follows the live camera distance (not just the preset), so zooming out with
+    // OrbitControls (up to maxDistance 130) doesn't fade Mimo into fog early.
+    const fog = state.scene.fog
+    if (fog instanceof THREE.Fog) {
+      const [near, far] = fogRange(viewDistance, camera.position.distanceTo(controls.target))
+      fog.near = near
+      fog.far = far
     }
     const cx = Math.floor(controls.target.x / 16)
     const cz = Math.floor(controls.target.z / 16)
@@ -231,7 +240,7 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
             </mesh>
           </PetEntity>
           <BuildCamera focus={cameraFocus} focusY={cameraY} initialFocus={initialPosition} initialFocusY={initialPosition.y ?? 1}
-            distance={cameraDistance} follow={following}
+            distance={cameraDistance} follow={following} viewDistance={viewDistance}
             onOrbit={() => setFollowing(false)}
             onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />
         </Canvas>
