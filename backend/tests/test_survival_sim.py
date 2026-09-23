@@ -33,9 +33,10 @@ SEEDS = (3, 11, 5, 21) if SLOW else (3, 11)
 LENGTH = 2 * DAY if SLOW else DAY
 STEP = 5.0 if SLOW else 15.0  # real seconds per tick: coarse, so a game day takes a few seconds
 SAMPLE = 30.0  # game seconds between reachability checks
-# The first hour is busy: wood, tools, stone, ores, better tools, and from M4 food work too
-# (forage, fish, farm, cook, eat), each a change of purpose and a change back.
-PURPOSE_EVENTS_PER_HOUR = 36
+# The first hour is busy: wood, tools, stone, ores, better tools, from M4 food work (forage,
+# fish, farm, cook, eat) and from M5 building (a shelter in a few goes, furnishing it, storage,
+# dropping junk, a farm, torches), each a change of purpose and a change back.
+PURPOSE_EVENTS_PER_HOUR = 46
 TRAPPED_AT_MOST = 180.0  # game seconds
 
 

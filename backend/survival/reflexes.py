@@ -18,7 +18,8 @@ holds and whose planner returns steps takes over:
 
 M3 registers surface (10), avoid_drop (20), eat_now (40), warm_up (50), head_home (60) and
 collapse (70). Priority 30 is left for sub-project 3's flee; creature reflexes register
-themselves with `register`. M5: collapse lies down in a bed within 8 blocks when there is one.
+themselves with `register`. M5: collapse lies down in a bed within 8 blocks when there is one,
+and head_home leaves Mimo be while it builds its shelter or lights torches at home.
 """
 
 from __future__ import annotations
@@ -54,6 +55,8 @@ EAT_NOW_FULL = 40.0
 WARM_UP_BELOW = 25.0
 SHORE_SEARCH = 2000
 FIRE_STAND = 2.0
+# Purposes that keep Mimo at its home at dusk (M5): head_home leaves them be.
+AT_HOME_WORK = ("build_shelter", "light_up")
 
 
 @dataclass(frozen=True)
@@ -296,7 +299,7 @@ register(Reflex("warm_up", 50, trigger=lambda s: s.vitals["warmth"] < WARM_UP_BE
 def head_home_due(s: Situation) -> bool:
     if not HOMEWARD <= s.clock["seconds_into_day"] < NIGHTFALL:
         return False
-    if s.brain["purpose"] in ("go_home", "sleep"):
+    if s.brain["purpose"] in ("go_home", "sleep", *AT_HOME_WORK):
         return False
     home = home_of(s)
     if home is None or s.distance(cell_of(home)) <= AT_HOME:

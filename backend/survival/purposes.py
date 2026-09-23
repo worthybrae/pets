@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Callable
 
 from backend.services.worldgen import terrain_height
 from backend.survival.beds import to_bed
-from backend.survival.memory import SHELTER_KINDS, cell_of, nearest
+from backend.survival.memory import BUILT, SHELTER_KINDS, cell_of, nearest
 from backend.survival.once import log_once
 from backend.survival.senses import TREE_SEARCH, trees_near
 from backend.survival.situation import DUSK, NIGHTFALL, Situation
@@ -108,7 +108,11 @@ def walk_to(cell, reach: float = 0.0) -> dict:
 
 
 def home_of(s: Situation) -> dict | None:
-    """The nearest remembered home or shelter within HOME_RANGE blocks."""
+    """The home Mimo built, when it is within HOME_RANGE blocks (M5); else the nearest remembered
+    home or shelter within HOME_RANGE."""
+    home = nearest(s.places, s.here, ("home",), HOME_RANGE)
+    if home is not None and home["note"] == BUILT:
+        return home
     return nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)
 
 
