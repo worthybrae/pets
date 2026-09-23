@@ -95,6 +95,8 @@ def set_aside(state: dict) -> list[dict]:
         spec = {"kind": "walk", "target": [target["x"], target["y"], target["z"]], "reach": action["reach"]}
         if "purpose" in action:
             spec["purpose"] = action["purpose"]
+        if action.get("whole"):
+            spec["whole"] = True
         kept.append(spec)
     return kept + [dict(spec) for spec in state["queue"]]
 
@@ -241,6 +243,8 @@ def plan_avoid_drop(s: Situation, context: ActionContext) -> list[dict]:
     again = {"kind": "walk", "target": [target["x"], target["y"], target["z"]], "reach": action["reach"]}
     if "purpose" in action:
         again["purpose"] = action["purpose"]
+    if action.get("whole"):
+        again["whole"] = True
     return [again, *s.state["queue"]]
 
 

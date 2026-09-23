@@ -24,6 +24,7 @@ from backend.services.crafting import BLOCKS, craft, smelt, take_items
 from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
 from backend.survival.memory import create_memory_tables
 from backend.survival.renewal import create_growth_table
+from backend.survival.steps import WORKSTATIONS
 from backend.survival.triggers import mark_trigger
 from backend.survival.vitals import START_VITALS
 
@@ -36,9 +37,9 @@ RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6
 MACHINES = ("crafting_table", "furnace")  # what the owner may place beside the pet
-# Placed blocks the owner's craft and smelt count as nearby stations: the machines, and a campfire,
-# where raw fish cooks as it does at a furnace.
-STATIONS = (*MACHINES, "campfire")
+# Placed blocks the owner's craft and smelt count as nearby stations: the same three as
+# steps.WORKSTATIONS (crafting table, furnace, campfire), where raw fish cooks as it does at a
+# furnace.
 MACHINE_OFFSETS = ((2, 0), (0, 2), (-2, 0), (0, -2), (3, 0), (0, 3), (-3, 0), (0, -3))
 
 
@@ -258,7 +259,7 @@ class SurvivalWorld:
                 raise LifeOver(f"{state['name']} has died")
             check_not_behind(state, timestamp)
             position = state["position"]
-            stations = {material for x, _, z, material in placed_near(db, position, STATION_REACH, STATIONS)
+            stations = {material for x, _, z, material in placed_near(db, position, STATION_REACH, WORKSTATIONS)
                         if math.hypot(x - position["x"], z - position["z"]) <= STATION_REACH}
             if action == "craft":
                 state["inventory"] = craft(state["inventory"], item, stations)

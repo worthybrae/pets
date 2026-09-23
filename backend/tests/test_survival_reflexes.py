@@ -211,6 +211,44 @@ class ReflexTests(unittest.TestCase):
                                     "target": {"x": 12, "y": 1, "z": 0}, "reason": "no way there", "code": "no_path"}]
         self.assertIsNone(reflex_hook(stuck, brainy(grid), 0.0))
 
+    def test_warm_up_keeps_a_running_whole_walk_whole_when_it_sets_it_aside(self):
+        """A whole walk (all the way or not at all) that a reflex cuts must resume as a whole
+        walk too, or the resumed leg can end in a pit. steps.start_walk must copy `whole` onto
+        the running step, and reflexes.set_aside must copy it into the re-queued spec."""
+        state = pet()
+        choose(state, "gather_wood")
+        state["queue"] = [{"kind": "walk", "target": [0, 1, 9], "reach": 0.0, "whole": True,
+                           "purpose": "gather_wood"}]
+        ctx = brainy()
+        advance_actions(state, ctx, 0.5)
+        self.assertEqual((state["action"]["kind"], state["action"].get("whole")), ("walk", True))
+        state["vitals"]["warmth"] = 20.0
+        remember(ctx.db, "home", (20, 1, 0), 0.0)
+        advance_actions(state, ctx, 1.0)
+        cut = state["recent_actions"][-1]
+        self.assertEqual((cut["kind"], cut["result"], cut["reason"]), ("walk", "interrupted", "warm_up"))
+        self.assertEqual(state["brain"]["set_aside"],
+                         [{"kind": "walk", "target": [0, 1, 9], "reach": 0.0, "whole": True,
+                           "purpose": "gather_wood"}])
+
+    def test_avoid_drop_keeps_a_cut_whole_walk_whole_when_it_walks_around(self):
+        """avoid_drop's re-walk (plan_avoid_drop's `again`) must also keep `whole`."""
+        state = pet()
+        choose(state, "explore")
+        state["queue"] = [{"kind": "walk", "target": [5, 1, 0], "reach": 0.0, "whole": True, "purpose": "explore"}]
+        grid = holed((2, 0))
+        ctx = brainy(grid)
+        advance_actions(state, ctx, 0.4)
+        self.assertEqual((state["action"]["kind"], state["action"].get("whole")), ("walk", True))
+        grid.put(2, 0, 0, "air")
+        advance_actions(state, ctx, 0.5)
+        cut = state["recent_actions"][-1]
+        self.assertEqual((cut["kind"], cut["result"], cut["reason"]), ("walk", "interrupted", "avoid_drop"))
+        path = [(entry["x"], entry["y"], entry["z"]) for entry in state["action"]["path"]]
+        self.assertNotIn((2, 1, 0), path)
+        self.assertEqual((path[-1], state["action"]["purpose"], state["action"].get("whole")),
+                         ((5, 1, 0), "explore", True))
+
 
 
 

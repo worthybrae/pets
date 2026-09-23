@@ -238,7 +238,8 @@ def start_walk(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
         raise StepFailed("no way there", "no_path")
     path = timed_path(grid, here, cells, at, scale)
     return {"kind": "walk", "started_at": at, "ends_at": path[-1]["at"], "path": path,
-            "target": as_point(target), "reach": reach, "reached": reached, "segments": segments}
+            "target": as_point(target), "reach": reach, "reached": reached, "segments": segments,
+            **({"whole": True} if spec.get("whole") else {})}
 
 
 def finish_walk(step: dict, state: dict, grid: Grid, at: float) -> None:
