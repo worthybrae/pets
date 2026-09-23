@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -36,6 +37,28 @@ class WorldMissing(RuntimeError):
 
 class LifeOver(RuntimeError):
     """The pet in this world has died, so it cannot be greeted, helped or cared for."""
+
+
+# Paths whose schema is already known to exist, so a writable open does not re-run
+# `create_world_tables` (and its `BEGIN IMMEDIATE`) on every request. One process only
+# ever needs to do this once per path: either `SurvivalWorld.create()` just wrote it, or
+# an earlier writable open in this process already ran the check.
+_schema_ready: set[Path] = set()
+_schema_lock = threading.Lock()
+
+
+def _ensure_world_schema(path: Path) -> None:
+    """Run schema setup for a writable open, at most once per path per process."""
+    resolved = path.resolve()
+    if resolved in _schema_ready:
+        return
+    with _schema_lock:
+        if resolved in _schema_ready:
+            return
+        with open_db(path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            create_world_tables(db)
+        _schema_ready.add(resolved)
 
 
 def new_survival_state(*, name: str, seed: str, spawn: dict, born_at: float, traits: dict) -> dict:
@@ -94,14 +117,13 @@ class SurvivalWorld:
         if not self.path.exists():
             raise WorldMissing(f"World database {self.path} is missing")
         if not read_only:
-            with self.transaction() as db:
-                create_world_tables(db)
+            _ensure_world_schema(self.path)
         with self.connect() as db:
             self.seed = read_state(db)["world_seed"]
 
     @classmethod
     def create(cls, path: str | Path, state: dict) -> "SurvivalWorld":
-        """Write a new world file. A leftover file from a failed hatch is taken over."""
+        """Write a new world file. A leftover file from a failed hatch is replaced, not reused."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open_db(path) as db:
@@ -110,6 +132,8 @@ class SurvivalWorld:
             db.execute("INSERT OR REPLACE INTO survival_state(id, data) VALUES (1, ?)", (json.dumps(state),))
             if db.execute("SELECT 1 FROM mimo_events LIMIT 1").fetchone() is None:
                 log_event(db, state["born_at"], "birth", f"{state['name']} hatched into a brand-new world.")
+        with _schema_lock:
+            _schema_ready.add(path.resolve())
         return cls(path)
 
     @contextmanager

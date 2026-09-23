@@ -28,12 +28,12 @@ class CareRequest(BaseModel):
     kind: Literal["snack", "bandage"]
 
 
-def active_world(registry: LifeRegistry) -> tuple[dict, SurvivalWorld]:
+def active_world(registry: LifeRegistry, read_only: bool = False) -> tuple[dict, SurvivalWorld]:
     life = registry.active_life()
     if life is None:
         raise HTTPException(status_code=409, detail="No pet is alive. Hatch the egg first.")
     try:
-        return life, SurvivalWorld(registry.world_path(life))
+        return life, SurvivalWorld(registry.world_path(life), read_only=read_only)
     except UNAVAILABLE as error:
         raise world_unavailable(life, error) from error
 
@@ -49,13 +49,13 @@ def get_mimo():
             raise world_unavailable(last, error) from error
         return {"phase": "egg", "egg": registry.pending_egg(random.Random(), now),
                 "last_life": summary, "server_time": now}
-    life, world = active_world(registry)
+    life, world = active_world(registry, read_only=True)
     return alive_snapshot(life, world, now, scale)
 
 
 @router.get("/mimo/blocks")
 def get_mimo_blocks(since: int = Query(0, ge=0), limit: int = Query(5000, ge=1, le=5000)):
-    _, world = active_world(open_registry())
+    _, world = active_world(open_registry(), read_only=True)
     return world.blocks_since(since, limit)
 
 

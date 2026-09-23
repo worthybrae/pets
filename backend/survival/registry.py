@@ -10,6 +10,7 @@ import json
 import os
 import random
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +28,12 @@ LIFE_COLUMNS = ("id", "name", "kind", "db_path", "seed", "spawn_x", "spawn_z", "
 
 class LifeConflict(RuntimeError):
     """A pet is already alive, so no egg can hatch."""
+
+
+# Registry paths whose schema this process has already initialized, so building a
+# `LifeRegistry` for a GET request does not take a write lock on every call.
+_schema_ready: set[Path] = set()
+_schema_lock = threading.Lock()
 
 
 def data_dir() -> Path:
@@ -69,7 +76,12 @@ class LifeRegistry:
         self.legacy_path = Path(legacy_path) if legacy_path is not None else legacy_db_path()
         self.path = self.directory / "lives.sqlite3"
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.initialize(time.time() if timestamp is None else timestamp)
+        resolved = self.path.resolve()
+        if resolved not in _schema_ready:
+            with _schema_lock:
+                if resolved not in _schema_ready:
+                    self.initialize(time.time() if timestamp is None else timestamp)
+                    _schema_ready.add(resolved)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

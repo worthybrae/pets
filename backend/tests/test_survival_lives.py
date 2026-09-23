@@ -4,6 +4,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.services.live_mimo import MimoStore
 from backend.survival.eggs import TRAITS
@@ -51,6 +52,17 @@ class LifeRegistryTests(unittest.TestCase):
         empty = LifeRegistry(Path(self.directory.name) / "other", Path(self.directory.name) / "missing.sqlite3")
         self.assertEqual(empty.list_lives(), [])
         self.assertIsNone(empty.last_life())
+
+    def test_the_registry_schema_is_initialized_once_per_path_per_process(self):
+        # A fresh directory this process has never opened, so the module-level cache starts empty for it.
+        directory = tempfile.TemporaryDirectory()
+        root = Path(directory.name)
+        with patch.object(LifeRegistry, "initialize", autospec=True, side_effect=LifeRegistry.initialize) as spy:
+            LifeRegistry(root / "data", root / "no-legacy.sqlite3", timestamp=1.0)
+            LifeRegistry(root / "data", root / "no-legacy.sqlite3", timestamp=2.0)
+            LifeRegistry(root / "data", root / "no-legacy.sqlite3", timestamp=3.0)
+        self.assertEqual(spy.call_count, 1)
+        directory.cleanup()
 
     def test_the_pending_egg_is_rolled_once_and_kept(self):
         first = self.registry.pending_egg(random.Random(1))

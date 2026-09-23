@@ -1,11 +1,14 @@
 import hashlib
+import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.services.live_mimo import MimoStore
 from backend.services.worldgen import block_at, terrain_height
+from backend.survival import world as world_module
 from backend.survival.world import (
     LifeOver, SurvivalWorld, WorldMissing, new_survival_state, read_state, write_state,
 )
@@ -109,6 +112,20 @@ class SurvivalWorldTests(unittest.TestCase):
     def test_a_missing_world_file_is_reported(self):
         with self.assertRaises(WorldMissing):
             SurvivalWorld(Path(self.directory.name) / "lives" / "99.sqlite3")
+
+    def test_a_world_opened_writable_twice_runs_schema_setup_once(self):
+        # Simulate a world file this process has never opened before (schema setup still
+        # pending), the way a freshly-started worker or API process would first see it.
+        path = Path(self.directory.name) / "lives" / "9.sqlite3"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        state = new_survival_state(name="Q", seed=SEED, spawn=SPAWN, born_at=1000.0, traits={})
+        with sqlite3.connect(path) as raw:
+            raw.execute("CREATE TABLE survival_state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL)")
+            raw.execute("INSERT INTO survival_state(id, data) VALUES (1, ?)", (json.dumps(state),))
+        with patch.object(world_module, "create_world_tables", wraps=world_module.create_world_tables) as spy:
+            SurvivalWorld(path)
+            SurvivalWorld(path)
+        self.assertEqual(spy.call_count, 1)
 
     def test_read_only_worlds_cannot_be_written(self):
         archive = SurvivalWorld(self.path, read_only=True)

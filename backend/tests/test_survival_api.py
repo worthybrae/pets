@@ -1,5 +1,9 @@
+import hashlib
 import os
+import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -129,6 +133,44 @@ class SurvivalApiTests(unittest.TestCase):
         blocker.write_text("x")
         with patch.dict(os.environ, {"MIMO_DATA_DIR": str(blocker / "data")}):
             self.assertEqual(self.status_of(get_mimo), 503)
+
+    def test_get_mimo_returns_quickly_while_another_connection_holds_the_world_lock(self):
+        hatch_egg()
+        world_path = self.active_world().path
+        holding = threading.Event()
+        released = threading.Event()
+
+        def hold_write_lock():
+            connection = sqlite3.connect(world_path, timeout=10)
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("BEGIN IMMEDIATE")
+            holding.set()
+            released.wait(2)
+            connection.rollback()
+            connection.close()
+
+        thread = threading.Thread(target=hold_write_lock)
+        thread.start()
+        try:
+            self.assertTrue(holding.wait(2))
+            start = time.monotonic()
+            state = get_mimo()
+            elapsed = time.monotonic() - start
+        finally:
+            released.set()
+            thread.join()
+        self.assertEqual(state["phase"], "alive")
+        self.assertLess(elapsed, 0.5)
+
+    def test_get_routes_never_modify_the_world_file(self):
+        hatch_egg()
+        world_path = self.active_world().path
+        before = hashlib.sha256(world_path.read_bytes()).hexdigest()
+        get_mimo()
+        get_mimo_blocks(since=0, limit=5000)
+        get_mimo()
+        after = hashlib.sha256(world_path.read_bytes()).hexdigest()
+        self.assertEqual(before, after)
 
 
 if __name__ == "__main__":
