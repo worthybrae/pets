@@ -3,8 +3,9 @@
 forage picks ripe berry bushes and mushrooms within 24 blocks, nearest first, up to 4 plants a
 batch, until Mimo carries a game day's worth of food (60 hunger) or nothing ripe is left near.
 With nothing ripe in sight it walks to a remembered food patch within 64 blocks that still had
-ripe food, or was seen picked clean at least 2 game days ago (it has grown back since). Red
-mushrooms are picked too, until Mimo learns they are poisonous.
+ripe food, or was seen picked clean at least 2 game days ago (it has grown back since); a patch
+it arrives at and finds nothing to pick at is remembered as picked clean then
+(backend.survival.learning). Red mushrooms are picked too, until Mimo learns they are poisonous.
 
 fish walks to the nearest shore within 24 blocks whose water still has fish (the 16x16 region's
 stock) and fishes there, 3 catches a batch, until Mimo carries 4 fish, raw or cooked.
