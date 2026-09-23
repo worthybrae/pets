@@ -3,7 +3,9 @@
 The pathfinder and the action system ask about thousands of cells in a tick. A Grid caches
 natural blocks and loads saved edits one 16x16 chunk at a time. `put` records an edit and
 passes it to the world's write_block, so viewers receive it through block sync. It also keeps
-each change until `take_changes` collects it, so renewal can react to what Mimo changed.
+each change until `take_changes` collects it, so renewal can react to what Mimo changed. Cells
+that something Mimo built claims (backend.survival.structures) load the same way, chunk by chunk,
+so planners that dig or till can leave them alone (`claimed`).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from backend.services.worldgen import block_at
 Cell = tuple[int, int, int]
 MaterialAt = Callable[[int, int, int], str]
 LoadEdits = Callable[[int, int], dict[Cell, str]]
+LoadClaims = Callable[[int, int], set[Cell]]
 WriteBlock = Callable[[int, int, int, str], None]
 CHUNK = 16
 FLUIDS = ("water", "lava")
@@ -31,14 +34,17 @@ class Grid:
     one chunk and `write` stores a new edit. Tests build small worlds from `natural` alone.
     """
 
-    def __init__(self, natural: MaterialAt, load_edits: LoadEdits | None = None, write: WriteBlock | None = None):
+    def __init__(self, natural: MaterialAt, load_edits: LoadEdits | None = None, write: WriteBlock | None = None,
+                 load_claims: LoadClaims | None = None):
         self._natural = natural
         self._load_edits = load_edits
         self._write = write
+        self._load_claims = load_claims
         self._natural_cache: dict[Cell, str] = {}
         self._loaded_chunks: set[tuple[int, int]] = set()
         self.edits: dict[Cell, str] = {}
         self.changes: list[tuple[Cell, str, str]] = []
+        self.claims: set[Cell] = set()
 
     def _load(self, x: int, z: int) -> None:
         if self._load_edits is None:
@@ -49,6 +55,8 @@ class Grid:
         self._loaded_chunks.add(chunk)
         for cell, material in self._load_edits(*chunk).items():
             self.edits.setdefault(cell, material)
+        if self._load_claims is not None:
+            self.claims.update(self._load_claims(*chunk))
 
     def material(self, x: int, y: int, z: int) -> str:
         """The block at a cell by block_table.resolve_block's rule: an edit wins, and a natural
@@ -65,6 +73,14 @@ class Grid:
             return "air"
         return natural
 
+    def natural_material(self, x: int, y: int, z: int) -> str:
+        """The block worldgen put at the cell, before any edit."""
+        natural = self._natural_cache.get((x, y, z))
+        if natural is None:
+            natural = self._natural(x, y, z)
+            self._natural_cache[(x, y, z)] = natural
+        return natural
+
     def put(self, x: int, y: int, z: int, material: str) -> None:
         before = self.material(x, y, z)
         self.edits[(x, y, z)] = material
@@ -79,6 +95,11 @@ class Grid:
 
     def solid(self, cell: Cell) -> bool:
         return is_solid(self.material(*cell))
+
+    def claimed(self, cell: Cell) -> bool:
+        """Part of something Mimo built: a planner that digs or tills leaves it alone."""
+        self._load(cell[0], cell[2])
+        return cell in self.claims
 
     def water(self, cell: Cell) -> bool:
         return self.material(*cell) == "water"
@@ -126,4 +147,12 @@ def world_grid(db: sqlite3.Connection, seed: str) -> Grid:
     def write(x: int, y: int, z: int, material: str) -> None:
         write_block(db, x, y, z, material)
 
-    return Grid(lambda x, y, z: block_at(x, y, z, seed), load_edits, write)
+    def load_claims(cx: int, cz: int) -> set[Cell]:
+        try:
+            rows = db.execute("SELECT x,y,z FROM structure_cells WHERE x BETWEEN ? AND ? AND z BETWEEN ? AND ?",
+                              (cx * CHUNK, cx * CHUNK + CHUNK - 1, cz * CHUNK, cz * CHUNK + CHUNK - 1)).fetchall()
+        except sqlite3.OperationalError:  # a world from before M5, read without its schema update
+            return set()
+        return {(row[0], row[1], row[2]) for row in rows}
+
+    return Grid(lambda x, y, z: block_at(x, y, z, seed), load_edits, write, load_claims)

@@ -58,6 +58,17 @@ class GridTests(unittest.TestCase):
         self.assertEqual(grid.placed_near(0, 0, 6, ("crafting_table", "furnace")), {"crafting_table"})
 
 
+class ClaimTests(unittest.TestCase):
+    def test_the_natural_block_ignores_edits_and_claims_load_with_each_chunk(self):
+        grid = Grid(lambda x, y, z: "stone" if y <= 0 else "air", load_edits=lambda cx, cz: {},
+                    load_claims=lambda cx, cz: {(cx * 16, 1, cz * 16)})
+        grid.put(0, 0, 0, "air")
+        self.assertEqual((grid.material(0, 0, 0), grid.natural_material(0, 0, 0)), ("air", "stone"))
+        self.assertTrue(grid.claimed((16, 1, 0)))
+        self.assertFalse(grid.claimed((17, 1, 0)))
+        self.assertFalse(small_world({}).claimed((0, 1, 0)))
+
+
 class WorldGridTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
