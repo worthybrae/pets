@@ -1,9 +1,11 @@
+import json
 import unittest
 
 from backend.services.worldgen import (
     LEGACY_WORLD_SEED, base_material, biome_at, block_at, cave_at, hash32, legacy_hash, plant_at,
     surface_material, terrain_height, trees_in_chunk,
 )
+from backend.scripts.worldgen_fixture import FIXTURE_PATH, build_fixture
 
 
 class WorldgenTests(unittest.TestCase):
@@ -90,6 +92,19 @@ class NaturalBlockTests(unittest.TestCase):
         self.assertEqual(block_at(x, terrain_height(x, z, seed) + 1, z, seed), "tall_grass")
         self.assertIsNone(plant_at(0, 0, seed))
         self.assertIs(base_material, block_at)
+
+
+class FixtureTests(unittest.TestCase):
+    def test_shared_fixture_matches_python_worldgen(self):
+        saved = json.loads(FIXTURE_PATH.read_text())
+        self.assertTrue(build_fixture() == saved,
+                        "Worldgen output changed. Run: python3 -m backend.scripts.worldgen_fixture")
+
+    def test_fixture_covers_every_natural_feature(self):
+        materials = set(json.loads(FIXTURE_PATH.read_text())["materials"])
+        for name in ("oak_log", "leaves", "tall_grass", "plaster", "roof_tile", "dirt_path",
+                     "water", "sand", "stone", "bedrock", "grass"):
+            self.assertIn(name, materials)
 
 
 if __name__ == "__main__":
