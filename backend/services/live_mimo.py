@@ -23,10 +23,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from backend.services.blocks import is_plant, is_replaceable
+from backend.services.block_table import (
+    blocks_seq, create_block_tables, material_in as _material_in, open_db, read_blocks_since, resolve_block, write_block,
+)
+from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, RECIPES, SMELTING, add_item, can_harvest, craft, smelt, take_items
 from backend.services.worldgen import (
-    LEGACY_RADIUS, LEGACY_WORLD_SEED, SEA_LEVEL, WORLD_MAX_Y, WORLD_MIN_Y, base_material, terrain_height,
+    LEGACY_RADIUS, LEGACY_WORLD_SEED, SEA_LEVEL, WORLD_MAX_Y, WORLD_MIN_Y, terrain_height,
 )
 
 STATION = {"kind": "station", "site": {"x": 48, "z": 0}, "variant": 0,
@@ -59,26 +62,6 @@ LUNA_ACTION_SCHEMA = {
     },
     "required": ["action", "kind", "candidate_id", "x", "y", "z", "material", "recipe", "input_item", "thought"],
 }
-
-
-def resolve_block(x: int, y: int, z: int, seed: str, edits: dict[tuple[int, int, int], str]) -> str:
-    """The material at a cell: its edit if any, else the natural block, with a natural
-    plant resolved to air once the cell below it has been edited (dug out or built on)."""
-    edit = edits.get((x, y, z))
-    if edit is not None:
-        return edit
-    natural = base_material(x, y, z, seed)
-    if is_plant(natural) and (x, y - 1, z) in edits:
-        return "air"
-    return natural
-
-
-def _material_in(db: sqlite3.Connection, x: int, y: int, z: int, seed: str) -> str:
-    """Material at a cell, reading it and the cell below in one query for the plant rule."""
-    rows = db.execute("SELECT y, material FROM mimo_blocks WHERE x=? AND z=? AND y IN (?, ?)",
-                      (x, z, y, y - 1)).fetchall()
-    edits = {(x, row["y"], z): row["material"] for row in rows}
-    return resolve_block(x, y, z, seed, edits)
 
 
 def now() -> float:
@@ -180,35 +163,23 @@ def next_walk_position(state: dict, target: dict, max_steps: int = 8) -> dict:
 
 
 class MimoStore:
-    def __init__(self, path: str | Path | None = None):
+    def __init__(self, path: str | Path | None = None, read_only: bool = False):
+        """Open the legacy world. `read_only=True` never creates, migrates or writes the file."""
         self.path = Path(path or os.environ.get("MIMO_DB_PATH") or DEFAULT_DB)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.initialize()
+        self.read_only = read_only
+        if not read_only:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.initialize()
         with self.connect() as db:
             saved = json.loads(db.execute("SELECT data FROM mimo_state WHERE id=1").fetchone()["data"])
         self.world_seed = saved.get("world_seed", LEGACY_WORLD_SEED)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path, timeout=10)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA busy_timeout=10000")
-        try:
-            with connection:
-                yield connection
-        finally:
-            connection.close()
+        with open_db(self.path, self.read_only) as connection:
+            yield connection
 
-    @staticmethod
-    def _write_block(db: sqlite3.Connection, x: int, y: int, z: int, material: str) -> int:
-        """Every block write goes through here so viewers can fetch changes by seq."""
-        db.execute("UPDATE mimo_meta SET value = value + 1 WHERE key='blocks_seq'")
-        seq = db.execute("SELECT value FROM mimo_meta WHERE key='blocks_seq'").fetchone()["value"]
-        db.execute("INSERT INTO mimo_blocks(x,y,z,material,seq) VALUES(?,?,?,?,?) "
-                   "ON CONFLICT(x,y,z) DO UPDATE SET material=excluded.material, seq=excluded.seq",
-                   (x, y, z, material, seq))
-        return seq
+    _write_block = staticmethod(write_block)
 
     def initialize(self) -> None:
         with self.connect() as db:
@@ -221,15 +192,7 @@ class MimoStore:
             db.execute("CREATE TABLE IF NOT EXISTS mimo_state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL, lease_until REAL NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS mimo_worker (id INTEGER PRIMARY KEY CHECK (id=1), seen_at REAL NOT NULL)")
-            db.execute("CREATE TABLE IF NOT EXISTS mimo_blocks (x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL, material TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(x,y,z))")
-            db.execute("CREATE TABLE IF NOT EXISTS mimo_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
-            if "seq" not in {row["name"] for row in db.execute("PRAGMA table_info(mimo_blocks)")}:
-                # Worlds saved before block sync get sequence numbers in row order.
-                db.execute("ALTER TABLE mimo_blocks ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
-                db.execute("UPDATE mimo_blocks SET seq = rowid")
-            db.execute("CREATE INDEX IF NOT EXISTS mimo_blocks_by_seq ON mimo_blocks(seq)")
-            db.execute("INSERT OR IGNORE INTO mimo_meta(key, value) VALUES('blocks_seq', 0)")
-            db.execute("UPDATE mimo_meta SET value = MAX(value, (SELECT COALESCE(MAX(seq), 0) FROM mimo_blocks)) WHERE key='blocks_seq'")
+            create_block_tables(db)
             timestamp = now()
             inserted = db.execute("INSERT OR IGNORE INTO mimo_state (id,data) VALUES (1,?)", (json.dumps(new_state(timestamp)),))
             if inserted.rowcount:
@@ -243,7 +206,7 @@ class MimoStore:
             ).fetchall()]
             worker = db.execute("SELECT seen_at FROM mimo_worker WHERE id=1").fetchone()
             state["worker_last_seen_at"] = worker["seen_at"] if worker else None
-            state["blocks_seq"] = db.execute("SELECT value FROM mimo_meta WHERE key='blocks_seq'").fetchone()["value"]
+            state["blocks_seq"] = blocks_seq(db)
             state["recipes"] = RECIPES
             return state
 
@@ -253,17 +216,8 @@ class MimoStore:
 
     def blocks_since(self, since: int, limit: int = 5000) -> dict:
         """Block changes after `since`, oldest first. Removed blocks come back as air."""
-        limit = max(1, min(limit, 5000))
         with self.connect() as db:
-            # Read the latest seq first so a write landing mid-query is fetched next time.
-            latest = db.execute("SELECT value FROM mimo_meta WHERE key='blocks_seq'").fetchone()["value"]
-            rows = db.execute("SELECT x,y,z,material,seq FROM mimo_blocks WHERE seq > ? AND seq <= ? "
-                              "ORDER BY seq LIMIT ?", (since, latest, limit + 1)).fetchall()
-        more = len(rows) > limit
-        rows = rows[:limit]
-        return {"seq": rows[-1]["seq"] if more else latest,
-                "changes": [{"x": row["x"], "y": row["y"], "z": row["z"], "material": row["material"]} for row in rows],
-                "more": more}
+            return read_blocks_since(db, since, limit)
 
     def put_block(self, x: int, y: int, z: int, material: str) -> None:
         if material not in BLOCK_TYPES or not (WORLD_MIN_Y <= y <= WORLD_MAX_Y) or abs(x) > 4096 or abs(z) > 4096:
