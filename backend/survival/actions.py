@@ -27,6 +27,12 @@ of the queue (or just re-queued by an unfinished segment) is left there and wait
 advance_actions call instead of searching (Task 3 review ruling; Task 6 fix round 1 made the
 budget span the whole tick instead of one call). Because that walk is left unpopped and unstarted,
 no step with an empty path is ever built.
+
+A mind can take over through `context.interrupt` (the brain's reflexes). It is asked before every
+step starts and at every advance while a walk, sleep or wait is still running; a cut walk has
+already moved to the last cell it reached. The cut step is recorded as "interrupted" with the
+hook's reason. At most MAX_TAKEOVERS takeovers happen per advance_actions call, so a hook that
+always says yes cannot spin the tick.
 """
 
 from __future__ import annotations

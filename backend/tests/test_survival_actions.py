@@ -66,7 +66,6 @@ def hooked(grid, hook, clock=None):
     return ctx
 
 
-
 class ActionEngineTests(unittest.TestCase):
     def test_several_steps_can_finish_in_one_advance(self):
         grid, state = small_world(), pet(inventory={"planks": 2})
@@ -464,7 +463,6 @@ class OnceLogTests(unittest.TestCase):
             self.assertTrue(log_once(logger, "observe", RuntimeError("boom")))
         self.assertEqual(len(logs.output), 3)
         self.assertTrue(logs.output[0].startswith("ERROR:once-test:planner crashed: boom"))
-
 
 
 if __name__ == "__main__":
