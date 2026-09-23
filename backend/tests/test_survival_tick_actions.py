@@ -115,6 +115,25 @@ class TickActionTests(unittest.TestCase):
         self.assertEqual(state["last_tick_at"], BORN + 5)
         self.assertEqual(state["recent_actions"][-1]["reason"], "bad step: target")
 
+    def test_no_event_is_logged_after_a_fatal_fall_discovered_a_catch_up_step_late(self):
+        """Reviewer-reported bug (F2): advance_world runs vitals (and any threshold crossing) up
+        to a catch-up step's cursor before the following advance_actions call can discover that a
+        fall actually killed Mimo earlier within that same window, so a "hungry"-style event
+        could be logged with a timestamp after the death it actually followed."""
+        x, z = self.spawn_column()
+        y = terrain_height(x, z, self.world.seed) + 40
+        self.edit(position={"x": float(x), "y": float(y), "z": float(z)})
+        with self.world.transaction() as db:
+            state = read_state(db)
+            state["vitals"]["hunger"] = 30.05
+            write_state(db, state)
+        state = tick_life(self.registry, BORN + 5, scale=1)
+        self.assertEqual((state["status"], state["cause"]), ("dead", "fall"))
+        events = self.world.events(50)
+        self.assertTrue(all(event["at"] <= state["died_at"] for event in events),
+                        [(event["kind"], event["at"]) for event in events])
+        self.assertEqual([event["kind"] for event in events].count("death"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,7 +60,15 @@ def note_crossings(state: dict, before: dict, at: float, events: list[Event]) ->
 
 
 def record_death(state: dict, cause: str, at: float, scale: float, events: list[Event]) -> None:
-    """Mark Mimo dead at `at` and log it. The current step and the plan end with the life."""
+    """Mark Mimo dead at `at` and log it. The current step and the plan end with the life.
+
+    A fatal fall can be discovered a catch-up step after the vitals (and any crossing, like
+    "hungry") that already ran up to that step's cursor, so `at` can land before events already
+    queued for it. Drop those: nothing should read as happening after Mimo died. Health already
+    reads 0 by the time any cause is known (step_vitals or finish_fall got it there), so it is
+    left alone.
+    """
+    events[:] = [event for event in events if event[0] <= at]
     day = clock_at(state["born_at"], at, scale)["day_number"]
     state.update(status="dead", died_at=at, cause=cause, action=None, queue=[])
     events.append((at, "death", f"{state['name']} died of {CAUSE_TEXT[cause]} on day {day}."))
