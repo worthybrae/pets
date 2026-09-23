@@ -10,6 +10,10 @@ export interface PlacedBlock {
 
 export type DirtyListener = (columns: string[]) => void
 type CellMap = Map<string, Map<string, number>>
+interface OverlayLayer {
+  cells: Map<string, number>
+  grouped: CellMap
+}
 
 export function columnKey(cx: number, cz: number): string {
   return `${cx},${cz}`
@@ -49,14 +53,15 @@ function markCell(dirty: Set<string>, cell: string): void {
 
 /**
  * Every block the viewer knows about. Precedence per cell: server edit, then build
- * overlay, then the generated column, then worldgen.
+ * overlay layers (a later-created layer wins over an earlier one on overlap), then
+ * the generated column, then worldgen.
  */
 export class WorldStore {
   readonly seed: string
   private readonly base = new Map<string, Uint8Array>()
   private readonly server: CellMap = new Map()
-  private overlay: CellMap = new Map()
-  private overlayCells = new Map<string, number>()
+  /** Insertion order matters: a layer created later wins over one created earlier. */
+  private readonly overlayLayers = new Map<string, OverlayLayer>()
   private readonly listeners = new Set<DirtyListener>()
 
   constructor(seed = DEFAULT_WORLD_SEED) {
@@ -68,11 +73,23 @@ export class WorldStore {
     const cx = chunkOf(x), cz = chunkOf(z)
     const column = columnKey(cx, cz)
     const cell = cellKey(x, y, z)
-    const edited = this.server.get(column)?.get(cell) ?? this.overlay.get(column)?.get(cell)
-    if (edited !== undefined) return edited
+    const serverEdit = this.server.get(column)?.get(cell)
+    if (serverEdit !== undefined) return serverEdit
+    const overlayEdit = this.overlayEdit(column, cell)
+    if (overlayEdit !== undefined) return overlayEdit
     const base = this.base.get(column)
     if (base) return base[columnIndex(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE)]
     return blockId(blockAt(x, y, z, this.seed))
+  }
+
+  /** Later-created layers are checked last so they win on overlap. */
+  private overlayEdit(column: string, cell: string): number | undefined {
+    let found: number | undefined
+    for (const layer of this.overlayLayers.values()) {
+      const value = layer.grouped.get(column)?.get(cell)
+      if (value !== undefined) found = value
+    }
+    return found
   }
 
   setBaseColumn(cx: number, cz: number, data: Uint8Array): void {
@@ -96,19 +113,28 @@ export class WorldStore {
     return this.emit(dirty)
   }
 
-  /** Replace the client-only build overlay and report the columns that changed. */
-  setOverlay(blocks: PlacedBlock[]): string[] {
+  /** Replace one named client-only overlay layer and report the columns that changed. */
+  setOverlay(blocks: PlacedBlock[], layer = 'default'): string[] {
     const next = new Map<string, number>()
     for (const { x, y, z, material } of blocks) next.set(cellKey(x, y, z), blockId(material))
+    const existing = this.overlayLayers.get(layer)
+    const previousCells = existing?.cells ?? new Map<string, number>()
     const dirty = new Set<string>()
-    for (const [cell, id] of next) if (this.overlayCells.get(cell) !== id) markCell(dirty, cell)
-    for (const cell of this.overlayCells.keys()) if (!next.has(cell)) markCell(dirty, cell)
+    for (const [cell, id] of next) if (previousCells.get(cell) !== id) markCell(dirty, cell)
+    for (const cell of previousCells.keys()) if (!next.has(cell)) markCell(dirty, cell)
     if (dirty.size === 0) return []
-    this.overlayCells = next
-    this.overlay = new Map()
+    const grouped: CellMap = new Map()
     for (const [cell, id] of next) {
       const [x, y, z] = cell.split(',').map(Number)
-      put(this.overlay, x, y, z, id)
+      put(grouped, x, y, z, id)
+    }
+    // Reuse the existing layer record (keeping its creation-order position) when it
+    // already exists; only a first-time layer name is inserted, at the newest end.
+    if (existing) {
+      existing.cells = next
+      existing.grouped = grouped
+    } else {
+      this.overlayLayers.set(layer, { cells: next, grouped })
     }
     return this.emit(dirty)
   }
@@ -118,7 +144,9 @@ export class WorldStore {
     const minX = cx * CHUNK_SIZE - 1, maxX = cx * CHUNK_SIZE + CHUNK_SIZE
     const minZ = cz * CHUNK_SIZE - 1, maxZ = cz * CHUNK_SIZE + CHUNK_SIZE
     const merged = new Map<string, number[]>()
-    for (const source of [this.overlay, this.server]) {
+    const sources: CellMap[] = Array.from(this.overlayLayers.values(), (layer) => layer.grouped)
+    sources.push(this.server)
+    for (const source of sources) {
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
         const cells = source.get(columnKey(cx + dx, cz + dz))
         if (!cells) continue

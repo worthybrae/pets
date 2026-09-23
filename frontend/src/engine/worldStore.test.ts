@@ -75,6 +75,21 @@ describe('WorldStore', () => {
     expect([...store.materialsNear(73, 0, 6)]).toEqual(['crafting_table'])
   })
 
+  it('keeps overlay layers independent', () => {
+    const store = new WorldStore()
+    const a = { x: 5, y: 30, z: 5, material: 'limestone' }
+    const b = { x: 40, y: 30, z: 5, material: 'polished_stone' }
+    store.setOverlay([a], 'finished')
+    store.setOverlay([b], 'current')
+    expect(store.setOverlay([], 'current').sort()).toEqual(['2,0'])
+    expect(store.getBlock(5, 30, 5)).toBe(blockId('limestone'))
+    expect(store.getBlock(40, 30, 5)).not.toBe(blockId('polished_stone'))
+    const edits = Array.from(store.editsNear(0, 0))
+    const cells = []
+    for (let i = 0; i < edits.length; i += 4) cells.push(edits.slice(i, i + 4))
+    expect(cells).toContainEqual([5, 30, 5, blockId('limestone')])
+  })
+
   it('tells subscribers which columns changed', () => {
     const store = new WorldStore()
     const seen: string[][] = []

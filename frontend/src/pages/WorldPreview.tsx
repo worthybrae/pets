@@ -155,9 +155,15 @@ function LiveWorld({ state, onHello, onAction, connectionError }: {
       () => setSyncError('Some block changes could not be loaded. Retrying.'),
     )
   }, [sync, state.blocks_seq, state.fetched_at])
+  // Finished plans rarely change, so they live in their own layer instead of being
+  // rebuilt on every reveal frame alongside the plan Mimo is actively building.
+  const finishedBlocks = useMemo(() => overlayBlocks(state.plans, state.currentIndex, 0), [state.plans, state.currentIndex])
   useEffect(() => {
-    store.setOverlay(overlayBlocks(state.plans, state.currentIndex, stepIndex))
-  }, [store, state.plans, state.currentIndex, stepIndex])
+    store.setOverlay(finishedBlocks, 'finished')
+  }, [store, finishedBlocks])
+  useEffect(() => {
+    store.setOverlay(project.blocks.slice(0, stepIndex), 'current')
+  }, [store, project, stepIndex])
   const pet = useMemo(() => ({
     ...previewPet, position: { ...previewPet.position, x: initialPosition.x, y: initialPosition.y ?? 1, z: initialPosition.z },
   }), [initialPosition])
