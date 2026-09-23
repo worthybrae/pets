@@ -6,8 +6,11 @@ carries 8 logs' worth of wood (craft_tools turns logs into planks). gather_stone
 it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
 tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone; with a stone
 pickaxe and no iron ore seen yet, it keeps digging to prospect for iron. It never digs into
-water, lava, bedrock, a hole or a cave, or a block it cannot mine. The staircase stays
-climbable, and from its third stair it is sheltered, so it often becomes Mimo's first home.
+water, lava, bedrock, a hole or a cave, or a block it cannot mine. It never digs back the way it
+came, and never mines the floor of an open cell below the natural surface (a stair or tunnel it
+dug earlier, or a cave) unless the same stair just opened that cell, so it cannot cut its own
+staircase. The staircase stays climbable, and from its third stair it is sheltered, so it often
+becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
 """
@@ -96,14 +99,17 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
 
     Returns the steps, where Mimo ends up and how many cobblestone the mining yields, or None
     when the way is blocked. `changed` holds the cells earlier stairs of the same plan opened.
+    A block whose cell above is open below the natural surface is the floor of a passage (an
+    earlier stair or tunnel, or a cave): it is never mined, unless this stair opened that cell.
     """
     x, y, z = at
     nx, nz = x + heading[0], z + heading[1]
-    down = y - 1 >= max(LOWEST_FLOOR, terrain_height(nx, nz, seed) - TUNNEL_DEPTH)
+    surface = terrain_height(nx, nz, seed)
+    down = y - 1 >= max(LOWEST_FLOOR, surface - TUNNEL_DEPTH)
     to = (nx, y - 1, nz) if down else (nx, y, nz)
     if not is_solid(look(grid, changed, (nx, to[1] - 1, nz))):
         return None  # a hole or a cave below: never dig into it
-    steps, stones = [], 0
+    steps, stones, opened = [], 0, set()
     for cell in ([(nx, y, nz), to] if down else [to]):
         material = look(grid, changed, cell)
         if material in FLUIDS:
@@ -112,20 +118,26 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
             continue
         if hardness(material) is None or not can_harvest(material, inventory):
             return None
+        above = (nx, cell[1] + 1, nz)
+        if above not in opened and above[1] <= surface and not is_solid(look(grid, changed, above)):
+            return None  # the floor of an open cell underground
         steps.append({"kind": "mine", "target": list(cell)})
         stones += 1 if BLOCKS.get(material, {}).get("drop") == "cobblestone" else 0
         changed[cell] = "air"
+        opened.add(cell)
     steps.append(walk_to(to))
     return steps, to, stones
 
 
 def dig_heading(s: Situation) -> tuple[int, int] | None:
-    """Where to dig: the last heading if it still works, else toward the highest ground nearby."""
+    """Where to dig: the last heading if it still works, else toward the highest ground nearby,
+    but never straight back the way the last heading came (that would dig up its own stairs)."""
     x, _, z = s.here
     headings = sorted(DIRECTIONS, key=lambda d: -terrain_height(x + 3 * d[0], z + 3 * d[1], s.seed))
     last = s.brain.get("dig_heading")
     if last:
-        headings = [tuple(last), *(heading for heading in headings if heading != tuple(last))]
+        last, back = tuple(last), (-last[0], -last[1])
+        headings = [last, *(heading for heading in headings if heading not in (last, back))]
     for heading in headings:
         if stair(s.grid, {}, s.here, heading, s.inventory, s.seed) is not None:
             return heading

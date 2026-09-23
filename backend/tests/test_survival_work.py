@@ -9,6 +9,7 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ores_around
 from backend.survival.situation import Situation
 from backend.survival import work  # noqa: F401  (registers the gathering purposes)
+from backend.survival.work import dig_heading, stair
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
@@ -114,6 +115,26 @@ class StoneTests(unittest.TestCase):
     def test_never_digs_into_water(self):
         s = situation(pet(inventory={"wooden_pickaxe": 1}), ground({(1, 0, 0): "water"}))
         self.assertEqual(PURPOSES["gather_stone"].plan(s, context(s.grid))[0], mine(0, 0, 1))
+
+    def test_never_turns_back_the_way_it_came(self):
+        tunnel = {(4, -3, 0): "air", (5, -3, 0): "water", (4, -3, 1): "bedrock", (4, -3, -1): "bedrock"}
+        s = situation(pet((4, -3, 0), inventory={"wooden_pickaxe": 1}), ground(tunnel))
+        s.brain["dig_heading"] = [1, 0]
+        self.assertIsNone(dig_heading(s))  # only the way back is open to digging
+        self.assertEqual(PURPOSES["gather_stone"].plan(s, context(s.grid)), [])
+        s.brain["dig_heading"] = None
+        self.assertEqual(dig_heading(s), (-1, 0))
+
+    def test_a_stair_never_digs_away_the_floor_of_an_open_cell_underground(self):
+        inventory = {"wooden_pickaxe": 1}
+        step_above = ground({(4, -3, 0): "air", (5, -2, 0): "air"})  # an earlier stair's cell over (5, -3, 0)
+        self.assertIsNone(stair(step_above, {}, (4, -3, 0), (1, 0), inventory, "1"))
+        self.assertEqual(stair(ground({(4, -3, 0): "air"}), {}, (4, -3, 0), (1, 0), inventory, "1"),
+                         ([mine(5, -3, 0), walk(5, -3, 0)], (5, -3, 0), 1))
+        # Its own upper cell opened by the same stair is fine, and so is open sky over the surface.
+        self.assertEqual(stair(ground(), {}, (0, 1, 0), (1, 0), inventory, "1")[0], [mine(1, 0, 0), walk(1, 0, 0)])
+        self.assertEqual(stair(ground(), {}, (1, 0, 0), (1, 0), inventory, "1")[0],
+                         [mine(2, 0, 0), mine(2, -1, 0), walk(2, -1, 0)])
 
     def test_with_a_stone_pickaxe_it_digs_on_for_iron_until_it_sees_some(self):
         stocked = {"stone_pickaxe": 1, "cobblestone": 12}

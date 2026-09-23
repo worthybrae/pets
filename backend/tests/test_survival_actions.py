@@ -360,6 +360,15 @@ class ActionEngineTests(unittest.TestCase):
                                                  "cell": {"x": 9, "y": 1, "z": 0}, "purpose": "gather_stone",
                                                  "at": 0.0, "seq": 1})
 
+    def test_a_failure_keeps_the_cleanup_steps_of_the_plan(self):
+        state = pet(inventory={"oak_log": 1})
+        mine_back = {"kind": "mine", "target": [1, 1, 0], "keep": True}
+        state["queue"] = [{"kind": "craft", "recipe": "wooden_pickaxe"}, {"kind": "craft", "recipe": "planks"},
+                          mine_back]
+        advance_actions(state, context(small_world({(1, 1, 0): "crafting_table"})), 0.1)
+        self.assertEqual(state["last_failure"]["code"], "missing_item")
+        self.assertEqual(state["queue"], [mine_back])
+
     def test_a_running_step_keeps_the_purpose_that_planned_it(self):
         grid, state = small_world({(1, 1, 0): "dirt"}), pet()
         state["queue"] = [{"kind": "mine", "target": [1, 1, 0], "purpose": "gather_stone"}]

@@ -9,7 +9,8 @@ is water (the physical half of the brain's surface reflex). Either hazard drops 
 step or the queue it interrupts (recorded once with result "interrupted" and reason "fall" or
 "swim") so the brain can tell its plan was abandoned, not failed. A step that fails is recorded
 with a failure code (steps.FAILURE_CODES) and kept as `state["last_failure"]` with its cell and
-the purpose that planned it; queued steps carry that purpose as `purpose`.
+the purpose that planned it; queued steps carry that purpose as `purpose`. A failure drops the
+rest of the plan except its cleanup steps (`keep`, see kept_steps).
 
 A crashing planner, or one returning something other than a list of dicts, is logged once per
 distinct error and replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
@@ -151,15 +152,26 @@ def record(state: dict, step: dict, ended_at: float, result: str, reason: str | 
     state["recent_actions"] = recent
 
 
+def kept_steps(queue: list[dict]) -> list[dict]:
+    """The cleanup steps of a plan that is being dropped: queued steps marked `keep` (a portable
+    station's mine-back), except one whose station is not down yet (its place step is still
+    queued), since there is nothing to pick up."""
+    unplaced = {tuple(spec["target"]) for spec in queue
+                if spec.get("kind") == "place" and isinstance(spec.get("target"), list)}
+    return [spec for spec in queue if spec.get("keep") and not (
+        isinstance(spec.get("target"), list) and tuple(spec["target"]) in unplaced)]
+
+
 def fail(state: dict, step: dict, at: float, reason: str, code: str = "bad_step") -> None:
-    """Record a failed step, keep it as the last failure and drop the rest of the plan, so the
-    planner plans again. `seq` counts failures, so two alike failures at the same moment differ."""
+    """Record a failed step, keep it as the last failure and drop the rest of the plan but its
+    cleanup steps, so the planner plans again. `seq` counts failures, so two alike failures at the
+    same moment differ."""
     record(state, step, at, "failed", reason, code)
     seq = (state.get("last_failure") or {}).get("seq", 0) + 1
     state["last_failure"] = {"code": code, "reason": reason, "kind": step["kind"], "cell": step.get("target"),
                              "purpose": step.get("purpose"), "at": at, "seq": seq}
     state["action"] = None
-    state["queue"] = []
+    state["queue"] = kept_steps(state["queue"])
 
 
 def as_started(spec: dict, at: float) -> dict:

@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
 
-from backend.survival.actions import ensure_actions, record
+from backend.survival.actions import ensure_actions, kept_steps, record
 from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
 from backend.survival.models import (
@@ -207,8 +207,8 @@ def deadline(ask: Ask) -> float:
 
 def apply_choice(state: dict, choice: Choice, now: float) -> None:
     """Make the choice the current purpose. A new purpose drops the old plan (or, during a reflex,
-    the steps the reflex set aside) and ends a wait, or a sleep Mimo took while it waited for a
-    choice, so the next tick plans at once."""
+    the steps the reflex set aside) but its cleanup steps, which run first, and ends a wait, or a
+    sleep Mimo took while it waited for a choice, so the next tick plans at once."""
     brain = ensure_brain(state)
     changed = choice.purpose != brain["purpose"]
     brain.update(pending=None, picker=choice.picker, chosen_at=now, last_chosen=choice.purpose)
@@ -216,9 +216,9 @@ def apply_choice(state: dict, choice: Choice, now: float) -> None:
         brain.update(purpose=choice.purpose, batches=0, replans=0, planned_at=None,
                      handled_failure=state.get("last_failure"))
         if brain["reflex"] is not None:
-            brain["set_aside"] = []
+            brain["set_aside"] = kept_steps(brain["set_aside"])
         else:
-            state["queue"] = []
+            state["queue"] = kept_steps(state["queue"])
             action = state.get("action") or {}
             if action.get("kind") == "wait":
                 state["action"] = None

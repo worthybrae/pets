@@ -9,7 +9,8 @@ holds and whose planner returns steps takes over:
   target) and puts the reflex's steps in the queue, tagged with the reflex's name. A more urgent
   reflex can take over from a running one; a less urgent one waits.
 - When the reflex's steps run out, `end_reflex` brings the set-aside steps back, starts the
-  reflex's cooldown and asks for a new choice (`reflex_ended`).
+  reflex's cooldown and asks for a new choice (`reflex_ended`). The set-aside steps include the
+  plan's cleanup steps (`keep`), which come back even when the purpose changed meanwhile.
 - A veto reflex (avoid_drop) does not set anything aside: it fails or replaces only the step that
   would fall too far, even when it has no steps of its own.
 
@@ -36,7 +37,7 @@ from backend.survival.pathing import find_path
 from backend.survival.purposes import AT_HOME, HOME_RANGE, foods, home_of, meal, walk_to
 from backend.survival.situation import DUSK, NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
-from backend.survival.toolmaking import free_cells
+from backend.survival.toolmaking import place_station, station_spots
 from backend.survival.triggers import ensure_brain, mark_trigger
 from backend.survival.vitals import EXHAUSTED_BELOW, is_sheltered
 
@@ -228,7 +229,7 @@ def plan_avoid_drop(s: Situation, context: ActionContext) -> list[dict]:
     if what == "mine":
         spec = s.state["queue"][0]
         fail(s.state, as_started(spec, s.at), s.at, "that would be a long fall", "blocked")
-        return []
+        return list(s.state["queue"])  # the plan's cleanup steps, which fail() kept
     action = s.state["action"]
     target = action["target"]
     again = {"kind": "walk", "target": [target["x"], target["y"], target["z"]], "reach": action["reach"]}
@@ -253,11 +254,12 @@ register(Reflex("eat_now", 40,
 # warm_up ---------------------------------------------------------------------------------------
 
 def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
-    """Place a carried furnace (it warms like a fire), else walk to the nearest known warm spot."""
+    """Place a carried furnace (it warms like a fire), else walk to the nearest known warm spot.
+    Below the surface the furnace goes in a niche Mimo digs, never in its way out."""
     if s.inventory.get("furnace", 0) > 0:
-        cells = free_cells(s)
-        if cells:
-            return [{"kind": "place", "target": list(cells[0]), "block": "furnace"}]
+        steps: list[dict] = []
+        if place_station(station_spots(s), "furnace", steps) is not None:
+            return steps
     x, _, z = s.here
     spots = []
     home = nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)

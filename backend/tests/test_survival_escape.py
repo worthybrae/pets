@@ -55,12 +55,15 @@ def place(x, y, z, block="dirt"):
     return {"kind": "place", "target": [x, y, z], "block": block}
 
 
+def failed_walk(at, purpose="explore"):
+    return {"kind": "walk", "started_at": at, "ended_at": at, "result": "failed", "reason": "no way there",
+            "code": "no_path", "target": {"x": 40, "y": 5, "z": 0}, "purpose": purpose}
+
+
 def stuck(**changes):
     """A pet exploring whose last two walks found no path, with the second failure not yet handled."""
     state = pet(**changes)
-    state["recent_actions"] = [
-        {"kind": "walk", "started_at": at, "ended_at": at, "result": "failed", "reason": "no way there",
-         "code": "no_path", "target": {"x": 40, "y": 5, "z": 0}} for at in (1.0, 2.0)]
+    state["recent_actions"] = [failed_walk(1.0), failed_walk(2.0)]
     state["last_failure"] = {"code": "no_path", "reason": "no way there", "kind": "walk",
                              "cell": {"x": 40, "y": 5, "z": 0}, "purpose": "explore", "at": 2.0}
     ensure_brain(state).update(purpose="explore", pending=None, chosen_at=0.0, replans=1, planned_at=1.0)
@@ -99,6 +102,26 @@ class EscapeTests(unittest.TestCase):
         self.assertEqual((brain["purpose"], brain["escaped_at"], brain["replans"], ctx.searches_left),
                          ("explore", 2.0, 0, 1))
         self.assertEqual(ctx.events[-1][1:], ("trapped", "Pip is stuck in a pit and starts digging out."))
+
+    def test_any_second_no_path_failure_of_the_purpose_checks_for_a_trap(self):
+        partial = {"kind": "walk", "started_at": 1.5, "ended_at": 1.8, "result": "done", "purpose": "explore",
+                   "target": {"x": 40, "y": 5, "z": 0}}
+        state = stuck()
+        state["recent_actions"] = [failed_walk(1.0), partial, failed_walk(2.0)]
+        self.assertEqual(brain_plan(state, brainy(pit()), 2.0)[0]["purpose"], "escape")
+        fresh = stuck()
+        fresh["brain"].update(replans=0, batches=2)  # the batch before the second failure went well
+        self.assertEqual(brain_plan(fresh, brainy(pit()), 2.0)[0]["purpose"], "escape")
+
+    def test_failures_from_before_the_purpose_was_chosen_or_of_another_purpose_do_not_count(self):
+        earlier = stuck()
+        earlier["recent_actions"] = [failed_walk(1.0), failed_walk(2.0, "go_home")]
+        self.assertEqual(brain_plan(earlier, brainy(pit()), 2.0), [{"kind": "wait", "seconds": 1.0}])
+        self.assertIsNone(earlier["brain"]["purpose"])
+        rechosen = stuck()
+        rechosen["brain"]["chosen_at"] = 1.5
+        brain_plan(rechosen, brainy(pit()), 2.0)
+        self.assertIsNone(rechosen["brain"]["purpose"])
 
     def test_with_no_search_left_the_check_waits_for_the_next_tick(self):
         state = stuck()

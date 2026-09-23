@@ -6,16 +6,23 @@ the whole chain out on a copy of the inventory: logs into planks, planks into st
 table, and for iron a furnace and three smelted ingots (coal as fuel when Mimo has it, planks
 otherwise, as crafting.smelt does). Stations are portable: Mimo places a table or furnace in an
 open cell beside it (or above it), crafts or smelts, then mines the station back into its
-inventory, so it never has to remember where it left one. A station already placed within
-reach is used as it is and left there. One tool per choice.
+inventory, so it never has to remember where it left one. The mine-back steps are marked `keep`:
+they still run when a new purpose, a failure or a reflex drops the rest of the plan. A station
+already placed within reach is used as it is and left there. One tool per choice.
+
+Below the natural surface an open cell beside Mimo may be its only way out, and the cell above
+its head is the headroom it needs to climb, so there Mimo digs a niche into a solid side wall
+(under a solid ceiling, so no floor is dug away) and puts the station in it. The reflex warm_up
+places a carried furnace the same way.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from backend.services.blocks import is_replaceable
-from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK
+from backend.services.blocks import hardness, is_replaceable, is_solid
+from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest
+from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
@@ -29,7 +36,8 @@ STATIONS = {"wooden_pickaxe": ("crafting_table",), "stone_pickaxe": ("crafting_t
             "iron_pickaxe": ("crafting_table", "furnace")}
 SMELTED = {output: ore for ore, output in SMELTING.items()}
 # Cells beside Mimo at its level, then the one above it.
-NEIGHBOURS = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0))
+SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
+NEIGHBOURS = (*SIDES, (0, 1, 0))
 MAX_DEPTH = 12
 RETRIES = 8
 
@@ -81,8 +89,17 @@ def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int 
             raise Short(item)
 
 
+def underground(s: Situation) -> bool:
+    """Mimo stands below the natural surface: in its own staircase, a tunnel or a cave."""
+    x, y, z = s.here
+    return y <= terrain_height(x, z, s.seed)
+
+
 def free_cells(s: Situation) -> list[Cell]:
-    """Open cells beside Mimo (or above it) where a station can stand."""
+    """Open cells beside Mimo (or above it) where a station can stand, on or above the natural
+    surface. Below it, none: an open cell there may be the way out."""
+    if underground(s):
+        return []
     x, y, z = s.here
     cells = []
     for dx, dy, dz in NEIGHBOURS:
@@ -93,6 +110,43 @@ def free_cells(s: Situation) -> list[Cell]:
     return cells
 
 
+def niches(s: Situation) -> list[Cell]:
+    """Solid side cells Mimo can mine to make room for a station below the surface, each under a
+    solid ceiling (so it is nobody's floor). Cells across the dig heading come first, so the next
+    stair down is left alone."""
+    x, y, z = s.here
+    heading = s.brain.get("dig_heading") or (0, 0)
+    along = {(heading[0], heading[1]), (-heading[0], -heading[1])}
+    found = []
+    for dx, _, dz in sorted(SIDES, key=lambda side: (side[0], side[2]) in along):
+        cell = (x + dx, y, z + dz)
+        material = s.grid.material(*cell)
+        if (is_solid(material) and hardness(material) is not None and can_harvest(material, s.inventory)
+                and s.grid.solid((x + dx, y + 1, z + dz))):
+            found.append(cell)
+    return found
+
+
+def station_spots(s: Situation) -> list[tuple[Cell, bool]]:
+    """Where a station can go, as (cell, mine it first): open cells on the surface, dug niches
+    below it. Never the headroom or an open cell below the surface."""
+    if underground(s):
+        return [(cell, True) for cell in niches(s)]
+    return [(cell, False) for cell in free_cells(s)]
+
+
+def place_station(spots: list[tuple[Cell, bool]], block: str, steps: list[dict]) -> Cell | None:
+    """Add the steps that put `block` in the first spot (digging the niche first). None when there
+    is no spot left."""
+    if not spots:
+        return None
+    cell, dig = spots.pop(0)
+    if dig:
+        steps.append({"kind": "mine", "target": list(cell)})
+    steps.append({"kind": "place", "target": list(cell), "block": block})
+    return cell
+
+
 def tool_plan(s: Situation) -> list[dict] | None:
     """The steps that make the next pickaxe, or None when it cannot be made now."""
     tool = next_tool(s.inventory)
@@ -101,7 +155,7 @@ def tool_plan(s: Situation) -> list[dict] | None:
     inventory = dict(s.inventory)
     x, _, z = s.here
     near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
-    free = free_cells(s)
+    spots = station_spots(s)
     steps: list[dict] = []
     placed: list[Cell] = []
     try:
@@ -109,16 +163,15 @@ def tool_plan(s: Situation) -> list[dict] | None:
             if station in near:
                 continue
             make(inventory, station, 1, steps)
-            if not free:
+            cell = place_station(spots, station, steps)
+            if cell is None:
                 raise Short(station)
-            cell = free.pop(0)
-            steps.append({"kind": "place", "target": list(cell), "block": station})
             inventory[station] -= 1
             placed.append(cell)
         make(inventory, tool, 1, steps)
     except Short:
         return None
-    steps.extend({"kind": "mine", "target": list(cell)} for cell in reversed(placed))
+    steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
     return steps
 
 

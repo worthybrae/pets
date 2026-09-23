@@ -1,9 +1,10 @@
 """Trapped: a staircase out of a pit Mimo cannot walk out of.
 
-Routes can drop 3 blocks but climb only 1, so Mimo can walk into a pit it cannot leave. When the
-last two walks it tried both failed with no path, the brain floods Mimo's moves from where it
-stands (one search from the tick's budget): if fewer than 256 cells are reachable, Mimo is
-trapped. The way out is a staircase up, one block up per step: mine the block over Mimo's head
+Routes can drop 3 blocks but climb only 1, so Mimo can walk into a pit it cannot leave. When a
+step fails and at least two walks of the current purpose have failed with no path since it was
+chosen (walks that got partway in between do not matter), the brain floods Mimo's moves from
+where it stands (one search from the tick's budget): if fewer than 256 cells are reachable, Mimo
+is trapped. The way out is a staircase up, one block up per step: mine the block over Mimo's head
 and the stair cell when they are solid, and place a carried block where a stair has nothing to
 stand on (mined dirt and stone go into the stock too). It tries the four directions and takes the
 first staircase that brings Mimo above the natural surface within 24 stairs, at most once per 60
@@ -33,10 +34,13 @@ PLACEABLE = ("dirt", "cobblestone", "sand", "gravel", "clay", "planks", "oak_log
 
 
 def walks_failed_twice(state: dict) -> bool:
-    """The last two walks Mimo tried both failed with no path."""
-    walks = [entry for entry in state["recent_actions"] if entry.get("kind") == "walk"][-2:]
-    return len(walks) == 2 and all(entry.get("result") == "failed" and entry.get("code") == "no_path"
-                                   for entry in walks)
+    """At least two walks of the current purpose failed with no path since it was chosen."""
+    brain = ensure_brain(state)
+    since = brain["chosen_at"] if brain["chosen_at"] is not None else float("-inf")
+    failed = [entry for entry in state["recent_actions"]
+              if entry.get("kind") == "walk" and entry.get("result") == "failed" and entry.get("code") == "no_path"
+              and entry.get("purpose") == brain["purpose"] and entry.get("ended_at", since) >= since]
+    return len(failed) >= 2
 
 
 def reachable_count(grid: Grid, start: Cell, limit: int) -> int:

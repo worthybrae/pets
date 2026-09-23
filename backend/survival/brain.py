@@ -6,8 +6,8 @@ steps whenever Mimo's queue runs dry:
 1. A batch that failed (a `state["last_failure"]` the brain has not dealt with yet) is planned
    again once. A second failure reports back: the purpose is dropped, scores 30 lower for 600
    game seconds, and a `plan_failed` trigger asks for a new choice.
-   Before reporting, the brain checks whether Mimo is trapped and digs a staircase out
-   (backend.survival.escape).
+   On any failure after two walks of the purpose found no path, the brain first checks whether
+   Mimo is trapped and digs a staircase out (backend.survival.escape).
 2. Otherwise the last batch finished well and counts toward the purpose's `batches`.
 3. The chosen purpose plans its next batch, each step tagged with the purpose's name. A purpose
    that is no longer valid, or has nothing left to do, is finished: `plan_done` asks for a new
@@ -17,7 +17,8 @@ steps whenever Mimo's queue runs dry:
    at night (or when exhausted) and otherwise waits a second at a time.
 
 Reflexes (backend.survival.reflexes) take over through the interrupt hook. When a reflex's steps
-run out, brain_plan ends it and resumes the purpose's steps it set aside.
+run out, brain_plan ends it and resumes the purpose's steps it set aside (only their cleanup
+steps when no purpose is left).
 
 `observe_step` hears about finished steps: ores around a mined block, recipes learned, water swum
 in, places visited. `notice_step` runs after each vitals step: vital crossings (urgent), dawn and
@@ -30,7 +31,7 @@ from __future__ import annotations
 import logging
 
 from backend.survival import toolmaking, work  # noqa: F401  (they register their purposes)
-from backend.survival.actions import ActionContext
+from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
@@ -110,24 +111,25 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     brain = ensure_brain(state)
     if brain["reflex"] is not None:
         resumed = end_reflex(state, at)
-        if resumed and brain["purpose"] is not None:
+        if brain["purpose"] is None:
+            resumed = kept_steps(resumed)
+        if resumed:
             return resumed
     purpose = PURPOSES.get(brain["purpose"]) if brain["purpose"] else None
     if purpose is None:
         return waiting(state, context, at)
     failure = new_failure(state, brain)
     if failure is not None:
+        escape = plan_escape(state, context, at)
+        if escape is None:
+            return [{"kind": "wait", "seconds": PENDING_WAIT}]  # no search left this tick; look again next tick
+        brain["handled_failure"] = failure
+        if escape:
+            return escape
         if brain["replans"] >= 1:
-            escape = plan_escape(state, context, at)
-            if escape is None:
-                return [{"kind": "wait", "seconds": PENDING_WAIT}]  # no search left this tick; look again next tick
-            brain["handled_failure"] = failure
-            if escape:
-                return escape
             forget_unreachable_home(context, purpose.name, failure)
             report(state, context, purpose.name, at, failure["reason"])
             return waiting(state, context, at)
-        brain["handled_failure"] = failure
         brain["replans"] += 1
     elif brain["planned_at"] is not None:
         brain["batches"] += 1

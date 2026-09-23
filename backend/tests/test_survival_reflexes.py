@@ -79,6 +79,14 @@ class ReflexTests(unittest.TestCase):
         self.assertEqual(brain["reflex_ends"], {"collapse": 2.0})
         self.assertIn("reflex_ended", brain["pending"]["reasons"])
 
+    def test_cleanup_steps_come_back_after_a_reflex_even_without_a_purpose(self):
+        state = pet()
+        mine_back = {"kind": "mine", "target": [1, 1, 0], "keep": True, "purpose": "craft_tools"}
+        state["brain"] = {**ensure_brain(state), "purpose": None, "pending": None, "reflex": "collapse",
+                          "set_aside": [walk(9, 1, 0, "explore"), mine_back]}
+        self.assertEqual(brain_plan(state, brainy(), 1.0), [mine_back])
+        self.assertIsNone(state["brain"]["reflex"])
+
     def test_the_more_urgent_reflex_goes_first(self):
         state = pet(inventory={"berries": 1}, vitals={**START_VITALS, "energy": 5.0, "hunger": 10.0})
         choose(state, "explore")

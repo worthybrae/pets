@@ -15,11 +15,21 @@ def flat(cells=None):
     return Grid(lambda x, y, z: cells.get((x, y, z)) or ("stone" if y <= 0 else "air"))
 
 
-def situation(inventory, grid=None):
-    state = {"name": "Pip", "world_seed": "1", "position": {"x": 0.0, "y": 1.0, "z": 0.0}, "inventory": inventory,
+def situation(inventory, grid=None, position=(0.0, 1.0, 0.0)):
+    """Mimo at `position` (seed "1": the natural surface there is at y 0, so y 1 stands on it)."""
+    state = {"name": "Pip", "world_seed": "1", "position": dict(zip("xyz", position)), "inventory": inventory,
              "vitals": dict(START_VITALS), "traits": {}, "last_tick_at": 0.0}
     ensure_actions(state)
     return Situation(state, grid or flat(), DAY, 0.0)
+
+
+def dug(*open_cells):
+    """Solid dirt with only `open_cells` open: a hole Mimo dug below the surface."""
+    return Grid(lambda x, y, z: "air" if (x, y, z) in open_cells else "dirt")
+
+
+def mine_back(x, y, z):
+    return {"kind": "mine", "target": [x, y, z], "keep": True}
 
 
 def craft(recipe):
@@ -34,8 +44,7 @@ class ToolmakingTests(unittest.TestCase):
         self.assertEqual(PURPOSES["craft_tools"].plan(s, None), [
             craft("planks"), craft("crafting_table"),
             {"kind": "place", "target": [1, 1, 0], "block": "crafting_table"},
-            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"),
-            {"kind": "mine", "target": [1, 1, 0]}])
+            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"), mine_back(1, 1, 0)])
         self.assertEqual(s.inventory, {"oak_log": 3})
 
     def test_a_table_already_placed_nearby_is_used_and_left(self):
@@ -51,8 +60,24 @@ class ToolmakingTests(unittest.TestCase):
             {"kind": "place", "target": [1, 1, 0], "block": "crafting_table"},
             craft("furnace"), {"kind": "place", "target": [-1, 1, 0], "block": "furnace"},
             {"kind": "smelt", "item": "iron_ore"}, {"kind": "smelt", "item": "iron_ore"},
-            {"kind": "smelt", "item": "iron_ore"}, craft("iron_pickaxe"),
-            {"kind": "mine", "target": [-1, 1, 0]}, {"kind": "mine", "target": [1, 1, 0]}])
+            {"kind": "smelt", "item": "iron_ore"}, craft("iron_pickaxe"), mine_back(-1, 1, 0), mine_back(1, 1, 0)])
+
+    def test_below_the_surface_a_station_goes_in_a_niche_it_digs_never_in_the_way_out(self):
+        # Mimo at the foot of a stair: headroom (0, -1, 0), the way up at (-1, -1, 0) over the
+        # floor (-1, -2, 0). The sides across the dig heading come first.
+        stairs = dug((0, -2, 0), (0, -1, 0), (-1, -1, 0), (-1, 0, 0))
+        s = situation({"oak_log": 3}, stairs, (0.0, -2.0, 0.0))
+        s.brain["dig_heading"] = [1, 0]
+        self.assertEqual(tool_plan(s), [
+            craft("planks"), craft("crafting_table"), {"kind": "mine", "target": [0, -2, 1]},
+            {"kind": "place", "target": [0, -2, 1], "block": "crafting_table"},
+            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"), mine_back(0, -2, 1)])
+
+    def test_below_the_surface_open_cells_and_the_headroom_are_never_used(self):
+        cave = dug((0, -2, 0), (0, -1, 0), (1, -2, 0), (-1, -2, 0), (0, -2, 1), (0, -2, -1))
+        self.assertIsNone(tool_plan(situation({"oak_log": 3}, cave, (0.0, -2.0, 0.0))))
+        rock = Grid(lambda x, y, z: "air" if (x, y, z) in ((0, -2, 0), (0, -1, 0)) else "stone")
+        self.assertIsNone(tool_plan(situation({"oak_log": 3}, rock, (0.0, -2.0, 0.0))))  # stone needs a pickaxe
 
     def test_not_enough_materials_or_nothing_left_to_make_is_not_offered(self):
         self.assertFalse(PURPOSES["craft_tools"].valid(situation({"oak_log": 2})))

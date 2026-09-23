@@ -275,6 +275,28 @@ class ChoosingTests(unittest.TestCase):
         state = self.world.state()
         self.assertEqual((state["queue"], state["action"], state["brain"]["purpose"]), ([], None, "rest"))
 
+    def test_a_new_purpose_keeps_cleanup_steps_whose_station_is_down(self):
+        placed = {"kind": "place", "target": [1, 2, 3], "block": "crafting_table", "purpose": "craft_tools"}
+        craft = {"kind": "craft", "recipe": "wooden_pickaxe", "purpose": "craft_tools"}
+        mine_back = {"kind": "mine", "target": [1, 2, 3], "keep": True, "purpose": "craft_tools"}
+        none = {"model": 0, "luna": 0, "reflections": 0}
+
+        def crafting(queue, reflex=None):
+            def change(state):
+                ensure_brain(state).update(purpose="craft_tools", pending={"id": 7, "reasons": ["hour"],
+                                                                            "since": BORN, "urgent": False})
+                state["brain"]["reflex"] = reflex
+                state["queue" if reflex is None else "action"] = queue if reflex is None else None
+                state["brain"]["set_aside"] = queue if reflex else []
+            return change
+
+        for queue, kept in (([placed, craft, mine_back], []), ([craft, mine_back], [mine_back])):
+            for reflex in (None, "warm_up"):
+                self.edit(crafting(queue, reflex))
+                store_choice(self.world, self.ask(BORN + 1, {}), Choice("rest", "utility", "Hm.", none), BORN + 1)
+                state = self.world.state()
+                self.assertEqual(state["brain"]["set_aside"] if reflex else state["queue"], kept)
+
     def test_a_new_purpose_wakes_mimo_from_a_sleep_it_took_while_waiting(self):
         def dozing(state):
             ensure_brain(state).update(pending={"id": 7, "reasons": ["plan_done"], "since": BORN, "urgent": False})
