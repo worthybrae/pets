@@ -97,13 +97,21 @@ class SimplePurposeTests(unittest.TestCase):
         self.assertEqual(names(home), ["rest", "sleep"])
         self.assertEqual(PURPOSES["sleep"].plan(home, context()), [{"kind": "wait", "seconds": 60.0}])
 
-    def test_rest_waits_a_game_minute_once(self):
+    def test_rest_lasts_until_a_trigger_for_at_most_ten_game_minutes(self):
         s = situation()
-        self.assertEqual(PURPOSES["rest"].plan(s, context()), [{"kind": "wait", "seconds": 60.0}])
+        s.brain.update(pending=None, chosen_at=0.0, batches=12)
+        self.assertEqual(PURPOSES["rest"].plan(s, context()), [{"kind": "wait", "seconds": 10.0}])
         fast = situation(clock={**DAY, "time_scale": 60.0})
+        fast.brain.update(pending=None, chosen_at=0.0)
         self.assertEqual(PURPOSES["rest"].plan(fast, context()), [{"kind": "wait", "seconds": 1.0}])
-        s.brain["batches"] = 1
+        s.brain["pending"] = {"id": 3, "reasons": ["idle"], "since": 0.0, "urgent": False}
+        self.assertEqual(PURPOSES["rest"].plan(s, context()), [{"kind": "wait", "seconds": 10.0}])
+        s.brain["pending"]["reasons"] = ["idle", "hour"]
         self.assertEqual(PURPOSES["rest"].plan(s, context()), [])
+        s.brain["pending"] = None
+        self.assertEqual(PURPOSES["rest"].plan(Situation(s.state, s.grid, DAY, 600.0, s.db), context()), [])
+        fast_later = Situation(fast.state, fast.grid, fast.clock, 10.0, fast.db)  # 600 game seconds at 60x
+        self.assertEqual(PURPOSES["rest"].plan(fast_later, context()), [])
 
     def test_explore_walks_out_in_a_new_direction_each_time(self):
         state = pet()
@@ -113,6 +121,15 @@ class SimplePurposeTests(unittest.TestCase):
         self.assertEqual(first, [{"kind": "walk", "target": [34, 1, 34], "reach": 3.0}])
         self.assertEqual(second, [{"kind": "walk", "target": [-48, 1, 0], "reach": 3.0}])
         self.assertEqual(state["brain"]["explored"], 2)
+
+    def test_explore_chains_three_walks_per_choice(self):
+        s = situation()
+        with patch("backend.survival.purposes.terrain_height", lambda x, z, seed: 0):
+            for batches in range(3):
+                s.brain["batches"] = batches
+                self.assertEqual(len(PURPOSES["explore"].plan(s, context())), 1)
+            s.brain["batches"] = 3
+            self.assertEqual(PURPOSES["explore"].plan(s, context()), [])
 
     def test_explore_scores_higher_with_no_trees_near(self):
         s = situation()

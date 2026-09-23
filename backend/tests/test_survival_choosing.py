@@ -5,7 +5,7 @@ from concurrent.futures import Future
 from pathlib import Path
 
 from backend.survival.brain import BRAIN
-from backend.survival.choosing import Choice, Chooser, InlineExecutor, prepare, store_choice
+from backend.survival.choosing import DECISION_CAP, Choice, Chooser, InlineExecutor, cap, prepare, store_choice
 from backend.survival.hatch import hatch
 from backend.survival.models import ModelError
 from backend.survival.once import forget_logged
@@ -78,8 +78,8 @@ class ChoosingTests(unittest.TestCase):
         return Chooser(env=env or {}, http=FakeHttp(answers or {}), executor=executor or InlineExecutor(),
                        rng=random.Random(1), scale=1.0)
 
-    def ask(self, now, env):
-        return prepare(SurvivalWorld(self.path, read_only=True), now, 1.0, env)
+    def ask(self, now, env, scale=1.0):
+        return prepare(SurvivalWorld(self.path, read_only=True), now, scale, env)
 
     def test_without_keys_the_utility_picker_answers_at_once(self):
         tick_life(self.registry, BORN + 1, scale=1, mind=BRAIN)
@@ -117,6 +117,49 @@ class ChoosingTests(unittest.TestCase):
         self.assertEqual(self.ask(now, {"OPENAI_API_KEY": "sk", "MIMO_MAX_LUNA_DECISIONS_PER_DAY": "0"}).route,
                          "utility")
         self.assertEqual(self.ask(now, {}).route, "utility")
+
+    def test_at_most_eight_model_calls_per_rolling_game_hour_even_when_urgent(self):
+        now = BORN + 5000
+        env = {"TYPESAFE_API_KEY": "k"}
+        eight = [4990.0 - 400 * index for index in range(8)]  # game seconds since birth, newest first
+
+        def spent(state):
+            ensure_brain(state).update(model_calls=eight, last_call_at=None)
+            mark_trigger(state, "health_30", now, urgent=True)
+
+        self.edit(spent)
+        self.assertEqual(self.ask(now, env).route, "utility")
+        self.assertEqual(self.ask(now + 2200, env).route, "jev")  # the oldest call left the hour
+        self.assertEqual(self.ask(BORN + 83.4, env, scale=60.0).route, "utility")  # 5004 game s at 60x
+        self.assertEqual(cap({}, DECISION_CAP), 200)
+
+    def test_a_short_purpose_ending_routinely_is_rechosen_by_utility(self):
+        now = BORN + 100
+        env = {"TYPESAFE_API_KEY": "k"}
+
+        def ended(last, *reasons):
+            def change(state):
+                ensure_brain(state).update(last_chosen=last, pending={"id": 9, "reasons": list(reasons),
+                                                                     "since": now, "urgent": False})
+            return change
+
+        for last in ("rest", "explore", "eat", "go_home"):
+            self.edit(ended(last, "plan_done", "idle"))
+            self.assertEqual(self.ask(now, env).route, "utility", last)
+        self.edit(ended("rest", "reflex_ended"))
+        self.assertEqual(self.ask(now, env).route, "utility")
+        for reason in ("dawn", "dusk", "discovery", "hello", "plan_failed", "hour", "hunger_50"):
+            self.edit(ended("rest", "plan_done", reason))
+            self.assertEqual(self.ask(now, env).route, "jev", reason)
+        self.edit(ended("gather_wood", "plan_done"))
+        self.assertEqual(self.ask(now, env).route, "jev")
+
+    def test_model_calls_are_remembered_in_game_time_for_one_game_hour(self):
+        self.edit(lambda state: ensure_brain(state).update(model_calls=[10.0, 2000.0]))
+        chooser = self.chooser({"TYPESAFE_API_KEY": "k"}, {JEV_URL: JEV_REST})
+        chooser.poll(self.registry, BORN + 4000)
+        self.assertEqual(self.brain()["model_calls"], [2000.0, 4000.0])
+        self.assertEqual(self.brain()["last_chosen"], "rest")
 
     def test_a_failed_model_call_falls_back_to_utility_is_counted_and_logged_once(self):
         forget_logged()

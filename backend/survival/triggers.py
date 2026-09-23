@@ -2,8 +2,9 @@
 
 Everything the brain keeps lives in state["brain"], saved as JSON with the rest of the state:
 
-- purpose, picker, chosen_at: the current purpose (or None), who chose it ("jev", "luna" or
-  "utility") and when (server time)
+- purpose, picker, chosen_at, last_chosen: the current purpose (or None), who chose it ("jev",
+  "luna" or "utility"), when (server time), and the purpose chosen last (kept when the purpose
+  finishes, so the chooser knows what just ended)
 - batches, planned_at, replans, handled_failure: how many batches of steps the purpose finished
   well, when the last batch was planned, failures re-planned since a batch last finished well,
   and the last `state["last_failure"]` the brain already dealt with
@@ -11,8 +12,9 @@ Everything the brain keeps lives in state["brain"], saved as JSON with the rest 
 - penalties: {purpose: server time until which it scores lower, after it failed twice}
 - reflex, set_aside, reflex_ends: the reflex running now (or None), the purpose's steps it set
   aside, and {reflex: server time it last ended} for cooldowns
-- calls, last_call_at: today's model-call counters {"day", "model", "luna", "reflections"} and
-  the server time of the last model call
+- calls, last_call_at, model_calls: today's model-call counters {"day", "model", "luna",
+  "reflections"}, the server time of the last model call, and the game times (seconds since the
+  life began) of the model picks in the last game hour
 - explored, escaped_at, dig_heading: explore walks so far (to vary the heading), the last
   dig-out of a pit, and the [dx, dz] heading gather_stone last dug in
 - found: ore materials and "water" Mimo has discovered at least once (first sightings trigger a choice)
@@ -32,12 +34,12 @@ REASON_LIMIT = 8
 
 def new_brain(at: float) -> dict:
     """A brain with no purpose that waits for its first choice."""
-    return {"purpose": None, "picker": None, "chosen_at": None, "batches": 0, "planned_at": None, "replans": 0,
-            "handled_failure": None, "found": [],
+    return {"purpose": None, "picker": None, "chosen_at": None, "last_chosen": None, "batches": 0,
+            "planned_at": None, "replans": 0, "handled_failure": None, "found": [],
             "pending": {"id": 1, "reasons": ["born"], "since": at, "urgent": False}, "next_id": 2,
             "penalties": {}, "reflex": None, "set_aside": [], "reflex_ends": {},
             "calls": {"day": None, "model": 0, "luna": 0, "reflections": 0}, "last_call_at": None,
-            "explored": 0, "escaped_at": None, "dig_heading": None}
+            "model_calls": [], "explored": 0, "escaped_at": None, "dig_heading": None}
 
 
 def ensure_brain(state: dict) -> dict:

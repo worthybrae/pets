@@ -72,8 +72,10 @@ class BrainPlanTests(unittest.TestCase):
         state = pet()
         choose(state, "rest")
         ctx = brainy()
-        self.assertEqual(brain_plan(state, ctx, 0.0), [{"kind": "wait", "seconds": 60.0, "purpose": "rest"}])
-        self.assertEqual(brain_plan(state, ctx, 60.0), WAIT)
+        self.assertEqual(brain_plan(state, ctx, 0.0), [{"kind": "wait", "seconds": 10.0, "purpose": "rest"}])
+        self.assertEqual(brain_plan(state, ctx, 10.0), [{"kind": "wait", "seconds": 10.0, "purpose": "rest"}])
+        state["brain"]["batches"] = 59
+        self.assertEqual(brain_plan(state, ctx, 600.0), WAIT)
         brain = state["brain"]
         self.assertEqual((brain["purpose"], brain["batches"], brain["pending"]["reasons"]), (None, 0, ["plan_done"]))
 

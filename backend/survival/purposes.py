@@ -31,7 +31,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-REST_GAME_SECONDS = 60.0
+REST_STEP = 10.0  # game seconds per wait, so a trigger ends a rest promptly
+REST_LONGEST = 600.0  # game seconds
+EXPLORE_WALKS = 3
 AT_HOME = 2.0
 HOME_RANGE = 64.0
 SLEEP_HOME_REACH = 8.0
@@ -126,13 +128,18 @@ def rest_score(s: Situation) -> float:
 
 
 def plan_rest(s: Situation, context: ActionContext) -> list[dict]:
-    if s.brain["batches"] > 0:
+    """Wait in short steps until a trigger other than idle is pending, at most 10 game minutes."""
+    pending = s.brain["pending"]
+    if pending is not None and set(pending["reasons"]) - {"idle"}:
         return []
-    return [{"kind": "wait", "seconds": max(1.0, REST_GAME_SECONDS / s.scale)}]
+    chosen_at = s.brain["chosen_at"]
+    if chosen_at is not None and (s.at - chosen_at) * s.scale >= REST_LONGEST:
+        return []
+    return [{"kind": "wait", "seconds": max(1.0, REST_STEP / s.scale)}]
 
 
 register(Purpose(
-    "rest", "rest", "Stay put and rest for a game minute.",
+    "rest", "rest", "Stay put and rest until something happens, at most ten game minutes.",
     valid=lambda s: True,
     facts=lambda s: f"mood {round(s.vitals['mood'])}, energy {round(s.vitals['energy'])}",
     score=rest_score, plan=plan_rest,
@@ -196,8 +203,9 @@ def explore_facts(s: Situation) -> str:
 
 
 def plan_explore(s: Situation, context: ActionContext) -> list[dict]:
-    """One walk 48 blocks out, in a heading that changes with every trip and every day."""
-    if s.brain["batches"] > 0:
+    """Up to three walks per choice, each 48 blocks out in a heading that changes with every trip
+    and every day (the turns zigzag, so Mimo ends up near where it started)."""
+    if s.brain["batches"] >= EXPLORE_WALKS:
         return []
     x, _, z = s.here
     turn = s.brain["explored"]
@@ -208,7 +216,7 @@ def plan_explore(s: Situation, context: ActionContext) -> list[dict]:
 
 
 register(Purpose(
-    "explore", "explore", "Walk out 48 blocks to see new land, trees and places.",
+    "explore", "explore", "Walk out 48 blocks three times, in new directions, to see new land, trees and places.",
     valid=lambda s: not s.night and s.phase != "dusk",
     facts=explore_facts, score=explore_score, plan=plan_explore,
     thoughts=("I wonder what's over there.", "Let's see what lies beyond those hills.")))
