@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from backend.survival import memory
 from backend.survival.clock import DAY_SECONDS, clock_at, is_night
@@ -33,6 +33,14 @@ class Situation:
     clock: dict
     at: float
     db: sqlite3.Connection | None = None
+    # What Mimo sensed, kept for this Situation: a purpose's check, facts, score and plan look once.
+    memo: dict = field(default_factory=dict)
+
+    def sensed(self, key: str, look: Callable[[], Any]) -> Any:
+        """`look()` the first time `key` is asked for, then the same answer."""
+        if key not in self.memo:
+            self.memo[key] = look()
+        return self.memo[key]
 
     @cached_property
     def places(self) -> list[dict]:
