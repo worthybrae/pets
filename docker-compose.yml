@@ -37,6 +37,7 @@ services:
       MIMO_DB_PATH: /data/mimo.sqlite3
       MIMO_DATA_DIR: /data
       MIMO_TIME_SCALE: ${MIMO_TIME_SCALE:-1}
+      MIMO_ACTION_SCALE: ${MIMO_ACTION_SCALE:-1}
       MIMO_MODEL: ${MIMO_MODEL:-gpt-6-luna}
       MIMO_MODEL_URL: ${MIMO_MODEL_URL:-https://api.openai.com/v1/chat/completions}
       MIMO_MODEL_API_KEY: ${MIMO_MODEL_API_KEY:-}
