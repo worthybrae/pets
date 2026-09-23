@@ -92,8 +92,17 @@ describe('meshColumn', () => {
     expect(top.indices.filter((index) => index === dark)).toHaveLength(2)
   })
 
-  it('does not shade glowing blocks', () => {
+  it('skips corner shadows on glowing blocks', () => {
     const top = topOfBlock(mesh([[5, 10, 5, 'lantern'], [6, 11, 5, 'stone']]).opaque)
     expect(new Set(top.light).size).toBe(1)
+  })
+
+  it('keeps directional face shade on glowing blocks', () => {
+    const buffers = mesh([[5, 10, 5, 'lantern']]).opaque
+    const allQuads = quads(buffers)
+    const top = allQuads.find((quad) => quad.vertices.every(([, y]) => y === 11))!
+    const bottom = allQuads.find((quad) =>
+      quad.vertices.every(([x, y, z]) => y === 10 && x >= 4 && x <= 5 && z >= 4 && z <= 5))!
+    expect(Math.max(...bottom.light)).toBeLessThan(Math.min(...top.light))
   })
 })

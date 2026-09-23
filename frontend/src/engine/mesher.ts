@@ -164,7 +164,7 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
             aos.push(ao)
             return [wx + corner[0], wy + (lowered && corner[1] === 1 ? 1 - WATER_DROP : corner[1]), wz + corner[2]]
           })
-          const light = aos.map((ao) => (glow ? 1 : face.shade) * AO_LIGHT[ao] * blockTint)
+          const light = aos.map((ao) => face.shade * AO_LIGHT[ao] * blockTint)
           // Split along the diagonal that holds the odd corner so gradients don't crease.
           const flip = aos[0] + aos[2] > aos[1] + aos[3]
           builder.quad(corners, tileUv(faceTiles[id * 6 + faceIndex]), light, flip)
