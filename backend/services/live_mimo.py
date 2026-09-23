@@ -223,7 +223,7 @@ class MimoStore:
 
     def block_edits(self) -> list[dict]:
         with self.connect() as db:
-            return [dict(row) for row in db.execute("SELECT x,y,z,material FROM mimo_blocks").fetchall()]
+            return [dict(row) for row in db.execute("SELECT x,y,z,material FROM mimo_blocks ORDER BY x,y,z").fetchall()]
 
     def blocks_since(self, since: int, limit: int = 5000) -> dict:
         """Block changes after `since`, oldest first. Removed blocks come back as air."""

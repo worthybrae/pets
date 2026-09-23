@@ -27,6 +27,12 @@ class BlockSyncTests(unittest.TestCase):
         self.assertGreater(second["seq"], first["seq"])
         self.assertFalse(second["more"])
 
+    def test_block_edits_are_ordered_by_position(self):
+        self.store.put_block(5, 20, 0, "stone")
+        self.store.put_block(1, 20, 0, "stone")
+        self.store.put_block(3, 20, 0, "stone")
+        self.assertEqual([edit["x"] for edit in self.store.block_edits()], [1, 3, 5])
+
     def test_falling_sand_reports_both_cells(self):
         self.store.put_block(73, 2, 0, "sand")
         seq = self.store.blocks_since(0)["seq"]
