@@ -8,11 +8,13 @@ Before a new step starts, two hazards come first: Mimo falls when nothing holds 
 is water (a fallback until the brain's surface reflex in M3).
 
 A walk step starts with a path search (route(), inside start_step); on real terrain a search
-that exhausts its budget costs around 250ms. Catching up after a long gap could otherwise start
-many searches back to back inside the tick's write transaction, so advance_actions runs at most
-MAX_SEARCHES_PER_ADVANCE of them: once the budget is spent, a walk at the front of the queue (or
-just re-queued by an unfinished segment) is left there and waits for the next advance_actions
-call instead of searching (Task 3 review ruling). Because that walk is left unpopped and unstarted,
+that exhausts its budget costs around 250ms. Catching up after a long gap can call advance_actions
+many times inside one advance_world (one per catch-up step, plus a final call), all sharing one
+ActionContext, so the search budget lives on the context (`searches_left`, from
+MAX_SEARCHES_PER_TICK) instead of resetting every call: once it reaches zero, a walk at the front
+of the queue (or just re-queued by an unfinished segment) is left there and waits for the next
+advance_actions call instead of searching (Task 3 review ruling; Task 6 fix round 1 made the
+budget span the whole tick instead of one call). Because that walk is left unpopped and unstarted,
 no step with an empty path is ever built.
 """
 
@@ -30,7 +32,7 @@ from backend.survival.steps import as_cell, as_point, finish_step, position_of, 
 
 RECENT_LIMIT = 20
 MAX_STEPS_PER_ADVANCE = 1000
-MAX_SEARCHES_PER_ADVANCE = 2  # route()/start_step(walk) calls allowed in one advance_actions call
+MAX_SEARCHES_PER_TICK = 2  # route()/start_step(walk) calls allowed across one whole advance_world call
 GRAVITY = 32.0  # blocks per second squared: a fall of b blocks takes sqrt(2 b / GRAVITY) seconds
 SAFE_FALL = 3
 FALL_DAMAGE = 10.0
@@ -48,12 +50,18 @@ Planner = Callable[[dict, Grid, float, dict], list[dict]]
 
 @dataclass
 class ActionContext:
-    """What advance_actions needs besides the state: the world, the game clock, a planner, an event list."""
+    """What advance_actions needs besides the state: the world, the game clock, a planner, an event list.
+
+    `searches_left` is one path-search budget shared by every advance_actions call made from the
+    same advance_world call (it is created once per tick and mutated down as walks start), so a
+    long catch-up cannot run more than MAX_SEARCHES_PER_TICK searches in one write transaction.
+    """
 
     grid: Grid
     clock_at: Callable[[float], dict]
     planner: Planner
     events: list[Event]
+    searches_left: int = MAX_SEARCHES_PER_TICK
 
 
 def ensure_actions(state: dict) -> None:
@@ -206,7 +214,6 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
     ensure_actions(state)
     grid = context.grid
     at = min(state["actions_at"], until)
-    searches = 0
     for _ in range(MAX_STEPS_PER_ADVANCE):
         step = state["action"]
         if step is None:
@@ -217,11 +224,11 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
                 if not state["queue"]:
                     break
             spec = state["queue"][0]
-            if spec.get("kind") == "walk" and searches >= MAX_SEARCHES_PER_ADVANCE:
-                break  # search budget spent this call; try this walk again next advance_actions
+            if spec.get("kind") == "walk" and context.searches_left <= 0:
+                break  # search budget spent this tick; try this walk again next advance_actions
             state["queue"].pop(0)
             if spec.get("kind") == "walk":
-                searches += 1
+                context.searches_left -= 1
             try:
                 state["action"] = start_step(spec, state, grid, at)
             except (ValueError, KeyError) as error:

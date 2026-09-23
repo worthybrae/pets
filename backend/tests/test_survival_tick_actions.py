@@ -2,8 +2,10 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.services.worldgen import terrain_height
+from backend.survival import steps as steps_module
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
 from backend.survival.script import scripted_plan
@@ -67,6 +69,28 @@ class TickActionTests(unittest.TestCase):
     def test_night_sleep_is_a_step_without_an_end(self):
         state = tick_life(self.registry, BORN + 2450, scale=1)
         self.assertEqual((state["action"]["kind"], state["action"]["ends_at"]), ("sleep", None))
+
+    def test_a_long_catch_up_shares_one_search_budget_for_the_whole_tick(self):
+        """Controller ruling (Task 6 fix round 1): advance_world creates one ActionContext per
+        tick_life call and every catch-up step's advance_actions call shares it, so a gap spanning
+        several 60-game-second steps still spends at most MAX_SEARCHES_PER_TICK (2) route()
+        searches for the whole tick, not that many per catch-up step. The deferred walks stay
+        queued and the next tick call can pick them up with a fresh budget."""
+        x, z = self.spawn_column()
+        y = terrain_height(x, z, self.world.seed) + 1
+        for step in range(6):
+            self.world.put_block(x + step, y - 1, z, "stone")
+            self.world.put_block(x + step, y, z, "air")
+        self.edit(position={"x": float(x), "y": float(y), "z": float(z)}, action=None, recent_actions=[],
+                  actions_at=BORN, queue=[{"kind": "walk", "target": [x + step, y, z]} for step in range(1, 6)])
+        with patch("backend.survival.steps.route", wraps=steps_module.route) as spy:
+            state = tick_life(self.registry, BORN + 300, scale=1)  # 5 catch-up steps + 1 final call
+        self.assertIsNone(state["died_at"])
+        self.assertLessEqual(spy.call_count, 2)
+        self.assertTrue(state["queue"] or (state["action"] and state["action"]["kind"] == "walk"))
+        with patch("backend.survival.steps.route", wraps=steps_module.route) as spy_next:
+            tick_life(self.registry, BORN + 301, scale=1)
+        self.assertGreaterEqual(spy_next.call_count, 1)
 
     def test_the_worker_runs_the_interim_script(self):
         self.assertIs(mimo_worker.WORKER_PLANNER, scripted_plan)

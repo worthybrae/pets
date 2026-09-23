@@ -139,15 +139,17 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual(state["recent_actions"][-1]["ended_at"], 120.0)
 
     def test_far_walks_continue_segment_by_segment(self):
-        state = pet()
+        """Each call below simulates a separate tick_life call, which in production always builds
+        a fresh ActionContext (Task 6 fix round 1), so each gets its own search budget here too;
+        only a single advance_actions call sharing one context is limited to 2 searches total."""
+        grid, state = small_world(), pet()
         state["queue"] = [{"kind": "walk", "target": [200, 1, 0]}]
-        ctx = context(small_world())
-        advance_actions(state, ctx, 0.0)
+        advance_actions(state, context(grid), 0.0)
         first = state["action"]
         self.assertFalse(first["reached"])
-        advance_actions(state, ctx, first["ends_at"])
+        advance_actions(state, context(grid), first["ends_at"])
         self.assertEqual((state["action"]["kind"], state["action"]["started_at"]), ("walk", first["ends_at"]))
-        advance_actions(state, ctx, 100.0)
+        advance_actions(state, context(grid), 100.0)
         self.assertEqual(state["position"], {"x": 200.0, "y": 1.0, "z": 0.0})
 
     def test_a_walk_stops_where_its_path_became_blocked(self):
@@ -176,19 +178,26 @@ class ActionEngineTests(unittest.TestCase):
         self.assertEqual({entry["kind"] for entry in state["recent_actions"]}, {"eat"})
         self.assertEqual(len(ctx.events), 25)
 
-    def test_the_engine_searches_at_most_twice_per_advance(self):
-        """Controller ruling (Task 3 review): at most 2 route()/start_step(walk) searches per
-        advance_actions call, so catch-up after a long gap cannot blow up the tick's write
-        transaction. A queue of 5 short, independently-reachable walks with a huge elapsed time
-        would finish all 5 (and search 5 times) without the cap; with it, only 2 searches run."""
+    def test_the_engine_shares_its_search_budget_across_calls_on_one_context(self):
+        """Controller ruling (Task 3 review, tightened in Task 6 fix round 1): at most
+        MAX_SEARCHES_PER_TICK route()/start_step(walk) searches across every advance_actions call
+        sharing one ActionContext (context.searches_left), not a fresh budget per call, so a long
+        catch-up (which calls advance_actions many times inside one advance_world, all on the same
+        context) cannot blow up the tick's write transaction. A queue of 5 short,
+        independently-reachable walks with a huge elapsed time would finish all 5 (and search 5
+        times) without the cap; with it, only 2 searches run, even split across two separate
+        advance_actions calls that reuse the same context."""
         grid, state = small_world(), pet()
         state["queue"] = [{"kind": "walk", "target": [x, 1, 0]} for x in (1, 2, 3, 4, 5)]
         ctx = context(grid)
         with patch("backend.survival.steps.route", wraps=steps_module.route) as spy:
             advance_actions(state, ctx, 1000.0)
+            self.assertEqual(spy.call_count, 2)
+            self.assertLess(state["position"]["x"], 5.0)
+            self.assertTrue(state["queue"] or (state["action"] and state["action"]["kind"] == "walk"))
+            # The same context, asked again: the spent budget carries over, so no more searches run.
+            advance_actions(state, ctx, 2000.0)
         self.assertEqual(spy.call_count, 2)
-        self.assertLess(state["position"]["x"], 5.0)
-        self.assertTrue(state["queue"] or (state["action"] and state["action"]["kind"] == "walk"))
 
 
 if __name__ == "__main__":
