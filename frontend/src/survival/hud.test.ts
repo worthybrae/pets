@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { careLabel, causeText, clockTime, dayLabel, lifeLine, statusText, vitalBars, workerOnline } from './hud'
+import { actionText, careLabel, causeText, clockTime, dayLabel, lifeLine, statusText, vitalBars, workerOnline } from './hud'
 
 const vitals = { health: 100, hunger: 14.6, warmth: 34, energy: 62.4, air: 100, mood: 70 }
 
@@ -50,5 +50,15 @@ describe('HUD text', () => {
     expect(lifeLine({ kind: 'survival', alive: true, days: 2, cause: null })).toBe('Alive · day 2')
     expect(lifeLine({ kind: 'survival', alive: false, days: 1, cause: 'starvation' }))
       .toBe('Survived 1 day · died of starvation')
+  })
+})
+
+describe('actionText', () => {
+  it('names the current step in plain words and falls back to the status', () => {
+    expect(actionText({ kind: 'mine', started_at: 0, ends_at: 2, block: 'oak_log' }, 'mining')).toBe('Mining oak log')
+    expect(actionText({ kind: 'craft', started_at: 0, ends_at: 1, recipe: 'planks' }, 'crafting')).toBe('Crafting planks')
+    expect(actionText({ kind: 'walk', started_at: 0, ends_at: 1, path: [] }, 'walking')).toBe('Walking')
+    expect(actionText({ kind: 'wait', started_at: 0, ends_at: 5 }, 'idle')).toBe('Standing still')
+    expect(actionText(null, 'sleeping')).toBe('Sleeping')
   })
 })

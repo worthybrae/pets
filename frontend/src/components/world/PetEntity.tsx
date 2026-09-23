@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { PetEntity as PetEntityType } from '../../types/world'
+import PetVoxels from './PetVoxels'
 
 type WanderState = 'idle' | 'walking' | 'pausing'
 
@@ -34,10 +35,7 @@ function randomTarget(origin: { x: number; z: number }, radius: number) {
 
 export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, onPetClick, hopSignal = 0, children, destination, onArrive, scale = 1 }: PetEntityProps) {
   const groupRef = useRef<THREE.Group>(null)
-  const meshRef = useRef<THREE.InstancedMesh>(null)
   const timeRef = useRef(0)
-  const initializedRef = useRef(false)
-  const prevVoxelsRef = useRef(pet.voxels)
 
   // Wander state machine refs (persist across frames without re-renders)
   const wanderState = useRef<WanderState>('idle')
@@ -69,26 +67,6 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
 
   useFrame((_, delta) => {
     timeRef.current += delta
-
-    // --- Voxel instancing setup ---
-    if (meshRef.current && (!initializedRef.current || prevVoxelsRef.current !== pet.voxels)) {
-      const mesh = meshRef.current
-      const dummy = new THREE.Object3D()
-      const color = new THREE.Color()
-
-      for (let i = 0; i < pet.voxels.length; i++) {
-        const v = pet.voxels[i]
-        dummy.position.set(v.x + 0.5, v.y + 0.5, v.z + 0.5)
-        dummy.updateMatrix()
-        mesh.setMatrixAt(i, dummy.matrix)
-        color.setRGB(v.r / 255, v.g / 255, v.b / 255, THREE.SRGBColorSpace)
-        mesh.setColorAt(i, color)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-      initializedRef.current = true
-      prevVoxelsRef.current = pet.voxels
-    }
 
     // --- Wander state machine ---
     stateTimer.current -= delta
@@ -159,14 +137,7 @@ export default function PetEntity({ pet, onPositionChange, wanderRadius = 20, on
         onPetClick?.()
       }}
     >
-      <instancedMesh
-        ref={meshRef}
-        args={[undefined, undefined, pet.voxels.length]}
-        frustumCulled={false}
-      >
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial roughness={0.4} metalness={0.1} />
-      </instancedMesh>
+      <PetVoxels voxels={pet.voxels} />
       {children}
     </group>
   )

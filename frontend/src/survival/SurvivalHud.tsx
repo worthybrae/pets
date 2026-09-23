@@ -1,5 +1,5 @@
 import { dialPosition } from './clock'
-import { careLabel, clockTime, dayLabel, statusText, vitalBars, type VitalLevel } from './hud'
+import { actionText, careLabel, clockTime, dayLabel, vitalBars, type VitalLevel } from './hud'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -46,7 +46,7 @@ export default function SurvivalHud({ state, online, busy, message, onCare, onHe
             <SkyDial secondsIntoDay={clock.seconds_into_day} />
           </div>
           <p className="mt-2 text-xs text-[#54726e]">
-            <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? statusText(state.status) : 'Worker offline'}
+            <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}
           </p>
           <p className="mt-1 text-sm italic leading-5 text-[#315e58]">“{state.last_thought}”</p>
         </section>

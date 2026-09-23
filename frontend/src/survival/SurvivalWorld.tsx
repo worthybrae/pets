@@ -5,6 +5,7 @@ import { blocksFetcher, giveCare, helpMimo, sayHello } from './api'
 import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
 import { workerOnline } from './hud'
+import { serverNow } from './motion'
 import SurvivalHud from './SurvivalHud'
 import type { AliveResponse, CareKind } from './types'
 import WorldCanvas from './WorldCanvas'
@@ -44,6 +45,8 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
 
   const seconds = useCallback(() => liveClock(state.clock, receivedAt, Date.now() / 1000).secondsIntoDay,
     [state.clock, receivedAt])
+  const serverTime = useCallback(() => serverNow(state.server_time, receivedAt, Date.now() / 1000),
+    [state.server_time, receivedAt])
   const stations = useMemo(() => store.materialsNear(state.position.x, state.position.z, 6),
     // Re-read once per poll, after the block delta for that poll has been applied.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,7 +80,8 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   return (
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
       <WorldCanvas store={store} position={state.position} seconds={seconds} arrival={arrival}
-        following={following} onOrbit={() => setFollowing(false)} onPetClick={hello} hopSignal={helloCount} />
+        following={following} onOrbit={() => setFollowing(false)} onPetClick={hello} hopSignal={helloCount}
+        action={state.action} serverTime={serverTime} />
       <SurvivalHud state={state} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
         busy={busy} message={message || connectionError || syncError}
         onCare={care} onHello={hello} onFollow={() => setFollowing(true)}

@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import PetEntity from '../components/world/PetEntity'
-import { previewPet } from '../components/world/previewWorld'
 import BlockWorld, { type ViewStats } from '../engine/BlockWorld'
 import { fogRange } from '../engine/fog'
 import type { WorldStore } from '../engine/worldStore'
 import DayNight, { PetGlow } from './DayNight'
 import FollowCamera from './FollowCamera'
 import { daylightFactor } from './sky'
+import SurvivalPet from './SurvivalPet'
+import type { MimoAction } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
+/** Without a server clock (archives) the pet has no step and stands still. */
+const NO_TIME = () => 0
 
 /** Phones and low-core devices draw fewer columns. */
 function pickViewDistance(): number {
@@ -22,8 +24,9 @@ function pickViewDistance(): number {
  * The 3D world around one pet: terrain from the store, the pet, and a camera that follows it.
  * With `seconds` (game seconds into the day) the sky, lights and terrain follow day and night;
  * without it the scene stays in daylight. `arrival` starts the camera high so it flies down.
+ * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0 }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, serverTime }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -32,6 +35,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   onOrbit: () => void
   onPetClick?: () => void
   hopSignal?: number
+  action?: MimoAction | null
+  serverTime?: () => number
 }) {
   const [viewDistance] = useState(pickViewDistance)
   const [debug] = useState(() => new URLSearchParams(window.location.search).has('debug'))
@@ -41,7 +46,6 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   const [initial] = useState(() => ({ ...position }))
   const [cameraChunk, setCameraChunk] = useState(() => ({ x: Math.floor(position.x / 16), z: Math.floor(position.z / 16) }))
   const [fogNear, fogFar] = fogRange(viewDistance, CAMERA_DISTANCE)
-  const pet = { ...previewPet, position: { x: initial.x, y: initial.y, z: initial.z } }
 
   return (
     <>
@@ -60,7 +64,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           <BlockWorld key={engineKey} store={store} centerX={cameraChunk.x * 16 + 8} centerZ={cameraChunk.z * 16 + 8}
             viewDistance={viewDistance} daylight={seconds ? () => daylightFactor(seconds()) : undefined}
             onStats={debug ? setStats : undefined} onError={setEngineError} />
-          <PetEntity pet={pet} scale={0.31} destination={{ ...position, token: 0 }} onPetClick={onPetClick} hopSignal={hopSignal}>
+          <SurvivalPet action={action} position={position} now={serverTime ?? NO_TIME} onPetClick={onPetClick} hopSignal={hopSignal}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />
@@ -72,7 +76,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
               <meshStandardMaterial color="#cd8a84" />
             </mesh>
             {seconds && <PetGlow seconds={seconds} />}
-          </PetEntity>
+          </SurvivalPet>
           <FollowCamera focus={position} focusY={position.y} initialFocus={initial} initialFocusY={initial.y}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}
             onChunkChange={(x, z) => setCameraChunk((current) => current.x === x && current.z === z ? current : { x, z })} />

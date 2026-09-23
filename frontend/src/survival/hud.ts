@@ -1,4 +1,4 @@
-import type { CareKind, ClockPhase, LifeRow, VitalName, Vitals } from './types'
+import type { ActionKind, CareKind, ClockPhase, LifeRow, MimoAction, VitalName, Vitals } from './types'
 
 export type VitalLevel = 'ok' | 'low' | 'critical'
 
@@ -50,6 +50,19 @@ export function clockTime(secondsIntoDay: number): string {
 
 export function statusText(status: string): string {
   return STATUS_TEXT[status] ?? status.replaceAll('_', ' ')
+}
+
+const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
+  walk: 'Walking', swim: 'Swimming', fall: 'Falling!', mine: 'Mining', place: 'Placing', eat: 'Eating',
+  craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping',
+}
+
+/** The current step in plain words ("Mining oak log"); the status when Mimo is between steps or waiting. */
+export function actionText(action: MimoAction | null, status: string): string {
+  const words = action ? ACTION_WORDS[action.kind] : undefined
+  if (!action || !words) return statusText(status)
+  const object = action.block ?? action.item ?? action.recipe
+  return object ? `${words} ${object.replaceAll('_', ' ')}` : words
 }
 
 export function careLabel(kind: CareKind, remaining: number): string {
