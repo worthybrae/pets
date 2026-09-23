@@ -6,6 +6,8 @@ steps whenever Mimo's queue runs dry:
 1. A batch that failed (a `state["last_failure"]` the brain has not dealt with yet) is planned
    again once. A second failure reports back: the purpose is dropped, scores 30 lower for 600
    game seconds, and a `plan_failed` trigger asks for a new choice.
+   Before reporting, the brain checks whether Mimo is trapped and digs a staircase out
+   (backend.survival.escape).
 2. Otherwise the last batch finished well and counts toward the purpose's `batches`.
 3. The chosen purpose plans its next batch, each step tagged with the purpose's name. A purpose
    that is no longer valid, or has nothing left to do, is finished: `plan_done` asks for a new
@@ -25,6 +27,7 @@ import logging
 
 from backend.survival import toolmaking, work  # noqa: F401  (they register their purposes)
 from backend.survival.actions import ActionContext
+from backend.survival.escape import plan_escape
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, Purpose, is_valid
@@ -102,11 +105,17 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
         return waiting(state, at)
     failure = new_failure(state, brain)
     if failure is not None:
-        brain["handled_failure"] = failure
         if brain["replans"] >= 1:
+            escape = plan_escape(state, context, at)
+            if escape is None:
+                return [{"kind": "wait", "seconds": PENDING_WAIT}]  # no search left this tick; look again next tick
+            brain["handled_failure"] = failure
+            if escape:
+                return escape
             forget_unreachable_home(context, purpose.name, failure)
             report(state, context, purpose.name, at, failure["reason"])
             return waiting(state, at)
+        brain["handled_failure"] = failure
         brain["replans"] += 1
     elif brain["planned_at"] is not None:
         brain["batches"] += 1
