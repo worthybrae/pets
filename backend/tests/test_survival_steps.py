@@ -114,6 +114,15 @@ class StepTests(unittest.TestCase):
         with self.assertRaisesRegex(StepFailed, "no way there"):
             start_step({"kind": "walk", "target": [3, 1, 0]}, pet(), small_world(walls), 0.0)
 
+    def test_a_whole_walk_goes_all_the_way_or_not_at_all(self):
+        walls = {(x, y, z): "stone" for x in (4, 5, 6) for y in (1, 2) for z in (-1, 0, 1) if (x, z) != (5, 0)}
+        part = start_step({"kind": "walk", "target": [5, 1, 0]}, pet(), small_world(walls), 0.0)
+        self.assertFalse(part["reached"])
+        self.assertTrue(part["path"])
+        with self.assertRaises(StepFailed) as caught:
+            start_step({"kind": "walk", "target": [5, 1, 0], "whole": True}, pet(), small_world(walls), 0.0)
+        self.assertEqual(caught.exception.code, "no_path")
+
     def test_sleep_has_no_fixed_end_waits_do_and_unknown_steps_fail(self):
         grid, state = small_world(), pet()
         self.assertIsNone(start_step({"kind": "sleep"}, state, grid, 0.0)["ends_at"])

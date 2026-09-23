@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 
-from backend.survival import toolmaking, work  # noqa: F401  (they register their purposes)
+from backend.survival import foraging, toolmaking, work  # noqa: F401  (they register their purposes)
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
 from backend.survival.learning import learn_from_step

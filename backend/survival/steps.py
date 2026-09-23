@@ -233,7 +233,8 @@ def start_walk(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
     if segments > MAX_SEGMENTS:
         raise StepFailed("no way there", "no_path")
     cells, reached = route(grid, here, target, reach)
-    if not cells and not reached:
+    # A walk marked `whole` goes all the way or not at all: part of the way can end in a pit.
+    if not reached and (not cells or spec.get("whole")):
         raise StepFailed("no way there", "no_path")
     path = timed_path(grid, here, cells, at, scale)
     return {"kind": "walk", "started_at": at, "ends_at": path[-1]["at"], "path": path,
