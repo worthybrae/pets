@@ -3,7 +3,10 @@
 Run with: python -m backend.workers.mimo_worker
 Keep exactly one worker running against a persistent MIMO_DATA_DIR. Each tick brings the
 active life up to now (timed actions, vitals, death) with the brain; then the Chooser answers a
-pending purpose trigger outside the tick's transaction (backend.survival.choosing). The retired
+pending purpose trigger outside the tick's transaction (backend.survival.choosing). A long
+catch-up runs one transaction per 60 game seconds, and between them a rules-only chooser
+answers, so a pet that slept through the laptop's night kept choosing without a burst of model
+calls. The retired
 legacy world at MIMO_DB_PATH is no longer ticked; live_mimo.run_tick stays only for reading old
 worlds.
 """
@@ -20,7 +23,7 @@ import time
 from dotenv import load_dotenv
 
 from backend.survival.brain import BRAIN
-from backend.survival.choosing import Chooser
+from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry, data_dir
 from backend.survival.tick import RESTING, Mind, tick_life
@@ -61,7 +64,17 @@ def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | No
     `mind` defaults to the plain sleep rule and `chooser` to none; `main` passes WORKER_MIND and
     a Chooser.
     """
-    state = tick_life(registry, timestamp, mind=mind)
+    between = None
+    if chooser is not None:
+        rules = Chooser(env={}, executor=InlineExecutor(), rng=chooser.rng, scale=chooser.scale)
+
+        def between(at: float) -> None:
+            try:
+                rules.poll(registry, at)
+            except Exception as error:
+                log_once(logger, "chooser", error)
+
+    state = tick_life(registry, timestamp, mind=mind, between=between)
     if chooser is not None and state is not None and state["died_at"] is None:
         try:
             chooser.poll(registry, timestamp)

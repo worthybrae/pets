@@ -73,12 +73,11 @@ class TickActionTests(unittest.TestCase):
         state = tick_life(self.registry, BORN + 2450, scale=1)
         self.assertEqual((state["action"]["kind"], state["action"]["ends_at"]), ("sleep", None))
 
-    def test_a_long_catch_up_shares_one_search_budget_for_the_whole_tick(self):
-        """Controller ruling (Task 6 fix round 1): advance_world creates one ActionContext per
-        tick_life call and every catch-up step's advance_actions call shares it, so a gap spanning
-        several 60-game-second steps still spends at most MAX_SEARCHES_PER_TICK (2) route()
-        searches for the whole tick, not that many per catch-up step. The deferred walks stay
-        queued and the next tick call can pick them up with a fresh budget."""
+    def test_a_long_catch_up_runs_one_transaction_per_step_each_with_its_own_search_budget(self):
+        """M5 (replacing the M2 ruling of one budget for a whole catch-up): tick_life advances a
+        gap one 60-game-second step per advance_world call, and each call is one transaction with
+        its own ActionContext, so each step gets MAX_SEARCHES_PER_TICK (2) route() searches, the
+        way a 60x run ticks. `between` hears about each step but the last."""
         x, z = self.spawn_column()
         y = terrain_height(x, z, self.world.seed) + 1
         for step in range(6):
@@ -86,14 +85,14 @@ class TickActionTests(unittest.TestCase):
             self.world.put_block(x + step, y, z, "air")
         self.edit(position={"x": float(x), "y": float(y), "z": float(z)}, action=None, recent_actions=[],
                   actions_at=BORN, queue=[{"kind": "walk", "target": [x + step, y, z]} for step in range(1, 6)])
+        between = []
         with patch("backend.survival.steps.route", wraps=steps_module.route) as spy:
-            state = tick_life(self.registry, BORN + 300, scale=1)  # 5 catch-up steps + 1 final call
+            state = tick_life(self.registry, BORN + 300, scale=1, between=between.append)  # 5 steps
         self.assertIsNone(state["died_at"])
-        self.assertLessEqual(spy.call_count, 2)
-        self.assertTrue(state["queue"] or (state["action"] and state["action"]["kind"] == "walk"))
-        with patch("backend.survival.steps.route", wraps=steps_module.route) as spy_next:
-            tick_life(self.registry, BORN + 301, scale=1)
-        self.assertGreaterEqual(spy_next.call_count, 1)
+        self.assertEqual(spy.call_count, 5)  # every walk started, one after another
+        self.assertEqual(between, [BORN + 60, BORN + 120, BORN + 180, BORN + 240])
+        self.assertEqual(state["last_tick_at"], BORN + 300)
+        self.assertEqual(state["position"]["x"], x + 5)
 
     def test_the_worker_runs_the_brain(self):
         self.assertIs(mimo_worker.WORKER_MIND, BRAIN)

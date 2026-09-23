@@ -1,7 +1,11 @@
 """One survival tick: bring the active life's world up to now.
 
 The worker calls `tick_life` about once a second. A longer gap (a laptop that slept) is
-caught up in steps of at most 60 game seconds, so a pet can starve while nobody watches.
+caught up in steps of at most 60 game seconds, so a pet can starve while nobody watches. Each
+step is its own transaction with its own path-search budget (`advance_world`), the way a fast
+test run ticks, so a long catch-up is not one long write that locks the owner out, and a pet
+catching up still walks, forages and gets home; between steps the worker lets its rules chooser
+answer (`between`), so Mimo keeps choosing what to do.
 Each step first runs Mimo's timed actions up to the step's start (backend.survival.actions),
 then advances vitals with the activity and surroundings at that moment. A `Mind` decides the
 steps: its `plan` fills an empty queue (M1's `rest_plan` in the default `RESTING` mind), and its
@@ -172,15 +176,27 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
 
 
 def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: float | None = None,
-              mind: Mind = RESTING, action_scale: float | None = None) -> dict | None:
-    """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive."""
+              mind: Mind = RESTING, action_scale: float | None = None,
+              between: Callable[[float], None] | None = None) -> dict | None:
+    """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive.
+
+    A gap longer than one catch-up step (60 game seconds) is advanced one step per transaction,
+    calling `between(at)` after each step but the last while Mimo lives."""
     life = registry.active_life()
     if life is None:
         return None
     timestamp = time.time() if timestamp is None else timestamp
     scale = time_scale() if scale is None else scale
     action_scale = action_scale_setting() if action_scale is None else action_scale
-    state = advance_world(SurvivalWorld(registry.world_path(life)), timestamp, scale, mind, action_scale)
+    world = SurvivalWorld(registry.world_path(life))
+    at = world.state()["last_tick_at"]
+    while True:
+        at = min(timestamp, at + MAX_STEP_SECONDS / scale)
+        state = advance_world(world, at, scale, mind, action_scale)
+        if at >= timestamp or state["died_at"] is not None:
+            break
+        if between is not None:
+            between(at)
     if state["died_at"] is not None:
         registry.mark_dead(life["id"], state["died_at"], state["cause"])
     return state

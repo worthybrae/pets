@@ -9,8 +9,8 @@ from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.hatch import hatch
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
-from backend.survival.world import WorldMissing
-from backend.workers.mimo_worker import run_once, should_log_data_error, tick_seconds
+from backend.survival.world import SurvivalWorld, WorldMissing
+from backend.workers.mimo_worker import WORKER_MIND, run_once, should_log_data_error, tick_seconds
 
 
 class SurvivalWorkerTests(unittest.TestCase):
@@ -36,6 +36,20 @@ class SurvivalWorkerTests(unittest.TestCase):
             died = run_once(self.registry, line, timestamp=1000.0 + 20_000)
         self.assertEqual(died, f"{life['name']} died of starvation.")
         self.assertIsNone(self.registry.active_life())
+
+    def test_after_a_long_outage_mimo_kept_choosing_and_eating_on_the_rules(self):
+        life = hatch(self.registry, random.Random(8), timestamp=1000.0)
+        asked = []
+        chooser = Chooser(env={"TYPESAFE_API_KEY": "k"}, http=lambda *args: asked.append(args) or {},
+                          executor=InlineExecutor(), rng=random.Random(8), scale=60.0)
+        with patch.dict(os.environ, {"MIMO_TIME_SCALE": "60", "MIMO_ACTION_SCALE": "60"}):
+            line = run_once(self.registry, None, timestamp=1000.0 + 2 * 60, mind=WORKER_MIND, chooser=chooser)
+        self.assertIn(life["name"], line)
+        events = SurvivalWorld(self.registry.world_path(life)).events(5000)
+        kinds = [event["kind"] for event in events]
+        self.assertGreater(kinds.count("purpose"), 5)
+        self.assertIn("ate", kinds)
+        self.assertLessEqual(len(asked), 1)  # at most the last ask goes to Jev; the catch-up ran on rules
 
     def test_tick_seconds_defaults_to_one(self):
         with patch.dict(os.environ, {"MIMO_TICK_SECONDS": "0.5"}):
