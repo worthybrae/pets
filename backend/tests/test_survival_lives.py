@@ -1,6 +1,8 @@
 import hashlib
 import math
+import os
 import random
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,7 +11,7 @@ from unittest.mock import patch
 from backend.services.live_mimo import MimoStore
 from backend.survival.eggs import TRAITS
 from backend.survival.hatch import hatch
-from backend.survival.registry import LifeConflict, LifeRegistry
+from backend.survival.registry import LifeConflict, LifeRegistry, data_dir, read_legacy_life
 from backend.survival.world import SurvivalWorld
 
 
@@ -52,6 +54,21 @@ class LifeRegistryTests(unittest.TestCase):
         empty = LifeRegistry(Path(self.directory.name) / "other", Path(self.directory.name) / "missing.sqlite3")
         self.assertEqual(empty.list_lives(), [])
         self.assertIsNone(empty.last_life())
+
+    def test_a_broken_legacy_file_is_not_treated_as_missing(self):
+        directory = tempfile.TemporaryDirectory()
+        root = Path(directory.name)
+        broken = root / "broken.sqlite3"
+        broken.write_bytes(b"not a database")
+        with self.assertRaises(sqlite3.DatabaseError):
+            read_legacy_life(broken)
+        with self.assertRaises(sqlite3.Error):
+            LifeRegistry(root / "data", broken)
+        directory.cleanup()
+
+    def test_data_dir_resolves_a_relative_path_to_absolute(self):
+        with patch.dict(os.environ, {"MIMO_DATA_DIR": "some_relative_survival_data_dir"}):
+            self.assertTrue(data_dir().is_absolute())
 
     def test_the_registry_schema_is_initialized_once_per_path_per_process(self):
         # A fresh directory this process has never opened, so the module-level cache starts empty for it.

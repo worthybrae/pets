@@ -10,7 +10,7 @@ from backend.services.live_mimo import MimoStore
 from backend.services.worldgen import block_at, terrain_height
 from backend.survival import world as world_module
 from backend.survival.world import (
-    LifeOver, SurvivalWorld, WorldMissing, new_survival_state, read_state, write_state,
+    LifeOver, SurvivalWorld, WorldBehind, WorldMissing, new_survival_state, read_state, write_state,
 )
 
 SEED = "123456789123456789"
@@ -48,11 +48,14 @@ class SurvivalWorldTests(unittest.TestCase):
         self.assertEqual([event["kind"] for event in self.world.events()], ["birth"])
         self.assertEqual(self.world.blocks_seq(), 0)
 
-    def test_creating_over_a_leftover_file_keeps_one_birth_event(self):
+    def test_creating_over_a_leftover_file_replaces_it_with_a_fresh_world(self):
+        self.world.put_block(3682, 6, 4143, "lantern")
         again = SurvivalWorld.create(self.path, new_survival_state(
             name="Wren", seed=SEED, spawn=SPAWN, born_at=2000.0, traits={}))
         self.assertEqual(again.state()["name"], "Wren")
         self.assertEqual(len(again.events()), 1)
+        self.assertIn("Wren", again.events()[0]["text"])
+        self.assertEqual(again.blocks_since(0)["changes"], [])
 
     def test_blocks_reach_thirty_thousand_and_are_numbered(self):
         self.world.put_block(29_999, 10, -29_999, "stone")
@@ -80,7 +83,7 @@ class SurvivalWorldTests(unittest.TestCase):
         self.assertEqual(self.world.material_at(x, ground, z), "air")
 
     def test_hello_lifts_mood_and_is_logged(self):
-        self.set_state(vitals={**self.world.state()["vitals"], "mood": 97.0})
+        self.set_state(vitals={**self.world.state()["vitals"], "mood": 97.0}, last_tick_at=1495.0)
         result = self.world.greet(1500.0)
         self.assertEqual(result["mood"], 100.0)
         state = self.world.state()
@@ -88,7 +91,7 @@ class SurvivalWorldTests(unittest.TestCase):
         self.assertEqual(self.world.events()[0]["kind"], "hello")
 
     def test_owner_can_help_craft_and_place_machines(self):
-        self.set_state(inventory={"oak_log": 2})
+        self.set_state(inventory={"oak_log": 2}, last_tick_at=1495.0)
         self.world.owner_action("craft", "planks", 1500.0)
         self.world.owner_action("craft", "crafting_table", 1501.0)
         result = self.world.owner_action("place_machine", "crafting_table", 1502.0)
@@ -108,6 +111,17 @@ class SurvivalWorldTests(unittest.TestCase):
             self.world.greet(1900.0)
         with self.assertRaises(LifeOver):
             self.world.owner_action("craft", "planks", 1900.0)
+
+    def test_owner_writes_are_refused_while_the_world_is_behind(self):
+        self.set_state(last_tick_at=1000.0)
+        with self.assertRaises(WorldBehind):
+            self.world.greet(1011.0)
+        with self.assertRaises(WorldBehind):
+            self.world.owner_action("craft", "planks", 1011.0)
+        # Within the 10s allowance, both go through.
+        self.world.greet(1005.0)
+        self.set_state(inventory={"oak_log": 1})
+        self.world.owner_action("craft", "planks", 1008.0)
 
     def test_a_missing_world_file_is_reported(self):
         with self.assertRaises(WorldMissing):

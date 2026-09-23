@@ -172,6 +172,37 @@ class SurvivalApiTests(unittest.TestCase):
         after = hashlib.sha256(world_path.read_bytes()).hexdigest()
         self.assertEqual(before, after)
 
+    def test_the_egg_screen_still_loads_when_the_last_lifes_world_cannot_be_read(self):
+        born = hatch_egg()["life"]["born_at"]
+        tick_life(LifeRegistry(), born + 20_000, scale=1)
+        registry = LifeRegistry()
+        registry.world_path(registry.get(2)).unlink()
+        result = get_mimo()
+        self.assertEqual(result["phase"], "egg")
+        self.assertEqual(result["last_life"]["id"], 2)
+        self.assertNotIn("notable_events", result["last_life"])
+
+    def test_get_mimo_asks_the_registry_for_the_active_life_only_once(self):
+        hatch_egg()
+        registry = LifeRegistry()
+        with patch("backend.api.mimo.open_registry", return_value=registry), \
+             patch.object(LifeRegistry, "active_life", wraps=registry.active_life) as spy:
+            get_mimo()
+        self.assertEqual(spy.call_count, 1)
+
+    def test_a_missing_worlds_503_detail_has_no_filesystem_path(self):
+        hatch_egg()
+        registry = LifeRegistry()
+        registry.world_path(registry.active_life()).unlink()
+        with self.assertRaises(HTTPException) as caught:
+            get_mimo()
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertNotIn("/", caught.exception.detail)
+        with self.assertRaises(HTTPException) as caught:
+            get_life(2)
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertNotIn("/", caught.exception.detail)
+
 
 if __name__ == "__main__":
     unittest.main()

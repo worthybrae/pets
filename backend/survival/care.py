@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from backend.survival.world import LifeOver, SurvivalWorld, log_event, read_state, write_state
+from backend.survival.world import LifeOver, SurvivalWorld, check_not_behind, log_event, read_state, write_state
 
 CARE_EFFECTS = {"snack": ("hunger", 30.0), "bandage": ("health", 25.0)}
 DAILY_ALLOWANCE = {"snack": 1, "bandage": 1}
@@ -32,6 +32,7 @@ def give_care(world: SurvivalWorld, kind: str, timestamp: float) -> dict:
         state = read_state(db)
         if state["died_at"] is not None:
             raise LifeOver(f"{state['name']} has died and cannot receive care")
+        check_not_behind(state, timestamp)
         if care_remaining(state, timestamp)[kind] <= 0:
             raise CareRefused(f"No {kind} left today. The owner gets a new one each UTC day.")
         today = utc_day(timestamp)

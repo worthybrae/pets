@@ -39,6 +39,20 @@ class LifeOver(RuntimeError):
     """The pet in this world has died, so it cannot be greeted, helped or cared for."""
 
 
+class WorldBehind(RuntimeError):
+    """The world hasn't been ticked recently enough to safely accept an owner write."""
+
+
+STALE_AFTER_SECONDS = 10.0
+
+
+def check_not_behind(state: dict, timestamp: float) -> None:
+    """Refuse an owner write when the world is more than `STALE_AFTER_SECONDS` behind
+    `timestamp` — the tick worker isn't keeping up, so its vitals can't be trusted yet."""
+    if timestamp - state["last_tick_at"] > STALE_AFTER_SECONDS:
+        raise WorldBehind(f"{state['name']}'s world is catching up; try again in a moment")
+
+
 # Paths whose schema is already known to exist, so a writable open does not re-run
 # `create_world_tables` (and its `BEGIN IMMEDIATE`) on every request. One process only
 # ever needs to do this once per path: either `SurvivalWorld.create()` just wrote it, or
@@ -123,15 +137,17 @@ class SurvivalWorld:
 
     @classmethod
     def create(cls, path: str | Path, state: dict) -> "SurvivalWorld":
-        """Write a new world file. A leftover file from a failed hatch is replaced, not reused."""
+        """Write a new world file. A leftover file from a failed hatch is replaced, not reused,
+        so a new life can never inherit an old world's blocks and events."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        for suffix in ("", "-wal", "-shm"):
+            Path(f"{path}{suffix}").unlink(missing_ok=True)
         with open_db(path) as db:
             db.execute("BEGIN IMMEDIATE")
             create_world_tables(db)
             db.execute("INSERT OR REPLACE INTO survival_state(id, data) VALUES (1, ?)", (json.dumps(state),))
-            if db.execute("SELECT 1 FROM mimo_events LIMIT 1").fetchone() is None:
-                log_event(db, state["born_at"], "birth", f"{state['name']} hatched into a brand-new world.")
+            log_event(db, state["born_at"], "birth", f"{state['name']} hatched into a brand-new world.")
         with _schema_lock:
             _schema_ready.add(path.resolve())
         return cls(path)
@@ -181,6 +197,7 @@ class SurvivalWorld:
             state = read_state(db)
             if state["died_at"] is not None:
                 raise LifeOver(f"{state['name']} has died")
+            check_not_behind(state, timestamp)
             state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + 5)
             state["last_hello_at"] = timestamp
             write_state(db, state)
@@ -193,6 +210,7 @@ class SurvivalWorld:
             state = read_state(db)
             if state["died_at"] is not None:
                 raise LifeOver(f"{state['name']} has died")
+            check_not_behind(state, timestamp)
             position = state["position"]
             stations = {material for x, _, z, material in placed_near(db, position, STATION_REACH, MACHINES)
                         if math.hypot(x - position["x"], z - position["z"]) <= STATION_REACH}

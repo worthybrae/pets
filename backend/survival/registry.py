@@ -37,7 +37,9 @@ _schema_lock = threading.Lock()
 
 
 def data_dir() -> Path:
-    return Path(os.environ.get("MIMO_DATA_DIR") or "/data")
+    """The survival data directory, always absolute so the API and worker processes agree
+    on it regardless of their own working directory."""
+    return Path(os.environ.get("MIMO_DATA_DIR") or "/data").resolve()
 
 
 def legacy_db_path() -> Path:
@@ -45,14 +47,16 @@ def legacy_db_path() -> Path:
 
 
 def read_legacy_life(path: Path) -> dict | None:
-    """Name, seed, position, birth and traits of the legacy world, read without writing to it."""
+    """Name, seed, position, birth and traits of the legacy world, read without writing to it.
+
+    None only when the legacy file itself does not exist. Any other `sqlite3.Error` (a
+    transient lock, a corrupt file) propagates instead of being swallowed, so a passing
+    failure can never be mistaken for "no legacy world" and let a survival life take id 1.
+    """
     if not path.exists():
         return None
-    try:
-        with open_db(path, read_only=True) as db:
-            row = db.execute("SELECT data FROM mimo_state WHERE id=1").fetchone()
-    except sqlite3.Error:
-        return None
+    with open_db(path, read_only=True) as db:
+        row = db.execute("SELECT data FROM mimo_state WHERE id=1").fetchone()
     if row is None:
         return None
     state = json.loads(row["data"])

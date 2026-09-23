@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
-from backend.workers.mimo_worker import run_once, tick_seconds
+from backend.survival.world import WorldMissing
+from backend.workers.mimo_worker import run_once, should_log_data_error, tick_seconds
 
 
 class SurvivalWorkerTests(unittest.TestCase):
@@ -43,6 +44,20 @@ class SurvivalWorkerTests(unittest.TestCase):
         with patch.dict(os.environ, {}):
             os.environ.pop("MIMO_TICK_SECONDS", None)
             self.assertEqual(tick_seconds(), 1.0)
+
+    def test_tick_seconds_rejects_non_finite_values(self):
+        for bad in ("inf", "-inf", "nan", "Infinity"):
+            with patch.dict(os.environ, {"MIMO_TICK_SECONDS": bad}):
+                self.assertEqual(tick_seconds(), 1.0)
+
+    def test_a_data_error_is_logged_once_per_distinct_message(self):
+        first = WorldMissing("world 2 is missing")
+        log_it, last = should_log_data_error(first, None)
+        self.assertTrue(log_it)
+        log_it, last = should_log_data_error(WorldMissing("world 2 is missing"), last)
+        self.assertFalse(log_it)
+        log_it, last = should_log_data_error(WorldMissing("world 3 is missing"), last)
+        self.assertTrue(log_it)
 
 
 if __name__ == "__main__":

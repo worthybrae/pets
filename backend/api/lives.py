@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 
@@ -15,17 +16,22 @@ from backend.survival.world import SurvivalWorld, WorldMissing
 
 router = APIRouter()
 UNAVAILABLE = (WorldMissing, OSError, sqlite3.Error)
+logger = logging.getLogger("survival_api")
 
 
 def open_registry() -> LifeRegistry:
     try:
         return LifeRegistry()
     except (OSError, sqlite3.Error) as error:
-        raise HTTPException(status_code=503, detail=f"The life registry is unavailable: {error}") from error
+        logger.error("The life registry is unavailable: %s", error)
+        raise HTTPException(status_code=503, detail="The life registry is unavailable right now. Try again in a moment.") from error
 
 
 def world_unavailable(life: dict, error: Exception) -> HTTPException:
-    return HTTPException(status_code=503, detail=f"{life['name']}'s world is unavailable: {error}")
+    """A 503 that never leaks a filesystem path: log the real error server-side and
+    return a generic message with the life id instead."""
+    logger.error("Life %s (%s)'s world is unavailable: %s", life["id"], life["name"], error)
+    return HTTPException(status_code=503, detail=f"Life {life['id']}'s world is unavailable right now. Try again in a moment.")
 
 
 def find_life(registry: LifeRegistry, life_id: int) -> dict:
