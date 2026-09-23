@@ -2,7 +2,7 @@ import math
 import unittest
 
 from backend.survival.grid import Grid
-from backend.survival.steps import FOOD, StepFailed, as_cell, finish_step, mine_seconds, start_step
+from backend.survival.steps import FOOD, StepFailed, as_cell, failure_code, finish_step, mine_seconds, start_step
 from backend.survival.vitals import START_VITALS
 
 
@@ -117,6 +117,42 @@ class StepTests(unittest.TestCase):
         self.assertEqual(start_step({"kind": "wait", "seconds": 5}, state, grid, 1.0)["ends_at"], 6.0)
         with self.assertRaisesRegex(StepFailed, "unknown step"):
             start_step({"kind": "dance"}, state, grid, 0.0)
+
+    def test_failures_carry_a_code(self):
+        grid = small_world({(1, 1, 0): "bedrock", (2, 1, 0): "stone"})
+        cases = [({"kind": "mine", "target": [9, 1, 0]}, pet(), "out_of_reach"),
+                 ({"kind": "mine", "target": [1, 1, 0]}, pet(), "blocked"),
+                 ({"kind": "mine", "target": [2, 1, 0]}, pet(), "missing_item"),
+                 ({"kind": "place", "target": [0, 2, 0], "block": "dirt"}, pet(), "missing_item"),
+                 ({"kind": "place", "target": [1, 1, 0], "block": "dirt"}, pet(inventory={"dirt": 1}), "blocked"),
+                 ({"kind": "place", "target": [0, 1, 0], "block": "dirt"}, pet(inventory={"dirt": 1}), "blocked"),
+                 ({"kind": "eat", "item": "berries"}, pet(), "missing_item"),
+                 ({"kind": "dance"}, pet(), "bad_step"),
+                 ({"kind": "mine", "target": None}, pet(), "bad_step")]
+        for spec, state, code in cases:
+            with self.assertRaises(StepFailed, msg=spec) as caught:
+                start_step(spec, state, grid, 0.0)
+            self.assertEqual(caught.exception.code, code, msg=spec)
+        walls = {(dx, dy, dz): "stone" for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)) for dy in (1, 2)}
+        with self.assertRaises(StepFailed) as caught:
+            start_step({"kind": "walk", "target": [3, 1, 0]}, pet(), small_world(walls), 0.0)
+        self.assertEqual(caught.exception.code, "no_path")
+
+    def test_a_block_that_changed_before_the_mine_ended_is_gone(self):
+        grid, state = small_world({(1, 1, 0): "dirt"}), pet()
+        step = start_step({"kind": "mine", "target": [1, 1, 0]}, state, grid, 0.0)
+        grid.put(1, 1, 0, "air")
+        with self.assertRaises(StepFailed) as caught:
+            finish_step(step, state, grid, 1.0)
+        self.assertEqual(caught.exception.code, "gone")
+
+    def test_crafting_errors_map_to_missing_item_or_bad_step(self):
+        self.assertEqual(failure_code(ValueError("Missing materials: planks")), "missing_item")
+        self.assertEqual(failure_code(ValueError("A placed crafting_table is required")), "missing_item")
+        self.assertEqual(failure_code(ValueError("Unknown recipe")), "bad_step")
+        self.assertEqual(failure_code(KeyError("recipe")), "bad_step")
+        self.assertEqual(failure_code(StepFailed("the dirt is gone", "gone")), "gone")
+
 
 
 class CellTests(unittest.TestCase):

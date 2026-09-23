@@ -5,9 +5,11 @@ finishes in order, so several short steps can finish in one tick, and each next 
 moment the one before it ended. When the queue is empty the planner is asked for more steps.
 Before a new step starts, two hazards come first: Mimo falls when nothing holds it up
 ((blocks - 3) x 10 damage, none when it lands on water), and it swims straight up when its cell
-is water (a fallback until the brain's surface reflex in M3). Either hazard drops the running
-step or the queue it interrupts (recorded once, "interrupted: fall" or "interrupted: swim") so a
-purpose layer can later tell its plan was abandoned.
+is water (the physical half of the brain's surface reflex). Either hazard drops the running
+step or the queue it interrupts (recorded once with result "interrupted" and reason "fall" or
+"swim") so the brain can tell its plan was abandoned, not failed. A step that fails is recorded
+with a failure code (steps.FAILURE_CODES) and kept as `state["last_failure"]` with its cell and
+the purpose that planned it; queued steps carry that purpose as `purpose`.
 
 A crashing planner, or one returning something other than a list of dicts, is logged once per
 distinct error and replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
@@ -40,7 +42,7 @@ from backend.survival.clock import is_night
 from backend.survival.grid import Cell, Grid
 from backend.survival.once import log_once
 from backend.survival.pathing import SWIM_SECONDS
-from backend.survival.steps import as_cell, as_point, finish_step, position_of, start_step
+from backend.survival.steps import as_cell, as_point, failure_code, finish_step, position_of, start_step
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ STATUS = {"walk": "walking", "swim": "swimming", "fall": "falling", "mine": "min
           "eat": "eating", "craft": "crafting", "smelt": "smelting", "sleep": "sleeping", "wait": "idle"}
 # Waits tell the viewer nothing and would push real steps out of the recent list.
 UNRECORDED = frozenset({"wait"})
-RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe")
+RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose")
 
 Event = tuple[float, str, str]
 # A planner gets the state, the tick's ActionContext and the time, and returns the next steps.
@@ -100,6 +102,7 @@ def ensure_actions(state: dict) -> None:
     state.setdefault("queue", [])
     state.setdefault("recent_actions", [])
     state.setdefault("actions_at", state["last_tick_at"])
+    state.setdefault("last_failure", None)
 
 
 def activity_of(state: dict) -> str:
@@ -112,21 +115,30 @@ def activity_of(state: dict) -> str:
     return "working" if action["kind"] in WORKING else "idle"
 
 
-def record(state: dict, step: dict, ended_at: float, result: str, reason: str | None = None) -> None:
+def record(state: dict, step: dict, ended_at: float, result: str, reason: str | None = None,
+           code: str | None = None) -> None:
     if step["kind"] in UNRECORDED:
         return
     entry = {key: step[key] for key in RECORDED_FIELDS if key in step}
     entry.update(ended_at=ended_at, result=result)
     if reason:
         entry["reason"] = reason
+    if code:
+        entry["code"] = code
     state["recent_actions"] = [*state["recent_actions"], entry][-RECENT_LIMIT:]
 
 
-def fail(state: dict, step: dict, at: float, reason: str) -> None:
-    """Record a failed step and drop the rest of the plan, so the planner plans again."""
-    record(state, step, at, "failed", reason)
+def fail(state: dict, step: dict, at: float, reason: str, code: str = "bad_step") -> None:
+    """Record a failed step, keep it as the last failure and drop the rest of the plan, so the
+    planner plans again. `seq` counts failures, so two alike failures at the same moment differ."""
+    record(state, step, at, "failed", reason, code)
+    seq = (state.get("last_failure") or {}).get("seq", 0) + 1
+    state["last_failure"] = {"code": code, "reason": reason, "kind": step["kind"], "cell": step.get("target"),
+                             "purpose": step.get("purpose"), "at": at, "seq": seq}
     state["action"] = None
     state["queue"] = []
+
+
 
 
 def as_started(spec: dict, at: float) -> dict:
@@ -137,7 +149,7 @@ def as_started(spec: dict, at: float) -> dict:
     is exactly the field most likely to be the malformed one; a value as_point cannot make sense
     of is kept as-is rather than raising a second time from inside a failure handler.
     """
-    step = {key: spec[key] for key in ("block", "item", "recipe") if key in spec}
+    step = {key: spec[key] for key in ("block", "item", "recipe", "purpose") if key in spec}
     step.update(kind=spec.get("kind", "unknown"), started_at=at)
     if "target" in spec:
         try:
@@ -162,7 +174,7 @@ def interrupt_plan(state: dict, at: float, hazard: str) -> None:
     if dropped is None:
         return
     step = dropped if dropped is state["action"] else as_started(dropped, at)
-    record(state, step, at, "failed", f"interrupted: {hazard}")
+    record(state, step, at, "interrupted", hazard)
 
 
 def start_hazard(state: dict, grid: Grid, at: float) -> bool:
@@ -256,11 +268,11 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
     try:
         event = finish_step(step, state, grid, at)
     except (ValueError, KeyError) as error:
-        fail(state, step, at, str(error))
+        fail(state, step, at, str(error), failure_code(error))
         return False
     except Exception as error:
         log_once(logger, "finish_step", error)
-        fail(state, step, at, "bad step")
+        fail(state, step, at, "bad step", "bad_step")
         return False
     record(state, step, at, "done")
     if event:
@@ -316,16 +328,18 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
             try:
                 state["action"] = start_step(spec, state, grid, at)
             except (ValueError, KeyError) as error:
-                fail(state, as_started(spec, at), at, str(error))
+                fail(state, as_started(spec, at), at, str(error), failure_code(error))
                 break  # plan again at the next advance, not in a tight loop
             except Exception as error:
                 log_once(logger, "start_step", error)
-                fail(state, as_started(spec, at), at, "bad step")
+                fail(state, as_started(spec, at), at, "bad step", "bad_step")
                 break
+            if "purpose" in spec:
+                state["action"]["purpose"] = spec["purpose"]
             begin(state, spec, at, context.events)
             continue
         if step["kind"] in ("walk", "swim") and not follow_path(state, step, grid, until):
-            fail(state, step, until, "path blocked")
+            fail(state, step, until, "path blocked", "blocked")
             at = until
             continue
         end = step_end(step, state, context, until)

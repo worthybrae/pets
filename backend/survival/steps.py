@@ -34,8 +34,27 @@ FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "carrot": 10.0, "bread": 25.0, "r
 MAX_SEGMENTS = 12
 
 
+FAILURE_CODES = ("no_path", "out_of_reach", "gone", "missing_item", "blocked", "bad_step")
+
+
 class StepFailed(ValueError):
-    """A step cannot start or finish. The message says why."""
+    """A step cannot start or finish. The message says why; `code` (one of FAILURE_CODES) sorts
+    it for the brain: no way there, out of reach, the block is gone, something is missing, the
+    cell is blocked, or the step itself is malformed."""
+
+    def __init__(self, message: str, code: str = "bad_step"):
+        super().__init__(message)
+        self.code = code
+
+
+def failure_code(error: Exception) -> str:
+    """The failure code of anything start_step or finish_step raised. Crafting and smelting raise
+    plain ValueErrors: missing materials or a missing station mean something is missing."""
+    if isinstance(error, StepFailed):
+        return error.code
+    if str(error).startswith(("Missing materials", "A placed")):
+        return "missing_item"
+    return "bad_step"
 
 
 def _whole(value) -> int:
@@ -150,37 +169,37 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
         reach = float(spec.get("reach", 0.0))
         segments = int(spec.get("segments", 0))
         if segments > MAX_SEGMENTS:
-            raise StepFailed("no way there")
+            raise StepFailed("no way there", "no_path")
         cells, reached = route(grid, here, target, reach)
         if not cells and not reached:
-            raise StepFailed("no way there")
+            raise StepFailed("no way there", "no_path")
         path = timed_path(grid, here, cells, at)
         return {"kind": "walk", "started_at": at, "ends_at": path[-1]["at"], "path": path,
                 "target": as_point(target), "reach": reach, "reached": reached, "segments": segments}
     if kind == "mine":
         target = as_cell(spec["target"])
         if not in_reach(here, target):
-            raise StepFailed("out of reach")
+            raise StepFailed("out of reach", "out_of_reach")
         material = grid.material(*target)
         seconds = mine_seconds(material, inventory)
         if seconds is None:
-            raise StepFailed(f"{label(material)} cannot be mined")
+            raise StepFailed(f"{label(material)} cannot be mined", "blocked")
         if not can_harvest(material, inventory):
-            raise StepFailed(f"a stronger pickaxe is needed for {label(material)}")
+            raise StepFailed(f"a stronger pickaxe is needed for {label(material)}", "missing_item")
         return {"kind": "mine", "started_at": at, "ends_at": round(at + seconds, 3),
                 "target": as_point(target), "block": material}
     if kind == "place":
         target, block = as_cell(spec["target"]), spec["block"]
         if inventory.get(block, 0) < 1:
-            raise StepFailed(f"no {label(block)} to place")
+            raise StepFailed(f"no {label(block)} to place", "missing_item")
         if block not in BLOCKS:
             raise StepFailed(f"{label(block)} is not a block")
         if not in_reach(here, target):
-            raise StepFailed("out of reach")
+            raise StepFailed("out of reach", "out_of_reach")
         if target == here:
-            raise StepFailed("that is where it stands")
+            raise StepFailed("that is where it stands", "blocked")
         if not is_replaceable(grid.material(*target)):
-            raise StepFailed("that cell is taken")
+            raise StepFailed("that cell is taken", "blocked")
         return {"kind": "place", "started_at": at, "ends_at": round(at + PLACE_SECONDS, 3),
                 "target": as_point(target), "block": block}
     if kind == "eat":
@@ -188,7 +207,7 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float) -> dict:
         if item not in FOOD:
             raise StepFailed(f"{label(item)} is not food")
         if inventory.get(item, 0) < 1:
-            raise StepFailed(f"no {label(item)} to eat")
+            raise StepFailed(f"no {label(item)} to eat", "missing_item")
         return {"kind": "eat", "started_at": at, "ends_at": round(at + EAT_SECONDS, 3), "item": item}
     if kind == "craft":
         craft(inventory, spec["recipe"], stations_near(grid, here))
@@ -216,7 +235,7 @@ def finish_step(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, st
     if kind == "mine":
         target = as_cell(step["target"])
         if grid.material(*target) != step["block"]:
-            raise StepFailed(f"the {label(step['block'])} is gone")
+            raise StepFailed(f"the {label(step['block'])} is gone", "gone")
         grid.put(*target, "air")
         drop = BLOCKS.get(step["block"], {}).get("drop")
         if drop:
@@ -225,7 +244,7 @@ def finish_step(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, st
     if kind == "place":
         target = as_cell(step["target"])
         if not is_replaceable(grid.material(*target)):
-            raise StepFailed("that cell is taken")
+            raise StepFailed("that cell is taken", "blocked")
         state["inventory"] = take_items(state["inventory"], {step["block"]: 1})
         grid.put(*target, step["block"])
         return None

@@ -106,9 +106,10 @@ class ActionEngineTests(unittest.TestCase):
         ctx = context(grid)
         advance_actions(state, ctx, 1.0)
         kinds = [(entry["kind"], entry["result"], entry.get("reason")) for entry in state["recent_actions"]]
-        self.assertEqual(kinds, [("mine", "failed", "interrupted: fall"), ("fall", "done", None)])
+        self.assertEqual(kinds, [("mine", "interrupted", "fall"), ("fall", "done", None)])
         self.assertEqual(state["recent_actions"][0]["target"], {"x": 5, "y": 1, "z": 0})
         self.assertEqual(state["queue"], [])
+        self.assertIsNone(state["last_failure"])
 
     def test_a_hazard_does_not_record_an_interrupted_wait(self):
         grid, state = small_world(), pet(position=(0, 9, 0))
@@ -181,13 +182,14 @@ class ActionEngineTests(unittest.TestCase):
         advance_actions(state, ctx, 2.0)
         self.assertEqual(state["position"]["x"], 2.0)
         self.assertEqual(state["recent_actions"][-1]["reason"], "path blocked")
+        self.assertEqual(state["last_failure"]["code"], "blocked")
         self.assertIsNone(state["action"])
 
     def test_states_saved_before_actions_get_the_new_fields(self):
         state = {"last_tick_at": 42.0}
         ensure_actions(state)
         self.assertEqual(state, {"last_tick_at": 42.0, "action": None, "queue": [], "recent_actions": [],
-                                 "actions_at": 42.0})
+                                 "actions_at": 42.0, "last_failure": None})
 
     def test_only_the_last_twenty_steps_are_kept_and_waits_are_left_out(self):
         state = pet(inventory={"berries": 25})
@@ -212,6 +214,7 @@ class ActionEngineTests(unittest.TestCase):
             failed = state["recent_actions"][-1]
             self.assertEqual(failed["result"], "failed", msg=spec)
             self.assertIn("bad step", failed["reason"], msg=spec)
+            self.assertEqual(failed["code"], "bad_step", msg=spec)
             self.assertEqual(state["actions_at"], 1.0, msg=spec)
             self.assertEqual((state["action"], state["queue"]), (None, []), msg=spec)
 
@@ -317,6 +320,27 @@ class ActionEngineTests(unittest.TestCase):
         ctx = context(small_world())
         self.assertEqual([take_search(ctx), take_search(ctx), take_search(ctx)], [True, True, False])
         self.assertEqual(ctx.searches_left, 0)
+
+    def test_a_failure_is_kept_with_its_code_cell_and_purpose(self):
+        state = pet()
+        state["queue"] = [{"kind": "mine", "target": [9, 1, 0], "purpose": "gather_stone"}]
+        advance_actions(state, context(small_world({(9, 1, 0): "dirt"})), 1.0)
+        entry = state["recent_actions"][-1]
+        self.assertEqual((entry["code"], entry["purpose"]), ("out_of_reach", "gather_stone"))
+        self.assertEqual(state["last_failure"], {"code": "out_of_reach", "reason": "out of reach", "kind": "mine",
+                                                 "cell": {"x": 9, "y": 1, "z": 0}, "purpose": "gather_stone",
+                                                 "at": 0.0, "seq": 1})
+
+    def test_a_running_step_keeps_the_purpose_that_planned_it(self):
+        grid, state = small_world({(1, 1, 0): "dirt"}), pet()
+        state["queue"] = [{"kind": "mine", "target": [1, 1, 0], "purpose": "gather_stone"}]
+        ctx = context(grid)
+        advance_actions(state, ctx, 0.1)
+        self.assertEqual(state["action"]["purpose"], "gather_stone")
+        advance_actions(state, ctx, 1.0)
+        self.assertEqual((state["recent_actions"][-1]["result"], state["recent_actions"][-1]["purpose"]),
+                         ("done", "gather_stone"))
+
 
 
 class OnceLogTests(unittest.TestCase):
