@@ -9,7 +9,9 @@ with a clean StepFailed instead of a TypeError from as_cell or a dict lookup fur
 
 Every kind of step is a StepKind in the STEP_KINDS registry: how it starts and finishes, the
 pet's status while it runs, whether it counts as work and whether a reflex may cut it short. The
-engine (backend.survival.actions) asks the registry, so a new kind only has to register.
+engine (backend.survival.actions) asks the registry, so a new kind only has to register. M4's
+field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fieldwork. Mining
+leaves or tall grass may drop more (nature.CHANCE_DROPS): saplings, apples, seeds.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from typing import Callable
 
 from backend.services.blocks import hardness, is_replaceable, mining_tool
 from backend.services.crafting import BLOCKS, add_item, can_harvest, craft, smelt, take_items
+from backend.survival import nature
 from backend.survival.grid import Cell, Grid
 from backend.survival.pathing import route, timed_path
 
@@ -123,6 +126,11 @@ def mine_seconds(material: str, inventory: dict[str, int]) -> float | None:
     """Hardness divided by tool speed, or None for blocks that cannot be mined."""
     seconds = hardness(material)
     return None if seconds is None else seconds / tool_speed(material, inventory)
+
+
+def seed_of(state: dict) -> str:
+    """The world seed chance is rolled from (tests without one roll from "0")."""
+    return state.get("world_seed", "0")
 
 
 def in_reach(here: Cell, target: Cell) -> bool:
@@ -259,6 +267,8 @@ def finish_mine(step: dict, state: dict, grid: Grid, at: float) -> None:
     drop = BLOCKS.get(step["block"], {}).get("drop")
     if drop:
         add_item(state["inventory"], drop)
+    for item in nature.chance_drops(seed_of(state), target, step["block"]):
+        add_item(state["inventory"], item)
     return None
 
 
@@ -353,3 +363,7 @@ register_step(StepKind("craft", start_craft, finish_craft, "crafting", string_fi
 register_step(StepKind("smelt", start_smelt, finish_smelt, "smelting", string_field="item"))
 register_step(StepKind("sleep", start_sleep, nothing_happens, "sleeping", interruptible=True))
 register_step(StepKind("wait", start_wait, nothing_happens, "idle", interruptible=True))
+
+# M4's field work (pick, harvest, till, plant, fish, cook) registers itself. It is imported last
+# because it builds on everything above.
+from backend.survival import fieldwork  # noqa: E402,F401
