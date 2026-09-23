@@ -16,7 +16,9 @@ from backend.api.mimo import (
 )
 from backend.services.live_mimo import MimoStore
 from backend.survival.registry import LifeRegistry
+from backend.survival.snapshot import notable
 from backend.survival.tick import tick_life
+from backend.survival.triggers import new_brain
 from backend.survival.world import SurvivalWorld, read_state, write_state
 
 
@@ -232,6 +234,25 @@ class SurvivalApiTests(unittest.TestCase):
                                           "target": {"x": 2, "y": 9, "z": 2}})
         self.assertEqual(mimo["recent_actions"], [finished])
         self.assertIn("server_time", mimo)
+
+    def test_the_brain_is_streamed(self):
+        hatch_egg()
+        fresh = get_mimo()
+        self.assertEqual((fresh["purpose"], fresh["reflex"], fresh["picker"], fresh["choosing"]), (None, None, None, True))
+        world = self.active_world()
+        with world.transaction() as db:
+            state = read_state(db)
+            state["brain"] = {**new_brain(state["born_at"]), "purpose": "gather_wood", "picker": "jev",
+                              "reflex": "head_home", "pending": None}
+            write_state(db, state)
+        mimo = get_mimo()
+        self.assertEqual((mimo["purpose"], mimo["reflex"], mimo["picker"], mimo["choosing"]),
+                         ("gather_wood", "head_home", "jev", False))
+
+    def test_memorials_skip_choices_and_reflexes(self):
+        events = [{"kind": kind, "text": kind} for kind in ("purpose", "reflex", "found", "discovered", "trapped")]
+        self.assertEqual([event["kind"] for event in notable(events)], ["found", "discovered", "trapped"])
+
 
 
 if __name__ == "__main__":

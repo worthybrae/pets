@@ -13,7 +13,7 @@ from backend.survival.world import SurvivalWorld
 
 # Everyday events that a memorial or archive card leaves out.
 ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
-                            "explore", "owner", "plan"})
+                            "explore", "owner", "plan", "purpose", "reflex"})
 NOTABLE_LIMIT = 6
 
 # The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
@@ -26,6 +26,16 @@ def action_view(action: dict | None) -> dict | None:
     if action is None:
         return None
     return {key: action[key] for key in ACTION_FIELDS if key in action}
+
+
+def brain_view(brain: dict | None) -> dict:
+    """What Mimo is up to: its purpose, a running reflex, who chose, and whether it is choosing.
+    A world whose brain has not started yet is about to choose."""
+    if brain is None:
+        return {"purpose": None, "reflex": None, "picker": None, "choosing": True}
+    return {"purpose": brain.get("purpose"), "reflex": brain.get("reflex"), "picker": brain.get("picker"),
+            "choosing": brain.get("pending") is not None}
+
 
 
 def life_row(life: dict, scale: float, now: float) -> dict:
@@ -77,6 +87,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # Worlds from before M2 have no action fields until their first tick.
         "action": action_view(state.get("action")),
         "recent_actions": state.get("recent_actions", []),
+        **brain_view(state.get("brain")),
     }
 
 
