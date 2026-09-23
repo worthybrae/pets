@@ -9,10 +9,14 @@ import type { LifeSummary, ServerEgg } from './types'
 const HATCH_ANIMATION_MS = 2200
 
 /** The egg the server rolled, its attributes, and the Hatch button. */
-export default function EggHatch({ egg, lastLife, onHatched, onOpenLives }: {
+export default function EggHatch({ egg, lastLife, onHatchStart, onHatched, onHatchFailed, onOpenLives }: {
   egg: ServerEgg
   lastLife: LifeSummary | null
+  /** Called synchronously as soon as Hatch is pressed, before the API call — lets the owner keep this egg on screen even if a poll lands mid-hatch. */
+  onHatchStart: () => void
   onHatched: () => Promise<void>
+  /** Called when hatching fails, so the caller can stop treating this as the frozen hatch screen. */
+  onHatchFailed: () => void
   onOpenLives: () => void
 }) {
   const [phase, setPhase] = useState<Phase>('idle')
@@ -24,12 +28,14 @@ export default function EggHatch({ egg, lastLife, onHatched, onOpenLives }: {
   const hatch = async () => {
     setError('')
     setPhase('hatching')
+    onHatchStart()
     try {
       await Promise.all([hatchEgg(), new Promise((resolve) => window.setTimeout(resolve, HATCH_ANIMATION_MS))])
       await onHatched()
     } catch (failure) {
       setPhase('idle')
       setError(failure instanceof Error ? failure.message : 'The egg did not hatch. Try again.')
+      onHatchFailed()
     }
   }
 

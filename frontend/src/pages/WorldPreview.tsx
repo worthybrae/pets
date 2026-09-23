@@ -4,13 +4,15 @@ import ArchiveBrowser from '../survival/ArchiveBrowser'
 import ArchiveWorld from '../survival/ArchiveWorld'
 import EggHatch from '../survival/EggHatch'
 import Memorial from '../survival/Memorial'
+import { pickScreen } from '../survival/screens'
+import type { Received } from '../survival/screens'
 import SurvivalWorld from '../survival/SurvivalWorld'
-import type { MimoResponse } from '../survival/types'
+import type { LifeSummary, ServerEgg } from '../survival/types'
 
-interface Received {
-  data: MimoResponse
-  /** Local time in seconds when the response arrived. */
-  receivedAt: number
+/** The egg and last-life props EggHatch was showing at the moment the owner pressed Hatch. */
+interface HatchSnapshot {
+  egg: ServerEgg
+  lastLife: LifeSummary | null
 }
 
 /** /preview: the egg, the living pet, the memorial after a death, and the archive of every life. */
@@ -21,6 +23,9 @@ export default function WorldPreview() {
   const [memorialSeen, setMemorialSeen] = useState<number | null>(null)
   const [showLives, setShowLives] = useState(false)
   const [openLife, setOpenLife] = useState<number | null>(null)
+  // Set the instant Hatch is pressed and cleared once the hatch finishes or fails. While set, the
+  // egg stays on screen no matter what a poll landing mid-animation reports.
+  const [hatchSnapshot, setHatchSnapshot] = useState<HatchSnapshot | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -52,16 +57,36 @@ export default function WorldPreview() {
 
   const { data, receivedAt } = received
   const openLives = () => setShowLives(true)
-  const last = data.phase === 'egg' ? data.last_life : null
+  const hatching = hatchSnapshot !== null
+  const screenName = pickScreen({ received, hatching, openLife, memorialDismissed: memorialSeen })
+
+  // The hatch API call already finished by the time this runs (it's awaited inside EggHatch
+  // before onHatched fires), so refresh now to pick up the freshly alive state before switching.
+  const handleHatched = async () => {
+    await refresh()
+    setArrival(true)
+    setHatchSnapshot(null)
+  }
+  const handleHatchFailed = () => {
+    setHatchSnapshot(null)
+    void refresh()
+  }
+
   let screen
-  if (data.phase === 'alive') {
+  if (screenName === 'alive' && data.phase === 'alive') {
     screen = <SurvivalWorld key={data.life.id} state={data} receivedAt={receivedAt} arrival={arrival}
       connectionError={error} onChanged={refresh} onOpenLives={openLives} />
-  } else if (last && last.kind === 'survival' && memorialSeen !== last.id) {
+  } else if (screenName === 'memorial' && data.phase === 'egg' && data.last_life) {
+    const last = data.last_life
     screen = <Memorial life={last} onViewWorld={() => setOpenLife(last.id)} onNextEgg={() => setMemorialSeen(last.id)} />
   } else {
-    screen = <EggHatch egg={data.egg} lastLife={last} onOpenLives={openLives}
-      onHatched={async () => { setArrival(true); await refresh() }} />
+    // screenName === 'egg': the frozen snapshot while hatching, otherwise the freshly polled egg.
+    const shown = hatchSnapshot ?? (data.phase === 'egg' ? { egg: data.egg, lastLife: data.last_life } : null)
+    screen = shown && (
+      <EggHatch egg={shown.egg} lastLife={shown.lastLife} onOpenLives={openLives}
+        onHatchStart={() => { if (!hatchSnapshot) setHatchSnapshot(shown) }}
+        onHatched={handleHatched} onHatchFailed={handleHatchFailed} />
+    )
   }
   return (
     <>
