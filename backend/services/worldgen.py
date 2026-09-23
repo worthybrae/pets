@@ -21,6 +21,12 @@ STEPPING_STONES = {(-3, 2), (-2, 1), (3, 2), (4, 1)}
 HOME_FLOWERS = ((-8, 0, "flower_orange"), (-7, 1, "flower_pink"), (-2, -5, "flower_yellow"),
                 (1, -6, "flower_pink"), (8, 1, "flower_orange"), (7, 5, "flower_yellow"),
                 (-1, 7, "flower_pink"), (3, 7, "flower_orange"))
+# Wild food on generated land: one berry bush per BUSH_RARITY meadow or forest-edge columns, one
+# mushroom per MUSHROOM_RARITY forest columns and per CAVE_MUSHROOM_RARITY cave floor cells.
+FOREST_EDGE = 0.16  # forest moisture below this is the forest's edge
+BUSH_RARITY = 97
+MUSHROOM_RARITY = 67
+CAVE_MUSHROOM_RARITY = 29
 
 
 @lru_cache(maxsize=64)
@@ -288,8 +294,34 @@ def tree_block(x: int, y: int, z: int, seed: str) -> str | None:
     return None
 
 
+def wild_food(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
+    """A ripe berry bush (meadows and forest edges) or a mushroom (forest floor) on generated land.
+    The legacy clearing keeps exactly the plants it always had."""
+    if math.hypot(x, z) <= LEGACY_RADIUS:
+        return None
+    biome = biome_at(x, z, seed)
+    if biome == "meadow" or (biome == "forest" and noise2(x, z, 160, seed, 5) < FOREST_EDGE):
+        if hash32(x, 0, z, seed, 15) % BUSH_RARITY == 0:
+            return "berry_bush_ripe"
+    if biome == "forest":
+        roll = hash32(x, 0, z, seed, 16)
+        if roll % MUSHROOM_RARITY == 0:
+            return "red_mushroom" if roll // MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"
+    return None
+
+
+def cave_plant(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
+    """A mushroom on a cave floor: an open cave cell with solid rock (or bedrock) under it."""
+    roll = hash32(x, y, z, seed, 17)
+    if roll % CAVE_MUSHROOM_RARITY != 0:
+        return None
+    if not cave_at(x, y, z, seed) or cave_at(x, y - 1, z, seed):
+        return None
+    return "red_mushroom" if roll // CAVE_MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"
+
+
 def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
-    """Flower or tall grass growing on top of the terrain at (x, z)."""
+    """Flower, wild food or tall grass growing on top of the terrain at (x, z)."""
     if math.hypot(x, z) <= HOME_RADIUS:
         return None
     if _decoration_column(x, z, seed):
@@ -301,19 +333,26 @@ def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
         return None
     if surface_material(x, z, seed) not in ("grass", "moss"):
         return None
+    food = wild_food(x, z, seed)
+    if food:
+        return food
     return "tall_grass" if hash32(x, 0, z, seed, 14) % 19 == 0 else None
 
 
 def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
-    """Blocks that grow or stand on the terrain. Precedence: home, trunk, leaves, plant."""
+    """Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk,
+    leaves, plant."""
     home = HOME_BLOCKS.get((x, y, z))
     if home:
         return home
     tree = tree_block(x, y, z, seed)
     if tree:
         return tree
-    if y == terrain_height(x, z, seed) + 1:
+    height = terrain_height(x, z, seed)
+    if y == height + 1:
         return plant_at(x, z, seed)
+    if y < height - 2:
+        return cave_plant(x, y, z, seed)
     return None
 
 

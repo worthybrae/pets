@@ -1,9 +1,11 @@
 import json
+import math
 import unittest
 
+from backend.services.blocks import is_solid
 from backend.services.worldgen import (
-    LEGACY_WORLD_SEED, base_material, biome_at, block_at, cave_at, hash32, legacy_hash, plant_at,
-    surface_material, terrain_height, trees_in_chunk,
+    LEGACY_RADIUS, LEGACY_WORLD_SEED, base_material, biome_at, block_at, cave_at, cave_plant, hash32, legacy_hash,
+    plant_at, surface_material, terrain_height, trees_in_chunk, wild_food,
 )
 from backend.scripts.worldgen_fixture import FIXTURE_PATH, build_fixture
 
@@ -94,6 +96,39 @@ class NaturalBlockTests(unittest.TestCase):
         self.assertIs(base_material, block_at)
 
 
+class WildFoodTests(unittest.TestCase):
+    def test_bushes_grow_in_meadows_and_forest_edges_and_mushrooms_on_the_forest_floor(self):
+        seed = "123456789123456789"
+        found = {}
+        for x in range(300, 900):
+            for z in range(-40, 40):
+                food = wild_food(x, z, seed)
+                if food is None:
+                    continue
+                expected = ("meadow", "forest") if food == "berry_bush_ripe" else ("forest",)
+                self.assertIn(biome_at(x, z, seed), expected, (x, z, food))
+                if plant_at(x, z, seed) == food:
+                    found.setdefault(food, (x, z))
+        self.assertEqual(set(found), {"berry_bush_ripe", "brown_mushroom", "red_mushroom"})
+        for food, (x, z) in found.items():
+            self.assertEqual(block_at(x, terrain_height(x, z, seed) + 1, z, seed), food)
+
+    def test_the_legacy_clearing_grows_no_wild_food(self):
+        for x in range(-LEGACY_RADIUS, LEGACY_RADIUS + 1, 3):
+            for z in range(-LEGACY_RADIUS, LEGACY_RADIUS + 1, 3):
+                if math.hypot(x, z) <= LEGACY_RADIUS:
+                    self.assertIsNone(wild_food(x, z, LEGACY_WORLD_SEED), (x, z))
+
+    def test_mushrooms_grow_on_cave_floors(self):
+        seed = "123456789123456789"
+        found = [(x, y, z) for x in range(250, 700, 3) for z in range(-100, 100, 3)
+                 for y in range(-4, terrain_height(x, z, seed) - 2) if cave_plant(x, y, z, seed)]
+        self.assertGreater(len(found), 5)
+        for x, y, z in found[:5]:
+            self.assertIn(block_at(x, y, z, seed), ("brown_mushroom", "red_mushroom"))
+            self.assertTrue(is_solid(block_at(x, y - 1, z, seed)), (x, y, z))
+
+
 class FixtureTests(unittest.TestCase):
     def test_shared_fixture_matches_python_worldgen(self):
         saved = json.loads(FIXTURE_PATH.read_text())
@@ -103,7 +138,7 @@ class FixtureTests(unittest.TestCase):
     def test_fixture_covers_every_natural_feature(self):
         materials = set(json.loads(FIXTURE_PATH.read_text())["materials"])
         for name in ("oak_log", "leaves", "tall_grass", "plaster", "roof_tile", "dirt_path",
-                     "water", "sand", "stone", "bedrock", "grass"):
+                     "water", "sand", "stone", "bedrock", "grass", "berry_bush_ripe", "brown_mushroom", "red_mushroom"):
             self.assertIn(name, materials)
 
     def test_fixture_covers_generated_trees_at_negative_x(self):

@@ -13,6 +13,11 @@ export const WORLD_HEIGHT = 128
 export const WORLD_MAX_Y = WORLD_MIN_Y + WORLD_HEIGHT - 1
 const HOME_RADIUS = 12
 const MASK = 0xffffffff
+// Wild food on generated land (see backend/services/worldgen.py).
+const FOREST_EDGE = 0.16
+const BUSH_RARITY = 97
+const MUSHROOM_RARITY = 67
+const CAVE_MUSHROOM_RARITY = 29
 const seedCache = new Map<string, [number, number]>()
 const heightCache = new Map<string, number>()
 
@@ -253,7 +258,29 @@ function treeBlock(x: number, y: number, z: number, seed: string): string | null
   return null
 }
 
-/** Flower or tall grass growing on top of the terrain at (x, z). */
+/** A ripe berry bush (meadows and forest edges) or a mushroom (forest floor) on generated land. */
+export function wildFood(x: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
+  if (Math.hypot(x, z) <= LEGACY_RADIUS) return null
+  const biome = biomeAt(x, z, seed)
+  if (biome === 'meadow' || (biome === 'forest' && noise2(x, z, 160, seed, 5) < FOREST_EDGE)) {
+    if (hash32(x, 0, z, seed, 15) % BUSH_RARITY === 0) return 'berry_bush_ripe'
+  }
+  if (biome === 'forest') {
+    const roll = hash32(x, 0, z, seed, 16)
+    if (roll % MUSHROOM_RARITY === 0) return Math.floor(roll / MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
+  }
+  return null
+}
+
+/** A mushroom on a cave floor: an open cave cell with solid rock (or bedrock) under it. */
+export function cavePlant(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
+  const roll = hash32(x, y, z, seed, 17)
+  if (roll % CAVE_MUSHROOM_RARITY !== 0) return null
+  if (!caveAt(x, y, z, seed) || caveAt(x, y - 1, z, seed)) return null
+  return Math.floor(roll / CAVE_MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
+}
+
+/** Flower, wild food or tall grass growing on top of the terrain at (x, z). */
 export function plantAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
   if (Math.hypot(x, z) <= HOME_RADIUS) return null
   if (decorationColumn(x, z, seed)) {
@@ -263,16 +290,18 @@ export function plantAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string
   if (Math.hypot(x, z) > LEGACY_RADIUS && terrainHeight(x, z, seed) < SEA_LEVEL) return null
   const surface = surfaceMaterial(x, z, seed)
   if (surface !== 'grass' && surface !== 'moss') return null
-  return hash32(x, 0, z, seed, 14) % 19 === 0 ? 'tall_grass' : null
+  return wildFood(x, z, seed) ?? (hash32(x, 0, z, seed, 14) % 19 === 0 ? 'tall_grass' : null)
 }
 
-/** Blocks that grow or stand on the terrain. Precedence: home, trunk, leaves, plant. */
+/** Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk, leaves, plant. */
 function decorationAt(x: number, y: number, z: number, seed: string): string | null {
   const home = HOME_BLOCKS.get(`${x},${y},${z}`)
   if (home) return home
   const tree = treeBlock(x, y, z, seed)
   if (tree) return tree
-  if (y === terrainHeight(x, z, seed) + 1) return plantAt(x, z, seed)
+  const height = terrainHeight(x, z, seed)
+  if (y === height + 1) return plantAt(x, z, seed)
+  if (y < height - 2) return cavePlant(x, y, z, seed)
   return null
 }
 
@@ -297,10 +326,13 @@ export function generateColumn(cx: number, cz: number, seed = DEFAULT_WORLD_SEED
   const x0 = cx * CHUNK_SIZE, z0 = cz * CHUNK_SIZE
   for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
     const x = x0 + lx, z = z0 + lz
-    const top = Math.max(terrainHeight(x, z, seed), SEA_LEVEL)
+    const height = terrainHeight(x, z, seed)
+    const top = Math.max(height, SEA_LEVEL)
     for (let y = WORLD_MIN_Y; y <= top; y++) {
+      // A cave floor plant counts as terrain here: nothing else is ever stamped in a cave.
       const name = terrainBlock(x, y, z, seed)
-      if (name !== 'air') data[columnIndex(lx, y, lz)] = blockId(name)
+      const found = name !== 'air' ? name : y < height - 2 ? cavePlant(x, y, z, seed) : null
+      if (found) data[columnIndex(lx, y, lz)] = blockId(found)
     }
   }
   const terrain = data.slice()

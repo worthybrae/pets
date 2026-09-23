@@ -12,7 +12,7 @@ import random
 from pathlib import Path
 
 from backend.services.worldgen import (
-    LEGACY_WORLD_SEED, biome_at, block_at, plant_at, terrain_height, trees_in_chunk,
+    LEGACY_WORLD_SEED, biome_at, block_at, cave_plant, plant_at, terrain_height, trees_in_chunk,
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "shared" / "worldgen-fixture.json"
@@ -24,6 +24,7 @@ WILD_NEG_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(-46, -16)]
 # Survival lives spawn 3,000-6,000 blocks out and may roam to the +/-30,000 limit.
 FAR_CHUNKS = [(cx, cz) for cz in range(-8, 8) for cx in range(250, 270)]
 FAR_LIMIT = 30000
+WILD_FOOD = ("berry_bush_ripe", "brown_mushroom", "red_mushroom")
 
 
 def _trees(seed: str, chunks: list[tuple[int, int]], count: int,
@@ -49,6 +50,31 @@ def _plants(seed: str, count: int) -> list[tuple[int, int]]:
     return found
 
 
+def _wild_food(seed: str, count: int) -> list[tuple[int, int]]:
+    """Columns with a berry bush or a mushroom on generated land."""
+    found = []
+    for x in range(250, 1250):
+        for z in range(-60, 60, 2):
+            if plant_at(x, z, seed) in WILD_FOOD:
+                found.append((x, z))
+                if len(found) == count:
+                    return found
+    return found
+
+
+def _cave_plants(seed: str, count: int) -> list[tuple[int, int, int]]:
+    """Mushrooms on cave floors."""
+    found = []
+    for x in range(250, 700, 3):
+        for z in range(-100, 100, 3):
+            for y in range(-4, terrain_height(x, z, seed) - 2):
+                if cave_plant(x, y, z, seed):
+                    found.append((x, y, z))
+                    if len(found) == count:
+                        return found
+    return found
+
+
 def _biome_patch(seed: str, biome: str) -> list[tuple[int, int, int]]:
     for x in range(250, 1250, 25):
         for z in range(-500, 500, 25):
@@ -68,9 +94,11 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
         for tx, tz, base in trees:
             cells |= {(seed, tx + dx, base + dy, tz + dz)
                       for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 8)}
-        for x, z in _plants(seed, 20):
+        for x, z in _plants(seed, 20) + _wild_food(seed, 40):
             height = terrain_height(x, z, seed)
             cells |= {(seed, x, height, z), (seed, x, height + 1, z)}
+        for x, y, z in _cave_plants(seed, 12):
+            cells |= {(seed, x, y, z), (seed, x, y - 1, z)}
         for biome in ("desert", "alpine"):
             cells |= {(seed, x, y, z) for x, y, z in _biome_patch(seed, biome)}
         for _ in range(1500):
