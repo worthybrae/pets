@@ -79,6 +79,22 @@ class ReflexTests(unittest.TestCase):
         self.assertEqual(brain["reflex_ends"], {"collapse": 2.0})
         self.assertIn("reflex_ended", brain["pending"]["reasons"])
 
+    def test_collapse_still_sleeps_where_it_is_when_the_walk_to_the_bed_fails(self):
+        """Fix wave minor 3: the sleep after the walk to a bed is kept (`keep`), so a failed walk
+        does not drop it with the rest of the plan."""
+        boxed = {cell: "stone" for x, z in ((1, 0), (-1, 0), (0, 1), (0, -1)) for cell in ((x, 1, z), (x, 2, z))}
+        grid = flat(boxed)
+        grid.put(2, 1, 0, "bed")  # within 8 blocks, but Mimo is walled in
+        state = pet(vitals={**START_VITALS, "energy": 5.0})
+        choose(state, "explore")
+        ctx = brainy(grid)
+        advance_actions(state, ctx, 1.0)
+        advance_actions(state, ctx, 2.0)
+        failed = [(entry["kind"], entry["code"]) for entry in state["recent_actions"] if entry["result"] == "failed"]
+        self.assertEqual(failed, [("walk", "no_path")])
+        self.assertEqual((state["action"]["kind"], state["action"]["purpose"]), ("sleep", "collapse"))
+        self.assertNotIn("bed", state["action"])  # where it stands, not in the bed
+
     def test_cleanup_steps_come_back_after_a_reflex_even_without_a_purpose(self):
         state = pet()
         mine_back = {"kind": "mine", "target": [1, 1, 0], "keep": True, "purpose": "craft_tools"}

@@ -134,7 +134,8 @@ class BedTests(unittest.TestCase):
         collapse = by_name("collapse")
         s = self.situation(room({(3, 1, 0): "bed"}), clock=DAY, energy=5.0)
         self.assertTrue(collapse.trigger(s))
-        self.assertEqual(collapse.plan(s, None), [{"kind": "walk", "target": [3, 2, 0], "reach": 0.0}, {"kind": "sleep"}])
+        self.assertEqual(collapse.plan(s, None), [{"kind": "walk", "target": [3, 2, 0], "reach": 0.0},
+                                                  {"kind": "sleep", "keep": True}])  # kept if the walk fails
         self.assertEqual(collapse.plan(self.situation(room(), clock=DAY, energy=5.0), None), [{"kind": "sleep"}])
 
 

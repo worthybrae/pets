@@ -18,8 +18,9 @@ holds and whose planner returns steps takes over:
 
 M3 registers surface (10), avoid_drop (20), eat_now (40), warm_up (50), head_home (60) and
 collapse (70). Priority 30 is left for sub-project 3's flee; creature reflexes register
-themselves with `register`. M5: collapse lies down in a bed within 8 blocks when there is one,
-and head_home leaves Mimo be while it builds its shelter or lights torches at home.
+themselves with `register`. M5: collapse lies down in a bed within 8 blocks when there is one
+(and where it stands when the walk there fails), and head_home leaves Mimo be while it builds its
+shelter or lights torches at home.
 """
 
 from __future__ import annotations
@@ -316,7 +317,14 @@ register(Reflex("head_home", 60, trigger=head_home_due,
 
 # collapse --------------------------------------------------------------------------------------
 
+def plan_collapse(s: Situation, context: ActionContext) -> list[dict]:
+    """Lie down in a bed within 8 blocks, else where Mimo stands. After a walk to the bed the sleep
+    is kept (`keep`): when the walk fails, Mimo still sleeps where the walk left it."""
+    walk = to_bed(s)
+    return [*walk, {"kind": "sleep", "keep": True} if walk else {"kind": "sleep"}]
+
+
 register(Reflex("collapse", 70,
                 trigger=lambda s: s.vitals["energy"] < EXHAUSTED_BELOW and (s.state["action"] or {}).get("kind") != "sleep",
-                plan=lambda s, context: [*to_bed(s), {"kind": "sleep"}],
+                plan=plan_collapse,
                 thought="I can't keep my eyes open...", event="{name} collapsed from exhaustion.", cooldown=30.0))
