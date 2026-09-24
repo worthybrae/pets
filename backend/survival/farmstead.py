@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING
 
 from backend.survival.blueprints import Blueprint, design_farm
 from backend.survival.building import site_center, structures_near
-from backend.survival.farming import FARM_TRAVEL, PLANTABLE, SITE_SEARCH, next_seed, open_above, plant
+from backend.survival.farming import (
+    FARM_BATCHES, FARM_TRAVEL, PLANTABLE, PLOTS_PER_BATCH, SITE_SEARCH, next_seed, open_above, plant,
+)
 from backend.survival.foraging import reach_steps
 from backend.survival.memory import cell_of, nearest
 from backend.survival.purposes import HOME_RANGE, Purpose, late_penalty, register
@@ -31,8 +33,6 @@ from backend.survival.structures import blueprint_of, start, todo
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
-PLOTS_PER_BATCH = 4
-FARM_BATCHES = 6
 OLD_FARM_REACH = 3.0  # farmland this close to the remembered farm is part of it
 
 
