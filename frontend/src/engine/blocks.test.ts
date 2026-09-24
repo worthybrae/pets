@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  AIR, BLOCKS, FLUID_BY_ID, GLOW_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE, LAYER_TRANSLUCENT,
+  AIR, BLOCKS, CUBE_BY_ID, FLUID_BY_ID, GLOW_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE, LAYER_TRANSLUCENT,
   MISSING_ID, TILES, blockDef, blockId, hasBlock,
 } from './blocks'
 
@@ -78,5 +78,16 @@ describe('block registry', () => {
     expect(LAYER_BY_ID[blockId('ice')]).toBe(LAYER_TRANSLUCENT)
     expect(blockDef(blockId('snow_block')).textures).toEqual({ top: 'snow', side: 'snow', bottom: 'snow' })
     expect(blockDef(blockId('birch_log')).textures.side).toBe('birch_log_side')
+  })
+
+  it('marks the see-through blocks that are drawn as cubes', () => {
+    for (const name of ['cactus', 'ladder', 'fence']) {
+      expect(CUBE_BY_ID[blockId(name)], name).toBe(1)
+      expect(blockDef(blockId(name)).cube, name).toBe(true)
+    }
+    for (const name of ['sugar_cane', 'fern', 'creature_sprout', 'flower_pink', 'torch', 'stone', 'air']) {
+      expect(CUBE_BY_ID[blockId(name)], name).toBe(0)
+    }
+    expect(CUBE_BY_ID[MISSING_ID]).toBe(0)
   })
 })

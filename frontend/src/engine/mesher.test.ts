@@ -77,6 +77,18 @@ describe('meshColumn', () => {
     expect(quadCount(result.opaque)).toBe(0)
   })
 
+  it('draws cactus, ladders and fences as see-through cubes', () => {
+    const cactus = mesh([[5, 10, 5, 'cactus']])
+    expect(quadCount(cactus.cutout)).toBe(6)
+    expect(quadCount(cactus.opaque)).toBe(0)
+    expect(quadCount(mesh([[5, 10, 5, 'cactus'], [5, 11, 5, 'cactus']]).cutout)).toBe(10)  // none between two
+    expect(quadCount(mesh([[5, 10, 5, 'fence'], [5, 9, 5, 'stone']]).cutout)).toBe(5)  // none against the ground
+    expect(quadCount(mesh([[5, 10, 5, 'stone'], [6, 10, 5, 'ladder']]).opaque)).toBe(6)  // the wall shows through
+    const top = quads(cactus.cutout).find((quad) => quad.vertices.every(([, y]) => y === 11))!
+    const side = quads(cactus.cutout).find((quad) => quad.vertices.every(([x]) => x === 5))!
+    expect(Math.min(...top.light)).toBeGreaterThan(Math.max(...side.light))
+  })
+
   it('scores corner occlusion with the three-neighbor rule', () => {
     expect(cornerAo(0, 0, 0)).toBe(3)
     expect(cornerAo(1, 0, 0)).toBe(2)

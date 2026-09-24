@@ -56,7 +56,7 @@ function setOpacity(object: THREE.Object3D, opacity: number) {
  * useFrame.
  */
 export default function SurvivalPet({ action, recent = NO_STEPS, position, now, onPetClick, hopSignal = 0, hidden,
-  tunic = false, cap = false, hurtAt = null, children }: {
+  tunic = null, cap = null, hurtAt = null, children }: {
   action: MimoAction | null
   /** Finished steps, oldest first, so short steps between polls still play out. */
   recent?: FinishedAction[]
@@ -69,8 +69,9 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   /** Read each frame: true while the camera is inside the pet (eyes mode), which then draws none
    * of its meshes. Lights, like its night glow, stay on. */
   hidden?: () => boolean
-  tunic?: boolean
-  cap?: boolean
+  /** L3: the tunic and cap it wears (petGear.wornTunic and wornCap), or null. */
+  tunic?: string | null
+  cap?: string | null
   hurtAt?: number | null
   children?: ReactNode
 }) {
@@ -83,8 +84,8 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   const drawn = useRef(true)
   const glow = useRef<THREE.Mesh>(null)
   const glowMaterial = useRef<THREE.MeshBasicMaterial>(null)
-  const tunicParts = useMemo(() => tunicVoxels(tunic ? { leather_tunic: 1 } : {}), [tunic])
-  const capParts = useMemo(() => capVoxels(cap ? { leather_cap: 1 } : {}), [cap])
+  const tunicParts = useMemo(() => tunicVoxels(tunic ? { [tunic]: 1 } : {}), [tunic])
+  const capParts = useMemo(() => capVoxels(cap ? { [cap]: 1 } : {}), [cap])
 
   useFrame((state, delta) => {
     const t = now()

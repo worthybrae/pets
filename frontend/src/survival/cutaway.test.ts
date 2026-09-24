@@ -41,6 +41,12 @@ describe('underground', () => {
     expect(underground(ground({ '0,4,0': 'leaves', '0,5,0': 'leaves' }), { x: 0, y: 1, z: 0 })).toBe(false)
   })
 
+  it('is false under a birch or spruce canopy, and beside a fence', () => {
+    for (const block of ['birch_leaves', 'spruce_leaves', 'birch_log', 'spruce_log', 'fence']) {
+      expect(underground(ground({ '0,3,0': block }), { x: 0, y: 1, z: 0 }), block).toBe(false)
+    }
+  })
+
   it('counts a roof Mimo stands under', () => {
     expect(underground(ground({ '0,3,0': 'planks' }), { x: 0, y: 1, z: 0 })).toBe(true)
   })
@@ -77,6 +83,9 @@ describe('a shelter Mimo built', () => {
     expect(hides(wall(3))).toBe(true)
     expect(hides(wall(2))).toBe(false)  // the cut would leave it anyway
     expect(hides(wall(3, 'leaves'))).toBe(false)
+    expect(hides(wall(3, 'stone_bricks'))).toBe(true)  // L3's building blocks
+    expect(hides(wall(3, 'spruce_planks'))).toBe(true)
+    expect(hides(wall(3, 'fence'))).toBe(false)
     expect(hides(wall(3), { x: -18, y: 14, z: 0.5 })).toBe(false)  // seen from the other side
   })
 

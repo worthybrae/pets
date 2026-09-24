@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { previewPet } from '../components/world/previewWorld'
-import { HURT_GLOW_SECONDS, capVoxels, hurtGlow, tunicVoxels } from './petGear'
+import { HURT_GLOW_SECONDS, capVoxels, hurtGlow, tunicVoxels, wornCap, wornTunic } from './petGear'
 
 const key = (voxel: { x: number; y: number; z: number }) => `${voxel.x},${voxel.y},${voxel.z}`
 
@@ -15,6 +15,20 @@ describe('petGear', () => {
     expect(cap.length).toBe(4)
     expect(cap.some((voxel) => pet.has(key(voxel)))).toBe(false)  // it sits on the head, around the ears
     expect(cap.every((voxel) => voxel.y === 4)).toBe(true)
+  })
+
+  it('wears iron over leather, in the same places, in grey', () => {
+    expect(wornTunic({ leather_tunic: 1, iron_tunic: 1 })).toBe('iron_tunic')
+    expect(wornCap({ leather_cap: 1 })).toBe('leather_cap')
+    expect(wornCap({ iron_cap: 0 })).toBeNull()
+    expect(wornTunic(undefined)).toBeNull()
+    const leather = tunicVoxels({ leather_tunic: 1 })
+    const iron = tunicVoxels({ leather_tunic: 1, iron_tunic: 1 })
+    expect(iron.map(key)).toEqual(leather.map(key))
+    expect(iron.every((voxel) => Math.abs(voxel.r - voxel.b) < 20)).toBe(true)
+    expect(leather.every((voxel) => voxel.r - voxel.b > 40)).toBe(true)
+    expect(capVoxels({ iron_cap: 1 }).map(key)).toEqual(capVoxels({ leather_cap: 1 }).map(key))
+    expect(capVoxels({ iron_cap: 1 })[0].g).toBeGreaterThan(capVoxels({ leather_cap: 1 })[0].g)
   })
 
   it('glows red at once after a blow and fades', () => {

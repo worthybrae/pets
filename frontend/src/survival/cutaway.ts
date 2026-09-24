@@ -29,6 +29,7 @@ const HIDE_STEP = 0.5
  * these stays drawn with it instead of having the terrain around it cut away. */
 const NOT_COVER = new Set([
   'leaves', 'oak_log', 'crafting_table', 'furnace', 'lantern', 'glass', 'campfire', 'torch', 'bed', 'chest',
+  'birch_leaves', 'spruce_leaves', 'birch_log', 'spruce_log', 'fence',  // L3
 ])
 
 export interface BlockReader {
@@ -51,6 +52,7 @@ const SHELTER_ABOVE = 4
 /** The blocks a shelter is built from (backend/survival/blueprints.py BUILDING). */
 const BUILDING = new Set([
   'cobblestone', 'planks', 'brick', 'limestone', 'sandstone', 'basalt', 'moss', 'clay', 'sand', 'gravel', 'dirt',
+  'birch_planks', 'spruce_planks', 'stone_bricks',  // L3
 ])
 /** How long the wall cut stays on after the walls last hid Mimo. */
 export const WALL_HOLD_SECONDS = 0.75

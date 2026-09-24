@@ -16,6 +16,7 @@ import { hidden, holdWallCut, shelterBlocks } from './cutaway'
 import SurvivalCreatures from './SurvivalCreatures'
 import SurvivalDoors from './SurvivalDoors'
 import SurvivalPet from './SurvivalPet'
+import { wornCap, wornTunic } from './petGear'
 import type { Built, Creature, CreatureMove, FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
 const CAMERA_DISTANCE = 26
@@ -133,8 +134,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             cutaway={cutawayAt}
             onStats={debug ? setStats : undefined} onError={setEngineError} />
           <SurvivalPet action={action} recent={recentActions} position={position} now={replayTime} onPetClick={onPetClick}
-            hopSignal={hopSignal} hidden={petHidden} tunic={(inventory?.leather_tunic ?? 0) > 0}
-            cap={(inventory?.leather_cap ?? 0) > 0} hurtAt={hurtAt}>
+            hopSignal={hopSignal} hidden={petHidden} tunic={wornTunic(inventory)}
+            cap={wornCap(inventory)} hurtAt={hurtAt}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />

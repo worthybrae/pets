@@ -26,6 +26,8 @@ export interface BlockDef {
   textures: FaceTextures
   glow: boolean
   fluid: boolean
+  /** L3: a cutout block drawn as a see-through cube (cactus, ladder, fence), not crossed sprites. */
+  cube: boolean
 }
 
 interface RawBlock {
@@ -36,6 +38,7 @@ interface RawBlock {
   solid: boolean
   glow?: boolean
   fluid?: boolean
+  shape?: string
 }
 
 export const AIR = 0
@@ -50,7 +53,7 @@ function toDef(raw: RawBlock, id: number): BlockDef {
     : raw.textures
   return {
     id, name: raw.name, color: [raw.color[0], raw.color[1], raw.color[2]], layer: raw.layer,
-    solid: raw.solid, textures, glow: Boolean(raw.glow), fluid: Boolean(raw.fluid),
+    solid: raw.solid, textures, glow: Boolean(raw.glow), fluid: Boolean(raw.fluid), cube: raw.shape === 'cube',
   }
 }
 
@@ -60,7 +63,7 @@ if (rawBlocks.length >= MISSING_ID) throw new Error('Block registry is full; ids
 export const BLOCKS: BlockDef[] = rawBlocks.map(toDef)
 export const MISSING: BlockDef = {
   id: MISSING_ID, name: 'missing', color: [255, 0, 255], layer: 'opaque', solid: true,
-  textures: { top: 'missing', side: 'missing', bottom: 'missing' }, glow: false, fluid: false,
+  textures: { top: 'missing', side: 'missing', bottom: 'missing' }, glow: false, fluid: false, cube: false,
 }
 
 const ids = new Map(BLOCKS.map((block) => [block.name, block.id]))
@@ -96,9 +99,11 @@ const LAYER_CODES: Record<Layer, number> = {
 export const LAYER_BY_ID = new Uint8Array(256)
 export const GLOW_BY_ID = new Uint8Array(256)
 export const FLUID_BY_ID = new Uint8Array(256)
+export const CUBE_BY_ID = new Uint8Array(256)
 for (let id = 0; id < 256; id++) {
   const def = blockDef(id)
   LAYER_BY_ID[id] = LAYER_CODES[def.layer]
   GLOW_BY_ID[id] = def.glow ? 1 : 0
   FLUID_BY_ID[id] = def.fluid ? 1 : 0
+  CUBE_BY_ID[id] = def.cube ? 1 : 0
 }

@@ -12,6 +12,8 @@ type Color = readonly [number, number, number]
 
 const LEATHER: Color = [150, 96, 62]
 const STITCH: Color = [112, 70, 44]
+const IRON: Color = [196, 201, 204]  // L3: iron armor, with darker rivets
+const RIVET: Color = [128, 135, 140]
 export const TUNIC_SCALE = 1.12
 /** The middle of the body, in voxel units, that the tunic is scaled around. */
 export const BODY_MIDDLE: [number, number, number] = [0.5, 1, 0]
@@ -24,11 +26,13 @@ function voxel(x: number, y: number, z: number, [r, g, b]: Color): Voxel {
 
 /** The tunic's voxels when Mimo carries a leather tunic, else none; a darker belt along the bottom. */
 export function tunicVoxels(inventory: Record<string, number> | null | undefined): Voxel[] {
-  if ((inventory?.leather_tunic ?? 0) < 1) return []
+  const worn = wornTunic(inventory)
+  if (worn === null) return []
+  const [main, trim] = worn === 'iron_tunic' ? [IRON, RIVET] : [LEATHER, STITCH]
   const voxels: Voxel[] = []
   for (let x = -1; x <= 1; x++) {
     for (const z of [-1, 0]) {
-      voxels.push(voxel(x, 0, z, STITCH), voxel(x, 1, z, LEATHER))
+      voxels.push(voxel(x, 0, z, trim), voxel(x, 1, z, main))
     }
   }
   return voxels
@@ -36,8 +40,20 @@ export function tunicVoxels(inventory: Record<string, number> | null | undefined
 
 /** The cap's voxels when Mimo carries a leather cap, else none: on top of the head, around the ears. */
 export function capVoxels(inventory: Record<string, number> | null | undefined): Voxel[] {
-  if ((inventory?.leather_cap ?? 0) < 1) return []
-  return [voxel(0, 4, 0, LEATHER), voxel(0, 4, 1, LEATHER), voxel(-1, 4, 1, STITCH), voxel(1, 4, 1, STITCH)]
+  const worn = wornCap(inventory)
+  if (worn === null) return []
+  const [main, trim] = worn === 'iron_cap' ? [IRON, RIVET] : [LEATHER, STITCH]
+  return [voxel(0, 4, 0, main), voxel(0, 4, 1, main), voxel(-1, 4, 1, trim), voxel(1, 4, 1, trim)]
+}
+
+/** L3: the tunic Mimo wears, iron over leather, or null when it carries neither. */
+export function wornTunic(inventory: Record<string, number> | null | undefined): string | null {
+  return ['iron_tunic', 'leather_tunic'].find((item) => (inventory?.[item] ?? 0) > 0) ?? null
+}
+
+/** L3: the cap Mimo wears, iron over leather, or null when it carries neither. */
+export function wornCap(inventory: Record<string, number> | null | undefined): string | null {
+  return ['iron_cap', 'leather_cap'].find((item) => (inventory?.[item] ?? 0) > 0) ?? null
 }
 
 /** How red the pet glows (0..1) at server time `t` after a blow at `hurtAt`: at once, then fading. */
