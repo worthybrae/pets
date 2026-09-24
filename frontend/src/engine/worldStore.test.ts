@@ -28,6 +28,18 @@ describe('WorldStore', () => {
     expect(store.getBlock(3, 30, 3)).toBe(blockId('stone'))
   })
 
+  it('lists the highest server edit of each edited column in a chunk, dug cells too', () => {
+    const store = new WorldStore()
+    store.applyServerChanges([
+      { x: 3, y: 9, z: 4, material: 'planks' }, { x: 3, y: 12, z: 4, material: 'air' },
+      { x: -5, y: 2, z: 4, material: 'stone' }, { x: 20, y: 5, z: 4, material: 'stone' },
+    ])
+    expect(store.editedColumns(0, 0)).toEqual(new Map([['3,4', 12]]))
+    expect(store.editedColumns(-1, 0)).toEqual(new Map([['-5,4', 2]]))
+    expect(store.editedColumns(1, 0)).toEqual(new Map([['20,4', 5]]))
+    expect(store.editedColumns(5, 5).size).toBe(0)
+  })
+
   it('marks neighbor columns dirty for border blocks', () => {
     expect(columnsTouching(5, 5)).toEqual(['0,0'])
     expect(columnsTouching(16, 5).sort()).toEqual(['0,0', '1,0'])

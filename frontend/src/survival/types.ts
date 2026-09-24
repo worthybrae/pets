@@ -77,6 +77,15 @@ export interface Built extends Point {
 /** What each chest holds, keyed "x,y,z". */
 export type Chests = Record<string, Record<string, number>>
 
+/** An 8x8-block patch of ground Mimo visited: [rx, rz, visits] with rx = x // 8, rz = z // 8.
+ * Visits are capped at 99. */
+export type ExploredPatch = [number, number, number]
+
+/** Home, or the nearest farm Mimo remembers (backend/survival/snapshot.py landmarks_view). */
+export interface Landmark extends Point {
+  kind: 'home' | 'farm'
+}
+
 export type PickerName = 'jev' | 'luna' | 'utility'
 
 export interface Clock {
@@ -153,6 +162,10 @@ export interface SurvivalState {
   structures: Built[]
   /** What its chests hold (M5). */
   chests: Chests
+  /** The patches Mimo visited within 96 blocks of it, for the minimap's fog of war. */
+  explored: ExploredPatch[]
+  /** Its home and nearest farm, for the minimap. */
+  landmarks: Landmark[]
   /** The purpose Mimo is working on, like "gather_wood", or null. */
   purpose: string | null
   /** A reflex that took over, like "head_home", or null. */

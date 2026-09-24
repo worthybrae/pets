@@ -109,7 +109,8 @@ export interface KeyPress {
   target?: unknown
 }
 
-function typingIn(target: unknown): boolean {
+/** Whether a key press lands in a text field, where it types rather than steers. */
+export function typingIn(target: unknown): boolean {
   if (typeof target !== 'object' || target === null) return false
   const element = target as { tagName?: unknown; isContentEditable?: unknown }
   return element.isContentEditable === true

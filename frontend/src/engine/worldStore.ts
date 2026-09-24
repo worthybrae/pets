@@ -175,6 +175,19 @@ export class WorldStore {
     return id !== undefined && id !== AIR
   }
 
+  /** The highest server edit (placed or dug) of each edited column in chunk (cx, cz), keyed "x,z":
+   * where the view from above may differ from worldgen (the minimap). */
+  editedColumns(cx: number, cz: number): Map<string, number> {
+    const tops = new Map<string, number>()
+    for (const cell of this.server.get(columnKey(cx, cz))?.keys() ?? []) {
+      const [x, y, z] = cell.split(',').map(Number)
+      const key = `${x},${z}`
+      const top = tops.get(key)
+      if (top === undefined || y > top) tops.set(key, y)
+    }
+    return tops
+  }
+
   /** Names of server-placed blocks within `radius` of (x, z), for workstation checks. */
   materialsNear(x: number, z: number, radius: number): Set<string> {
     const found = new Set<string>()
