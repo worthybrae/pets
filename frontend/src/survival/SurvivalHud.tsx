@@ -1,3 +1,4 @@
+import { CAMERA_MODES, modeLabel, type AutoPick, type CameraMode } from './cameraModes'
 import { dialPosition } from './clock'
 import { actionText, careLabel, clockTime, dayLabel, homeText, purposeText, vitalBars, type VitalLevel } from './hud'
 import type { AliveResponse, CareKind } from './types'
@@ -20,11 +21,32 @@ function SkyDial({ secondsIntoDay }: { secondsIntoDay: number }) {
   )
 }
 
-export default function SurvivalHud({ state, online, busy, message, onCare, onHello, onFollow, onCrafting, onOpenLives }: {
+/** Auto, Overview, Close and Eyes as one small segmented control; the chosen one shows auto's pick. */
+function CameraSwitch({ mode, autoPick, onChange }: { mode: CameraMode; autoPick: AutoPick | null; onChange: (mode: CameraMode) => void }) {
+  return (
+    <div className="mt-2 flex items-center gap-2" title="Press C to switch the camera">
+      <span className="hidden text-xs text-[#54726e] sm:inline">Camera</span>
+      <div role="group" aria-label="Camera" className="inline-flex max-w-full rounded-lg border border-[#bfd5cd] bg-white/50 p-0.5 text-xs font-medium">
+        {CAMERA_MODES.map((option) => (
+          <button key={option} type="button" aria-pressed={option === mode} onClick={() => onChange(option)}
+            className={`whitespace-nowrap rounded-md px-2 py-1 ${option === mode ? 'bg-[#315e58] text-white' : 'text-[#315e58] hover:bg-white'}`}>
+            {modeLabel(option, option === mode ? autoPick : null)}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, onCameraMode, onCare, onHello, onFollow, onCrafting, onOpenLives }: {
   state: AliveResponse
   online: boolean
   busy: boolean
   message: string
+  cameraMode: CameraMode
+  /** What auto has picked, once it has. */
+  autoPick: AutoPick | null
+  onCameraMode: (mode: CameraMode) => void
   onCare: (kind: CareKind) => void
   onHello: () => void
   onFollow: () => void
@@ -83,6 +105,7 @@ export default function SurvivalHud({ state, online, busy, message, onCare, onHe
             <button type="button" onClick={onCrafting} className="underline decoration-[#8cafa2] underline-offset-4">Blocks & crafting</button>
             {onOpenLives && <button type="button" onClick={onOpenLives} className="underline decoration-[#8cafa2] underline-offset-4">Lives</button>}
           </div>
+          <CameraSwitch mode={cameraMode} autoPick={autoPick} onChange={onCameraMode} />
           {message && <p className="mt-2 text-xs text-[#a65b50]" role="status">{message}</p>}
         </section>
         <section className={`${PANEL} hidden w-64 px-4 py-3 text-xs md:block`} aria-label="Recent events">

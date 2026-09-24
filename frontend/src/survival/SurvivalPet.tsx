@@ -50,7 +50,7 @@ function setOpacity(object: THREE.Object3D, opacity: number) {
  * and plays the step's animation. Cheap on phones: no React state changes per frame, a handful of
  * meshes, and all per-frame work in one useFrame.
  */
-export default function SurvivalPet({ action, recent = NO_STEPS, position, now, onPetClick, hopSignal = 0, children }: {
+export default function SurvivalPet({ action, recent = NO_STEPS, position, now, onPetClick, hopSignal = 0, hidden, children }: {
   action: MimoAction | null
   /** Finished steps, oldest first, so short steps between polls still play out. */
   recent?: FinishedAction[]
@@ -60,6 +60,9 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   now: () => number
   onPetClick?: () => void
   hopSignal?: number
+  /** Read each frame: true while the camera is inside the pet (eyes mode), which then draws none
+   * of its meshes. Lights, like its night glow, stay on. */
+  hidden?: () => boolean
   children?: ReactNode
 }) {
   const root = useRef<THREE.Group>(null)
@@ -68,6 +71,7 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   const crumbBits = useRef<THREE.Group>(null)
   const heading = useRef<number | null>(null)
   const hello = useRef({ signal: hopSignal, left: 0 })
+  const drawn = useRef(true)
 
   useFrame((state, delta) => {
     const t = now()
@@ -109,6 +113,15 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
     if (bits) {
       bits.visible = move === 'eat'
       if (bits.visible) crumbs(stepTime).forEach((bit, index) => bits.children[index]?.position.set(bit.x, bit.y, bit.z))
+    }
+    // Meshes only: hiding the group would also drop its glow light, and a light count change
+    // recompiles every lit material.
+    const show = !hidden?.()
+    if (root.current && (show !== drawn.current || !show)) {
+      drawn.current = show
+      root.current.traverse((child) => {
+        if (child instanceof THREE.Mesh) child.visible = show
+      })
     }
   })
 

@@ -3,6 +3,7 @@ import { BlockSync } from '../engine/blockSync'
 import { WorldStore } from '../engine/worldStore'
 import { blocksFetcher, giveCare, helpMimo, sayHello } from './api'
 import { DelayedBlocks } from './blockDelay'
+import { isCameraKey, loadCameraMode, nextMode, saveCameraMode, type AutoPick, type CameraMode } from './cameraModes'
 import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
 import { workerOnline } from './hud'
@@ -10,6 +11,8 @@ import { serverNow } from './motion'
 import SurvivalHud from './SurvivalHud'
 import type { AliveResponse, CareKind } from './types'
 import WorldCanvas from './WorldCanvas'
+
+const browserStorage = () => window.localStorage
 
 /** The live survival world: terrain and blocks, the pet, day and night, the HUD and owner care. */
 export default function SurvivalWorld({ state, receivedAt, arrival, connectionError, onChanged, onOpenLives }: {
@@ -39,6 +42,28 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   const [syncError, setSyncError] = useState('')
   const [showCrafting, setShowCrafting] = useState(false)
   const [craftMessage, setCraftMessage] = useState('')
+  const [cameraMode, setCameraMode] = useState<CameraMode>(() => loadCameraMode(browserStorage))
+  const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
+
+  // Any camera choice, or auto switching, follows Mimo again.
+  const chooseCamera = useCallback((mode: CameraMode) => {
+    setCameraMode(mode)
+    saveCameraMode(browserStorage, mode)
+    setFollowing(true)
+  }, [])
+  const autoPicked = useCallback((pick: AutoPick) => {
+    setAutoPick(pick)
+    setFollowing(true)
+  }, [])
+
+  useEffect(() => {
+    const cycle = (event: KeyboardEvent) => {
+      if (event.repeat || !isCameraKey(event)) return
+      chooseCamera(nextMode(cameraMode))
+    }
+    window.addEventListener('keydown', cycle)
+    return () => window.removeEventListener('keydown', cycle)
+  }, [cameraMode, chooseCamera])
 
   // Poll-driven: receivedAt changes every second, so a failed delta is retried on the next poll.
   // Once a sync has caught the store up, later changes are held back (see DelayedBlocks).
@@ -95,9 +120,11 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
       <WorldCanvas store={store} position={state.position} seconds={seconds} arrival={arrival}
         following={following} onOrbit={() => setFollowing(false)} onPetClick={hello} hopSignal={helloCount}
-        action={state.action} recentActions={state.recent_actions} decays={state.decays} serverTime={serverTime} />
+        action={state.action} recentActions={state.recent_actions} decays={state.decays} serverTime={serverTime}
+        cameraMode={cameraMode} onAutoPick={autoPicked} />
       <SurvivalHud state={state} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
         busy={busy} message={message || connectionError || syncError}
+        cameraMode={cameraMode} autoPick={autoPick} onCameraMode={chooseCamera}
         onCare={care} onHello={hello} onFollow={() => setFollowing(true)}
         onCrafting={() => setShowCrafting(true)} onOpenLives={onOpenLives} />
       {showCrafting && (
