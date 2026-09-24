@@ -73,6 +73,11 @@ def mine(x, y, z):
     return {"kind": "mine", "target": [x, y, z]}
 
 
+def rubble(x, y, z):
+    """A passage's widening cell (L3): mined, its block left behind."""
+    return {**mine(x, y, z), "rubble": True}
+
+
 def walk(x, y, z, reach=0.0):
     return {"kind": "walk", "target": [x, y, z], "reach": reach}
 
@@ -131,13 +136,17 @@ class WoodTests(unittest.TestCase):
 
 @patch("backend.survival.work.terrain_height", lambda x, z, seed: 0)
 class StoneTests(unittest.TestCase):
-    def test_digs_a_staircase_down_two_blocks_per_stair(self):
+    def test_digs_a_staircase_one_block_down_a_stair_two_wide_and_three_tall(self):
         s = situation(pet(inventory={"wooden_pickaxe": 1}), ground())
         stone = PURPOSES["gather_stone"]
         self.assertTrue(stone.valid(s))
         self.assertEqual(stone.plan(s, context(s.grid)),
-                         [mine(1, 0, 0), walk(1, 0, 0), mine(2, 0, 0), mine(2, -1, 0), walk(2, -1, 0),
-                          mine(3, -1, 0), mine(3, -2, 0), walk(3, -2, 0), mine(4, -2, 0), mine(4, -3, 0), walk(4, -3, 0)])
+                         [mine(1, 0, 0), rubble(1, 0, 1), walk(1, 0, 0),
+                          mine(2, 0, 0), mine(2, -1, 0), rubble(2, 0, 1), rubble(2, -1, 1), walk(2, -1, 0),
+                          rubble(3, 0, 0), mine(3, -1, 0), mine(3, -2, 0), rubble(3, 0, 1), rubble(3, -1, 1),
+                          rubble(3, -2, 1), walk(3, -2, 0),
+                          rubble(4, -1, 0), mine(4, -2, 0), mine(4, -3, 0), rubble(4, -1, 1), rubble(4, -2, 1),
+                          rubble(4, -3, 1), walk(4, -3, 0)])
         self.assertEqual(s.brain["dig_heading"], [1, 0])
         self.assertFalse(stone.valid(situation(pet(), ground())))
 
@@ -145,13 +154,16 @@ class StoneTests(unittest.TestCase):
         s = situation(pet((4, -3, 0), inventory={"wooden_pickaxe": 1}), ground({(4, -3, 0): "air"}))
         s.brain["dig_heading"] = [1, 0]
         self.assertEqual(PURPOSES["gather_stone"].plan(s, context(s.grid)),
-                         [mine(5, -3, 0), walk(5, -3, 0), mine(6, -3, 0), walk(6, -3, 0),
-                          mine(7, -3, 0), walk(7, -3, 0), mine(8, -3, 0), walk(8, -3, 0)])
+                         [step for x in (5, 6, 7, 8) for step in (
+                             rubble(x, -1, 0), rubble(x, -2, 0), mine(x, -3, 0),
+                             rubble(x, -1, 1), rubble(x, -2, 1), rubble(x, -3, 1), walk(x, -3, 0))])
 
     def test_stops_at_the_goal(self):
         s = situation(pet((4, -3, 0), inventory={"wooden_pickaxe": 1, "cobblestone": 11}), ground({(4, -3, 0): "air"}))
         s.brain["dig_heading"] = [1, 0]
-        self.assertEqual(PURPOSES["gather_stone"].plan(s, context(s.grid)), [mine(5, -3, 0), walk(5, -3, 0)])
+        self.assertEqual(PURPOSES["gather_stone"].plan(s, context(s.grid)),
+                         [rubble(5, -1, 0), rubble(5, -2, 0), mine(5, -3, 0), rubble(5, -1, 1), rubble(5, -2, 1),
+                          rubble(5, -3, 1), walk(5, -3, 0)])
         done = situation(pet(inventory={"wooden_pickaxe": 1, "cobblestone": 12}), ground())
         self.assertFalse(PURPOSES["gather_stone"].valid(done))
 
@@ -173,11 +185,13 @@ class StoneTests(unittest.TestCase):
         step_above = ground({(4, -3, 0): "air", (5, -2, 0): "air"})  # an earlier stair's cell over (5, -3, 0)
         self.assertIsNone(stair(step_above, {}, (4, -3, 0), (1, 0), inventory, "1"))
         self.assertEqual(stair(ground({(4, -3, 0): "air"}), {}, (4, -3, 0), (1, 0), inventory, "1"),
-                         ([mine(5, -3, 0), walk(5, -3, 0)], (5, -3, 0), 1))
+                         ([rubble(5, -1, 0), rubble(5, -2, 0), mine(5, -3, 0), rubble(5, -1, 1), rubble(5, -2, 1),
+                           rubble(5, -3, 1), walk(5, -3, 0)], (5, -3, 0), 1))
         # Its own upper cell opened by the same stair is fine, and so is open sky over the surface.
-        self.assertEqual(stair(ground(), {}, (0, 1, 0), (1, 0), inventory, "1")[0], [mine(1, 0, 0), walk(1, 0, 0)])
+        self.assertEqual(stair(ground(), {}, (0, 1, 0), (1, 0), inventory, "1")[0],
+                         [mine(1, 0, 0), rubble(1, 0, 1), walk(1, 0, 0)])
         self.assertEqual(stair(ground(), {}, (1, 0, 0), (1, 0), inventory, "1")[0],
-                         [mine(2, 0, 0), mine(2, -1, 0), walk(2, -1, 0)])
+                         [mine(2, 0, 0), mine(2, -1, 0), rubble(2, 0, 1), rubble(2, -1, 1), walk(2, -1, 0)])
 
     def test_a_stair_never_digs_up_farmland_or_a_sapling(self):
         inventory = {"wooden_pickaxe": 1}
@@ -188,7 +202,7 @@ class StoneTests(unittest.TestCase):
         stocked = {"stone_pickaxe": 1, "cobblestone": 12}
         s = situation(pet(inventory=stocked), ground())
         self.assertTrue(PURPOSES["gather_stone"].valid(s))
-        self.assertEqual(len(PURPOSES["gather_stone"].plan(s, context(s.grid))), 11)
+        self.assertEqual(len(PURPOSES["gather_stone"].plan(s, context(s.grid))), 22)
         seen = situation(pet(inventory=stocked), ground(), [("ore", (9, -3, 9), "iron_ore")])
         self.assertFalse(PURPOSES["gather_stone"].valid(seen))
 
@@ -225,7 +239,7 @@ class GatherThenDropLoopTests(unittest.TestCase):
                 material = grid.material(*step["target"])
                 grid.put(*step["target"], "air")
                 drop = BLOCKS.get(material, {}).get("drop")
-                if drop:
+                if drop and not step.get("rubble"):  # L3: a passage's widening cells are left as rubble
                     state["inventory"][drop] = state["inventory"].get(drop, 0) + 1
             elif step["kind"] == "drop":
                 left = state["inventory"].get(step["item"], 0) - step["amount"]

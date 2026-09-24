@@ -10,15 +10,16 @@ leaves), so each batch first plants up to 2 carried saplings on open ground with
 blocks or more from any trunk or other sapling, on the natural surface (never in Mimo's own
 staircase) and 2 blocks or more from a home or shelter.
 gather_stone needs a pickaxe and, short of prospecting, room left to carry more cobblestone: it
-digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level tunnel
-10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone (and the blocks a
+digs a staircase down from where Mimo stands, one block down per stair, 2 wide and 3 tall where
+that fits (L3: the owner asked for passages big enough to see into), and turns into a level tunnel
+of the same size 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone (and the blocks a
 started shelter still waits for); with a stone pickaxe and no iron ore seen yet, it keeps digging
 to prospect for iron regardless of room. It never digs into water, lava, bedrock, a hole or a
 cave, or a block it cannot mine, and never digs up farmland, a sapling or anything Mimo built, its
 door or the way in (structures.reserved). It never digs back the way it came, and never mines the
 floor of an open cell below the natural surface (a stair or tunnel it dug earlier, or a cave)
 unless the same stair just opened that cell, so it cannot cut its own staircase. The staircase
-stays climbable, and from its third stair it is sheltered, so it often becomes Mimo's first home.
+stays climbable, and from its fourth stair it is sheltered, so it often becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
 
@@ -62,6 +63,7 @@ TUNNEL_DEPTH = 10
 LOWEST_FLOOR = -3
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 FLUIDS = ("water", "lava")
+PASSAGE_TALL = 3  # cells a stair or tunnel is cut high; its second column (left of the heading) too
 TREE = "tree"  # a remembered place: a sapling Mimo planted, so the tree there is its to chop
 ORE_RANGE = 48.0
 ORE_REACH = 3.0
@@ -163,14 +165,47 @@ def look(grid: Grid, changed: dict[Cell, str], cell: Cell) -> str:
     return changed.get(cell) or grid.material(*cell)
 
 
+def side_of(heading: tuple[int, int]) -> tuple[int, int]:
+    """The direction to the left of `heading`: where a passage's second column goes."""
+    return -heading[1], heading[0]
+
+
+def cut(grid: Grid, changed: dict[Cell, str], cell: Cell, surface: int, inventory: dict,
+        opened: set[Cell]) -> str | None:
+    """How one cell of a passage opens: "" when it is open already, its block when Mimo mines it, or
+    None when it must stay: water or lava, something Mimo built or tends (or the cell over it), a
+    block Mimo cannot mine, or the floor of an open cell below the natural surface that this stair
+    did not open."""
+    x, y, z = cell
+    material = look(grid, changed, cell)
+    if material in FLUIDS or reserved(grid, cell) or reserved(grid, (x, y + 1, z)):
+        return None
+    if not is_solid(material):
+        return ""
+    if hardness(material) is None or not can_harvest(material, inventory):
+        return None
+    above = (x, y + 1, z)
+    if above not in opened and above[1] <= surface and not is_solid(look(grid, changed, above)):
+        return None
+    return material
+
+
 def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, int], inventory: dict,
           seed: str) -> tuple[list[dict], Cell, int] | None:
-    """One stair down (or, deep enough, one level tunnel step) from `at` toward `heading`.
+    """One stair down (or, deep enough, one level tunnel step) from `at` toward `heading`, cut 3 cells
+    tall in Mimo's column and in the column to the left of the heading, so the passage is 2 wide and
+    3 tall where that fits.
 
-    Returns the steps, where Mimo ends up and how many cobblestone the mining yields, or None
-    when the way is blocked. `changed` holds the cells earlier stairs of the same plan opened.
-    A block whose cell above is open below the natural surface is the floor of a passage (an
-    earlier stair or tunnel, or a cave): it is never mined, unless this stair opened that cell.
+    Mimo's column must open where it will stand and, on a stair down, the headroom over that: when
+    either cannot be cut the way is blocked and this returns None. Every other cell (the third one
+    up, and the side column, which is only cut over solid ground) opens where it can and stays where
+    it cannot, so the passage narrows or lowers there. Those widening cells break into rubble Mimo
+    leaves behind (`rubble` mine steps), so a stair yields what a narrow one did (resolution 17).
+    Returns the steps, top cells first, where Mimo ends up and how many cobblestone the mining
+    yields. `changed` holds the cells earlier stairs of
+    the same plan opened. A block whose cell above is open below the natural surface is the floor of
+    a passage (an earlier stair or tunnel, or a cave): it is never mined, unless this stair opened
+    that cell.
     """
     x, y, z = at
     nx, nz = x + heading[0], z + heading[1]
@@ -179,24 +214,25 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
     to = (nx, y - 1, nz) if down else (nx, y, nz)
     if not is_solid(look(grid, changed, (nx, to[1] - 1, nz))):
         return None  # a hole or a cave below: never dig into it
+    columns = [(nx, nz, surface, 2 if down else 1)]  # (x, z, its surface, how many lowest cells it needs)
+    sx, sz = nx + side_of(heading)[0], nz + side_of(heading)[1]
+    if is_solid(look(grid, changed, (sx, to[1] - 1, sz))):
+        columns.append((sx, sz, terrain_height(sx, sz, seed), 0))
     steps, stones, opened = [], 0, set()
-    for cell in ([(nx, y, nz), to] if down else [to]):
-        material = look(grid, changed, cell)
-        if material in FLUIDS:
-            return None
-        if reserved(grid, cell) or reserved(grid, (nx, cell[1] + 1, nz)):
-            return None  # never dig up Mimo's farm, a sapling it planted or anything it built
-        if not is_solid(material):
-            continue
-        if hardness(material) is None or not can_harvest(material, inventory):
-            return None
-        above = (nx, cell[1] + 1, nz)
-        if above not in opened and above[1] <= surface and not is_solid(look(grid, changed, above)):
-            return None  # the floor of an open cell underground
-        steps.append({"kind": "mine", "target": list(cell)})
-        stones += 1 if BLOCKS.get(material, {}).get("drop") == "cobblestone" else 0
-        changed[cell] = "air"
-        opened.add(cell)
+    for cx, cz, top, needed in columns:
+        for dy in reversed(range(PASSAGE_TALL)):
+            cell = (cx, to[1] + dy, cz)
+            block = cut(grid, changed, cell, top, inventory, opened)
+            if block is None:
+                if dy < needed:
+                    return None
+                continue
+            if block:
+                keep = dy < needed  # the cells Mimo walks through; it leaves the rest as rubble
+                steps.append({"kind": "mine", "target": list(cell), **({} if keep else {"rubble": True})})
+                stones += 1 if keep and BLOCKS.get(block, {}).get("drop") == "cobblestone" else 0
+                changed[cell] = "air"
+                opened.add(cell)
     steps.append(walk_to(to))
     return steps, to, stones
 

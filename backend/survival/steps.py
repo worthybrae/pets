@@ -281,7 +281,7 @@ def start_mine(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
     if not can_harvest(material, inventory):
         raise StepFailed(f"a stronger pickaxe is needed for {label(material)}", "missing_item")
     return {"kind": "mine", "started_at": at, "ends_at": round(at + seconds / scale, 3),
-            "target": as_point(target), "block": material}
+            "target": as_point(target), "block": material, **({"rubble": True} if spec.get("rubble") else {})}
 
 
 def finish_mine(step: dict, state: dict, grid: Grid, at: float) -> None:
@@ -293,6 +293,8 @@ def finish_mine(step: dict, state: dict, grid: Grid, at: float) -> None:
     if step["block"] == "chest":
         x, y, z = target
         state.get("chests", {}).pop(f"{x},{y},{z}", None)
+    if step.get("rubble"):  # L3: a widening cell of a passage: Mimo leaves its block behind
+        return None
     drop = BLOCKS.get(step["block"], {}).get("drop")
     if drop:
         add_item(state["inventory"], drop)

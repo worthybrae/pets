@@ -6,7 +6,11 @@ chosen (walks that got partway in between do not matter), the brain floods Mimo'
 where it stands (one search from the tick's budget): if fewer than 256 cells are reachable, Mimo
 is trapped. The way out is a staircase up, one block up per step: mine the block over Mimo's head
 and the stair cell when they are solid, and place a carried block where a stair has nothing to
-stand on (mined dirt and stone go into the stock too). It tries the four directions and takes the
+stand on (mined dirt and stone go into the stock too). Where they fit (L3), the two cells over each
+stair and the three beside it (left of the heading, over solid ground) open too, so the way out is
+2 wide and 3 tall like Mimo's own stairs; a cell that cannot be mined there is left. The cell over a
+stair is the next stair's headroom and is kept; the other widening cells break into rubble Mimo
+leaves behind. It tries the four directions and takes the
 first staircase that brings Mimo above the natural surface within 24 stairs, at most once per 60
 real seconds. There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
 to place, stays a trap.
@@ -59,8 +63,10 @@ def look(grid: Grid, changed: dict[Cell, str], cell: Cell) -> str:
     return changed.get(cell) or grid.material(*cell)
 
 
-def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps: list[dict]) -> bool:
-    """Make `cell` open, mining it if it is solid. False for fluids and blocks Mimo cannot mine."""
+def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps: list[dict],
+            rubble: bool = False) -> bool:
+    """Make `cell` open, mining it if it is solid. False for fluids and blocks Mimo cannot mine. A
+    `rubble` cell's block is left behind, so it adds nothing to the stock."""
     material = look(grid, changed, cell)
     if material in FLUIDS:
         return False
@@ -68,10 +74,10 @@ def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps
         return True
     if hardness(material) is None or not can_harvest(material, stock):
         return False
-    steps.append({"kind": "mine", "target": list(cell)})
+    steps.append({"kind": "mine", "target": list(cell), **({"rubble": True} if rubble else {})})
     changed[cell] = "air"
     drop = BLOCKS.get(material, {}).get("drop")
-    if drop:
+    if drop and not rubble:
         stock[drop] = stock.get(drop, 0) + 1
     return True
 
@@ -88,6 +94,12 @@ def staircase(grid: Grid, here: Cell, heading: tuple[int, int], inventory: dict,
         headroom = (below[0], below[1] + 1, below[2])
         if not (open_up(grid, changed, headroom, stock, steps) and open_up(grid, changed, stair, stock, steps)):
             return None
+        open_up(grid, changed, (stair[0], stair[1] + 1, stair[2]), stock, steps)  # the next stair's headroom
+        open_up(grid, changed, (stair[0], stair[1] + 2, stair[2]), stock, steps, rubble=True)
+        side = (stair[0] - dz, stair[1], stair[2] + dx)
+        if is_solid(look(grid, changed, (side[0], side[1] - 1, side[2]))):
+            for dy in (0, 1, 2):
+                open_up(grid, changed, (side[0], side[1] + dy, side[2]), stock, steps, rubble=True)
         support = (stair[0], stair[1] - 1, stair[2])
         if not is_solid(look(grid, changed, support)):
             block = next((item for item in PLACEABLE if stock.get(item, 0) > 0), None)

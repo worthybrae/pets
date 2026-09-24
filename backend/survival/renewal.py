@@ -315,11 +315,12 @@ def pet_cell(state: dict) -> Cell:
 
 
 def kept_clear(db: sqlite3.Connection, state: dict, sapling: Cell) -> set[Cell]:
-    """Cells a tree grown from `sapling` must leave open: Mimo's cell and the one above its head,
-    and each home or shelter near enough for the canopy to reach, with the cell above it."""
+    """Cells a tree grown from `sapling` must leave open: Mimo's cell and the two above it, and each
+    home or shelter near enough for the canopy to reach, with the two cells above it (L3: Mimo's
+    passages, where it often finds a home, stand 3 tall)."""
     stands = [pet_cell(state)] + [cell_of(place) for place in places(db, SHELTER_KINDS, around=sapling,
                                                                      reach=CANOPY_REACH)]
-    return {(x, y + dy, z) for x, y, z in stands for dy in (0, 1)}
+    return {(x, y + dy, z) for x, y, z in stands for dy in (0, 1, 2)}
 
 
 def decay(state: dict, leaf: Cell, at: float, block: str = "leaves") -> None:

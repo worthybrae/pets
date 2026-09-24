@@ -47,6 +47,10 @@ def mine(x, y, z):
     return {"kind": "mine", "target": [x, y, z]}
 
 
+def rubble(x, y, z):
+    return {**mine(x, y, z), "rubble": True}
+
+
 def walk(x, y, z):
     return {"kind": "walk", "target": [x, y, z], "reach": 0.0}
 
@@ -79,8 +83,10 @@ class EscapeTests(unittest.TestCase):
 
     def test_digs_a_staircase_out_of_a_dirt_pit(self):
         self.assertEqual(escape_plan(pit(), (0, 1, 0), {}, "1"),
-                         [mine(1, 2, 0), walk(1, 2, 0), mine(1, 3, 0), mine(2, 3, 0), walk(2, 3, 0),
-                          mine(2, 4, 0), mine(3, 4, 0), walk(3, 4, 0), walk(4, 5, 0)])
+                         [mine(1, 2, 0), mine(1, 3, 0), rubble(1, 4, 0), rubble(1, 2, 1), rubble(1, 3, 1),
+                          rubble(1, 4, 1), walk(1, 2, 0),
+                          mine(2, 3, 0), mine(2, 4, 0), rubble(2, 3, 1), rubble(2, 4, 1), walk(2, 3, 0),
+                          mine(3, 4, 0), rubble(3, 4, 1), walk(3, 4, 0), walk(4, 5, 0)])
 
     def test_stone_walls_need_a_pickaxe(self):
         self.assertEqual(escape_plan(pit("stone"), (0, 1, 0), {}, "1"), [])
