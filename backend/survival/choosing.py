@@ -47,8 +47,11 @@ the goal ends is thrown away), and a new goal asks for the purpose again (goals.
 goal, a purpose that ended in the ordinary way is chosen again by the rules picker (`routine`): Jev
 speaks at the moments that matter (dawn, dusk, discoveries, new goals, vital crossings and the
 like), and the goal carries the day between them. A purpose that works toward a goal says so in its
-event, unless the goal moved on while its own choice was in flight (`store_choice` drops the stale
-"toward" rather than misname it).
+event: Mimo's own goal, or, meanwhile (resolution 8), the best other open goal with something on
+offer (goals.toward, pickers.steer). `store_choice` keeps that aim as long as the named goal is
+still one Mimo would work toward — registered, open and not penalized — and drops it only once the
+goal itself has ended; the fresh purpose id above already discards a choice whose own goal ended
+while it was in flight, so this is a backstop, not the main defense.
 """
 
 from __future__ import annotations
@@ -282,7 +285,7 @@ def apply_choice(state: dict, choice: Choice, now: float) -> None:
     state["last_thought"] = choice.thought
 
 
-def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> str | None:
+def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, scale: float = 1.0) -> str | None:
     """Save the choice unless the life died or the state moved on. Returns the purpose stored."""
     with world.transaction() as db:
         state = read_state(db)
@@ -307,13 +310,20 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> 
             if new_purpose or new_thought:
                 purpose = PURPOSES.get(choice.purpose)
                 phrase = purpose.phrase if purpose else choice.purpose.replace("_", " ")
-                # L4: a purpose that works toward a goal says which — unless the goal moved on while
-                # this choice was in flight (a stale "toward" would misname it): the choice itself
-                # still stands, just without the aim.
+                # L4: a purpose that works toward a goal says which: Mimo's own goal, or, meanwhile
+                # (resolution 8), the best other open goal with something on offer (goals.toward,
+                # pickers.steer). Backstop only: the fresh purpose id above already drops a choice
+                # whose own goal ended while it was in flight (round 1). This keeps the aim as long
+                # as the named goal is still one Mimo would work toward — registered, open and not
+                # just penalized — and drops it only once that goal itself has ended.
                 goal = next((option.goal for option in ask.options if option.name == choice.purpose), "")
-                current = GOALS.get((brain.get("goal") or {}).get("name"))
-                still_the_goal = goal and current is not None and current.title == goal
-                aim = f", toward {lower(goal)}" if still_the_goal else ""
+                aim = ""
+                if goal:
+                    named = next((candidate for candidate in GOALS.values() if candidate.title == goal), None)
+                    if named is not None:
+                        s = from_db(db, state, now, scale)
+                        if is_open(s, named) and not penalized(s, named.name):
+                            aim = f", toward {lower(goal)}"
                 log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}{aim}. "{choice.thought}"')
         write_state(db, state)
         return choice.purpose if fresh else None
@@ -488,10 +498,10 @@ class Chooser:
     def store(self, path: Path, ask: Ask, choice: Choice, now: float) -> str | None:
         if choice.error:
             log_once(logger, "picker", ModelError(choice.error))
+        scale = time_scale() if self.scale is None else self.scale
         if ask.kind == "goal":
-            scale = time_scale() if self.scale is None else self.scale
             return store_goal(SurvivalWorld(path), ask, choice, now, scale)
-        return store_choice(SurvivalWorld(path), ask, choice, now)
+        return store_choice(SurvivalWorld(path), ask, choice, now, scale)
 
     def close(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
