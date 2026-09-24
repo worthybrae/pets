@@ -38,6 +38,7 @@ import logging
 
 from backend.survival import cooking, farming, foraging, toolmaking, work  # noqa: F401  (they register their purposes)
 from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's building purposes)
+from backend.survival.creatures import hunting  # noqa: F401  (L1's hunt purpose)
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape

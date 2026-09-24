@@ -11,7 +11,7 @@ backend.survival.toolmaking registers craft_tools; M4's backend.survival.foragin
 forage and fish, backend.survival.farming farm, and backend.survival.cooking cook.
 M5's backend.survival.building registers build_shelter, backend.survival.storage build_storage
 and drop_items, backend.survival.lighting light_up and backend.survival.farmstead build_farm.
-backend.survival.brain imports them all.
+L1's backend.survival.creatures.hunting registers hunt. backend.survival.brain imports them all.
 
 Scores fall in bands, so a new purpose fits in with the others. These are the real ranges before
 the utility picker's random nudge (0 to 6) and its 30-point penalty for a purpose that just
@@ -35,6 +35,8 @@ dusk:
   72 in the evening at home, so the torches go up before sleep; build_storage 50-70, rising as
   Mimo's arms fill (55 to take food out); drop_items 30-78, from leisure into needs as the arms
   fill; build_farm 45-55, minus late.
+- L1's hunt sits in the needs band with forage and fish: 25-88, rising with the food Mimo lacks and
+  with hunger, 5 more or less with bravery, minus late.
 """
 
 from __future__ import annotations

@@ -1,0 +1,102 @@
+"""hunt: chase an animal down for its meat (spec L1, "Hunting").
+
+hunt picks the nearest huntable animal within 32 blocks (a passive land animal, not one within 4
+blocks of where a step just failed) and keeps after that one: each batch either attacks it, when
+it is within the attack's 2.5 blocks, or walks (all the way or not at all) to where its last move
+ends, at most 40 batches. It is done when the animal is dead or has fled out of range. A hit
+animal runs off (backend.survival.creatures.combat), and animals near a hunting Mimo flee now and
+then (backend.survival.creatures.acts), so a hunt is a chase: hit, run after it, hit again.
+
+It is day work, offered while an animal is in range and Mimo lacks food (foraging.food_need), or
+has not killed anything for a game day (`state["hunted_at"]`), so a well-fed pet still hunts now
+and then for hides, wool and feathers but never empties the land. It scores like the other food
+work (foraging.hunger_score: higher the less food Mimo carries and the hungrier it is, minus the
+late-day penalty) from a base of 30, and bold pets hunt a little more: bravery above 50 adds up to
+5, below 50 takes up to 5 off. There is no kindness or gentleness trait, so nothing makes a pet
+hunt less for being kind.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from backend.survival.clock import DAY_SECONDS
+from backend.survival.creatures.combat import ATTACK_REACH
+from backend.survival.creatures.kinds import huntable, kind_of
+from backend.survival.creatures.moves import where
+from backend.survival.creatures.table import cell_of, dead
+from backend.survival.foraging import food_need, food_points, hunger_score, whole_walk
+from backend.survival.purposes import Purpose, register
+from backend.survival.senses import near_failure
+from backend.survival.situation import Situation
+from backend.survival.steps import label
+
+if TYPE_CHECKING:
+    from backend.survival.actions import ActionContext
+
+HUNT_SIGHT = 32.0
+CHASE_REACH = 2.0  # a chase walk ends this close to where the animal's move ends
+HUNT_BATCHES = 40
+BASE = 30.0
+
+
+def prey(s: Situation) -> list[dict]:
+    """Huntable animals within 32 blocks, nearest first, leaving out any near a failed step."""
+    def look() -> list[dict]:
+        herd = s.grid.herd
+        if herd is None:
+            return []
+        x, _, z = s.here
+        found = [creature for creature in herd.near(x, z, HUNT_SIGHT) if not dead(creature)
+                 and huntable(kind_of(creature["kind"])) and not near_failure(s.state, where(creature, s.at))]
+        return sorted(found, key=lambda creature: (s.distance(where(creature, s.at)), creature["id"]))
+    return s.sensed("prey", look)
+
+
+def quarry(s: Situation) -> dict | None:
+    """The animal this hunt is after: the nearest prey when the hunt starts, then the same one while
+    it lives and stays in range."""
+    found = prey(s)
+    if s.brain["batches"] == 0 and s.brain["replans"] == 0:
+        return found[0] if found else None
+    chased = s.brain.get("prey")
+    return next((creature for creature in found if creature["id"] == chased), None)
+
+
+def hunted_lately(s: Situation) -> bool:
+    """Mimo killed an animal less than a game day ago."""
+    hunted_at = s.state.get("hunted_at")
+    return hunted_at is not None and (s.at - hunted_at) * s.scale < DAY_SECONDS
+
+
+def hunt_valid(s: Situation) -> bool:
+    return not s.night and (food_need(s) > 0 or not hunted_lately(s)) and bool(prey(s))
+
+
+def hunt_facts(s: Situation) -> str:
+    nearest = prey(s)[0]
+    return (f"{len(prey(s))} animals within {round(HUNT_SIGHT)} blocks, the nearest a {label(nearest['kind'])} "
+            f"{round(s.distance(where(nearest, s.at)))} blocks away; carrying {round(food_points(s))} hunger of food")
+
+
+def hunt_score(s: Situation) -> float:
+    return hunger_score(s, BASE) + (s.trait("bravery") - 50.0) / 10
+
+
+def plan_hunt(s: Situation, context: ActionContext) -> list[dict]:
+    if s.night or s.brain["batches"] >= HUNT_BATCHES:
+        return []
+    target = quarry(s)
+    s.brain["prey"] = None if target is None else target["id"]
+    if target is None:
+        return []
+    there = where(target, s.at)
+    if s.distance(there) <= ATTACK_REACH:
+        return [{"kind": "attack", "creature": target["id"], "target": list(there)}]
+    return [whole_walk(cell_of(target), CHASE_REACH)]
+
+
+register(Purpose(
+    "hunt", "hunt", "Chase down an animal nearby for its meat, and hides, wool or feathers.",
+    valid=hunt_valid, facts=hunt_facts, score=hunt_score, plan=plan_hunt,
+    thoughts=("I could catch something to eat.", "Meat would fill me up.")))

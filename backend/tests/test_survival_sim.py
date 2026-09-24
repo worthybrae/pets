@@ -37,7 +37,9 @@ SAMPLE = 30.0  # game seconds between reachability checks
 # fish, farm, cook, eat) and from M5 building (a shelter in a few goes, furnishing it, storage,
 # dropping junk, a farm, torches), each a change of purpose and a change back.
 # Slow-mode seeds reached 46 at baseline; the higher limit here catches real 58-116/hour floods.
-PURPOSE_EVENTS_PER_HOUR = 55 if SLOW else 46
+# L1 adds a hunt, cooking its meat, putting away hides, wool and feathers, and swords (with all
+# of L1, seeds 3, 11, 5 and 21 and both pickers reached 47, and 52 in slow mode).
+PURPOSE_EVENTS_PER_HOUR = 55 if SLOW else 52
 TRAPPED_AT_MOST = 180.0  # game seconds
 
 

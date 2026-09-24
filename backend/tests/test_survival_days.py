@@ -74,6 +74,20 @@ class LivingDaysTests(unittest.TestCase):
         self.assertTrue(lit)
         self.assertTrue(any(state.get("chests", {}).values()))
 
+    def test_left_alone_mimo_hunts_an_animal_and_cooks_its_meat(self):
+        chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
+        for second in range(1, 4 * 60 + 1):
+            state = tick_life(self.registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
+            self.assertIsNone(state["died_at"], state["cause"])
+            chooser.poll(self.registry, BORN + second)
+        events = self.world.events(5000)
+        hunts = [event["text"] for event in events if event["kind"] == "hunt"]
+        cooked = [event["text"] for event in events if event["kind"] == "cook"]
+        self.assertTrue(hunts, "Mimo never hunted")
+        self.assertTrue(any(f"raw {meat}" in text for text in cooked for meat in ("beef", "mutton", "chicken", "rabbit")),
+                        cooked)
+        self.assertNotIn("hunt", [event["kind"] for event in notable(events)])
+
 
 if __name__ == "__main__":
     unittest.main()
