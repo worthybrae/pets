@@ -55,7 +55,8 @@ KEEP = {"cobblestone": 16, "planks": 16, "oak_log": 8, "sticks": 8, "coal": 8, "
 # plants Mimo happens to break are put away.
 KEEP.update({"birch_log": 8, "spruce_log": 8, "birch_planks": 16, "spruce_planks": 16, "stone_bricks": 16,
              "pumpkin": 0, "melon": 0, "cactus": 0, "sugar_cane": 0, "gold_ore": 3, "gold_ingot": 3,
-             "iron_ore": 16, "iron_ingot": 16})  # iron armor takes 13 ingots: keep them on hand
+             "iron_ore": 16, "iron_ingot": 16,  # iron armor takes 13 ingots: keep them on hand
+             "creature_seed": 0})  # seeds wait in the chest for the pen (backend.survival.pens)
 FLOWERS = ("flower_orange", "flower_pink", "flower_yellow")
 LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
 # With full arms and no chest to use, what goes after LEAST_USEFUL, each only when nothing before it

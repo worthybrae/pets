@@ -258,7 +258,7 @@ class TreeTests(unittest.TestCase):
                 chop(ctx.grid)
                 renew(state, ctx, 0.0)
                 renew(state, ctx, 60.0)
-        self.assertEqual(near["inventory"], {"sapling": 26, "apple": 26})
+        self.assertEqual(near["inventory"], {"sapling": 26, "apple": 26, "creature_seed": 26})  # L3's seeds
         self.assertEqual((far["inventory"], len(far["decays"])), ({}, 24))
 
     def test_a_sapling_grows_into_a_tree_after_a_game_day(self):

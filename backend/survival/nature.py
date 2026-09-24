@@ -38,6 +38,12 @@ CHANCE_DROPS = {"tall_grass": (("seeds", 0.2, 30), ("carrot", 0.05, 31)),
 # L3: birch and spruce leaves decay like oak's and drop saplings too, but no apples.
 LEAVES = ("leaves", "birch_leaves", "spruce_leaves")
 CHANCE_DROPS.update({leaf: (("sapling", 1 / 12, 32),) for leaf in LEAVES[1:]})
+# L3: a creature seed, 1 in 60, from tall grass and every kind of leaves; planted on grass it is a
+# sprout that grows into an animal (backend.survival.creatures.seeds).
+for _block in ("tall_grass", *LEAVES):
+    CHANCE_DROPS[_block] = (*CHANCE_DROPS[_block], ("creature_seed", 1 / 60, 91))
+SEEDS["creature_seed"] = "creature_sprout"
+SOIL["creature_sprout"] = ("grass",)
 
 
 def roll(seed: str, cell: Cell, channel: int, salt: int = 0) -> float:

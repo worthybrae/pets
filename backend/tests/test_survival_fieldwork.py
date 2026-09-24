@@ -44,8 +44,8 @@ class NatureTests(unittest.TestCase):
 
     def test_chance_drops_follow_the_roll(self):
         with patch("backend.survival.nature.roll", lambda *args: 0.0):
-            self.assertEqual(nature.chance_drops("7", (0, 1, 0), "leaves"), ["sapling", "apple"])
-            self.assertEqual(nature.chance_drops("7", (0, 1, 0), "tall_grass"), ["seeds", "carrot"])
+            self.assertEqual(nature.chance_drops("7", (0, 1, 0), "leaves"), ["sapling", "apple", "creature_seed"])
+            self.assertEqual(nature.chance_drops("7", (0, 1, 0), "tall_grass"), ["seeds", "carrot", "creature_seed"])
             self.assertEqual(nature.chance_drops("7", (0, 1, 0), "stone"), [])
         with patch("backend.survival.nature.roll", lambda *args: 0.1):
             self.assertEqual(nature.chance_drops("7", (0, 1, 0), "tall_grass"), ["seeds"])
@@ -180,7 +180,7 @@ class ChanceDropTests(unittest.TestCase):
         with patch("backend.survival.nature.roll", lambda *args: 0.0):
             run({"kind": "mine", "target": [1, 1, 0]}, state, grid)
             run({"kind": "mine", "target": [0, 1, 1]}, state, grid)
-        self.assertEqual(state["inventory"], {"sapling": 1, "apple": 1, "seeds": 1, "carrot": 1})
+        self.assertEqual(state["inventory"], {"sapling": 1, "apple": 1, "seeds": 1, "carrot": 1, "creature_seed": 2})
         state = pet()
         with patch("backend.survival.nature.roll", lambda *args: 0.99):
             run({"kind": "mine", "target": [1, 1, 0]}, state, meadow({(1, 1, 0): "leaves"}))

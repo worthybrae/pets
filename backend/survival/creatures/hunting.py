@@ -48,7 +48,8 @@ def prey(s: Situation) -> list[dict]:
             return []
         x, _, z = s.here
         found = [creature for creature in herd.near(x, z, HUNT_SIGHT) if not dead(creature)
-                 and huntable(kind_of(creature["kind"])) and not near_failure(s.state, where(creature, s.at))]
+                 and huntable(kind_of(creature["kind"])) and not creature["state"].get("tame")
+                 and not near_failure(s.state, where(creature, s.at))]
         return sorted(found, key=lambda creature: (s.distance(where(creature, s.at)), creature["id"]))
     return s.sensed("prey", look)
 

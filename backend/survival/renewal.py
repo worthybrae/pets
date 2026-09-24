@@ -35,6 +35,8 @@ from __future__ import annotations
 import logging
 import math
 import sqlite3
+from dataclasses import dataclass
+from typing import Callable
 
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import LOGS, add_item
@@ -71,6 +73,29 @@ FOREST_FLOOR = ("grass", "moss")
 NEIGHBOURS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 Entry = tuple[Cell, str, float]
+
+
+@dataclass(frozen=True)
+class Grower:
+    """How a planted block grows by a rule of its own (L3's creature sprouts): the growth table's
+    entry for it (`marker`), the game seconds it takes, and `grow(db, grid, state, cell, ready_at,
+    scale, events)`, which makes it happen or schedules it again."""
+
+    marker: str
+    seconds: float
+    grow: Callable
+
+
+GROWERS: dict[str, Grower] = {}  # planted block -> its Grower
+
+
+def register_grower(block: str, grower: Grower) -> Grower:
+    GROWERS[block] = grower
+    return grower
+
+
+def grower_of(marker: str) -> Grower | None:
+    return next((grower for grower in GROWERS.values() if grower.marker == marker), None)
 
 
 def create_growth_table(db: sqlite3.Connection) -> None:
@@ -258,7 +283,9 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
                 schedule(db, leaf, "air", later(at, decay_seconds(seed, leaf, at), scale), keep_earlier=True)
         if before in nature.MUSHROOMS and after == "air":
             respawn_mushroom(db, grid, seed, cell, before, at, scale, chosen)
-        if after == "sapling":
+        if after in GROWERS:
+            schedule(db, cell, GROWERS[after].marker, later(at, GROWERS[after].seconds, scale))
+        elif after == "sapling":
             schedule(db, cell, LOG, later(at, SAPLING_GROWS, scale))
         elif after == "berry_bush":
             schedule(db, cell, "berry_bush_ripe", later(at, BERRY_REGROW, scale))
@@ -307,6 +334,8 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
         if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR and not grid.claimed(cell)
                 and mushrooms_in_chunk(grid, seed, (x // CHUNK, z // CHUNK)) < MUSHROOM_CAP):
             grid.put(*cell, block)
+    elif grower_of(block) is not None:
+        grower_of(block).grow(db, grid, state, cell, ready_at, scale, events)
 
 
 def pet_cell(state: dict) -> Cell:
@@ -387,3 +416,7 @@ def renew(state: dict, context, at: float) -> None:
     finally:
         grid.take_changes()  # renewal's own writes need no reaction
     nature.recover_fish(state, at, scale)
+
+
+# L3: creature sprouts register their Grower; imported last because they build on everything above.
+from backend.survival.creatures import seeds  # noqa: E402,F401
