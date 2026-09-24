@@ -334,8 +334,8 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
         if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR and not grid.claimed(cell)
                 and mushrooms_in_chunk(grid, seed, (x // CHUNK, z // CHUNK)) < MUSHROOM_CAP):
             grid.put(*cell, block)
-    elif grower_of(block) is not None:
-        grower_of(block).grow(db, grid, state, cell, ready_at, scale, events)
+    elif (grower := grower_of(block)) is not None:
+        grower.grow(db, grid, state, cell, ready_at, scale, events)
 
 
 def pet_cell(state: dict) -> Cell:

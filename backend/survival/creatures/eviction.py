@@ -4,7 +4,9 @@ Creatures never step into a cell something Mimo built claims (creatures.moves.st
 but one can be standing in one already: a rabbit that wandered onto the site before the walls
 went up. When a shelter's door goes in (building.note_building), every creature inside the
 shelter's claimed cells is put out just beyond the cell in front of the door, so the shelter is
-Mimo's alone from then on; with nowhere to stand out there it is removed.
+Mimo's alone from then on; with nowhere to stand out there it is removed -- unless it is tame
+(L3's creatures/seeds.hatch): resolution 24 has it stay where it grew, so it is never deleted,
+only moved when there is somewhere to put it and left in place otherwise (fix round 1, item 5).
 """
 
 from __future__ import annotations
@@ -33,7 +35,8 @@ def outside(grid: Grid, blueprint: Blueprint) -> Cell | None:
 
 
 def evict(grid: Grid, blueprint: Blueprint) -> list[dict]:
-    """Put every living creature standing in a cell the shelter claims outside it. Returns them."""
+    """Put every living creature standing in a cell the shelter claims outside it. A tame one is
+    never removed: with nowhere to put it, it is left where it is. Returns the ones moved."""
     herd = grid.herd
     if herd is None:
         return []
@@ -44,7 +47,8 @@ def evict(grid: Grid, blueprint: Blueprint) -> list[dict]:
         if dead(creature) or not grid.claimed(cell_of(creature)):
             continue
         if out is None:
-            herd.remove(creature["id"])
+            if not creature["state"].get("tame"):
+                herd.remove(creature["id"])
             continue
         creature["x"], creature["y"], creature["z"] = map(float, out)
         creature["state"].update(path=None, pose="idle", home=list(out))
