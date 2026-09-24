@@ -20,6 +20,11 @@ claims, with its part and block, so damage can be found and diggers leave it alo
 (backend.survival.structures). When a shelter is done, `set_home` moves home into it, noted
 "built" (BUILT); the old home is remembered as a shelter.
 
+Where Mimo has been: `memory_explored` counts the visits to each 8x8-block patch of ground
+(rx = x // 8, rz = z // 8) and keeps the time of the last one. The brain marks the patches along
+every walk or swim and the patch Mimo stands in after any other step (backend.survival.exploring);
+explore heads for the patches it has seen least, and the viewer's minimap greys out the rest.
+
 A new life's world starts with empty tables: that is what "fresh start" wipes.
 """
 
@@ -41,6 +46,7 @@ SAME_PLACE: dict[str, tuple[float, tuple[str, ...]]] = {
     "farm": (16.0, ("farm",)),
 }
 PLACE_COLUMNS = ("kind", "x", "y", "z", "note", "found_at", "visited_at", "data")
+PATCH = 8  # explored ground is remembered in patches of 8x8 blocks
 
 
 def create_memory_tables(db: sqlite3.Connection) -> None:
@@ -64,6 +70,8 @@ def create_memory_tables(db: sqlite3.Connection) -> None:
                "z INTEGER NOT NULL, structure INTEGER NOT NULL, part TEXT NOT NULL, block TEXT NOT NULL, "
                "PRIMARY KEY (x, y, z))")
     db.execute("CREATE INDEX IF NOT EXISTS structure_cells_by_column ON structure_cells(x, z)")
+    db.execute("CREATE TABLE IF NOT EXISTS memory_explored (rx INTEGER NOT NULL, rz INTEGER NOT NULL, "
+               "visits INTEGER NOT NULL, last_at REAL NOT NULL, PRIMARY KEY (rx, rz))")
 
 
 def places(db: sqlite3.Connection, kinds: tuple[str, ...] | None = None, around: Cell | None = None,
@@ -158,6 +166,47 @@ def known(db: sqlite3.Connection, fact: str) -> list[str]:
     """Every subject Mimo learned is `fact`, first learned first."""
     return [row[0] for row in db.execute("SELECT subject FROM memory_knowledge WHERE fact=? "
                                          "ORDER BY learned_at, subject", (fact,)).fetchall()]
+
+
+# Where Mimo has been ---------------------------------------------------------------------------
+
+Patch = tuple[int, int]
+
+
+def patch_of(x: int, z: int) -> Patch:
+    """The 8x8 patch of ground a column lies in."""
+    return x // PATCH, z // PATCH
+
+
+def mark_explored(db: sqlite3.Connection, patches, at: float) -> list[Patch]:
+    """Count a visit to each distinct patch now (visits + 1, last_at = at): one upsert each.
+    Returns the patches visited for the first time, in the order given."""
+    distinct = list(dict.fromkeys(patches))
+    if not distinct:
+        return []
+    xs, zs = [rx for rx, _ in distinct], [rz for _, rz in distinct]
+    seen = {tuple(row) for row in db.execute(
+        "SELECT rx, rz FROM memory_explored WHERE rx BETWEEN ? AND ? AND rz BETWEEN ? AND ?",
+        (min(xs), max(xs), min(zs), max(zs))).fetchall()}
+    db.executemany("INSERT INTO memory_explored(rx, rz, visits, last_at) VALUES (?, ?, 1, ?) "
+                   "ON CONFLICT(rx, rz) DO UPDATE SET visits = visits + 1, last_at = excluded.last_at",
+                   [(rx, rz, at) for rx, rz in distinct])
+    return [patch for patch in distinct if patch not in seen]
+
+
+def explored(db: sqlite3.Connection, around: Cell, reach: float) -> dict[Patch, tuple[int, float]]:
+    """{(rx, rz): (visits, last_at)} for the visited patches in the square of `reach` blocks around
+    a cell. A world read before its schema update (an archive) has explored nothing."""
+    low_x, low_z = patch_of(math.floor(around[0] - reach), math.floor(around[2] - reach))
+    high_x, high_z = patch_of(math.ceil(around[0] + reach), math.ceil(around[2] + reach))
+    try:
+        rows = db.execute("SELECT rx, rz, visits, last_at FROM memory_explored "
+                          "WHERE rx BETWEEN ? AND ? AND rz BETWEEN ? AND ?", (low_x, high_x, low_z, high_z)).fetchall()
+    except sqlite3.OperationalError as error:
+        if "no such table" not in str(error):
+            raise
+        return {}
+    return {(row[0], row[1]): (row[2], row[3]) for row in rows}
 
 
 def cell_of(place: dict) -> Cell:

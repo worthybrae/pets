@@ -13,7 +13,7 @@ from backend.survival.reflexes import reflex_hook
 from backend.survival.situation import in_tick
 from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
-from backend.survival.memory import create_memory_tables, known, known_recipes, places, remember
+from backend.survival.memory import create_memory_tables, explored, known, known_recipes, places, remember
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, Purpose, register
 from backend.survival.registry import LifeRegistry
@@ -210,6 +210,24 @@ class NoticeAndObserveTests(unittest.TestCase):
         observe_step(state, {"kind": "walk", "path": path}, ctx, 6.0)
         self.assertEqual(ctx.events[-1][1:], ("discovered", "Pip found water."))
         self.assertEqual(state["brain"]["found"], ["coal_ore", "water"])
+
+    def test_walks_and_swims_mark_their_patches_and_other_steps_the_patch_mimo_stands_in(self):
+        state = pet(position={"x": 19.0, "y": 1.0, "z": 0.0})
+        ensure_brain(state)["pending"] = None
+        ctx = brainy()
+        self.assertIsNone(state["brain"]["new_ground_at"])
+        walk = [{"x": x, "y": 1, "z": 0, "at": 1.0 + x / 10} for x in range(20)]
+        observe_step(state, {"kind": "walk", "path": walk}, ctx, 3.0)
+        self.assertEqual(explored(ctx.db, (0, 1, 0), 64), {(0, 0): (1, 3.0), (1, 0): (1, 3.0), (2, 0): (1, 3.0)})
+        self.assertEqual(state["brain"]["new_ground_at"], 3.0)
+        swim = [{"x": 19, "y": 1, "z": z, "at": 4.0 + z, "swim": True} for z in range(10)]
+        state["position"] = {"x": 19.0, "y": 1.0, "z": 9.0}
+        observe_step(state, {"kind": "swim", "path": swim}, ctx, 14.0)
+        self.assertEqual(explored(ctx.db, (20, 1, 9), 3), {(2, 0): (2, 14.0), (2, 1): (1, 14.0)})
+        observe_step(state, {"kind": "mine", "target": {"x": 20, "y": 1, "z": 9}, "block": "dirt"}, ctx, 15.0)
+        observe_step(state, {"kind": "craft", "recipe": "planks"}, ctx, 16.0)
+        self.assertEqual(explored(ctx.db, (19, 1, 9), 4)[(2, 1)], (3, 16.0))
+        self.assertEqual(state["brain"]["new_ground_at"], 14.0)  # no new patch since the swim
 
 
 class DuskTests(unittest.TestCase):

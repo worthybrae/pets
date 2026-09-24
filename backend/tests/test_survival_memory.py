@@ -5,7 +5,8 @@ from pathlib import Path
 
 from backend.survival import world as world_module
 from backend.survival.memory import (
-    create_memory_tables, forget, know, known, known_recipes, learn, nearest, places, remember, update_place, visit,
+    create_memory_tables, explored, forget, know, known, known_recipes, learn, mark_explored, nearest, patch_of,
+    places, remember, update_place, visit,
 )
 from backend.survival.triggers import crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
 from backend.survival.world import SurvivalWorld, new_survival_state, read_state, write_state
@@ -85,6 +86,22 @@ class MemoryTests(unittest.TestCase):
         self.assertFalse(know(db, "red_mushroom", "poisonous", 2.0))
         self.assertEqual((known(db, "poisonous"), known(db, "tasty")), (["red_mushroom"], []))
 
+    def test_patches_are_eight_by_eight_blocks(self):
+        self.assertEqual([patch_of(x, z) for x, z in ((0, 0), (7, 7), (8, -1), (-8, -9), (3690, 4145))],
+                         [(0, 0), (0, 0), (1, -1), (-1, -2), (461, 518)])
+
+    def test_explored_patches_count_visits_and_the_last_one(self):
+        db = memory_db()
+        self.assertEqual(mark_explored(db, [(0, 0), (1, 0), (0, 0), (1, 0)], 5.0), [(0, 0), (1, 0)])
+        self.assertEqual(mark_explored(db, [(1, 0), (2, 0)], 9.0), [(2, 0)])
+        self.assertEqual(mark_explored(db, [], 10.0), [])
+        self.assertEqual(explored(db, (4, 0, 4), 64), {(0, 0): (1, 5.0), (1, 0): (2, 9.0), (2, 0): (1, 9.0)})
+
+    def test_explored_patches_are_read_in_a_box_around_a_cell(self):
+        db = memory_db()
+        mark_explored(db, [(0, 0), (12, 0), (13, 0), (-12, -12), (0, -13)], 1.0)
+        self.assertEqual(sorted(explored(db, (4, 5, 4), 96)), [(-12, -12), (0, 0), (12, 0)])
+
 
 
 class WorldMemoryTests(unittest.TestCase):
@@ -101,6 +118,19 @@ class WorldMemoryTests(unittest.TestCase):
         with self.world.connect() as db:
             self.assertEqual(places(db), [])
             self.assertEqual(known_recipes(db), [])
+            self.assertEqual(explored(db, (SPAWN["x"], 5, SPAWN["z"]), 1000), {})
+
+    def test_worlds_from_before_explored_memory_get_its_table_once(self):
+        with self.world.connect() as db:
+            db.execute("DROP TABLE memory_explored")
+            self.assertEqual(explored(db, (0, 0, 0), 64), {})  # a world without the table explored nothing
+        world_module._schema_ready.discard(self.path.resolve())
+        with SurvivalWorld(self.path).transaction() as db:
+            mark_explored(db, [(3, 4)], 7.0)
+            create_memory_tables(db)  # again: changes nothing
+            create_memory_tables(db)
+        with self.world.connect() as db:
+            self.assertEqual(explored(db, (24, 0, 32), 16), {(3, 4): (1, 7.0)})
 
     def test_worlds_from_before_m3_get_the_memory_tables(self):
         with self.world.connect() as db:

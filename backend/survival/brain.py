@@ -22,10 +22,11 @@ steps when no purpose is left). head_home ends the purpose instead, so the choic
 made at home.
 
 `observe_step` hears about finished steps: ores around a mined block, recipes learned, water swum
-in, places visited, M4's lessons (backend.survival.learning: poisonous food, food patches,
-fires and farms) and M5's (building.note_building: finished structures, planted trees, full
-arms, torches). `notice_step` runs after each vitals step: vital crossings (urgent), dawn and
-dusk, a game hour since the last choice, and shelter (the first sheltered spot becomes home).
+in, places visited, the ground walked (backend.survival.exploring), M4's lessons
+(backend.survival.learning: poisonous food, food patches, fires and farms) and M5's
+(building.note_building: finished structures, planted trees, full arms, torches). `notice_step`
+runs after each vitals step: vital crossings (urgent), dawn and dusk, a game hour since the last
+choice, and shelter (the first sheltered spot becomes home).
 First sightings (home, each ore material, water) are discoveries and ask for a new choice.
 """
 
@@ -38,6 +39,7 @@ from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's b
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
+from backend.survival.exploring import note_ground
 from backend.survival.learning import learn_from_step
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
@@ -188,6 +190,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
         if water is not None and remember(db, "water", as_cell(water), at):
             discover(state, context, at, "water", "discovered", f"{name} found water.")
         visit(db, as_cell(state["position"]), at)
+    note_ground(state, step, context, at)
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
 
