@@ -4,8 +4,9 @@ From 5 game minutes before dusk until nightfall, at the shelter it built, Mimo p
 each outside corner the design marked (up to four) that is still dark, making torches from coal
 and sticks (1 coal and 1 stick make 4) when it carries none. Torches glow at night in the viewer
 and each one lifts Mimo's mood a little (building.note_building); in sub-project 3 they will keep
-creatures away. A mushroom or sapling on a corner is mined first (structures.clearing). The walks to the corners go all the way or not at all, and head_home leaves
-light_up alone, since it keeps Mimo at home.
+creatures away. A mushroom or sapling on a corner is mined first (structures.clearing). The
+walks to the corners go all the way or not at all, and head_home leaves light_up alone, since it
+keeps Mimo at home.
 """
 
 from __future__ import annotations
