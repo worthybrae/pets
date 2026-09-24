@@ -41,7 +41,8 @@ def steps(grid: Grid, cell: Cell, water: bool, height: int = 1) -> list[Cell]:
         near = [(x + dx, y + dy, z + dz) for dx, dy, dz in WATER_SIDES]
         return [step for step in near if grid.water(step) and (trapped or not grid.claimed(step))]
     return [step for step in moves(grid, cell) if not grid.swimming(step) and (trapped or not grid.claimed(step))
-            and past_doors(grid, cell, step) and has_room(grid, cell, step, height)]
+            and past_doors(grid, cell, step) and past_fixtures(grid, cell, step)
+            and has_room(grid, cell, step, height)]
 
 
 def has_room(grid: Grid, start: Cell, step: Cell, height: int) -> bool:
@@ -61,6 +62,19 @@ def past_doors(grid: Grid, start: Cell, step: Cell) -> bool:
     """L2: a door is solid to creatures (Mimo walks through it): neither the cell a move ends in nor
     the cell it passes on the way (the level cell of a drop) may hold one."""
     return all(grid.material(*cell) != "door" for cell in (step, (step[0], start[1], step[2])))
+
+
+FIXTURES = ("fence", "ladder")
+
+
+def past_fixtures(grid: Grid, start: Cell, step: Cell) -> bool:
+    """L3: no creature climbs (a ladder's straight up or down), steps into a fence or a ladder or
+    through one on the way (the level cell of a drop), or onto one: a fence ring holds the animals in
+    a pen and keeps wild ones out, and a ladder shaft is Mimo's alone, as a door is (past_doors)."""
+    if (step[0], step[2]) == (start[0], start[2]):
+        return False
+    cells = (step, (step[0], start[1], step[2]), (step[0], step[1] - 1, step[2]))
+    return all(grid.material(*cell) not in FIXTURES for cell in cells)
 
 
 def timed(start: Cell, cells: list[Cell], at: float, seconds: float) -> list[dict]:

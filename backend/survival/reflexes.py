@@ -45,7 +45,7 @@ from backend.survival.grid import Cell, Grid, supports
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
-from backend.survival.purposes import AT_HOME, HOME_RANGE, HOMEWARD, foods, home_of, meal, walk_to
+from backend.survival.purposes import AT_HOME, HOME_RANGE, HOMEWARD, foods, home_of, land_refuge, meal, walk_to
 from backend.survival.senses import near_failure
 from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
@@ -341,7 +341,12 @@ register(Reflex("head_home", 60, trigger=head_home_due,
 
 def plan_collapse(s: Situation, context: ActionContext) -> list[dict]:
     """Lie down in a bed within 8 blocks, else where Mimo stands. After a walk to the bed the sleep
-    is kept (`keep`): when the walk fails, Mimo still sleeps where the walk left it."""
+    is kept (`keep`): when the walk fails, Mimo still sleeps where the walk left it. L3 (L2's review):
+    afloat, Mimo first swims for land (purposes.land_refuge), as sleep and rest do, and lies down
+    once there; when that swim fails, the sleep is not kept, so it never lies down afloat."""
+    refuge = land_refuge(s)
+    if refuge is not None:
+        return [refuge, {"kind": "sleep"}]
     walk = to_bed(s)
     return [*walk, {"kind": "sleep", "keep": True} if walk else {"kind": "sleep"}]
 

@@ -3,7 +3,8 @@
 A cell's light is the brighter of its sky light and its block light, from 0 (pitch dark) to 15.
 - Sky light is 15 by day (dawn, day and dusk) and 4 at night for a cell open to the sky, and 0
   for a covered one. A cell is open to the sky when nothing solid stands in the column over it
-  up to SKY_SCAN cells above the natural ground (leaves let the sky through): a cave, a tunnel
+  up to SKY_SCAN cells above the natural ground (any leaves let the sky through: blocks.is_canopy;
+  L3: SKY_SCAN clears the highest tree or rock the generator stands on a column): a cave, a tunnel
   and the inside of a roofed shelter are covered, a pit Mimo dug is not (`sky_open`).
 - Block light comes from placed torches (14), lanterns (15), campfires (13) and furnaces (13) and
   fades by one level per block of Manhattan distance, walls or not. It is worked out on demand
@@ -14,8 +15,8 @@ yard safe; a kind that burns does so under the open sky by day (backend.survival
 
 from __future__ import annotations
 
-from backend.services.blocks import is_solid
-from backend.services.worldgen import terrain_height
+from backend.services.blocks import CANOPY, is_solid
+from backend.services.worldgen import FEATURE_TOP, LAVA_LEVEL, lava_in_chunk, terrain_height
 from backend.survival.grid import Cell, Grid
 
 SKY_DAY = 15
@@ -23,8 +24,11 @@ SKY_NIGHT = 4
 DARK = 7  # hostiles spawn only where the light is this or less
 BLOCK_LIGHT = {"torch": 14, "lantern": 15, "campfire": 13, "furnace": 13}
 LIGHT_REACH = max(BLOCK_LIGHT.values())  # the farthest any block light carries
-SKY_SCAN = 8  # cells over the natural ground (or the cell, when it is higher) that can cover a cell
-SEE_THROUGH = ("leaves",)
+# Cells over the natural ground (or the cell, when it is higher) that can cover a cell: 8, and in any
+# case more than the highest tree or rock the generator makes (L3).
+SKY_SCAN = max(8, FEATURE_TOP + 1)
+SEE_THROUGH = CANOPY  # L3: every kind of leaves, by the registry's `canopy`
+LAVA_LIGHT = 15  # L3: lava the generator made lights the cave round it
 
 
 def sky_open(grid: Grid, seed: str, cell: Cell) -> bool:
@@ -48,20 +52,40 @@ class Lights:
     """The light blocks placed within `reach` blocks of a spot (plus how far light carries), looked
     up once, so the block light of every cell near the spot costs no further reads."""
 
-    def __init__(self, grid: Grid, center: Cell, reach: float):
+    def __init__(self, grid: Grid, center: Cell, reach: float, seed: str | None = None):
         x, _, z = center
+        self.grid, self.seed = grid, seed  # L3: with the seed, lava the generator made lights too
         self.sources = [(cell, BLOCK_LIGHT[material])
                         for cell, material in grid.placed_cells(x, z, reach + LIGHT_REACH, tuple(BLOCK_LIGHT))]
 
     def at(self, cell: Cell) -> int:
         """The block light at `cell`: the brightest source less its Manhattan distance, at least 0."""
         x, y, z = cell
-        return max([level - abs(x - sx) - abs(y - sy) - abs(z - sz) for (sx, sy, sz), level in self.sources] + [0])
+        level = max([level - abs(x - sx) - abs(y - sy) - abs(z - sz) for (sx, sy, sz), level in self.sources] + [0])
+        return max(level, lava_light(self.grid, self.seed, cell)) if self.seed is not None else level
+
+
+def lava_light(grid: Grid, seed: str, cell: Cell) -> int:
+    """L3: the light at `cell` from lava the generator made (worldgen.lava_in_chunk) that is still
+    there, LAVA_LIGHT less its Manhattan distance, at least 0. Lava lies only at LAVA_LEVEL, so a cell
+    LAVA_LIGHT or more above it costs nothing, and the chunks are generated once."""
+    x, y, z = cell
+    reach = LAVA_LIGHT - abs(y - LAVA_LEVEL)
+    best = 0
+    if reach <= 0:
+        return best
+    for cx in range((x - reach) // 16, (x + reach) // 16 + 1):
+        for cz in range((z - reach) // 16, (z + reach) // 16 + 1):
+            for lx, ly, lz in lava_in_chunk(cx, cz, seed):
+                level = LAVA_LIGHT - abs(x - lx) - abs(y - ly) - abs(z - lz)
+                if level > best and grid.material(lx, ly, lz) == "lava":
+                    best = level
+    return best
 
 
 def light_at(grid: Grid, seed: str, cell: Cell, night: bool, lights: Lights | None = None) -> int:
     """The light level of `cell`: the brighter of sky light and block light."""
-    lights = lights if lights is not None else Lights(grid, cell, 0)
+    lights = lights if lights is not None else Lights(grid, cell, 0, seed)
     return max(sky_light(grid, seed, cell, night), lights.at(cell))
 
 

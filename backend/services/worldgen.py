@@ -70,6 +70,8 @@ MOUTH_TRIES = 6  # spots a region tries for a hillside mouth
 OUTCROP_GROUND = 8  # outcrops crown ground at least this high
 BOULDERS = {"desert": "sandstone", "meadow": "andesite", "alpine": "stone"}  # else mossy cobblestone
 OUTCROPS = {"desert": "sandstone", "taiga": "andesite", "birch_forest": "diorite", "alpine": "granite"}  # else stone
+ROCK_TOP = 3  # the highest an outcrop's pillar stands over its ground (a boulder is lower)
+FEATURE_TOP = max(CANOPY_TOP, ROCK_TOP)  # the highest anything generated stands over a column's ground
 EMPTY_SPANS: Mapping[tuple[int, int], tuple[int, int]] = types.MappingProxyType({})
 
 
@@ -227,6 +229,14 @@ def cave_fill(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     if y == LAVA_LEVEL and noise2(x, z, 32, seed, 28) > 0.25:
         return "lava"
     return "air"
+
+
+@lru_cache(maxsize=4096)
+def lava_in_chunk(cx: int, cz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[tuple[int, int, int], ...]:
+    """The lava cells the generator makes in a 16x16 chunk (all at LAVA_LEVEL), for the light they give
+    (backend.survival.light). Python only: the viewer draws lava glowing without it."""
+    return tuple((x, LAVA_LEVEL, z) for x in range(cx * 16, cx * 16 + 16) for z in range(cz * 16, cz * 16 + 16)
+                 if noise2(x, z, 32, seed, 28) > 0.25 and terrain_block(x, LAVA_LEVEL, z, seed) == "lava")
 
 
 def gravel_floor(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:

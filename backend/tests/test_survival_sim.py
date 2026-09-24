@@ -39,7 +39,12 @@ SAMPLE = 30.0  # game seconds between reachability checks
 # Slow-mode seeds reached 46 at baseline; the higher limit here catches real 58-116/hour floods.
 # L1 adds a hunt, cooking its meat, putting away hides, wool and feathers, and swords (with all
 # of L1, seeds 3, 11, 5 and 21 and both pickers reached 47, and 52 in slow mode).
-PURPOSE_EVENTS_PER_HOUR = 55 if SLOW else 52
+# L3 adds pens, creature seeds and flint, more kinds to carry (birch and spruce wood, gold, the
+# seeds), wider passages and hostiles near Mimo however deep it digs. With all of L3 the busiest
+# hours reached 46, and 54 to 58 in slow mode as L2's last fixes landed, where seed 11's Jev pet
+# goes two days without a chest: its arms stay full, and it swings between digging stone and
+# dropping the loose blocks.
+PURPOSE_EVENTS_PER_HOUR = 60 if SLOW else 52
 TRAPPED_AT_MOST = 180.0  # game seconds
 
 

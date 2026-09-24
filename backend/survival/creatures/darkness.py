@@ -4,7 +4,7 @@ Once every SPAWN_EVERY game seconds (at most once a creature-hook call), while f
 HOSTILE_CAP hostiles are alive (counted in the table, not from what one call loaded; they are all
 near Mimo, see below), the dark gets one chance to bring one near it:
 up to SPAWN_TRIES columns 16 to 40 blocks from Mimo (rolled from the world seed and the time) are
-searched from just over the natural ground down SCAN_DEPTH cells, and no more than SPAWN_RISE
+searched from just over the natural ground down, however deep Mimo is (L3), but no more than SPAWN_RISE
 cells above or below Mimo, for a cell where a creature can stand (dry, empty, room above it, not
 on leaves), that nothing Mimo built claims (so never inside its shelter) and whose light is 7 or
 less (backend.survival.light): they come out near where Mimo is, on the ground or in a cave
@@ -27,7 +27,7 @@ import json
 import math
 import sqlite3
 
-from backend.services.blocks import is_replaceable
+from backend.services.blocks import CANOPY, is_replaceable
 from backend.services.worldgen import terrain_height
 from backend.survival.creatures import hostiles  # noqa: F401  (registers the hostile kinds and their actions)
 from backend.survival.creatures.acts import Scene
@@ -45,11 +45,10 @@ SPAWN_FAR = 40.0
 DESPAWN_REACH = 64.0
 SPAWN_EVERY = 30.0  # game seconds between two chances of a spawn
 SPAWN_TRIES = 4  # columns one chance looks at
-SCAN_DEPTH = 24  # cells a column is searched down from just over its natural ground
-SPAWN_RISE = 8  # cells above or below Mimo a spawn may be
+SPAWN_RISE = 8  # cells above or below Mimo a spawn may be (L3: the only bound on how deep)
 SKITTER_SHARE = 0.6  # of the hostiles spawning in covered places
 FIRST_TURN = 1.0  # server seconds before a new hostile's first turn
-UNDERFOOT = ("leaves",)
+UNDERFOOT = CANOPY  # L3: no kind of leaves is ground to come out on
 # Roll channels.
 ANGLE, DISTANCE, KIND = 110, 111, 112
 
@@ -95,7 +94,7 @@ def spots(grid: Grid, seed: str, x: int, z: int, level: int) -> list[Cell]:
     it, and claimed by nothing Mimo built."""
     top = terrain_height(x, z, seed) + 2
     found = []
-    for y in range(min(top, level + SPAWN_RISE), max(top - SCAN_DEPTH, level - SPAWN_RISE - 1), -1):
+    for y in range(min(top, level + SPAWN_RISE), level - SPAWN_RISE - 1, -1):
         cell = (x, y, z)
         if (is_replaceable(grid.material(*cell)) and grid.standable(cell) and not grid.swimming(cell)
                 and grid.passable((x, y + 1, z)) and grid.material(x, y - 1, z) not in UNDERFOOT
@@ -140,7 +139,7 @@ def spawn_hostiles(scene: Scene) -> list[dict]:
         if math.hypot(cx - x, cz - z) < SPAWN_NEAR:
             continue
         for cell in spots(scene.grid, scene.seed, cx, cz, y):
-            lights = lights or Lights(scene.grid, scene.pet, SPAWN_FAR)
+            lights = lights or Lights(scene.grid, scene.pet, SPAWN_FAR, scene.seed)
             sky = sky_light(scene.grid, scene.seed, cell, scene.night)
             if max(sky, lights.at(cell)) > DARK:
                 continue

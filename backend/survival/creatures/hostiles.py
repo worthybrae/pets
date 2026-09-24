@@ -24,6 +24,10 @@ in the registry and act through the creature-action registry, ahead of the anima
   (a room or passage cell) like `strike` does, not every claimed cell. The first to come after
   Mimo outside its shelter raises the alarm: an urgent "threat" choice and event, at most one
   every 5 game minutes, so a model picker (Jev) can react at once.
+- L3 (L2's review): a chaser loses interest once the chase has gone BORED game seconds since it
+  began, its last blow or Mimo's last blow on it, or once Mimo has been out of its sight
+  (`in_sight`) for SIGHT_LOST game seconds; it then leaves Mimo be for BORED_REST game seconds
+  unless Mimo hurts it (`lost_interest`), so a flight from it ends as well.
 - prowl (25): otherwise it gives up the chase and wanders near where it spawned, or stands. One
   that has not come after Mimo for LOITER game seconds fades away, so the few hostiles about are
   the ones Mimo has to deal with, and new ones can come out where it is.
@@ -55,6 +59,9 @@ ALARM_GAP = 300.0  # game seconds between two "threat" choices
 WAIT = (0.5, 1.5)  # seconds a chaser that cannot get closer waits before it looks again
 CHASE_RISE = 4  # blocks above or below Mimo a hostile may be to come after it
 LOITER = 120.0  # game seconds a hostile stays about without coming after Mimo
+BORED = 45.0  # L3: game seconds of chasing without a blow after which a hostile loses interest
+SIGHT_LOST = 5.0  # L3: game seconds Mimo may be out of a chaser's sight before it loses interest
+BORED_REST = 60.0  # L3: game seconds a hostile that lost interest leaves Mimo be
 
 register_kind(Kind("gloomling", health=20.0, speed=0.9, size=1.7, hostile=True, damage=3.0, reach=1.5,
                    drops={"gloom_dust": (0, 2)}, flee_when_hurt=False, cooldown=1.2, burns=True, height=2))
@@ -127,6 +134,32 @@ register_action(CreatureAction("strike", 4, strikes, strike_pet))
 
 # chase -----------------------------------------------------------------------------------------
 
+def in_sight(grid: Grid, cell: Cell, target: Cell) -> bool:
+    """L3: nothing solid on the line from a hostile to Mimo, checked every half block (as
+    creatures.defense.clear_line checks a fight's line)."""
+    samples = max(1, int(math.dist(cell, target) * 2))
+    for index in range(1, samples):
+        point = tuple(round(a + (b - a) * index / samples) for a, b in zip(cell, target))
+        if point not in (cell, target) and grid.solid(point):
+            return False
+    return True
+
+
+def lost_interest(state: dict, scene: Scene) -> bool:
+    """L3: the hostile is leaving Mimo be after a chase it gave up (BORED_REST game seconds, unless
+    Mimo hurt it since), or its chase has run BORED game seconds since it began, its last blow or
+    Mimo's last blow on it, or Mimo has been out of its sight for SIGHT_LOST game seconds."""
+    at, hurt = scene.at, state.get("hurt_at", -math.inf)
+    bored_at = state.get("bored_at")
+    if bored_at is not None and hurt < bored_at and (at - bored_at) * scene.scale <= BORED_REST:
+        return True
+    if not state.get("chasing"):
+        return False
+    since = max(state.get("chase_since", -math.inf), state.get("struck_at", -math.inf), hurt)
+    since = at if since == -math.inf else since
+    return (at - since) * scene.scale > BORED or (at - state.get("seen_at", at)) * scene.scale > SIGHT_LOST
+
+
 def chases(creature: dict, kind: Kind, scene: Scene) -> bool:
     if not kind.hostile or not pet_alive(scene.state):
         return False
@@ -135,6 +168,8 @@ def chases(creature: dict, kind: Kind, scene: Scene) -> bool:
     if abs(here[1] - scene.pet[1]) > CHASE_RISE:
         return False
     state = creature["state"]
+    if lost_interest(state, scene):
+        return False
     roused = state.get("chasing") or scene.at - state.get("hurt_at", -math.inf) <= ROUSED / scene.pace
     return distance <= CHASE_SIGHT or (bool(roused) and distance <= GIVE_UP)
 
@@ -173,8 +208,10 @@ def chase(creature: dict, kind: Kind, scene: Scene) -> None:
     state = creature["state"]
     state["active_at"] = scene.at
     if not state.get("chasing"):
-        state["chasing"] = True
+        state.update(chasing=True, chase_since=scene.at)  # L3: when this chase began
         alarm(scene, kind)
+    if in_sight(scene.grid, where(creature, scene.at), scene.pet):
+        state["seen_at"] = scene.at  # L3
     target = scene.pet
     cell, cells = where(creature, scene.at), []
     for _ in range(CHASE_STEPS):
@@ -203,6 +240,8 @@ register_action(CreatureAction("chase", 6, chases, chase))
 # prowl -----------------------------------------------------------------------------------------
 
 def prowl(creature: dict, kind: Kind, scene: Scene) -> None:
+    if creature["state"].get("chasing") and lost_interest(creature["state"], scene):
+        creature["state"]["bored_at"] = scene.at  # L3: it lost interest, and leaves Mimo be a while
     creature["state"]["chasing"] = False
     if (scene.at - creature["state"].get("active_at", creature["spawned_at"])) * scene.scale > LOITER:
         vanish(creature, scene)

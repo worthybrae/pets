@@ -15,7 +15,8 @@ _REGISTRY = json.loads(REGISTRY_PATH.read_text())
 TILES: dict[str, dict] = _REGISTRY["tiles"]
 BLOCK_LIST: list[dict] = _REGISTRY["blocks"]
 BLOCK_IDS: dict[str, int] = {block["name"]: index for index, block in enumerate(BLOCK_LIST)}
-_RENDER_KEYS = {"name", "textures", "layer", "solid", "replaceable", "shape"}
+# Keys that are not crafting properties: how a block is drawn, and (L3) `canopy`, read by is_canopy.
+_RENDER_KEYS = {"name", "textures", "layer", "solid", "replaceable", "shape", "canopy"}
 
 # Gameplay properties keyed by name, in the shape crafting.BLOCKS has always had.
 BLOCK_PROPERTIES: dict[str, dict] = {
@@ -42,6 +43,15 @@ TALL = frozenset(block["name"] for block in BLOCK_LIST if block.get("tall"))
 def is_tall(material: str) -> bool:
     """True for blocks too tall to stand on or step over (the registry's `tall`: fences, L3)."""
     return material in TALL
+
+
+CANOPY = frozenset(block["name"] for block in BLOCK_LIST if block.get("canopy"))
+
+
+def is_canopy(material: str) -> bool:
+    """True for every kind of leaves (the registry's `canopy`): the sky shines through them and no
+    creature comes out on them (backend.survival.light, backend.survival.creatures.darkness)."""
+    return material in CANOPY
 
 
 def is_solid(material: str) -> bool:
