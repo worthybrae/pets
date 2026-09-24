@@ -32,20 +32,23 @@ After each tick the worker calls `Chooser.poll`. When the active life has a pend
 While a choice is pending, the brain keeps Mimo on its current plan, or waiting.
 
 L4: goals. When the tick asks for a goal (backend.survival.goals: with none, at dawn, or when one
-was reached or given up), `poll` answers that first. `prepare_goal` offers the open goals with
-their facts and rules scores (goals.offers). Jev chooses when it is configured, more than one goal
-is on offer and neither the daily cap nor its hourly budget is spent; a goal call counts toward
-both, but it does not start the 60-second gap before the next model call, so the purpose choice
-that follows a goal may still go to Jev. Otherwise the rules picker takes the best score (the
-current goal keeps its lead). Luna never chooses goals. A rules answer is stored at once and the
-purpose choice follows in the same poll; `store_goal` saves a goal unless the ask went stale or the
-goal it names has since been set aside or closed (reach_goal and give_up_goal give a pending ask a
-fresh id, so an answer still in flight when the goal ends is thrown away), and a new goal asks for
-the purpose again (goals.adopt_goal). With a goal, a purpose that ended in the ordinary way is
-chosen again by the rules picker (`routine`): Jev speaks at the moments that matter (dawn, dusk,
-discoveries, new goals, vital crossings and the like), and the goal carries the day between them. A
-purpose that works toward a goal says so in its event, unless the goal moved on while its own
-choice was in flight (`store_choice` drops the stale "toward" rather than misname it).
+was reached or given up), `poll` answers that first — unless the pending purpose choice is urgent
+(a vital crossing), which goes first instead, so a goal call on Jev, in the background for up to
+35 s, never delays it. `prepare_goal` offers the open goals with their facts and rules scores
+(goals.offers) and why Jev is asked now (`goal_trigger`, from goal_due's own reasons, not the
+purpose's). Jev chooses when it is configured, more than one goal is on offer and neither the daily
+cap nor its hourly budget is spent; a goal call counts toward both, but it does not start the
+60-second gap before the next model call, so the purpose choice that follows a goal may still go to
+Jev. Otherwise the rules picker takes the best score (the current goal keeps its lead). Luna never
+chooses goals. A rules answer is stored at once and the purpose choice follows in the same poll;
+`store_goal` saves a goal unless the ask went stale or the goal it names has since been set aside or
+closed (reach_goal and give_up_goal give a pending ask a fresh id, so an answer still in flight when
+the goal ends is thrown away), and a new goal asks for the purpose again (goals.adopt_goal). With a
+goal, a purpose that ended in the ordinary way is chosen again by the rules picker (`routine`): Jev
+speaks at the moments that matter (dawn, dusk, discoveries, new goals, vital crossings and the
+like), and the goal carries the day between them. A purpose that works toward a goal says so in its
+event, unless the goal moved on while its own choice was in flight (`store_choice` drops the stale
+"toward" rather than misname it).
 """
 
 from __future__ import annotations
@@ -176,6 +179,17 @@ def reflect_for(brain: dict, route: str, now: float, env: Env) -> bool:
     counters = calls_today(brain, now)
     luna_after_pick = counters["luna"] + (1 if route == "luna" else 0)
     return counters["reflections"] < REFLECTION_CAP and luna_after_pick < cap(env, LUNA_CAP)
+
+
+def urgent_pending(world: SurvivalWorld) -> bool:
+    """Whether the pending purpose choice, if any, is urgent (a vital crossing): an urgent choice
+    goes first in `Chooser.poll`, so a slow goal call on Jev never delays it by its own 35 s."""
+    with world.connect() as db:
+        state = read_state(db)
+        if state["died_at"] is not None:
+            return False
+        pending = ensure_brain(state)["pending"]
+    return bool(pending and pending["urgent"])
 
 
 def prepare(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | None:
@@ -315,6 +329,16 @@ def goal_route(brain: dict, now: float, env: Env, game_at: float, offered: int) 
     return "jev"
 
 
+# {reason: word} for the goal payload's goal_trigger: why Jev is asked to choose a goal now, since
+# context_payload's own "trigger" holds the purpose's reasons, not goal_due's.
+GOAL_TRIGGER_WORDS = {"dawn": "dawn", "reached": "reached", "given_up": "set aside", "no_goal": "none open"}
+
+
+def goal_trigger(reasons: list[str]) -> str:
+    """The first of `reasons` (goal_due's) with a word in GOAL_TRIGGER_WORDS, or ""."""
+    return next((GOAL_TRIGGER_WORDS[reason] for reason in reasons if reason in GOAL_TRIGGER_WORDS), "")
+
+
 def prepare_goal(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | None:
     """A read-only snapshot of the goal choice the tick asked for (L4), or None when none is due.
     With no goal open the ask is answered at once: no goal, and the tick asks again later."""
@@ -330,7 +354,8 @@ def prepare_goal(world: SurvivalWorld, now: float, scale: float, env: Env) -> As
         s = from_db(db, state, now, scale)
         found = offers(s)
         choices = tuple(Option(goal.name, goal.title, goal.why, facts, score) for goal, facts, score in found)
-        payload = {**context_payload(s, recent_events(db, EVENTS_SHOWN)), "goals_reached": reached_titles(s)}
+        payload = {**context_payload(s, recent_events(db, EVENTS_SHOWN)), "goals_reached": reached_titles(s),
+                  "goal_trigger": goal_trigger(due["reasons"])}
     game_at = max(0.0, now - state["born_at"]) * scale
     ask = Ask(due["id"], goal_route(brain, now, env, game_at, len(choices)), False, choices, payload, now, game_at,
               kind="goal")
@@ -410,7 +435,11 @@ class Chooser:
         self.asked: tuple[Path, Ask] | None = None
 
     def poll(self, registry: LifeRegistry, now: float | None = None) -> str | None:
-        """Store a finished answer, or start answering a new pending choice. Returns the purpose stored."""
+        """Store a finished answer, or start answering a new pending choice: a goal choice first
+        (its rules answer settled at once, so the purpose choice can follow in the same poll), then
+        the purpose. Returns the name stored: a purpose, or (a goal answered) the goal's name. An
+        urgent purpose choice (a vital crossing) goes first instead: a slow goal call on Jev, in the
+        background for up to 35 s, must never hold it up."""
         now = time.time() if now is None else now
         if self.future is not None:
             return self.collect(now)
@@ -419,11 +448,12 @@ class Chooser:
             return None
         path = registry.world_path(life)
         scale = time_scale() if self.scale is None else self.scale
-        ask = prepare_goal(SurvivalWorld(path, read_only=True), now, scale, self.env)
+        world = SurvivalWorld(path, read_only=True)
+        ask = None if urgent_pending(world) else prepare_goal(world, now, scale, self.env)
         if ask is not None and ask.route == "utility":
             self.store(path, ask, decide(ask, self.env, self.http, self.rng), now)
             ask = None
-        ask = ask or prepare(SurvivalWorld(path, read_only=True), now, scale, self.env)
+        ask = ask or prepare(world, now, scale, self.env)
         if ask is None:
             return None
         if ask.route == "utility":

@@ -12,13 +12,13 @@ from backend.survival.goals import (
 )
 from backend.survival.hatch import hatch
 from backend.survival.memory import know
-from backend.survival.models import GOAL_INSTRUCTIONS, ask_jev
+from backend.survival.models import GOAL_INSTRUCTIONS, ModelError, ask_jev
 from backend.survival.once import forget_logged
 from backend.survival.pickers import Option
 from backend.survival.registry import LifeRegistry
 from backend.survival.triggers import ensure_brain, mark_trigger
 from backend.survival.world import SurvivalWorld, read_state, write_state
-from backend.tests.test_survival_choosing import JEV_URL, FakeHttp
+from backend.tests.test_survival_choosing import JEV_URL, FakeHttp, HeldExecutor
 from backend.tests.test_survival_goals import LATER, WOOD, goal_situation, only_goals
 
 BORN = 1_000_000.0
@@ -85,6 +85,18 @@ class GoalChoiceTests(unittest.TestCase):
         self.assertEqual((brain["calls"]["model"], len(brain["jev_calls"]), brain["last_call_at"]), (1, 1, None))
         self.assertEqual(self.world.events(1)[0]["text"], f'{self.name} set a new goal: later. "Some day."')
 
+    def test_the_goal_payload_says_why_it_is_asked(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            self.assertEqual(self.ask(JEV).payload["goal_trigger"], "none open")
+
+            def dawn_only(state):
+                goal_state(state).update(goal_due=None)  # a fresh ask: dawn alone, not "no_goal" too
+                adopt_goal(state, "later", "jev", "Some day.", BORN)
+                ask_for_goal(state, "dawn", BORN + 1)
+            self.edit(dawn_only)
+            self.assertEqual(self.ask(JEV).payload["goal_trigger"], "dawn")
+
     def test_jev_is_asked_the_goal_question(self):
         http = Recorder({"answers": {"goal": {"choice": "later"}}})
         choices = [Option("woodpile", "A woodpile", "Wood.", "0% done", 70.0),
@@ -103,12 +115,97 @@ class GoalChoiceTests(unittest.TestCase):
         self.assertEqual(purpose, brain["purpose"])
         self.assertIsNotNone(purpose)
 
+    def test_the_daily_cap_sends_the_goal_choice_to_utility(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            self.assertEqual(self.ask({**JEV, "MIMO_MAX_DECISIONS_PER_DAY": "0"}).route, "utility")
+
+    def test_the_hourly_jev_budget_sends_the_goal_choice_to_utility(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            sixty = [5.0 - index for index in range(60)]  # 60 goal-game seconds before game_at (~5.0)
+            self.edit(lambda state: ensure_brain(state).update(jev_calls=sixty))
+            self.assertEqual(self.ask(JEV).route, "utility")  # the default budget (60) is spent
+            self.edit(lambda state: ensure_brain(state).update(jev_calls=sixty[1:]))  # one below the cap
+            self.assertEqual(self.ask(JEV).route, "jev")
+
+    def test_a_failed_jev_goal_call_falls_back_to_the_rules_and_still_counts(self):
+        forget_logged()
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            http = FakeHttp({JEV_URL: ModelError("request failed: down")})
+            chooser = Chooser(env=JEV, http=http, executor=InlineExecutor(), rng=random.Random(1), scale=1.0)
+            with self.assertLogs("backend.survival.choosing", level="ERROR") as logs:
+                stored = chooser.poll(self.registry, BORN + 5)
+            self.assertEqual(len(logs.output), 1)
+            self.assertIn(stored, ("woodpile", "later"))
+        brain = self.brain()
+        self.assertEqual((brain["goal"]["picker"], brain["calls"]["model"], len(brain["jev_calls"])),
+                         ("utility", 1, 1))
+
+    def test_a_goal_jev_did_not_offer_falls_back_to_the_rules_and_still_counts(self):
+        forget_logged()
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            http = FakeHttp({JEV_URL: {"answers": {"goal": {"choice": "nonexistent"}}}})
+            chooser = Chooser(env=JEV, http=http, executor=InlineExecutor(), rng=random.Random(1), scale=1.0)
+            with self.assertLogs("backend.survival.choosing", level="ERROR") as logs:
+                stored = chooser.poll(self.registry, BORN + 5)
+            self.assertEqual(len(logs.output), 1)
+            self.assertIn(stored, ("woodpile", "later"))
+        brain = self.brain()
+        self.assertEqual((brain["goal"]["picker"], brain["calls"]["model"], len(brain["jev_calls"])),
+                         ("utility", 1, 1))
+
+    def test_a_hung_jev_goal_call_is_given_up_after_35_s_and_the_rules_answer_is_stored(self):
+        forget_logged()
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            stuck, fresh = HeldExecutor(), []
+
+            def new_executor():
+                fresh.append(InlineExecutor())
+                return fresh[-1]
+
+            http = FakeHttp({JEV_URL: {"answers": {"goal": {"choice": "later"}}}})
+            chooser = Chooser(env=JEV, http=http, executor=stuck, rng=random.Random(1), scale=1.0,
+                              executor_factory=new_executor)
+            self.assertIsNone(chooser.poll(self.registry, BORN + 1))
+            self.assertIsNone(chooser.poll(self.registry, BORN + 1 + 34))  # under the 35 s deadline
+            with self.assertLogs("backend.survival.choosing", level="ERROR") as logs:
+                self.assertIsNotNone(chooser.poll(self.registry, BORN + 1 + 35.5))
+            self.assertEqual(len(logs.output), 1)
+        brain = self.brain()
+        self.assertEqual((brain["goal"]["picker"], brain["calls"]["model"], len(brain["jev_calls"])),
+                         ("utility", 1, 1))
+        self.assertEqual((stuck.shut, len(fresh)), (True, 1))
+
+    def test_an_urgent_purpose_choice_goes_first_not_a_slow_goal_call(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            self.edit(lambda state: ensure_brain(state).update(
+                pending={"id": 50, "reasons": ["hunger_15"], "since": BORN, "urgent": True}))
+            held = HeldExecutor()
+            http = FakeHttp({JEV_URL: {"answers": {"purpose": {"choice": "rest"}, "goal": {"choice": "later"}}}})
+            chooser = Chooser(env=JEV, http=http, executor=held, rng=random.Random(1), scale=1.0)
+            self.assertIsNone(chooser.poll(self.registry, BORN + 5))
+        self.assertEqual(len(held.held), 1)
+        self.assertEqual(held.held[0][2][0].kind, "purpose")  # the urgent purpose goes first, not the goal
+        self.assertIsNotNone(self.brain()["goal_due"])  # the goal ask still waits
+
     def test_a_goal_that_repeats_is_always_among_the_offers(self):
         many = [Goal(f"g{n}", f"G{n}", "", WOOD.milestones, score=lambda s, n=n: 60.0 + n, thought="") for n in range(5)]
         again = Goal("again", "Again", "", WOOD.milestones, score=lambda s: 1.0, thought="", repeat=True)
         with only_goals(*many, again):
             names = [goal.name for goal, _, _ in offers(goal_situation())]
         self.assertEqual(names, ["g4", "g3", "g2", "again"])  # L4's discovery goals are always on offer
+
+    def test_a_tie_in_score_is_broken_by_name_not_registration_order(self):
+        first = Goal("aaa", "First", "", WOOD.milestones, score=lambda s: 40.0, thought="")
+        second = Goal("bbb", "Second", "", WOOD.milestones, score=lambda s: 40.0, thought="")
+        with only_goals(second, first):  # registered in reverse name order
+            names = [goal.name for goal, _, _ in offers(goal_situation())]
+        self.assertEqual(names, ["aaa", "bbb"])
 
     def test_a_single_open_goal_is_taken_without_a_model_call(self):
         with only_goals(WOOD):
