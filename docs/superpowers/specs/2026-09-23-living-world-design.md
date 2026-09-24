@@ -36,7 +36,7 @@ Each milestone gets its own plan, is built task by task with a review of every t
 | L1 | Animals | Creature system (table, kinds registry, spawning, the tick, API stream, viewer models and animations). Passive rabbit, sheep, cow and chicken, plus fish in water. Hunting with a hand or sword, meat and hides, cooked meats, and wool, feathers and leather. |
 | L2 | Danger and combat | Gloomling and skitter; light levels and dark spawning; attack, flee and burn at dawn; Mimo's health regen and damage; the melee attack and bow shoot steps with arrows in the viewer; swords, bow, arrows and leather armor; fight and flee reflexes; doors; death by creature; threats in the model payload; HUD danger cues. |
 | L3 | Bigger world | New blocks, trees, ores and biomes (taiga, swamp, birch forest). Surface boulders, outcrops and cave entrances. Bigger caves, underground lakes and deep lava. Mimo digs 2-wide, 3-tall passages. Gold and diamond tiers, iron armor, lanterns, ladders and fences. Creature seeds. Python/TS worldgen parity for all of it. |
-| L4 | Purposeful life | The goal layer, goal choice by Jev or rules, goal progress, and purposes weighted by the active goal. A daily plan at dawn. The HUD goal line and memorial goals. Purposeful exploring (every trip has a reason). Fewer aimless loops. |
+| L4 | Purposeful life | Curiosity, discovery goals, a knowledge journal and expeditions (the owner's "more curious"). The goal layer, goal choice by Jev or rules, goal progress, and purposes weighted by the active goal. A daily plan at dawn. The HUD goal line and memorial goals. Purposeful exploring (every trip has a reason). Fewer aimless loops. |
 | L5 | Frontier | Danger and riches grow with distance from home: danger rings, tougher hostiles and one new hostile farther out, better drops, frontier ruins with loot chests, gloom dust put to use, and Mimo weighing risk against reward. |
 
 ## L1 Animals (detail)
@@ -176,6 +176,35 @@ The owner also asked for work to continue all day. As before, the controller mak
 - **A trip ends early on a find.** Mimo remembers the find as a place or landmark to come back to, and the next purpose follows up on it.
 - **The reason is visible.** It shows in the thought, the event, the HUD and the Jev payload. Example thought: "Heading north to look for iron. My pickaxe needs it."
 - **Rules pick the reason when Jev isn't used.** A headless check counts explores without a reason, and that count must be 0.
+
+## L4 addition: a curious pet (owner, 2026-09-24 midday)
+
+After watching the pet run until day 17, the owner said:
+
+> "it seems like its getting content with a small house and a daily routine I want it to be more curious and constantly exploring and trying to undestand the world"
+
+- **Curiosity drive.** Curiosity is a new inner value from 0 to 100.
+  - It grows each game hour Mimo spends on ground it already knows, and faster once its needs are met.
+  - Discoveries lower it. A discovery is a new patch, biome, kind of block, kind of creature, or landmark.
+  - High curiosity lifts the exploring purposes into the work band, and it steers goal choice toward discovery goals.
+  - The Jev payload carries it as a feeling, for example "I'm restless; I haven't seen anything new in two days".
+- **Discovery goals are always on offer.** Examples: "see the taiga", "reach the bottom of the sinkhole", "follow the river", "meet a new creature" and "map the far hills".
+  - Once Mimo's needs are met, the day plan sets time aside for curiosity, so the routine breaks.
+  - A bigger or better home (L4's "better home" goal) also stops Mimo settling for its first hut.
+- **Understanding the world: a knowledge journal.**
+  - The first time Mimo meets a new block, plant, creature, biome or landmark, that is a discovery. Mimo investigates it: it walks up, looks, and takes a sample (mines one, watches it, or hunts it).
+  - It then records a fact from a rules table of what each thing teaches. Examples: "gravel sometimes hides flint", "skitters come out of caves at night", "lava lights up caves".
+  - Knowledge unlocks behaviour, so learning has a purpose. Mimo digs gravel for flint only once it has learned that gravel hides flint. It goes after gold only once it has seen gold ore.
+  - Jev may phrase the journal line, since the calls are cheap. It is never called inside the tick or in tests.
+- **Expeditions.** When curiosity is high and Mimo's needs are met, it can take an expedition goal.
+  - It packs food and torches.
+  - It travels past its explored range for one or two game days.
+  - At night it camps with a campfire and a small hut or dug-in shelter, lit by torches.
+  - It maps and samples as it goes, then comes home with its finds.
+  - Camps are remembered as outposts.
+- **Viewer.** A curiosity bar sits with the vitals. A journal panel shows "What Pebble has learned". The HUD gets an expedition line.
+- **Tests.** Once a home exists, each game day in a headless run brings at least one discovery. This sits alongside L4's churn check and its "no exploring without a reason" count.
+- **Plans.** If L4 grows too big, it splits in two: L4a covers goals, the day plan, purposeful exploring, curiosity and discovery goals; L4b covers the knowledge journal and expeditions.
 
 ## L5 Frontier (outline; detailed in its plan)
 
