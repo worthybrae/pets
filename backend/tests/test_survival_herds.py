@@ -14,7 +14,7 @@ from backend.survival.creatures.acts import Scene
 from backend.survival.creatures.kinds import KINDS
 from backend.survival.creatures.simulate import DEAD_KEEP, MAX_ACTS, simulate
 from backend.survival.creatures.spawning import (
-    FISH_PER_REGION, NEW_CHUNKS, PASSIVE_CAP, SIM_REACH, chunks_near, herd_count, plan_herd, populate,
+    FISH_CAP, FISH_PER_REGION, LAND_CAP, NEW_CHUNKS, SIM_REACH, chunks_near, herd_count, plan_herd, populate,
 )
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
 from backend.survival.grid import Grid, world_grid
@@ -85,18 +85,18 @@ class SpawnTests(unittest.TestCase):
         self.assertTrue(added)
         noted = creatures.chunks((-9, -9), (9, 9))
         self.assertEqual(len(noted), NEW_CHUNKS)  # the rest wait for the next call
-        self.assertLessEqual(len(added), PASSIVE_CAP)
+        self.assertLessEqual(len(added), LAND_CAP)
         for _ in range(10):
             added += populate(Scene(grid, creatures, "1", state, 10.0), creatures.near(8, 8, SIM_REACH), 1.0)
         self.assertEqual(set(creatures.chunks((-9, -9), (9, 9))), set(chunks_near(8, 8, SIM_REACH)))
-        self.assertEqual(len(creatures.near(8, 8, SIM_REACH)), PASSIVE_CAP)
+        self.assertEqual(len(creatures.near(8, 8, SIM_REACH)), LAND_CAP)
         for creature in added:
             self.assertEqual(creature["state"]["home"], list(cell_of(creature)))
             self.assertTrue(grid.standable(cell_of(creature)))
             self.assertEqual(creature["health"], KINDS[creature["kind"]].health)
         self.assertEqual(populate(Scene(grid, creatures, "1", state, 11.0), creatures.near(8, 8, SIM_REACH), 1.0), [])
 
-    def test_a_school_of_fish_spawns_in_natural_water_and_a_region_holds_at_most_six(self):
+    def test_a_school_of_fish_spawns_in_natural_water_and_at_most_eight_near_mimo_six_to_a_region(self):
         with patch("backend.survival.creatures.spawning.SEA_LEVEL", 0), \
                 patch("backend.survival.creatures.spawning.terrain_height", lambda x, z, seed: -1):
             lake = {(x, z) for x in range(-40, 60) for z in range(-40, 60)}
@@ -112,6 +112,26 @@ class SpawnTests(unittest.TestCase):
             key = (int(creature["x"]) // 16, int(creature["z"]) // 16)
             regions[key] = regions.get(key, 0) + 1
         self.assertLessEqual(max(regions.values()), FISH_PER_REGION)
+        self.assertLessEqual(len([creature for creature in fish if math.hypot(creature["x"] - 8, creature["z"] - 8)
+                                  <= SIM_REACH]), FISH_CAP)
+
+    def school(self, creatures, count):
+        """`count` fish in a pond east of Mimo, all within 48 blocks of it."""
+        return [creatures.add("fish", (30 + number % 6, 0, number // 6), 2.0, 0.0, 0.0, {"home": [30, 0, 0]})
+                for number in range(count)]
+
+    def test_fish_have_their_own_cap_so_herds_still_come_to_a_lakeside(self):
+        pond = {(x, z) for x in range(30, 36) for z in range(0, 5)}
+        grid, creatures = flat(pond), herd()
+        fish = self.school(creatures, 3 * FISH_CAP)
+        added = populate(Scene(grid, creatures, "1", pet(), 10.0), fish, 1.0)
+        self.assertTrue(added)
+        self.assertTrue(all(creature["kind"] != "fish" for creature in added))
+        for _ in range(10):
+            populate(Scene(grid, creatures, "1", pet(), 10.0), creatures.near(8, 8, SIM_REACH), 1.0)
+        near = creatures.near(8, 8, SIM_REACH)
+        self.assertEqual(len([creature for creature in near if creature["kind"] != "fish"]), LAND_CAP)
+        self.assertEqual(len([creature for creature in near if creature["kind"] == "fish"]), 3 * FISH_CAP)
 
     def test_a_chunk_whose_animals_were_all_hunted_gets_a_herd_back_after_three_game_days(self):
         grid, creatures = flat(), herd()
@@ -126,6 +146,19 @@ class SpawnTests(unittest.TestCase):
             self.assertEqual(again, [])
             back = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS), [], 1.0)
         self.assertTrue(back)
+        self.assertEqual(creatures.chunks((0, 0), (0, 0))[(0, 0)]["animals"], len(back))
+
+    def test_an_emptied_chunk_by_the_water_gets_its_herd_back_however_many_fish_swim_there(self):
+        pond = {(x, z) for x in range(30, 36) for z in range(0, 5)}
+        grid, creatures = flat(pond), herd()
+        fish = self.school(creatures, 3 * FISH_CAP)
+        with patch("backend.survival.creatures.spawning.chunks_near", lambda x, z, reach: [(0, 0)]), \
+                patch("backend.survival.creatures.spawning.herd_count", lambda seed, chunk: 1):
+            creatures.note_chunk((0, 0), 1, 1, 0.0)
+            creatures.lost([0, 0], 100.0)
+            back = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS), fish, 1.0)
+        self.assertTrue(back)
+        self.assertTrue(all(creature["kind"] != "fish" for creature in back))
         self.assertEqual(creatures.chunks((0, 0), (0, 0))[(0, 0)]["animals"], len(back))
 
 
@@ -182,7 +215,7 @@ class TickTests(unittest.TestCase):
                     found = grid.herd.near(state["position"]["x"], state["position"]["z"], SIM_REACH)
                     land = [creature for creature in found if not KINDS[creature["kind"]].water]
                     self.assertTrue(land)
-                    self.assertLessEqual(len(land), PASSIVE_CAP)
+                    self.assertLessEqual(len(land), LAND_CAP)
                     self.assertTrue(any(creature["state"].get("path") for creature in land))
                     for creature in found:
                         cell = cell_of(creature)

@@ -7,10 +7,12 @@ chunk whose cell above the ground is standable and dry, and not a cell something
 claims; a herd spreads over the spot and the cells around it. The chunk is noted in
 creature_chunks, so it never spawns twice.
 
-Numbers are capped: a herd or school stops growing once 24 passive creatures (animals and fish)
-are within 48 blocks of Mimo, and a school once its 16x16 water region holds 6 fish. Spawning
-takes at most NEW_CHUNKS chunks a call, nearest first. A chunk whose land animals have all
-been gone (hunted) for 3 game days regains one herd. (L3's creature seeds add more.)
+Numbers are capped, land animals and fish apart: a herd stops growing once 24 land animals are
+within 48 blocks of Mimo, and a school once 8 fish are, or once its 16x16 water region holds 6.
+Fish are never hunted, so if they counted toward the animals' cap a lakeside would fill up with
+fish for good and its herds could never come back. Spawning takes at most NEW_CHUNKS chunks a
+call, nearest first. A chunk whose land animals have all been gone (hunted) for 3 game days
+regains one herd. (L3's creature seeds add more.)
 """
 
 from __future__ import annotations
@@ -25,7 +27,8 @@ from backend.survival.creatures.table import dead
 from backend.survival.grid import CHUNK, Cell, Grid
 
 SIM_REACH = 48.0
-PASSIVE_CAP = 24
+LAND_CAP = 24  # land animals within SIM_REACH of Mimo
+FISH_CAP = 8  # fish within SIM_REACH of Mimo
 FISH_PER_REGION = 6
 REGAIN_SECONDS = 3 * DAY_SECONDS  # game seconds a chunk's land animals stay gone before a herd comes back
 NEW_CHUNKS = 8  # chunks whose herds spawn in one call, nearest first; the rest wait for the next
@@ -107,9 +110,10 @@ def fish_school(grid: Grid, seed: str, chunk: tuple[int, int]) -> Herd | None:
     return None
 
 
-def passive(creature: dict) -> bool:
+def passive(creature: dict, water: bool) -> bool:
+    """A creature of a known kind that is not hostile, and a fish when `water` (else a land animal)."""
     kind = kind_of(creature["kind"])
-    return kind is not None and not kind.hostile
+    return kind is not None and not kind.hostile and kind.water == water
 
 
 def born(scene: Scene, kind: Kind, cell: Cell, chunk: tuple[int, int], number: int) -> dict:
@@ -129,21 +133,26 @@ def populate(scene: Scene, loaded: list[dict], scale: float) -> list[dict]:
     known = scene.herd.chunks((min(c[0] for c in near), min(c[1] for c in near)),
                               (max(c[0] for c in near), max(c[1] for c in near)))
     alive = [creature for creature in loaded if not dead(creature)]
-    count = sum(1 for creature in alive if passive(creature))
+    counts = {water: sum(1 for creature in alive if passive(creature, water)) for water in (False, True)}
     added: list[dict] = []
+
+    def room(kind: Kind, cell: Cell) -> bool:
+        """Whether one more of `kind` fits in `cell` under the caps."""
+        if not kind.water:
+            return counts[False] < LAND_CAP
+        region = (cell[0] // CHUNK, cell[2] // CHUNK)
+        return counts[True] < FISH_CAP and sum(
+            1 for creature in alive + added if creature["kind"] == kind.name
+            and (int(creature["x"]) // CHUNK, int(creature["z"]) // CHUNK) == region) < FISH_PER_REGION
 
     def place(herds: list[Herd], chunk: tuple[int, int]) -> int:
         """Add the herds' creatures as far as the caps allow; returns how many land animals came."""
-        nonlocal count
         came = 0
         for kind, cells in herds:
             for cell in cells:
-                region = (cell[0] // CHUNK, cell[2] // CHUNK)
-                if count >= PASSIVE_CAP or (kind.water and sum(
-                        1 for creature in alive + added if creature["kind"] == kind.name
-                        and (int(creature["x"]) // CHUNK, int(creature["z"]) // CHUNK) == region) >= FISH_PER_REGION):
+                if not room(kind, cell):
                     break
-                count += 1
+                counts[kind.water] += 1
                 came += 0 if kind.water else 1
                 added.append(born(scene, kind, cell, chunk, len(added)))
         return came
