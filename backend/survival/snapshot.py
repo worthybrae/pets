@@ -166,6 +166,9 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "landmarks": landmarks,
         # L1: the creatures within 48 blocks of Mimo and their last moves (backend.survival.creatures.view).
         **creatures,
+        # L2: when a creature last hurt Mimo and its kind, for the viewer's flash and the HUD.
+        "hurt_at": state.get("hurt_at"),
+        "hurt_by": state.get("hurt_by"),
         **brain_view(state.get("brain")),
     }
 
