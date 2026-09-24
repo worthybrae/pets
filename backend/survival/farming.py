@@ -4,8 +4,8 @@ The farm is where Mimo tilled first (a remembered `farm` place). With no farm ye
 plot goes beside the nearest shore within 16 blocks, where crops grow three times as fast, or
 else on the natural surface where Mimo is. Plots are only ever tilled on the natural surface or
 above, never in Mimo's own staircase or tunnels. A farm more than 24 blocks away is walked to
-first, but only when there is work waiting there (ripe crops, or something to plant and a plot
-for it); far from its farm Mimo does no farm work. Each batch does the most useful work it can,
+first, but only when there is work waiting there (ripe crops while Mimo lacks food, or something
+to plant and a plot for it); far from its farm Mimo does no farm work. Each batch does the most useful work it can,
 at most 4 plots:
 1. harvest ripe crops within 24 blocks and plant each plot again with what it gave, but only
    while Mimo carries less than a day's worth of food: otherwise the crops wait in the field;
@@ -160,10 +160,11 @@ def far_farm(s: Situation) -> dict | None:
 
 
 def work_waiting(s: Situation, farm: dict) -> bool:
-    """Ripe crops at the farm, or something to plant and a plot for it there."""
+    """Ripe crops at the farm while Mimo lacks food (with a day's worth it leaves them in the
+    field, farm_jobs), or something to plant and a plot for it there."""
     fx, _, fz = cell_of(farm)
     placed = s.grid.placed_cells(fx, fz, FARM_RANGE, CROP_BLOCKS + ("farmland",))
-    if any(material in RIPE_CROPS for _, material in placed):
+    if food_need(s) > 0 and any(material in RIPE_CROPS for _, material in placed):
         return True
     farmland = [cell for cell, material in placed if material == "farmland"]
     return next_seed(s.inventory) is not None and (len(farmland) < FARM_SIZE

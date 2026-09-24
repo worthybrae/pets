@@ -112,6 +112,18 @@ class FarmTests(unittest.TestCase):
         remember(ripe.db, "farm", (50, 0, 0), 0.0)
         self.assertEqual(plan(ripe), [{"kind": "walk", "target": [50, 1, 0], "reach": 2.0, "whole": True}])
 
+    def test_a_well_fed_pet_makes_no_trip_for_ripe_crops_it_would_leave_in_the_field(self):
+        """Fix wave I4: carrying a day's food, Mimo leaves ripe crops in the field (farm_jobs), so
+        they are no reason to walk to a far farm either."""
+        field = meadow({(50, 0, 0): "farmland", (50, 1, 0): "wheat_3"})
+        fed = situation(pet(inventory={"bread": 3}), grid=field)
+        remember(fed.db, "farm", (50, 0, 0), 0.0)
+        self.assertFalse(PURPOSES["farm"].valid(fed))
+        self.assertEqual(plan(fed), [])
+        hungry = situation(pet(inventory={"bread": 1}), grid=field)
+        remember(hungry.db, "farm", (50, 0, 0), 0.0)
+        self.assertTrue(PURPOSES["farm"].valid(hungry))
+
     @patch("backend.survival.farming.grass_near", lambda grid, seed, here, radius: [])
     def test_nothing_to_do_or_night_means_no_farming(self):
         self.assertFalse(PURPOSES["farm"].valid(situation()))
