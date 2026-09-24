@@ -67,6 +67,49 @@ class SurvivalTickTests(unittest.TestCase):
         self.assertIn("hungry", self.kinds())
         self.assertIn("starving", self.kinds())
 
+    def test_a_stopping_worker_stops_between_committed_catch_up_steps(self):
+        """Fix wave minor 1: `should_stop` is asked after each committed step of a long catch-up,
+        so a worker told to stop does not first run the rest of the gap."""
+        asked, between = [], []
+
+        def should_stop():
+            asked.append(True)
+            return len(asked) >= 2
+
+        state = tick_life(self.registry, BORN + 600, scale=1, between=between.append, should_stop=should_stop)
+        self.assertEqual(state["last_tick_at"], BORN + 120)
+        self.assertEqual(self.world.state()["last_tick_at"], BORN + 120)  # both steps were committed
+        self.assertEqual(between, [BORN + 60])  # no rules choice once stopping
+        self.assertIsNotNone(self.registry.active_life())
+        self.assertEqual(tick_life(self.registry, BORN + 600, scale=1)["last_tick_at"], BORN + 600)
+
+    def test_a_catch_up_that_crashed_between_steps_resumes_without_applying_anything_twice(self):
+        """Fix wave fold-in: every catch-up step is its own transaction, so a crash between steps
+        keeps the steps already committed, and the next tick picks up from there. The result is
+        the same as one uninterrupted catch-up: no step's vitals or events are applied twice."""
+        root = Path(self.directory.name)
+        other = LifeRegistry(root / "other", root / "no-legacy.sqlite3")
+        hatch(other, random.Random(8), timestamp=BORN)
+        whole = tick_life(other, BORN + 120, scale=60)
+
+        calls = []
+
+        def crash(at):
+            calls.append(at)
+            if len(calls) == 50:
+                raise RuntimeError("the worker died here")
+
+        with self.assertRaises(RuntimeError):
+            tick_life(self.registry, BORN + 120, scale=60, between=crash)
+        self.assertEqual(self.world.state()["last_tick_at"], BORN + 50)  # 50 steps of 1 real second
+        resumed = tick_life(self.registry, BORN + 120, scale=60)
+        for key in ("vitals", "last_tick_at", "status", "position", "inventory"):
+            self.assertEqual(resumed[key], whole[key], key)
+        timeline = [(event["at"], event["kind"], event["text"]) for event in self.world.events(500)]
+        other_world = SurvivalWorld(other.world_path(other.active_life()))
+        self.assertEqual(timeline, [(event["at"], event["kind"], event["text"]) for event in other_world.events(500)])
+        self.assertIn("sleep", [kind for _, kind, _ in timeline])
+
     def test_a_dead_world_is_never_advanced_again(self):
         dead = tick_life(self.registry, BORN + 20_000, scale=1)
         again = advance_world(self.world, BORN + 40_000, 1)

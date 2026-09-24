@@ -6,7 +6,7 @@ active life up to now (timed actions, vitals, death) with the brain; then the Ch
 pending purpose trigger outside the tick's transaction (backend.survival.choosing). A long
 catch-up runs one transaction per 60 game seconds, and between them a rules-only chooser
 answers, so a pet that slept through the laptop's night kept choosing without a burst of model
-calls. The retired
+calls; SIGINT or SIGTERM stops a catch-up between two of those transactions. The retired
 legacy world at MIMO_DB_PATH is no longer ticked; live_mimo.run_tick stays only for reading old
 worlds.
 """
@@ -20,6 +20,7 @@ import random
 import signal
 import sqlite3
 import time
+from typing import Callable
 
 from dotenv import load_dotenv
 
@@ -58,12 +59,14 @@ def should_log_data_error(error: BaseException, last: str | None) -> tuple[bool,
 
 
 def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | None = None,
-             mind: Mind = RESTING, chooser: Chooser | None = None) -> str:
+             mind: Mind = RESTING, chooser: Chooser | None = None,
+             should_stop: Callable[[], bool] | None = None) -> str:
     """Tick the active life once, then let the chooser answer a pending purpose trigger. Logs a
     line when the pet's status changes and returns it.
 
-    `mind` defaults to the plain sleep rule and `chooser` to none; `main` passes WORKER_MIND and
-    a Chooser.
+    `mind` defaults to the plain sleep rule and `chooser` to none; `main` passes WORKER_MIND, a
+    Chooser and its stop flag (`should_stop`), which ends a long catch-up between two committed
+    steps; the chooser then does not answer, since the world has not reached `timestamp`.
     """
     between = None
     if chooser is not None:
@@ -79,8 +82,9 @@ def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | No
             except Exception as error:
                 log_once(logger, "chooser", error)
 
-    state = tick_life(registry, timestamp, mind=mind, between=between)
-    if chooser is not None and state is not None and state["died_at"] is None:
+    state = tick_life(registry, timestamp, mind=mind, between=between, should_stop=should_stop)
+    stopped = should_stop is not None and should_stop()
+    if chooser is not None and state is not None and state["died_at"] is None and not stopped:
         try:
             chooser.poll(registry, timestamp)
         except Exception as error:
@@ -111,7 +115,7 @@ def main():
         try:
             if registry is None:
                 registry = LifeRegistry()
-            previous = run_once(registry, previous, mind=WORKER_MIND, chooser=chooser)
+            previous = run_once(registry, previous, mind=WORKER_MIND, chooser=chooser, should_stop=lambda: stopping)
             last_data_error = None
         except (WorldMissing, OSError, sqlite3.Error) as error:
             log_it, last_data_error = should_log_data_error(error, last_data_error)

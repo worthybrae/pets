@@ -5,7 +5,8 @@ caught up in steps of at most 60 game seconds, so a pet can starve while nobody 
 step is its own transaction with its own path-search budget (`advance_world`), the way a fast
 test run ticks, so a long catch-up is not one long write that locks the owner out, and a pet
 catching up still walks, forages and gets home; between steps the worker lets its rules chooser
-answer (`between`), so Mimo keeps choosing what to do.
+answer (`between`), so Mimo keeps choosing what to do, and a worker told to stop stops there
+(`should_stop`) instead of running the rest of the gap first.
 Each step first runs Mimo's timed actions up to the step's start (backend.survival.actions),
 then advances vitals with the activity and surroundings at that moment. A `Mind` decides the
 steps: its `plan` fills an empty queue (M1's `rest_plan` in the default `RESTING` mind), and its
@@ -177,13 +178,16 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
 
 def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: float | None = None,
               mind: Mind = RESTING, action_scale: float | None = None,
-              between: Callable[[float], None] | None = None) -> dict | None:
+              between: Callable[[float], None] | None = None,
+              should_stop: Callable[[], bool] | None = None) -> dict | None:
     """Advance the active life and archive it if it died. Returns its state, or None if no pet is alive.
 
     A gap longer than one catch-up step (60 game seconds) is advanced one step per transaction,
     calling `between(at)` after a step only when a whole further step still remains (fix round 1:
     an ordinary tick's small leftover, such as the worker's ~1 s sleep running a hair past one
-    step, must not itself wake the rules chooser) while Mimo lives."""
+    step, must not itself wake the rules chooser) while Mimo lives. `should_stop()` is asked after
+    each committed step that leaves more to catch up: when it says yes (the worker was told to
+    stop), the catch-up ends there, and the next tick goes on from the last committed step."""
     life = registry.active_life()
     if life is None:
         return None
@@ -196,6 +200,8 @@ def tick_life(registry: LifeRegistry, timestamp: float | None = None, scale: flo
         at = min(timestamp, at + MAX_STEP_SECONDS / scale)
         state = advance_world(world, at, scale, mind, action_scale)
         if at >= timestamp or state["died_at"] is not None:
+            break
+        if should_stop is not None and should_stop():
             break
         if between is not None and timestamp - at >= MAX_STEP_SECONDS / scale:
             between(at)

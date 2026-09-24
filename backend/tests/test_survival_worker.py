@@ -66,6 +66,18 @@ class SurvivalWorkerTests(unittest.TestCase):
         self.assertLessEqual(len(asked), 1)  # at most the last ask goes to Jev; the catch-up ran on rules
         self.assertEqual(stray_envs, [])  # the rules chooser never picked up the main chooser's env
 
+    def test_a_stop_signal_ends_a_long_catch_up_after_the_step_it_is_on(self):
+        """Fix wave minor 1: run_once passes the stop flag down, so SIGTERM during a long catch-up
+        stops after the step in progress (committed) instead of running the rest of the gap."""
+        life = hatch(self.registry, random.Random(8), timestamp=1000.0)
+        chooser = Chooser(env={}, http=lambda *args, **kwargs: {}, executor=InlineExecutor(),
+                          rng=random.Random(1), scale=1.0)
+        with patch.dict(os.environ, {"MIMO_TIME_SCALE": "1"}):
+            with patch.object(chooser, "poll") as poll:
+                run_once(self.registry, None, timestamp=1000.0 + 600, chooser=chooser, should_stop=lambda: True)
+        self.assertEqual(SurvivalWorld(self.registry.world_path(life)).state()["last_tick_at"], 1060.0)
+        poll.assert_not_called()  # nothing is chosen for a moment the world has not reached
+
     def test_tick_seconds_defaults_to_one(self):
         with patch.dict(os.environ, {"MIMO_TICK_SECONDS": "0.5"}):
             self.assertEqual(tick_seconds(), 0.5)
