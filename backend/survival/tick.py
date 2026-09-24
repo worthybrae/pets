@@ -15,7 +15,8 @@ notice each vitals step (`notice`). Minds never call a model here: the tick hold
 write transaction. After each chunk of actions the world regrows on its own
 (backend.survival.renewal) and the creatures near Mimo take their turns
 (backend.survival.creatures.simulate), whatever mind runs Mimo; the creatures skip the moment
-the last tick ended on, since that tick already ran them up to it.
+the last tick ended on, since that tick already ran them up to it. A hostile creature's blow that
+takes Mimo's last health kills it (L2): the creature's kind is the cause of death.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
 from backend.survival.clock import DAY_SECONDS, action_scale as action_scale_setting, clock_at, is_night, time_scale
+from backend.survival.creatures.hostiles import hostile_near
 from backend.survival.creatures.simulate import simulate
 from backend.survival.grid import world_grid
 from backend.survival.once import log_once
@@ -46,6 +48,9 @@ from backend.survival.world import SurvivalWorld, log_event, placed_near, read_s
 logger = logging.getLogger(__name__)
 
 MAX_STEP_SECONDS = 60.0
+# L2: while a hostile creature could reach Mimo, a step lasts at most this many seconds of action
+# time (divided by MIMO_ACTION_SCALE), so fights and flights see where the creatures are now.
+FIGHT_SLICE = 1.0
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
 
@@ -94,6 +99,13 @@ def note_crossings(state: dict, before: dict, at: float, events: list[Event]) ->
         events.append((at, "freezing", f"{name} is freezing."))
 
 
+def death_words(cause: str) -> str:
+    """How a death reads: "died of the cold", or, for a creature's kind (L2), "was caught by a gloomling"."""
+    if cause in CAUSE_TEXT:
+        return f"died of {CAUSE_TEXT[cause]}"
+    return f"was caught by a {cause.replace('_', ' ')}"
+
+
 def record_death(state: dict, cause: str, at: float, scale: float, events: list[Event]) -> None:
     """Mark Mimo dead at `at` and log it. The current step and the plan end with the life.
 
@@ -106,7 +118,7 @@ def record_death(state: dict, cause: str, at: float, scale: float, events: list[
     events[:] = [event for event in events if event[0] <= at]
     day = clock_at(state["born_at"], at, scale)["day_number"]
     state.update(status="dead", died_at=at, cause=cause, action=None, queue=[])
-    events.append((at, "death", f"{state['name']} died of {CAUSE_TEXT[cause]} on day {day}."))
+    events.append((at, "death", f"{state['name']} {death_words(cause)} on day {day}."))
 
 
 def run_notice(mind: Mind, state: dict, context: ActionContext, before: dict, surroundings: Surroundings,
@@ -138,6 +150,11 @@ def run_creatures(state: dict, context: ActionContext, at: float) -> None:
         log_once(logger, "creatures", error)
 
 
+def caught(state: dict) -> bool:
+    """A hostile creature's blow (L2, backend.survival.creatures.harm) took Mimo's last health."""
+    return state["vitals"]["health"] <= 0 and bool(state.get("hurt_by"))
+
+
 def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mind = RESTING,
                   action_scale: float = 1.0) -> dict:
     """Catch the world up to `timestamp` in one transaction and return the saved state."""
@@ -161,7 +178,12 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             run_renewal(state, context, cursor)
             if cursor != state["last_tick_at"]:  # the last tick already ran the creatures up to here
                 run_creatures(state, context, cursor)
+                if caught(state):
+                    record_death(state, state["hurt_by"], cursor, scale, events)
+                    break
             step = min(MAX_STEP_SECONDS, remaining)
+            if hostile_near(context.grid, state):
+                step = min(step, FIGHT_SLICE / action_scale * scale)
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
@@ -184,6 +206,8 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             else:
                 run_renewal(state, context, timestamp)
                 run_creatures(state, context, timestamp)
+                if caught(state):
+                    record_death(state, state["hurt_by"], timestamp, scale, events)
         state["last_tick_at"] = state["died_at"] if state["died_at"] is not None else timestamp
         write_state(db, state)
         for at, kind, text in sorted(events, key=lambda event: event[0]):

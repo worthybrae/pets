@@ -33,7 +33,8 @@ class SurvivalWorkerTests(unittest.TestCase):
         with patch.dict(os.environ, {"MIMO_TIME_SCALE": "1"}):
             line = run_once(self.registry, None, timestamp=1060.0)
             self.assertEqual(line, f"{life['name']} is idle: Everything is new. I wonder what is out there.")
-            died = run_once(self.registry, line, timestamp=1000.0 + 20_000)
+            with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):  # L2: it starves
+                died = run_once(self.registry, line, timestamp=1000.0 + 20_000)
         self.assertEqual(died, f"{life['name']} died of starvation.")
         self.assertIsNone(self.registry.active_life())
 

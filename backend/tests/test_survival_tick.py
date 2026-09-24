@@ -2,6 +2,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
@@ -43,8 +44,9 @@ class SurvivalTickTests(unittest.TestCase):
         self.assertIn("sleep", self.kinds())
 
     def test_the_pet_sleeps_at_night_and_wakes_rested_after_dawn(self):
-        self.assertEqual(tick_life(self.registry, BORN + 2450, scale=1)["status"], "sleeping")
-        self.assertEqual(tick_life(self.registry, BORN + 3700, scale=1)["status"], "idle")
+        with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):  # L2: asleep in the open
+            self.assertEqual(tick_life(self.registry, BORN + 2450, scale=1)["status"], "sleeping")
+            self.assertEqual(tick_life(self.registry, BORN + 3700, scale=1)["status"], "idle")
         self.assertEqual(self.kinds()[:2], ["wake", "sleep"])
 
     def test_an_exhausted_pet_sleeps_by_day_until_rested(self):
@@ -55,7 +57,8 @@ class SurvivalTickTests(unittest.TestCase):
         self.assertEqual(tick_life(self.registry, BORN + 600, scale=1)["status"], "idle")
 
     def test_a_long_gap_is_caught_up_and_an_unfed_pet_starves(self):
-        state = tick_life(self.registry, BORN + 20_000, scale=1)
+        with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):
+            state = tick_life(self.registry, BORN + 20_000, scale=1)  # L2: no gloomling hurries it along
         self.assertEqual((state["status"], state["cause"]), ("dead", "starvation"))
         self.assertTrue(BORN + 10_100 <= state["died_at"] <= BORN + 10_300, state["died_at"] - BORN)
         self.assertEqual(state["last_tick_at"], state["died_at"])

@@ -1,0 +1,130 @@
+"""Where hostile creatures come from, and where they go (spec L2, "Light levels" and "Hostile AI").
+
+Once every SPAWN_EVERY game seconds (at most once a creature-hook call), while fewer than
+HOSTILE_CAP hostiles are alive (counted in the table, not from what one call loaded; they are all
+near Mimo, see below), the dark gets one chance to bring one near it:
+up to SPAWN_TRIES columns 16 to 40 blocks from Mimo (rolled from the world seed and the time) are
+searched from just over the natural ground down SCAN_DEPTH cells, and no more than SPAWN_RISE
+cells above or below Mimo, for a cell where a creature can stand (dry, empty, room above it, not
+on leaves), that nothing Mimo built claims (so never inside its shelter) and whose light is 7 or
+less (backend.survival.light): they come out near where Mimo is, on the ground or in a cave
+beside its tunnel, not in every cave under the land. The first such cell gets a
+gloomling when it is open to the sky (dark ground at night) and, when it is covered (a cave, a
+tunnel), a skitter three times in five, else a gloomling. By day the open ground is lit, so only
+covered places spawn them; torches, lanterns and fires keep their surroundings lit at night.
+
+Hostiles go too, in one cheap delete by kind and distance each call: any farther than
+DESPAWN_REACH blocks from Mimo at night, and by day any beyond the 48 blocks the creature hook
+simulates, since out there it would never burn, fade or come back. Daylight burns or fades those
+near Mimo caught under the open sky (backend.survival.creatures.hostiles, sunlit).
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import sqlite3
+
+from backend.services.blocks import is_replaceable
+from backend.services.worldgen import terrain_height
+from backend.survival.creatures import hostiles  # noqa: F401  (registers the hostile kinds and their actions)
+from backend.survival.creatures.acts import Scene
+from backend.survival.creatures.kinds import KINDS, Kind
+from backend.survival.creatures.moves import roll
+from backend.survival.creatures.spawning import SIM_REACH
+from backend.survival.creatures.table import missing_table
+from backend.survival.grid import Cell, Grid
+from backend.survival.light import DARK, Lights, sky_light
+
+HOSTILE_CAP = 8
+SPAWN_NEAR = 16.0
+SPAWN_FAR = 40.0
+DESPAWN_REACH = 64.0
+SPAWN_EVERY = 30.0  # game seconds between two chances of a spawn
+SPAWN_TRIES = 4  # columns one chance looks at
+SCAN_DEPTH = 24  # cells a column is searched down from just over its natural ground
+SPAWN_RISE = 8  # cells above or below Mimo a spawn may be
+SKITTER_SHARE = 0.6  # of the hostiles spawning in covered places
+FIRST_TURN = 1.0  # server seconds before a new hostile's first turn
+UNDERFOOT = ("leaves",)
+# Roll channels.
+ANGLE, DISTANCE, KIND = 110, 111, 112
+
+
+def hostile_kinds() -> list[str]:
+    return sorted(kind.name for kind in KINDS.values() if kind.hostile)
+
+
+def despawn_far(scene: Scene) -> None:
+    """Remove every hostile farther (horizontally) from Mimo than DESPAWN_REACH blocks at night, or
+    than SIM_REACH by day."""
+    kinds = hostile_kinds()
+    reach = DESPAWN_REACH if scene.night else SIM_REACH
+    x, _, z = scene.pet
+    try:
+        scene.herd.db.execute(f"DELETE FROM creatures WHERE kind IN ({','.join('?' * len(kinds))}) "
+                              "AND (x - ?) * (x - ?) + (z - ?) * (z - ?) > ?", (*kinds, x, x, z, z, reach * reach))
+    except sqlite3.OperationalError as error:
+        if not missing_table(error):
+            raise
+
+
+def hostiles_alive(scene: Scene) -> int:
+    """How many hostile creatures are alive, counted in the table."""
+    kinds = hostile_kinds()
+    try:
+        rows = scene.herd.db.execute(f"SELECT state FROM creatures WHERE kind IN ({','.join('?' * len(kinds))})",
+                                     kinds).fetchall()
+    except sqlite3.OperationalError as error:
+        if not missing_table(error):
+            raise
+        return 0
+    return sum(1 for row in rows if json.loads(row[0] or "{}").get("pose") != "dead")
+
+
+def spots(grid: Grid, seed: str, x: int, z: int, level: int) -> list[Cell]:
+    """Cells in the column where a hostile could stand, highest first, within SPAWN_RISE of
+    `level` (Mimo's height): empty (air or a plant), dry, on anything but leaves, with room over
+    it, and claimed by nothing Mimo built."""
+    top = terrain_height(x, z, seed) + 2
+    found = []
+    for y in range(min(top, level + SPAWN_RISE), max(top - SCAN_DEPTH, level - SPAWN_RISE - 1), -1):
+        cell = (x, y, z)
+        if (is_replaceable(grid.material(*cell)) and grid.standable(cell) and not grid.swimming(cell)
+                and grid.passable((x, y + 1, z)) and grid.material(x, y - 1, z) not in UNDERFOOT
+                and not grid.claimed(cell)):
+            found.append(cell)
+    return found
+
+
+def born(scene: Scene, kind: Kind, cell: Cell) -> dict:
+    """A new hostile of `kind` in `cell`, at home there; its first turn comes a second later."""
+    state = {"home": list(cell), "pose": "idle", "turn": 0}
+    return scene.herd.add(kind.name, cell, kind.health, scene.at, scene.at + FIRST_TURN / scene.pace, state)
+
+
+def spawn_hostiles(scene: Scene) -> list[dict]:
+    """Despawn far hostiles, then maybe spawn one in the dark near Mimo (see the module docstring).
+    Returns the creatures it added."""
+    despawn_far(scene)
+    last = scene.state.get("dark_spawn_at")
+    if hostiles_alive(scene) >= HOSTILE_CAP or (last is not None and (scene.at - last) * scene.scale < SPAWN_EVERY):
+        return []
+    scene.state["dark_spawn_at"] = scene.at
+    x, y, z = scene.pet
+    salt, lights = int(scene.at), None
+    for attempt in range(SPAWN_TRIES):
+        angle = 2 * math.pi * roll(scene.seed, salt, attempt, ANGLE)
+        reach = SPAWN_NEAR + (SPAWN_FAR - SPAWN_NEAR) * roll(scene.seed, salt, attempt, DISTANCE)
+        cx, cz = round(x + math.cos(angle) * reach), round(z + math.sin(angle) * reach)
+        if math.hypot(cx - x, cz - z) < SPAWN_NEAR:
+            continue
+        for cell in spots(scene.grid, scene.seed, cx, cz, y):
+            lights = lights or Lights(scene.grid, scene.pet, SPAWN_FAR)
+            sky = sky_light(scene.grid, scene.seed, cell, scene.night)
+            if max(sky, lights.at(cell)) > DARK:
+                continue
+            covered = sky == 0
+            name = "skitter" if covered and roll(scene.seed, salt, attempt, KIND) < SKITTER_SHARE else "gloomling"
+            return [born(scene, KINDS[name], cell)]
+    return []

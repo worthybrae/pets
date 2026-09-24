@@ -1,0 +1,208 @@
+import math
+import random
+import sqlite3
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from backend.survival import tick
+from backend.survival.creatures.acts import Scene
+from backend.survival.creatures.darkness import (
+    DESPAWN_REACH, HOSTILE_CAP, SPAWN_EVERY, SPAWN_FAR, SPAWN_NEAR, spawn_hostiles, spots,
+)
+from backend.survival.creatures.kinds import KINDS
+from backend.survival.creatures.simulate import TURNS_EACH, take_turns
+from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
+from backend.survival.grid import Grid, world_grid
+from backend.survival.hatch import hatch
+from backend.survival.memory import places
+from backend.survival.registry import LifeRegistry
+from backend.survival.vitals import START_VITALS
+from backend.survival.tick import advance_world, tick_life
+from backend.survival.world import SurvivalWorld, read_state, write_state
+
+NIGHT = {"phase": "night", "seconds_into_day": 3000.0, "time_scale": 1.0, "day_number": 1}
+DAY = {**NIGHT, "phase": "day", "seconds_into_day": 1000.0}
+BORN = 1_000_000.0
+
+
+def land(blocks=None, cave=False):
+    """Grass at y 0 over stone; with `cave`, an open cave at y -4..-3 everywhere; `blocks` placed."""
+    def natural(x, y, z):
+        if y == 0:
+            return "grass"
+        if y < 0:
+            return "air" if cave and -4 <= y <= -3 else "stone"
+        return "air"
+
+    grid = Grid(natural)
+    for cell, block in (blocks or {}).items():
+        grid.put(*cell, block)
+    db = sqlite3.connect(":memory:")
+    create_creature_tables(db)
+    grid.herd = Herd(db)
+    return grid
+
+
+def pet():
+    return {"name": "Pip", "world_seed": "4", "position": {"x": 0.0, "y": 1.0, "z": 0.0}, "inventory": {},
+            "vitals": {"health": 100.0}, "died_at": None}
+
+
+def scene(grid, state, at=100.0, clock=NIGHT):
+    return Scene(grid, grid.herd, "4", state, at, 1.0, events=[], clock=clock)
+
+
+class SpawnTests(unittest.TestCase):
+    def setUp(self):
+        for target in ("backend.survival.creatures.darkness.terrain_height", "backend.survival.light.terrain_height"):
+            patcher = patch(target, lambda x, z, seed: 0)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_at_night_a_gloomling_comes_out_on_dark_ground_sixteen_to_forty_blocks_away(self):
+        grid, state = land(), pet()
+        born = spawn_hostiles(scene(grid, state))
+        self.assertEqual([creature["kind"] for creature in born], ["gloomling"])
+        x, y, z = cell_of(born[0])
+        self.assertTrue(SPAWN_NEAR <= math.hypot(x, z) <= SPAWN_FAR + 1, (x, z))
+        self.assertEqual((y, born[0]["next_at"]), (1, 101.0))
+        self.assertEqual(spawn_hostiles(scene(grid, state, at=100.0 + SPAWN_EVERY - 1)), [])
+        self.assertEqual(len(spawn_hostiles(scene(grid, state, at=100.0 + SPAWN_EVERY))), 1)
+
+    def test_by_day_the_open_ground_is_lit_and_only_caves_spawn_them_mostly_skitters(self):
+        self.assertEqual(spawn_hostiles(scene(land(), pet(), clock=DAY)), [])
+        kinds = []
+        for minute in range(20):
+            found = spawn_hostiles(scene(land(cave=True), pet(), at=100.0 + 60 * minute, clock=DAY))
+            self.assertEqual([cell_of(creature)[1] for creature in found], [-4])
+            kinds += [creature["kind"] for creature in found]
+        self.assertEqual(set(kinds), {"skitter", "gloomling"})
+
+    def test_torches_keep_the_ground_near_them_safe_and_nothing_spawns_where_mimo_built(self):
+        with patch("backend.survival.creatures.darkness.roll", lambda *args: 0.0):  # every try: 16 blocks east
+            self.assertEqual([cell_of(creature) for creature in spawn_hostiles(scene(land(), pet()))],
+                             [(16, 1, 0)])
+            self.assertEqual(spawn_hostiles(scene(land({(16, 1, 2): "torch"}), pet())), [])
+            claimed = land()
+            claimed.claims.add((16, 1, 0))
+            self.assertEqual(spawn_hostiles(scene(claimed, pet())), [])
+
+    def test_no_more_than_eight_hostiles_alive_near_mimo(self):
+        grid, state = land(), pet()
+        near = [grid.herd.add("gloomling", (20 + n, 1, 0), 20.0, 0.0, 0.0, {}) for n in range(HOSTILE_CAP)]
+        self.assertEqual(spawn_hostiles(scene(grid, state)), [])
+        near[0]["state"]["pose"] = "dead"
+        grid.herd.save(near[0])
+        self.assertEqual(len(spawn_hostiles(scene(grid, state))), 1)
+
+    def test_hostiles_far_from_mimo_go_at_night_and_out_of_its_reach_by_day_but_animals_stay(self):
+        grid = land()
+        far = grid.herd.add("gloomling", (int(DESPAWN_REACH) + 5, 1, 0), 20.0, 0.0, 0.0, {})
+        beyond = grid.herd.add("skitter", (60, 1, 0), 12.0, 0.0, 0.0, {})
+        near = grid.herd.add("skitter", (40, 1, 0), 12.0, 0.0, 0.0, {})
+        cow = grid.herd.add("cow", (70, 1, 0), 10.0, 0.0, 0.0, {})
+        spawn_hostiles(scene(grid, pet()))
+        self.assertEqual([grid.herd.get(creature["id"]) is None for creature in (far, beyond, near, cow)],
+                         [True, False, False, False])
+        spawn_hostiles(scene(grid, pet(), clock=DAY))
+        self.assertEqual([grid.herd.get(creature["id"]) is None for creature in (beyond, near, cow)],
+                         [True, False, False])
+
+    def test_a_column_offers_its_ground_and_its_caves_but_not_leaves_torches_or_water(self):
+        grid = land({(3, 1, 0): "leaves", (4, 1, 0): "torch", (5, 0, 0): "water"}, cave=True)
+        self.assertEqual(spots(grid, "4", 0, 0, 1), [(0, 1, 0), (0, -4, 0)])
+        self.assertEqual(spots(grid, "4", 3, 0, 1), [(3, -4, 0)])
+        self.assertEqual(spots(grid, "4", 4, 0, 1), [(4, -4, 0)])
+        self.assertEqual(spots(grid, "4", 5, 0, 1), [(5, -4, 0)])
+        self.assertEqual(spots(grid, "4", 0, 0, 8), [(0, 1, 0)])  # the cave is too far below Mimo
+        self.assertEqual(spots(grid, "4", 0, 0, -10), [(0, -4, 0)])  # and the ground too far above
+
+
+class TurnTests(unittest.TestCase):
+    def add(self, grid, kind, cell):
+        return grid.herd.add(kind, cell, KINDS[kind].health, 0.0, 0.0, {"home": list(cell), "turn": 0, "pose": "idle"})
+
+    def test_a_hostile_takes_each_turn_due_in_a_call_at_its_own_time_but_not_long_ago(self):
+        grid, state = land(), {**pet(), "vitals": dict(START_VITALS)}
+        gloom, cow = self.add(grid, "gloomling", (1, 1, 0)), self.add(grid, "cow", (0, 1, 6))
+        take_turns(scene(grid, state, at=10.0), [gloom, cow])
+        self.assertEqual(state["vitals"]["health"], 94.0)  # at 8.0 and 9.2: LATE seconds back at most
+        self.assertEqual(grid.herd.get(gloom["id"])["state"]["struck_at"], 9.2)
+        self.assertEqual(grid.herd.get(cow["id"])["state"]["turn"], 1)  # an animal takes one turn
+        skitter = self.add(grid, "skitter", (0, 1, 1))
+        with patch("backend.survival.creatures.simulate.LATE", 100.0):
+            take_turns(scene(grid, state, at=20.0), [skitter])
+        self.assertEqual(state["vitals"]["health"], 94.0 - 2.0 * TURNS_EACH)  # no more than TURNS_EACH a call
+
+
+class TickTests(unittest.TestCase):
+    def hatched(self, root):
+        registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+        life = hatch(registry, random.Random(3), timestamp=BORN)
+        return registry, life, SurvivalWorld(registry.world_path(life))
+
+    def test_a_gloomlings_blow_that_takes_mimos_last_health_kills_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            registry, life, world = self.hatched(root)
+            with world.transaction() as db:
+                state = read_state(db)
+                state["born_at"] = BORN - 2500.0  # deep in the first night
+                state["vitals"]["health"] = 2.0
+                write_state(db, state)
+                x, y, z = (round(state["position"][axis]) for axis in "xyz")
+                Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
+            state = tick_life(registry, BORN + 5, scale=1)
+            self.assertEqual((state["status"], state["cause"], state["died_at"]), ("dead", "gloomling", BORN + 1))  # a second in: steps are short near it
+            self.assertEqual(registry.get(life["id"])["cause"], "gloomling")
+            self.assertEqual(world.events()[0]["text"], f"{life['name']} was caught by a gloomling on day 1.")
+            with world.connect() as db:
+                self.assertEqual([place["note"] for place in places(db, ("danger",))], ["gloomling"])
+
+    def test_while_a_hostile_could_reach_mimo_the_tick_runs_in_one_second_steps(self):
+        for near in (True, False):
+            calls = []
+            real = tick.simulate
+            with tempfile.TemporaryDirectory() as root:
+                _, _, world = self.hatched(root)
+                with world.transaction() as db:
+                    state = read_state(db)
+                    state["born_at"] = BORN - 2500.0 / 60  # the first night, at 60x
+                    write_state(db, state)
+                    x, y, z = (round(state["position"][axis]) for axis in "xyz")
+                    if near:
+                        Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
+                with patch("backend.survival.tick.simulate", lambda *args: calls.append(args[2]) or real(*args)), \
+                        patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
+                        patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
+                    advance_world(world, BORN + 1.0, 60.0, action_scale=60.0)
+            self.assertEqual(len(calls), 60 if near else 1, near)  # a game second a step, else one 60-s step
+
+    def test_hostiles_come_out_at_night_stay_few_and_cost_little(self):
+        spent, counts = [], []
+
+        def timed(*args):
+            start = time.perf_counter()
+            real(*args)
+            spent.append(time.perf_counter() - start)
+
+        real = tick.simulate
+        with tempfile.TemporaryDirectory() as root:
+            _, _, world = self.hatched(root)
+            with patch("backend.survival.tick.simulate", timed), \
+                    patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
+                for minute in range(1, 61):
+                    state = advance_world(world, BORN + 60 * minute, 1.0)
+                    with world.connect() as db:
+                        found = world_grid(db, world.seed).herd.near(state["position"]["x"], state["position"]["z"], 48)
+                    counts.append(sum(1 for creature in found if KINDS[creature["kind"]].hostile and not dead(creature)))
+        self.assertLess(sum(spent) / len(spent), 0.020)
+        self.assertLessEqual(max(counts), HOSTILE_CAP)
+        night, day = counts[41:57], counts[:37]  # night falls 40 game minutes in
+        self.assertGreater(sum(night) / len(night), sum(day) / len(day))
+
+
+if __name__ == "__main__":
+    unittest.main()

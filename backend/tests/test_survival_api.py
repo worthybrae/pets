@@ -119,7 +119,8 @@ class SurvivalApiTests(unittest.TestCase):
 
     def test_after_death_the_memorial_data_comes_with_a_new_egg(self):
         born = hatch_egg()["life"]["born_at"]
-        tick_life(LifeRegistry(), born + 20_000, scale=1)
+        with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):  # L2: it starves
+            tick_life(LifeRegistry(), born + 20_000, scale=1)
         memorial = get_mimo()
         self.assertEqual(memorial["phase"], "egg")
         last = memorial["last_life"]

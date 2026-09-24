@@ -215,7 +215,8 @@ class TickTests(unittest.TestCase):
                 with world.connect() as db:
                     grid, state = world_grid(db, world.seed), world.state()
                     found = grid.herd.near(state["position"]["x"], state["position"]["z"], SIM_REACH)
-                    land = [creature for creature in found if not KINDS[creature["kind"]].water]
+                    land = [creature for creature in found  # L2: hostiles have a cap of their own
+                            if not KINDS[creature["kind"]].water and not KINDS[creature["kind"]].hostile]
                     self.assertTrue(land)
                     self.assertLessEqual(len(land), LAND_CAP)
                     self.assertTrue(any(creature["state"].get("path") for creature in land))
@@ -276,7 +277,8 @@ class TickTests(unittest.TestCase):
                     y = max(terrain_height(x, z, world.seed), SEA_LEVEL) + 1
                     state["position"] = {"x": float(x), "y": float(y), "z": float(z)}
                     write_state(db, state)
-                with patch("backend.survival.tick.simulate", timed):
+                with patch("backend.survival.tick.simulate", timed), \
+                        patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):  # L2's own test
                     state = advance_world(world, BORN + 60 * minute, 1.0)
                 self.assertIsNone(state["died_at"])
             with world.connect() as db:

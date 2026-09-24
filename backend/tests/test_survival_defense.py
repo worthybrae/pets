@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.brain import BRAIN, brain_plan
@@ -174,11 +175,12 @@ class InTheTickTests(unittest.TestCase):
     def night(self, grid, state, until):
         ctx = context(grid)
         at = 0.0
-        while at < until:
-            at += 0.25
-            advance_actions(state, ctx, at)
-            simulate(state, ctx, at)
-            ctx.searches_left = 2
+        with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):
+            while at < until:
+                at += 0.25
+                advance_actions(state, ctx, at)
+                simulate(state, ctx, at)
+                ctx.searches_left = 2
         return ctx
 
     def test_an_armed_pet_fights_off_a_gloomling_that_comes_for_it(self):
@@ -222,9 +224,10 @@ class HatchedWorldTests(unittest.TestCase):
                 x, y, z = (round(state["position"][axis]) for axis in "xyz")
                 Herd(db).add("gloomling", (x + 5, y, z), 20.0, BORN, BORN, {"home": [x + 5, y, z], "turn": 0})
             chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(3), scale=1.0)
-            for second in range(1, 61):
-                state = tick_life(registry, BORN + second, scale=1.0, mind=BRAIN, action_scale=1.0)
-                chooser.poll(registry, BORN + second)
+            with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):
+                for second in range(1, 61):
+                    state = tick_life(registry, BORN + second, scale=1.0, mind=BRAIN, action_scale=1.0)
+                    chooser.poll(registry, BORN + second)
             return state, [event["kind"] for event in world.events(500)]
 
     def test_an_armed_pet_wakes_and_fights_the_gloomling_off(self):
