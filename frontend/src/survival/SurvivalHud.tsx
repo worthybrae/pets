@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { CAMERA_MODES, modeLabel, type AutoPick, type CameraMode } from './cameraModes'
 import { dialPosition } from './clock'
 import { actionText, careLabel, clockTime, dayLabel, homeText, purposeText, vitalBars, type VitalLevel } from './hud'
@@ -38,7 +39,7 @@ function CameraSwitch({ mode, autoPick, onChange }: { mode: CameraMode; autoPick
   )
 }
 
-export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, onCameraMode, onCare, onHello, onFollow, onCrafting, onOpenLives }: {
+export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onOpenLives }: {
   state: AliveResponse
   online: boolean
   busy: boolean
@@ -46,6 +47,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   cameraMode: CameraMode
   /** What auto has picked, once it has. */
   autoPick: AutoPick | null
+  /** The minimap, or the button that shows it: bottom right, above the recent events. */
+  minimap?: ReactNode
   onCameraMode: (mode: CameraMode) => void
   onCare: (kind: CareKind) => void
   onHello: () => void
@@ -108,12 +111,17 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
           <CameraSwitch mode={cameraMode} autoPick={autoPick} onChange={onCameraMode} />
           {message && <p className="mt-2 text-xs text-[#a65b50]" role="status">{message}</p>}
         </section>
-        <section className={`${PANEL} hidden w-64 px-4 py-3 text-xs md:block`} aria-label="Recent events">
-          <p className="mb-2 font-semibold">What happened</p>
-          <ul className="space-y-1.5 text-[#54726e]">
-            {state.events.slice(0, 4).map((event) => <li key={event.id}>{event.text}</li>)}
-          </ul>
-        </section>
+        {/* On phones the map sits above the care panel, on the right; on wider screens in the
+            right-hand column, above the recent events. */}
+        <div className="order-first flex flex-col items-end gap-3 self-end sm:order-none">
+          {minimap}
+          <section className={`${PANEL} hidden w-64 px-4 py-3 text-xs md:block`} aria-label="Recent events">
+            <p className="mb-2 font-semibold">What happened</p>
+            <ul className="space-y-1.5 text-[#54726e]">
+              {state.events.slice(0, 4).map((event) => <li key={event.id}>{event.text}</li>)}
+            </ul>
+          </section>
+        </div>
       </div>
     </>
   )

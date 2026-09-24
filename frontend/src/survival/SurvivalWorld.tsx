@@ -7,6 +7,8 @@ import { isCameraKey, loadCameraMode, nextMode, saveCameraMode, type AutoPick, t
 import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
 import { workerOnline } from './hud'
+import Minimap from './Minimap'
+import { isMapKey, loadMapOpen, saveMapOpen } from './overheadMap'
 import { serverNow } from './motion'
 import SurvivalHud from './SurvivalHud'
 import type { AliveResponse, CareKind } from './types'
@@ -44,6 +46,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   const [craftMessage, setCraftMessage] = useState('')
   const [cameraMode, setCameraMode] = useState<CameraMode>(() => loadCameraMode(browserStorage))
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
+  const [mapOpen, setMapOpen] = useState(() => loadMapOpen(browserStorage))
 
   // Any camera choice, or auto switching, follows Mimo again.
   const chooseCamera = useCallback((mode: CameraMode) => {
@@ -64,6 +67,20 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
     window.addEventListener('keydown', cycle)
     return () => window.removeEventListener('keydown', cycle)
   }, [cameraMode, chooseCamera])
+
+  const showMap = useCallback((open: boolean) => {
+    setMapOpen(open)
+    saveMapOpen(browserStorage, open)
+  }, [])
+
+  useEffect(() => {
+    const toggle = (event: KeyboardEvent) => {
+      if (event.repeat || !isMapKey(event)) return
+      showMap(!mapOpen)
+    }
+    window.addEventListener('keydown', toggle)
+    return () => window.removeEventListener('keydown', toggle)
+  }, [mapOpen, showMap])
 
   // Poll-driven: receivedAt changes every second, so a failed delta is retried on the next poll.
   // Once a sync has caught the store up, later changes are held back (see DelayedBlocks).
@@ -105,6 +122,16 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
     }
   }
 
+  const minimap = mapOpen
+    ? <Minimap store={store} position={state.position} explored={state.explored} structures={state.structures}
+        landmarks={state.landmarks} action={state.action} name={state.life.name} onHide={() => showMap(false)} />
+    : (
+      <button type="button" onClick={() => showMap(true)} title="Show the map (M)"
+        className="rounded-xl border border-white/75 bg-[#f5faf7]/90 px-3 py-1.5 text-xs font-medium text-[#315e58] shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md hover:bg-white">
+        Map
+      </button>
+    )
+
   const care = (kind: CareKind) => { void run(() => giveCare(kind)) }
   const hello = () => { void run(sayHello, () => setHelloCount((count) => count + 1)) }
   const craft = async (action: string, item: string) => {
@@ -125,7 +152,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
         cameraMode={cameraMode} onAutoPick={autoPicked} />
       <SurvivalHud state={state} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
         busy={busy} message={message || connectionError || syncError}
-        cameraMode={cameraMode} autoPick={autoPick} onCameraMode={chooseCamera}
+        cameraMode={cameraMode} autoPick={autoPick} minimap={minimap} onCameraMode={chooseCamera}
         onCare={care} onHello={hello} onFollow={() => setFollowing(true)}
         onCrafting={() => setShowCrafting(true)} onOpenLives={onOpenLives} />
       {showCrafting && (
