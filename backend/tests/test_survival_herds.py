@@ -223,6 +223,15 @@ class TickTests(unittest.TestCase):
                         self.assertTrue(grid.water(cell) if creature["kind"] == "fish" else grid.standable(cell))
         self.assertEqual(runs[0], runs[1])
 
+    def test_the_creature_hook_runs_once_a_moment_not_again_where_the_last_tick_left_off(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as root:
+            world = self.hatched(root)
+            with patch("backend.survival.tick.simulate", lambda state, context, at: calls.append(at)):
+                for second in (30, 60, 200):
+                    advance_world(world, BORN + second, 1.0)
+        self.assertEqual(calls, [BORN + second for second in (30, 60, 120, 180, 200)])
+
     def test_a_crashing_creature_hook_never_stops_the_tick(self):
         with tempfile.TemporaryDirectory() as root:
             world = self.hatched(root)

@@ -14,7 +14,8 @@ optional hooks let a brain (backend.survival.brain) hear about finished steps (`
 notice each vitals step (`notice`). Minds never call a model here: the tick holds the world's
 write transaction. After each chunk of actions the world regrows on its own
 (backend.survival.renewal) and the creatures near Mimo take their turns
-(backend.survival.creatures.simulate), whatever mind runs Mimo.
+(backend.survival.creatures.simulate), whatever mind runs Mimo; the creatures skip the moment
+the last tick ended on, since that tick already ran them up to it.
 """
 
 from __future__ import annotations
@@ -158,7 +159,8 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 record_death(state, "fall", fell_at, scale, events)
                 break
             run_renewal(state, context, cursor)
-            run_creatures(state, context, cursor)
+            if cursor != state["last_tick_at"]:  # the last tick already ran the creatures up to here
+                run_creatures(state, context, cursor)
             step = min(MAX_STEP_SECONDS, remaining)
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
