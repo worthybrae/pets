@@ -10,11 +10,12 @@ shelter when Mimo's arms are getting full (13 stacks) or the chest holds food Mi
 scores higher the fuller Mimo is.
 
 drop_items leaves behind what is no use at all: food Mimo knows is poisonous, pickaxes and axes a
-better one replaced, and flowers. When its arms are full and there is no chest to use (none, or a
-full one), loose blocks go too, least useful first and only as far as it takes: moss, gravel,
-sand and clay; with none of those, dirt; with no dirt either, cobblestone. Dirt and cobblestone
-that a shelter Mimo started still needs stay. It scores low while Mimo has room and high when it
-is full.
+better one replaced, and flowers. When its arms are full and build_storage cannot use a chest
+instead (none, none Mimo could place either, or a full one), loose blocks go too, least useful
+first and only as far as it takes: moss, gravel, sand and clay; with none of those, dirt; with no
+dirt either, cobblestone. Dirt and cobblestone that a shelter Mimo started still needs stay, and
+cobblestone never drops below gather_stone's own goal (work.STONE_GOAL), so the two do not dig up
+and drop the same stone forever. It scores low while Mimo has room and high when it is full.
 """
 
 from __future__ import annotations
@@ -188,13 +189,20 @@ def shelter_blocks_left(s: Situation) -> int:
 def loose_blocks(s: Situation) -> list[tuple[str, int]]:
     """The loose blocks to drop when Mimo is full with no chest to use: LEAST_USEFUL, else dirt,
     else cobblestone, keeping the dirt and cobblestone the started shelter still needs beyond the
-    other blocks Mimo carries (cobblestone is kept before dirt)."""
+    other blocks Mimo carries (cobblestone is kept before dirt), and never dropping cobblestone
+    below gather_stone's own goal (work.STONE_GOAL): otherwise the two would dig up and drop the
+    same stone forever. The dirt and cobblestone tiers only fire when build_storage cannot use a
+    chest instead (a carried, unplaced chest still means there is somewhere to put them)."""
+    from backend.survival.work import STONE_GOAL  # imported here: work imports building, not storage
+
     found = [(item, s.count(item)) for item in LEAST_USEFUL if s.count(item)]
     if found:
         return found
+    if storage_valid(s):
+        return []
     need = shelter_blocks_left(s) - sum(count for item, count in usable_supplies(s.inventory).items()
                                         if item not in LAST_RESORT and item not in LEAST_USEFUL)
-    keep = {"cobblestone": min(s.count("cobblestone"), max(0, need))}
+    keep = {"cobblestone": min(s.count("cobblestone"), max(0, STONE_GOAL + need))}
     keep["dirt"] = min(s.count("dirt"), max(0, need - keep["cobblestone"]))
     for item in LAST_RESORT:
         if s.count(item) > keep[item]:

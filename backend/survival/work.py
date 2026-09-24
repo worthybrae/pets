@@ -9,16 +9,16 @@ something built, not a tree. Trees only come back when Mimo plants saplings (the
 leaves), so each batch first plants up to 2 carried saplings on open ground within reach, 3
 blocks or more from any trunk or other sapling, on the natural surface (never in Mimo's own
 staircase) and 2 blocks or more from a home or shelter.
-gather_stone needs a pickaxe:
-it digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level
-tunnel 10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone (and the
-blocks a started shelter still waits for); with a stone pickaxe and no iron ore seen yet, it
-keeps digging to prospect for iron. It never digs into water, lava, bedrock, a hole or a cave, or
-a block it cannot mine, and never digs up farmland, a sapling or anything Mimo built, its door or
-the way in (structures.reserved). It never digs back the way it came, and never mines the floor
-of an open cell below the natural surface (a stair or tunnel it dug earlier, or a cave) unless
-the same stair just opened that cell, so it cannot cut its own staircase. The staircase stays
-climbable, and from its third stair it is sheltered, so it often becomes Mimo's first home.
+gather_stone needs a pickaxe and, short of prospecting, room left to carry more cobblestone: it
+digs a staircase down from where Mimo stands, two blocks per stair, and turns into a level tunnel
+10 blocks under the surface (or at y -3), until Mimo carries 12 cobblestone (and the blocks a
+started shelter still waits for); with a stone pickaxe and no iron ore seen yet, it keeps digging
+to prospect for iron regardless of room. It never digs into water, lava, bedrock, a hole or a
+cave, or a block it cannot mine, and never digs up farmland, a sapling or anything Mimo built, its
+door or the way in (structures.reserved). It never digs back the way it came, and never mines the
+floor of an open cell below the natural surface (a stair or tunnel it dug earlier, or a cave)
+unless the same stair just opened that cell, so it cannot cut its own staircase. The staircase
+stays climbable, and from its third stair it is sheltered, so it often becomes Mimo's first home.
 mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
 blocks, and mines it.
 
@@ -39,6 +39,7 @@ from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
 from backend.survival.building import building_need
+from backend.survival.carrying import CARRY_STACKS, room_for
 from backend.survival.farming import plant
 from backend.survival.nature import SOIL
 from backend.survival.senses import by_distance, failed_columns, standing_logs, trunks_near
@@ -227,7 +228,13 @@ def stone_goal(s: Situation) -> float:
 
 
 def wants_stone(s: Situation) -> bool:
-    return has_pickaxe(s.inventory) and (s.count("cobblestone") < stone_goal(s) or prospecting(s))
+    """A pickaxe, and either room left to carry more cobblestone with less than the goal carried
+    yet (digging for a stone Mimo cannot even carry would only be thrown away), or prospecting on
+    for iron regardless of room."""
+    if not has_pickaxe(s.inventory):
+        return False
+    normal = s.count("cobblestone") < stone_goal(s) and room_for(s.inventory, "cobblestone", CARRY_STACKS) > 0
+    return normal or prospecting(s)
 
 
 def stone_score(s: Situation) -> float:

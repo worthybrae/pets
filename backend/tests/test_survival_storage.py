@@ -158,16 +158,36 @@ class DropWhenStuckTests(unittest.TestCase):
         self.assertFalse(PURPOSES["drop_items"].valid(roomy.situation()))
 
     def test_with_no_dirt_cobblestone_goes_but_what_the_shelter_still_needs_stays(self):
+        """Fix wave M5(f): cobblestone never drops below gather_stone's own goal (STONE_GOAL, 12),
+        so drop_items and gather_stone stop alternating over the same stone."""
         carried = {**self.filler, "item_13": 1, "cobblestone": 40}  # 16 stacks
-        self.assertEqual(Home(carried).plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 40}])
+        self.assertEqual(Home(carried).plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 28}])
         home = Home(carried)
         for cell in [(-1, 1, 0), (-1, 2, 0), (3, 1, 0), (3, 2, 0), (3, 1, 1)]:  # five wall blocks gone
             home.grid.put(*cell, "air")
-        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 35}])
+        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 23}])
         dirt = Home({**self.filler, "item_13": 1, "dirt": 40})
         for cell in [(-1, 1, 0), (-1, 2, 0), (3, 1, 0)]:
             dirt.grid.put(*cell, "air")
         self.assertEqual(dirt.plan("drop_items"), [{"kind": "drop", "item": "dirt", "amount": 37}])
+
+
+class CarriedChestTests(unittest.TestCase):
+    """Fix wave M5(g): an unplaced chest Mimo carries still means build_storage can put it down and
+    store what would otherwise be dropped, so drop_items leaves the shelter's dirt and cobblestone
+    alone instead of throwing it away."""
+
+    filler = {f"item_{n}": 1 for n in range(13)}
+
+    def test_a_carried_chest_stores_instead_of_dropping_cobblestone(self):
+        home = Home({**self.filler, "cobblestone": 40, "chest": 1})  # 16 stacks, chest not yet placed
+        s = home.situation()
+        self.assertTrue(storage.storage_valid(s))
+        self.assertFalse(PURPOSES["drop_items"].valid(s))
+        self.assertEqual(home.plan("drop_items"), [])
+        # the same cobblestone is dropped as before when Mimo carries no chest to place
+        without_chest = Home({**self.filler, "item_13": 1, "cobblestone": 40})
+        self.assertEqual(without_chest.plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 28}])
 
 
 class FarmHarvestTests(unittest.TestCase):

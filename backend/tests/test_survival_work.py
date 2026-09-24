@@ -2,12 +2,14 @@ import sqlite3
 import unittest
 from unittest.mock import patch
 
+from backend.services.crafting import BLOCKS
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, places, remember
 from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ores_around
 from backend.survival.situation import Situation
+from backend.survival import storage  # noqa: F401  (registers drop_items)
 from backend.survival import work  # noqa: F401  (registers the gathering purposes)
 from backend.survival.work import dig_heading, sapling_fits, stair, stone_goal
 from backend.survival.vitals import START_VITALS
@@ -204,6 +206,57 @@ class StoneTests(unittest.TestCase):
         # Score should be in normal stone band (50 + diligence/10 + thrift/20 ...),
         # not prospecting band (40 + curiosity/10 ...)
         self.assertIn("cobblestone carried, a pickaxe in hand", facts)
+
+
+@patch("backend.survival.work.terrain_height", lambda x, z, seed: 0)
+class GatherThenDropLoopTests(unittest.TestCase):
+    """Fix wave M5(f): full with no chest, drop_items used to throw away every last cobblestone a
+    started shelter did not need, and gather_stone then dug straight back up to STONE_GOAL, so the
+    two alternated forever. Keeping STONE_GOAL as a floor when dropping, and not sending
+    gather_stone out to dig when there is no room left to carry more, settles the choice instead."""
+
+    def apply(self, state, grid, steps):
+        """Do the planned steps well enough to move cobblestone and other loot: walk moves Mimo,
+        mine adds what the mined block drops, drop takes items away."""
+        for step in steps:
+            if step["kind"] == "walk":
+                state["position"] = dict(zip("xyz", map(float, step["target"])))
+            elif step["kind"] == "mine":
+                material = grid.material(*step["target"])
+                grid.put(*step["target"], "air")
+                drop = BLOCKS.get(material, {}).get("drop")
+                if drop:
+                    state["inventory"][drop] = state["inventory"].get(drop, 0) + 1
+            elif step["kind"] == "drop":
+                left = state["inventory"].get(step["item"], 0) - step["amount"]
+                if left > 0:
+                    state["inventory"][step["item"]] = left
+                else:
+                    state["inventory"].pop(step["item"], None)
+
+    def test_drop_items_and_gather_stone_no_longer_alternate_on_cobblestone(self):
+        filler = {f"item_{n}": 1 for n in range(14)}  # 15 stacks Mimo never drops, with the pickaxe
+        state = pet((4, -3, 0), inventory={**filler, "wooden_pickaxe": 1})
+        grid = ground({(4, -3, 0): "air"})
+        db = sqlite3.connect(":memory:")
+        create_memory_tables(db)
+        context = ActionContext(grid=grid, clock_at=lambda at: DAY, planner=lambda *a: [], events=[], db=db)
+        chosen = []
+        for _ in range(8):
+            s = Situation(state, grid, DAY, 0.0, db)
+            candidates = [(name, PURPOSES[name].score(s)) for name in ("gather_stone", "drop_items")
+                          if PURPOSES[name].valid(s)]
+            if not candidates:
+                chosen.append(None)
+                break
+            name = max(candidates, key=lambda pair: pair[1])[0]
+            chosen.append(name)
+            self.apply(state, grid, PURPOSES[name].plan(s, context))
+        # it never goes back to dropping the stone it just dug, and settles once it has enough
+        self.assertEqual(chosen.count("drop_items"), 0)
+        self.assertIn("gather_stone", chosen)
+        self.assertIsNone(chosen[-1])
+        self.assertEqual(state["inventory"].get("cobblestone", 0), stone_goal(Situation(state, grid, DAY, 0.0, db)))
 
 
 class OreTests(unittest.TestCase):
