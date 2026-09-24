@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { creatureDots, creatureModel, dropColor } from './creatures'
+import { VOXEL, creatureDots, creatureModel, dropColor } from './creatures'
 import { mapOrigin } from './overheadMap'
 import type { Creature } from './types'
 
@@ -11,15 +11,28 @@ function height(kind: string): number {
   return (Math.max(...ys) - Math.min(...ys) + 1) * model.scale
 }
 
+type Cell = { x: number; y: number; z: number }
+const key = ({ x, y, z }: Cell) => `${x},${y},${z}`
+const SIDES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+
+/** Whether every voxel of `part` touches `whole` (or another voxel of `part`) face to face. */
+function attached(part: readonly Cell[], whole: readonly Cell[]): boolean {
+  const cells = new Set(whole.map(key))
+  return part.every(({ x, y, z }) => SIDES.some(([dx, dy, dz]) => cells.has(key({ x: x + dx, y: y + dy, z: z + dz }))))
+}
+
 describe('creatureModel', () => {
-  it('builds every kind from voxels, as tall as the kind is', () => {
+  it('builds every kind from voxels of one shared size, as tall as the kind is', () => {
     const sizes: Record<string, number> = { rabbit: 0.5, chicken: 0.6, sheep: 1, cow: 1.3, fish: 0.3 }
+    expect(VOXEL).toBeGreaterThanOrEqual(0.1)
     for (const kind of KINDS) {
       const model = creatureModel(kind)
+      expect(model.scale).toBeCloseTo(VOXEL)
       expect(model.body.length).toBeGreaterThan(5)
       expect(height(kind)).toBeCloseTo(sizes[kind])
-      const cells = [...model.body, ...model.head].map((voxel) => `${voxel.x},${voxel.y},${voxel.z}`)
+      const cells = [...model.body, ...model.head].map(key)
       expect(new Set(cells).size).toBe(cells.length)
+      expect(attached(model.head, [...model.body, ...model.head])).toBe(true)
     }
     expect(creatureModel('cow')).toBe(creatureModel('cow'))
   })
@@ -27,7 +40,7 @@ describe('creatureModel', () => {
   it('gives the rabbit long ears, the cow its spots and the sheep its wool', () => {
     const rabbit = creatureModel('rabbit')
     const top = Math.max(...rabbit.head.map((voxel) => voxel.y))
-    expect(top - Math.max(...rabbit.body.map((voxel) => voxel.y))).toBeGreaterThanOrEqual(5)
+    expect(top - Math.max(...rabbit.body.map((voxel) => voxel.y))).toBeGreaterThanOrEqual(2)
     const cow = creatureModel('cow').body.map((voxel) => voxel.r)
     expect(cow.some((red) => red < 80)).toBe(true)
     expect(cow.some((red) => red > 200)).toBe(true)
@@ -36,9 +49,31 @@ describe('creatureModel', () => {
     expect(creatureModel('fish').head).toEqual([])
   })
 
+  it('gives the chicken a head with eyes, a beak and a comb', () => {
+    const { head } = creatureModel('chicken')
+    const colors = new Set(head.map((voxel) => `${voxel.r},${voxel.g},${voxel.b}`))
+    expect(colors.size).toBeGreaterThanOrEqual(4)  // feathers, eyes, beak, comb
+    expect(head.filter((voxel) => voxel.r < 80).length).toBe(2)  // two eyes
+    expect(new Set(head.map((voxel) => voxel.x)).size).toBeGreaterThanOrEqual(3)  // a head, not a sliver
+  })
+
+  it('grows the cow\'s horns out of its head, so they turn with it', () => {
+    const { head } = creatureModel('cow')
+    const horns = head.filter((voxel) => voxel.r === 226 && voxel.g === 214)
+    expect(horns.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(horns.map((voxel) => Math.sign(voxel.x)))).toEqual(new Set([-1, 1]))
+    const skull = head.filter((voxel) => !horns.includes(voxel))
+    expect(attached(horns, [...skull, ...horns])).toBe(true)
+    const touching = new Set(skull.map(key))
+    expect(horns.some(({ x, y, z }) => SIDES.some(([dx, dy, dz]) => touching.has(key({ x: x + dx, y: y + dy, z: z + dz })))))
+      .toBe(true)
+  })
+
   it('hops rabbits highest and draws a kind it does not know as a plain block', () => {
     expect(creatureModel('rabbit').hop).toBeGreaterThan(creatureModel('cow').hop)
-    expect(creatureModel('gloomling').body.length).toBe(27)
+    const unknown = creatureModel('gloomling')
+    expect(unknown.body.length).toBe(150)
+    expect(unknown.scale).toBeCloseTo(VOXEL)
   })
 })
 

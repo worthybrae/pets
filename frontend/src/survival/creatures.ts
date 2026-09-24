@@ -4,10 +4,12 @@ import type { Creature, Point } from './types'
 
 /**
  * Blocky voxel models of the creatures, in the soft pixel style of the pet (PetVoxels): a white
- * rabbit with long ears, a woolly sheep, a spotted cow, a small chicken and a fish. Each model is
- * two voxel lists, the body and the head, so the head can dip to graze. Voxel units: x across,
- * y up from the feet, z forward (the way the creature faces). `scale` makes the model as tall as
- * the kind's size in blocks (backend/survival/creatures/kinds.py).
+ * rabbit with long ears, a woolly sheep, a spotted cow with horns, a small chicken with a comb and
+ * a fish. Each model is two voxel lists, the body and the head, so the head can dip to graze.
+ * Voxel units: x across, y up from the feet, z forward (the way the creature faces). Every kind is
+ * drawn on the same grid of VOXEL blocks, coarse enough that eyes, ears and horns still read from
+ * the camera next to the pet, and each model is as many voxels tall as its kind's size in blocks
+ * (backend/survival/creatures/kinds.py) takes, so `scale` works out to VOXEL for all of them.
  */
 export interface CreatureModel {
   body: Voxel[]
@@ -22,20 +24,24 @@ export interface CreatureModel {
 
 type Color = readonly [number, number, number]
 
+/** Blocks per voxel, the same for every kind. */
+export const VOXEL = 0.1
+
 const WHITE: Color = [240, 238, 232]
 const PINK: Color = [236, 168, 176]
 const EYE: Color = [44, 42, 52]
 const WOOL: Color = [236, 229, 212]
-const FACE: Color = [96, 90, 88]
+const FACE: Color = [168, 142, 122]
 const SPOT: Color = [52, 48, 50]
 const NOSE: Color = [226, 158, 150]
 const HORN: Color = [226, 214, 180]
 const COMB: Color = [214, 72, 64]
 const BEAK: Color = [240, 184, 72]
+const WING: Color = [224, 220, 210]
 const SCALES: Color = [242, 150, 76]
 const FIN: Color = [250, 196, 120]
 
-/** Blocks tall, as in the kinds registry. */
+/** Blocks tall, as in the kinds registry. Each model is this divided by VOXEL voxels tall. */
 const SIZES: Record<string, number> = { rabbit: 0.5, chicken: 0.6, sheep: 1.0, cow: 1.3, fish: 0.3 }
 const HOPS: Record<string, number> = { rabbit: 0.25, chicken: 0.08, sheep: 0.06, cow: 0.04, fish: 0 }
 
@@ -54,57 +60,70 @@ class Builder {
     }
     return this
   }
+
+  /** The same box on both sides: at x and at -x. */
+  pair(x: number, y: [number, number], z: [number, number], color: Color) {
+    return this.box([x, x], y, z, color).box([-x, -x], y, z, color)
+  }
 }
 
-/** Black patches on a cow, fixed by the voxel's place. */
+/** Black patches on a cow, two voxels across so they read from afar, fixed by the voxel's place. */
 function spotted(x: number, y: number, z: number): Color {
-  return ((x * 7 + y * 13 + z * 5) % 11 + 11) % 11 < 3 ? SPOT : WHITE
+  const patch = Math.floor(x / 2) * 7 + Math.floor(y / 2) * 13 + Math.floor(z / 2) * 5
+  return ((patch % 11) + 11) % 11 < 3 ? SPOT : WHITE
 }
 
+/** 5 voxels tall: a round body, a head with ears 2 voxels long above it. */
 function rabbit(): Omit<CreatureModel, 'scale' | 'hop'> {
-  const body = new Builder().box([-1, 1], [0, 2], [-3, 1], WHITE).box([0, 0], [2, 2], [-4, -4], WHITE)
-  const head = new Builder().box([-1, 1], [2, 4], [2, 4], WHITE)
-    .box([-1, -1], [3, 3], [4, 4], EYE).box([1, 1], [3, 3], [4, 4], EYE).box([0, 0], [2, 2], [4, 4], PINK)
-    .box([-1, -1], [5, 8], [2, 2], WHITE).box([1, 1], [5, 8], [2, 2], WHITE)
-    .box([-1, -1], [5, 7], [3, 3], PINK).box([1, 1], [5, 7], [3, 3], PINK)
-  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 2.5, z: 1.5 } }
+  const body = new Builder().box([-1, 1], [0, 1], [-2, 1], WHITE).box([-1, 1], [2, 2], [-2, 0], WHITE)
+    .box([0, 0], [2, 2], [-3, -3], WHITE).pair(1, [0, 0], [2, 2], WHITE)
+  const head = new Builder().box([-1, 1], [1, 2], [2, 3], WHITE).pair(1, [2, 2], [3, 3], EYE)
+    .box([0, 0], [1, 1], [3, 3], PINK).pair(1, [3, 4], [2, 2], WHITE)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 1, z: 2 } }
 }
 
+/** 6 voxels tall: legs, a plump body with wings and a tail, a head with eyes, a beak, a comb and a wattle. */
 function chicken(): Omit<CreatureModel, 'scale' | 'hop'> {
-  const body = new Builder().box([-1, 1], [1, 3], [-2, 1], WHITE).box([0, 0], [3, 4], [-3, -3], WHITE)
-    .box([-2, -2], [2, 2], [-1, 0], WHITE).box([2, 2], [2, 2], [-1, 0], WHITE)
-    .box([-1, -1], [0, 0], [0, 0], BEAK).box([1, 1], [0, 0], [0, 0], BEAK)
-  const head = new Builder().box([0, 0], [4, 5], [1, 2], WHITE).box([0, 0], [6, 6], [1, 2], COMB)
-    .box([0, 0], [4, 4], [3, 3], BEAK).box([0, 0], [3, 3], [2, 2], COMB)
-  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 3.5, z: 1 } }
+  const body = new Builder().pair(1, [0, 0], [0, 0], BEAK).box([-1, 1], [1, 3], [-2, 0], WHITE)
+    .box([-1, 1], [1, 2], [1, 1], WHITE).pair(2, [2, 3], [-1, 0], WING).box([0, 0], [2, 4], [-3, -3], WHITE)
+  const head = new Builder().box([-1, 1], [3, 4], [1, 2], WHITE).pair(1, [4, 4], [2, 2], EYE)
+    .box([0, 0], [3, 3], [3, 3], BEAK).box([0, 0], [5, 5], [1, 2], COMB).box([0, 0], [2, 2], [2, 2], COMB)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 3, z: 1 } }
 }
 
+/** 10 voxels tall: four legs under a thick fleece, a face with eyes, ears and a woolly crown. */
 function sheep(): Omit<CreatureModel, 'scale' | 'hop'> {
-  const body = new Builder().box([-2, 2], [2, 5], [-3, 3], WOOL)
-  for (const [x, z] of [[-1, -2], [1, -2], [-1, 2], [1, 2]]) body.box([x, x], [0, 1], [z, z], FACE)
-  const head = new Builder().box([-1, 1], [4, 6], [4, 5], FACE).box([-1, 1], [7, 7], [4, 5], WOOL)
-    .box([-1, -1], [6, 6], [6, 6], EYE).box([1, 1], [6, 6], [6, 6], EYE).box([-1, 1], [4, 5], [6, 6], FACE)
-  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 4.5, z: 3.5 } }
+  const body = new Builder().box([-2, 2], [4, 8], [-3, 3], WOOL)
+  for (const z of [-2, 2]) body.pair(1, [0, 3], [z, z], FACE)
+  const head = new Builder().box([-1, 1], [5, 8], [4, 5], FACE).pair(1, [7, 7], [5, 5], EYE)
+    .box([-1, 1], [9, 9], [4, 5], WOOL).pair(2, [8, 8], [4, 4], FACE)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 6, z: 4 } }
 }
 
+/** 13 voxels tall: sturdy legs, a long spotted body with a tail and udder, a head with a muzzle,
+ * ears and horns that grow out of its sides. */
 function cow(): Omit<CreatureModel, 'scale' | 'hop'> {
-  const body = new Builder().box([-2, 2], [3, 6], [-4, 3], spotted)
-  for (const [x, z] of [[-2, -3], [2, -3], [-2, 2], [2, 2]]) body.box([x, x], [0, 2], [z, z], WHITE)
-  const head = new Builder().box([-1, 1], [5, 7], [4, 6], spotted).box([-1, 1], [5, 5], [7, 7], NOSE)
-    .box([-1, -1], [7, 7], [7, 7], EYE).box([1, 1], [7, 7], [7, 7], EYE)
-    .box([-2, -2], [8, 8], [5, 5], HORN).box([2, 2], [8, 8], [5, 5], HORN)
-  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 5.5, z: 3.5 } }
+  const body = new Builder().box([-3, 3], [5, 10], [-5, 4], spotted)
+  for (const z of [-5, 3]) {
+    body.box([-3, -2], [1, 4], [z, z + 1], WHITE).box([2, 3], [1, 4], [z, z + 1], WHITE)
+      .box([-3, -2], [0, 0], [z, z + 1], SPOT).box([2, 3], [0, 0], [z, z + 1], SPOT)
+  }
+  body.box([0, 0], [7, 9], [-6, -6], WHITE).box([0, 0], [6, 6], [-6, -6], SPOT).box([0, 0], [4, 4], [-3, -2], NOSE)
+  const head = new Builder().box([-2, 2], [8, 11], [5, 7], spotted).box([-1, 1], [8, 9], [8, 8], NOSE)
+    .pair(2, [10, 10], [7, 7], EYE).pair(3, [10, 10], [5, 5], WHITE).pair(3, [11, 12], [6, 6], HORN)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 8, z: 5 } }
 }
 
+/** 3 voxels tall: a tapered body with eyes, a back fin and a tail. */
 function fish(): Omit<CreatureModel, 'scale' | 'hop'> {
-  const body = new Builder().box([0, 0], [0, 1], [-2, 1], SCALES).box([0, 0], [2, 2], [-1, 0], FIN)
-    .box([0, 0], [-1, 2], [-3, -3], FIN).box([0, 0], [1, 1], [1, 1], EYE)
+  const body = new Builder().box([0, 0], [0, 1], [-2, 1], SCALES).box([-1, 1], [0, 1], [-1, 0], SCALES)
+    .pair(1, [1, 1], [0, 0], EYE).box([0, 0], [2, 2], [-1, 0], FIN).box([0, 0], [0, 2], [-3, -3], FIN)
   return { body: body.voxels, head: [], neck: { x: 0, y: 1, z: 1 } }
 }
 
 /** A plain grey block for a kind this viewer does not know yet. */
 function unknown(): Omit<CreatureModel, 'scale' | 'hop'> {
-  return { body: new Builder().box([-1, 1], [0, 2], [-1, 1], [150, 150, 150]).voxels, head: [], neck: { x: 0, y: 2, z: 1 } }
+  return { body: new Builder().box([-2, 2], [0, 5], [-2, 2], [150, 150, 150]).voxels, head: [], neck: { x: 0, y: 5, z: 2 } }
 }
 
 const MODELS: Record<string, () => Omit<CreatureModel, 'scale' | 'hop'>> = { rabbit, chicken, sheep, cow, fish }
