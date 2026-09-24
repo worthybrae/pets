@@ -1,10 +1,11 @@
+import math
 import sqlite3
 import unittest
 from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, know, remember
+from backend.survival.memory import create_memory_tables, know, mark_explored, patch_of, remember
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, Purpose, meal, offered, register
 from backend.survival.situation import Situation
@@ -122,18 +123,21 @@ class SimplePurposeTests(unittest.TestCase):
         fast_later = Situation(fast.state, fast.grid, fast.clock, 10.0, fast.db)  # 600 game seconds at 60x
         self.assertEqual(PURPOSES["rest"].plan(fast_later, context()), [])
 
-    def test_explore_walks_out_in_a_new_direction_each_time(self):
+    def test_explore_walks_whole_to_new_ground_each_time(self):
         state = pet()
-        with patch("backend.survival.purposes.terrain_height", lambda x, z, seed: 0):
-            first = PURPOSES["explore"].plan(situation(state), context())
-            second = PURPOSES["explore"].plan(situation(state), context())
-        self.assertEqual(first, [{"kind": "walk", "target": [34, 1, 34], "reach": 3.0}])
-        self.assertEqual(second, [{"kind": "walk", "target": [-48, 1, 0], "reach": 3.0}])
+        s = situation(state)
+        with patch("backend.survival.exploring.terrain_height", lambda x, z, seed: 0):
+            first = PURPOSES["explore"].plan(s, context())[0]
+            x, _, z = first["target"]
+            mark_explored(s.db, [patch_of(x + dx, z + dz) for dx in (-8, 0, 8) for dz in (-8, 0, 8)], 0.0)
+            second = PURPOSES["explore"].plan(Situation(state, s.grid, DAY, 0.0, s.db), context())[0]
+        self.assertEqual((first["kind"], first["reach"], first["whole"]), ("walk", 3.0, True))
+        self.assertGreater(math.dist(first["target"], second["target"]), 8)
         self.assertEqual(state["brain"]["explored"], 2)
 
     def test_explore_chains_three_walks_per_choice(self):
         s = situation()
-        with patch("backend.survival.purposes.terrain_height", lambda x, z, seed: 0):
+        with patch("backend.survival.exploring.terrain_height", lambda x, z, seed: 0):
             for batches in range(3):
                 s.brain["batches"] = batches
                 self.assertEqual(len(PURPOSES["explore"].plan(s, context())), 1)
