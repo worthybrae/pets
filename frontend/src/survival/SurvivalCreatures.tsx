@@ -11,13 +11,23 @@ import type { Creature, CreatureMove } from './types'
 /** Creatures drawn at most: the nearest ones, as the server lists them. */
 const MAX_DRAWN = 32
 const PUFF_BITS = 6
+const PUFF_SIZE = 0.16
+const POP_SIZE = 0.18
 const MOST_DROPS = 4
 const BAR_WIDTH = 0.7
+const BAR_BACK_SIZE: [number, number, number] = [BAR_WIDTH, 0.09, 0.02]
+const BAR_FILL_SIZE: [number, number, number] = [BAR_WIDTH, 0.07, 0.02]
 const FISH_LIFT = 0.3
 const PUFF_COLOR = '#f4f1ea'
 const BAR_BACK = '#3b2f2f'
 const BAR_FILL = '#79c46b'
 const HIDDEN: Creature[] = []
+/**
+ * The one cube every creature is drawn with: its voxels, its puff, its drops and its health bar,
+ * each scaled to size. It lives as long as the page: R3F disposes a mesh when a creature goes, but
+ * never a geometry handed to it (through `args` or `geometry`), so it is never disposed here.
+ */
+const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1)
 
 /** One part's voxels as an instanced mesh of unit cubes, colored per voxel, like PetVoxels, with its
  * material in `material` so the hurt flash can light it up. */
@@ -42,8 +52,7 @@ function Voxels({ voxels, material }: { voxels: Voxel[]; material: RefObject<THR
 
   if (voxels.length === 0) return null
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, voxels.length]} frustumCulled={false}>
-      <boxGeometry args={[1, 1, 1]} />
+    <instancedMesh ref={mesh} args={[UNIT_BOX, undefined, voxels.length]} frustumCulled={false}>
       <meshStandardMaterial ref={material} roughness={0.55} metalness={0.05} />
     </instancedMesh>
   )
@@ -102,7 +111,7 @@ function CreatureFigure({ creature, history, now }: { creature: Creature; histor
       if (health.shown) {
         // Keep the bar square to the camera whichever way the creature faces.
         bar.current.quaternion.copy(group.quaternion).invert().multiply(state.camera.quaternion)
-        fill.current?.scale.set(Math.max(0.001, health.fraction), 1, 1)
+        fill.current?.scale.set(Math.max(0.001, health.fraction) * BAR_WIDTH, BAR_FILL_SIZE[1], BAR_FILL_SIZE[2])
         fill.current?.position.set((health.fraction - 1) * BAR_WIDTH / 2, 0, 0.01)
       }
     }
@@ -116,7 +125,7 @@ function CreatureFigure({ creature, history, now }: { creature: Creature; histor
         const { offsets, scale } = puffBits(PUFF_BITS, age)
         offsets.forEach((offset, index) => {
           dummy.position.set(offset.x, height / 2 + offset.y, offset.z)
-          dummy.scale.setScalar(scale)
+          dummy.scale.setScalar(scale * PUFF_SIZE)
           dummy.updateMatrix()
           bits.setMatrixAt(index, dummy.matrix)
         })
@@ -129,7 +138,7 @@ function CreatureFigure({ creature, history, now }: { creature: Creature; histor
       if (age !== null) {
         dropPops(creature.drops?.slice(0, MOST_DROPS), age).forEach((pop, index) => {
           popped.children[index]?.position.set(pop.offset.x, pop.offset.y, pop.offset.z)
-          popped.children[index]?.scale.setScalar(pop.scale)
+          popped.children[index]?.scale.setScalar(pop.scale * POP_SIZE)
         })
       }
     }
@@ -149,23 +158,19 @@ function CreatureFigure({ creature, history, now }: { creature: Creature; histor
         </group>
       </group>
       <group ref={bar} position={[0, height + 0.3, 0]} visible={false}>
-        <mesh>
-          <boxGeometry args={[BAR_WIDTH, 0.09, 0.02]} />
+        <mesh geometry={UNIT_BOX} scale={BAR_BACK_SIZE}>
           <meshBasicMaterial color={BAR_BACK} />
         </mesh>
-        <mesh ref={fill}>
-          <boxGeometry args={[BAR_WIDTH, 0.07, 0.02]} />
+        <mesh ref={fill} geometry={UNIT_BOX} scale={BAR_FILL_SIZE}>
           <meshBasicMaterial color={BAR_FILL} />
         </mesh>
       </group>
-      <instancedMesh ref={puff} args={[undefined, undefined, PUFF_BITS]} visible={false} frustumCulled={false}>
-        <boxGeometry args={[0.16, 0.16, 0.16]} />
+      <instancedMesh ref={puff} args={[UNIT_BOX, undefined, PUFF_BITS]} visible={false} frustumCulled={false}>
         <meshLambertMaterial color={PUFF_COLOR} />
       </instancedMesh>
       <group ref={pops} visible={false}>
         {colors.map((color, index) => (
-          <mesh key={index}>
-            <boxGeometry args={[0.18, 0.18, 0.18]} />
+          <mesh key={index} geometry={UNIT_BOX} scale={POP_SIZE}>
             <meshLambertMaterial color={color} />
           </mesh>
         ))}
