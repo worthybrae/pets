@@ -27,7 +27,7 @@ from backend.survival.creatures.simulate import DEAD_KEEP
 from backend.survival.creatures.spawning import SIM_REACH
 from backend.survival.creatures.table import Herd, dead
 
-MOST_SHOWN = 48
+MOST_SHOWN = 32
 MOVE_WINDOW = 3.0  # server seconds: the viewer draws 1.5 s behind and polls every second
 MOVING = ("walking", "fleeing")
 WHEN_SET = ("hurt_at", "dead_at", "caught_at")
@@ -42,17 +42,20 @@ def state_of(creature: dict, now: float) -> str:
 
 
 def point(entry: dict) -> dict:
-    return {"x": entry["x"], "y": entry["y"], "z": entry["z"]}
+    return {"x": int(round(entry["x"])), "y": int(round(entry["y"])), "z": int(round(entry["z"]))}
 
 
 def creature_view(creature: dict, now: float) -> dict:
     kind = kind_of(creature["kind"])
     state = creature["state"]
     most = kind.health if kind is not None else max(creature["health"], 1.0)
-    view = {"id": creature["id"], "kind": creature["kind"], "x": creature["x"], "y": creature["y"], "z": creature["z"],
-            "heading": round(creature["heading"], 3), "health": round(max(0.0, creature["health"]) / most, 2),
+    view = {"id": creature["id"], "kind": creature["kind"], "x": int(round(creature["x"])), "y": int(round(creature["y"])), "z": int(round(creature["z"])),
+            "heading": round(creature["heading"], 1), "health": round(max(0.0, creature["health"]) / most, 1),
             "state": state_of(creature, now)}
-    view.update({key: state[key] for key in WHEN_SET if state.get(key) is not None})
+    for key in WHEN_SET:
+        if state.get(key) is not None:
+            value = state[key]
+            view[key] = round(value, 1) if isinstance(value, float) else value
     if state.get("drops"):
         view["drops"] = list(state["drops"])
     return view
@@ -60,10 +63,10 @@ def creature_view(creature: dict, now: float) -> dict:
 
 def move_view(creature: dict) -> dict:
     path = creature["state"]["path"]
-    move = {"id": creature["id"], "from": point(path[0]), "to": point(path[-1]), "started": path[0]["at"],
-            "ends": path[-1]["at"]}
+    move = {"id": creature["id"], "from": point(path[0]), "to": point(path[-1]), "started": round(path[0]["at"], 1),
+            "ends": round(path[-1]["at"], 1)}
     if len(path) > 2:
-        move["cells"] = [[entry["x"], entry["y"], entry["z"]] for entry in path]
+        move["cells"] = [[int(entry["x"]), int(entry["y"]), int(entry["z"])] for entry in path]
     return move
 
 
