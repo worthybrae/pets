@@ -8,7 +8,7 @@ from urllib.error import URLError
 from backend.survival import brain  # noqa: F401  (registers every M3 purpose)
 from backend.survival.actions import ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, remember
+from backend.survival.memory import create_memory_tables, mark_explored, remember
 from backend.survival.models import ModelError, ask_jev, ask_luna, luna_reflect, post_json
 from backend.survival.pickers import Option, context_payload, options, utility_pick
 from backend.survival.situation import Situation
@@ -85,7 +85,7 @@ class UtilityTests(unittest.TestCase):
         s = situation(places=[("home", (3, 1, 4))], traits={"curiosity": 80})
         payload = context_payload(s, [{"text": f"event {n}"} for n in range(10)])
         self.assertEqual(set(payload), {"name", "traits", "mood", "vitals", "phase", "day", "inventory",
-                                        "known_places", "recent_events", "trigger", "building"})
+                                        "known_places", "recent_events", "trigger", "building", "exploration"})
         self.assertEqual(payload["building"], {"home": "found", "built": [], "blocks_short": 0,
                                                "shelter": "no shelter of its own yet; a small shelter would need 38 "
                                                           "blocks, carrying 0 (short 38)"})
@@ -93,6 +93,23 @@ class UtilityTests(unittest.TestCase):
         self.assertEqual(len(payload["recent_events"]), 8)
         self.assertEqual(payload["traits"], {"curiosity": 80})
         self.assertEqual(payload["trigger"], ["born"])
+        exploration = payload["exploration"]
+        self.assertEqual((exploration["explored_share"], exploration["last_new_ground_at"]), (0.0, None))
+        self.assertEqual(exploration["found"], {"ore": 0, "water": 0, "food": 0, "farm": 0, "home": 1})
+        self.assertEqual([set(way) for way in exploration["unexplored_directions"]], [{"direction", "blocks"}] * 3)
+
+    def test_the_model_is_told_how_much_mimo_explored_and_which_way_is_new(self):
+        s = situation(places=[("home", (3, 1, 4)), ("food", (30, 1, 0)), ("food", (-30, 1, 0))])
+        mark_explored(s.db, [(rx, rz) for rx in range(-9, 9) for rz in range(-9, 9) if rz >= 0 or rx < 0], 0.0)
+        s.brain["new_ground_at"] = -30.0
+        exploration = context_payload(s, [])["exploration"]
+        self.assertEqual([way["direction"] for way in exploration["unexplored_directions"]][0], "northeast")
+        self.assertEqual(len(exploration["unexplored_directions"]), 3)
+        self.assertGreater(exploration["explored_share"], 0.6)
+        self.assertLess(exploration["explored_share"], 0.9)
+        self.assertEqual(exploration["found"], {"ore": 0, "water": 0, "food": 2, "farm": 0, "home": 1})
+        self.assertEqual(exploration["last_new_ground_at"], 30)
+        self.assertLess(len(json.dumps(exploration)), 400)
 
 
 class JevTests(unittest.TestCase):

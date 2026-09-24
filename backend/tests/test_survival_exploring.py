@@ -260,7 +260,8 @@ class ExploreScoreTests(unittest.TestCase):
         self.assertRegex(facts, r"; northeast, (east and north|north and east) are unexplored; ")
         self.assertRegex(facts, r"; \d+% of the land within 64 blocks seen$")
         fresh = PURPOSES["explore"].facts(Situation(pet(), self.grid, DAY, 100.0, memory()))
-        self.assertIn("0% of the land within 64 blocks seen", fresh)
+        self.assertTrue(fresh.endswith("; land lies unexplored every way; 0% of the land within 64 blocks seen"),
+                        fresh)
 
 
 if __name__ == "__main__":

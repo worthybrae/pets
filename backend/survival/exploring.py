@@ -295,10 +295,17 @@ def and_list(names: list[str]) -> str:
 
 
 def survey_text(s: Situation) -> str:
-    """The survey in words: "north and east are unexplored; 40% of the land within 64 blocks seen"."""
+    """The survey in words: "north and east are unexplored; 40% of the land within 64 blocks seen".
+    Only directions with at least a patch's worth of new land are named, at most 3; with new land
+    every way it says so."""
     found = survey(s)
     names = [name for name, blocks in found.unexplored() if blocks >= PATCH * PATCH]
-    ways = f"{and_list(names)} {'is' if len(names) == 1 else 'are'} unexplored" if names else "no new land near"
+    if all(found.directions.get(name, 0) >= PATCH * PATCH for name in COMPASS):
+        ways = "land lies unexplored every way"
+    elif names:
+        ways = f"{and_list(names)} {'is' if len(names) == 1 else 'are'} unexplored"
+    else:
+        ways = "no new land near"
     return f"{ways}; {round(found.share * 100)}% of the land within {SURVEY} blocks seen"
 
 

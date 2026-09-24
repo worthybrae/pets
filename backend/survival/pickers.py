@@ -4,8 +4,8 @@
 failed twice in the last 10 game minutes scores 30 lower. The utility picker takes the best score
 after a small random nudge (0 to 6), so Mimo does not always do the same thing. Thoughts come
 from each purpose's templates. `context_payload(s, events)` is what Jev and Luna see: name,
-traits, mood, vitals, phase, day, inventory, known places, the last 8 events, the trigger and
-what Mimo built or could build (M5).
+traits, mood, vitals, phase, day, inventory, known places, the last 8 events, the trigger, what
+Mimo built or could build (M5) and how much of the land around it it has explored.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import random
 from dataclasses import dataclass
 
 from backend.survival.building import building_payload
+from backend.survival.exploring import exploration_payload
 from backend.survival.memory import cell_of
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, offered
@@ -83,4 +84,7 @@ def context_payload(s: Situation, events: list[dict]) -> dict:
         "trigger": list(pending["reasons"]) if pending else [],
         # M5: home, what Mimo built and what it could build now, with the blocks it is short of.
         "building": building_payload(s),
+        # How much of the land near Mimo it has seen, which way the new land lies, what it found
+        # and how long since it last set foot on new ground (backend.survival.exploring).
+        "exploration": exploration_payload(s),
     }
