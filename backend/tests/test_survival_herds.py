@@ -21,7 +21,8 @@ from backend.survival.grid import Grid, world_grid
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
 from backend.survival.tick import advance_world
-from backend.survival.world import SurvivalWorld
+from backend.services.worldgen import SEA_LEVEL, terrain_height
+from backend.survival.world import SurvivalWorld, read_state, write_state
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 BORN = 1_000_000.0
@@ -255,6 +256,34 @@ class TickTests(unittest.TestCase):
                 for minute in range(1, 61):
                     advance_world(world, BORN + 60 * minute, 1.0)
         self.assertLess(sum(spent) / 60, 0.020)
+
+    def test_creatures_cost_well_under_twenty_milliseconds_a_slice_while_mimo_explores(self):
+        """Mimo 40 blocks farther on every slice: new chunks to spawn each time, and a new crowd to move."""
+        spent = []
+
+        def timed(*args):
+            start = time.perf_counter()
+            real(*args)
+            spent.append(time.perf_counter() - start)
+
+        real = tick.simulate
+        with tempfile.TemporaryDirectory() as root:
+            world = self.hatched(root)
+            for minute in range(1, 61):
+                with world.transaction() as db:
+                    state = read_state(db)
+                    x, z = int(state["position"]["x"]) + 40, int(state["position"]["z"])
+                    y = max(terrain_height(x, z, world.seed), SEA_LEVEL) + 1
+                    state["position"] = {"x": float(x), "y": float(y), "z": float(z)}
+                    write_state(db, state)
+                with patch("backend.survival.tick.simulate", timed):
+                    state = advance_world(world, BORN + 60 * minute, 1.0)
+                self.assertIsNone(state["died_at"])
+            with world.connect() as db:
+                spawned = db.execute("SELECT COUNT(*) FROM creature_chunks").fetchone()[0]
+        self.assertEqual(len(spent), 60)
+        self.assertGreater(spawned, 60 * 4)  # each slice came near new chunks
+        self.assertLess(sum(spent) / len(spent), 0.020)
 
 
 if __name__ == "__main__":
