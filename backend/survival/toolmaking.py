@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
-from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest
+from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest, fuel_of, have, paid, planks_recipe
 from backend.survival.carrying import crafts_fit
 from backend.survival.grid import Cell
 from backend.survival.purposes import Purpose, register, underground
@@ -87,30 +87,32 @@ def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int 
     the way the steps will. Raises Short when something is missing."""
     if depth > MAX_DEPTH:
         raise Short(item)
-    while inventory.get(item, 0) < amount:
-        recipe = RECIPES.get(item)
+    while have(inventory, item) < amount:
+        recipe_name = planks_recipe(inventory) if item == "planks" else item
+        recipe = RECIPES.get(recipe_name)
         if recipe is not None:
             # An ingredient made later can use up one made earlier (sticks are made from planks).
             for _ in range(RETRIES):
                 short = [(name, count) for name, count in recipe["ingredients"].items()
-                         if inventory.get(name, 0) < count]
+                         if have(inventory, name) < count]
                 if not short:
                     break
                 for name, count in short:
                     make(inventory, name, count, steps, depth + 1)
             else:
                 raise Short(item)
-            for name, count in recipe["ingredients"].items():
+            for name, count in paid(inventory, recipe["ingredients"]).items():
                 inventory[name] -= count
             for name, count in recipe["output"].items():
                 inventory[name] = inventory.get(name, 0) + count
-            steps.append({"kind": "craft", "recipe": item})
+            steps.append({"kind": "craft", "recipe": recipe_name})
         elif item in SMELTED:
             ore = SMELTED[item]
             if inventory.get(ore, 0) < 1:
                 raise Short(ore)
-            fuel = "coal" if inventory.get("coal", 0) else "planks"
-            make(inventory, fuel, 1, steps, depth + 1)
+            if not inventory.get("coal", 0):
+                make(inventory, "planks", 1, steps, depth + 1)
+            fuel = fuel_of(inventory)
             inventory[ore] -= 1
             inventory[fuel] -= 1
             inventory[item] = inventory.get(item, 0) + 1

@@ -37,7 +37,7 @@ import math
 import sqlite3
 
 from backend.services.blocks import is_replaceable
-from backend.services.crafting import add_item
+from backend.services.crafting import LOGS, add_item
 from backend.services.worldgen import biome_at, is_leaf, terrain_height
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
@@ -133,9 +133,9 @@ def leaf_supported(grid: Grid, leaf: Cell) -> bool:
                     continue
                 seen.add(near)
                 material = grid.material(*near)
-                if material == LOG:
+                if material in LOGS:
                     return True
-                if material == "leaves":
+                if material in nature.LEAVES:
                     ahead.append(near)
         frontier = ahead
     return False
@@ -149,7 +149,7 @@ def orphaned_leaves(grid: Grid, log: Cell) -> list[Cell]:
         for cell in frontier:
             for offset in NEIGHBOURS:
                 near = step_to(cell, offset)
-                if near not in seen and grid.material(*near) == "leaves":
+                if near not in seen and grid.material(*near) in nature.LEAVES:
                     ahead.append(near)
                     found.append(near)
                 seen.add(near)
@@ -184,7 +184,7 @@ def tree_fits(grid: Grid, sapling: Cell) -> bool:
     trunk, canopy = tree_cells(sapling)
     return (not any(grid.claimed(cell) for cell in trunk + canopy)
             and all(open_cell(grid.material(*cell)) for cell in trunk[1:])
-            and all(open_cell(grid.material(*cell)) or grid.material(*cell) == "leaves" for cell in canopy))
+            and all(open_cell(grid.material(*cell)) or grid.material(*cell) in nature.LEAVES for cell in canopy))
 
 
 def grow_tree(grid: Grid, sapling: Cell) -> None:
@@ -253,7 +253,7 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
     for cell, before, after in changes:
         x, y, z = cell
         grown = nature.next_stage(after)
-        if before == LOG and after != LOG:
+        if before in LOGS and after not in LOGS:
             for leaf in orphaned_leaves(grid, cell):
                 schedule(db, leaf, "air", later(at, decay_seconds(seed, leaf, at), scale), keep_earlier=True)
         if before in nature.MUSHROOMS and after == "air":
@@ -299,9 +299,9 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
             else:
                 schedule(db, cell, LOG, later(ready_at, SAPLING_RETRY, scale))
     elif block == "air":
-        if here == "leaves" and not leaf_supported(grid, cell):
+        if here in nature.LEAVES and not leaf_supported(grid, cell):
             grid.put(*cell, "air")
-            decay(state, cell, ready_at)
+            decay(state, cell, ready_at, here)
     elif block in nature.MUSHROOMS:
         seed = state.get("world_seed", "0")
         if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR and not grid.claimed(cell)
@@ -322,11 +322,11 @@ def kept_clear(db: sqlite3.Connection, state: dict, sapling: Cell) -> set[Cell]:
     return {(x, y + dy, z) for x, y, z in stands for dy in (0, 1)}
 
 
-def decay(state: dict, leaf: Cell, at: float) -> None:
+def decay(state: dict, leaf: Cell, at: float, block: str = "leaves") -> None:
     """A leaf decayed: Mimo gathers what it dropped if it is near, and the viewer gets a puff."""
     position = state["position"]
     if math.hypot(leaf[0] - position["x"], leaf[2] - position["z"]) <= DROP_REACH:
-        for item in nature.chance_drops(state.get("world_seed", "0"), leaf, "leaves"):
+        for item in nature.chance_drops(state.get("world_seed", "0"), leaf, block):
             add_item(state["inventory"], item)
     puff = {"x": leaf[0], "y": leaf[1], "z": leaf[2], "at": round(at, 3)}
     state["decays"] = [*state.get("decays", []), puff][-DECAYS_KEPT:]

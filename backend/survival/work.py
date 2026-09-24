@@ -33,7 +33,7 @@ import math
 from typing import TYPE_CHECKING
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
-from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest
+from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest, have
 from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, forget
@@ -69,8 +69,8 @@ ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late
 
 
 def wood(inventory: dict) -> float:
-    """Wood carried, counted in logs: a log is 1, a plank a quarter, a stick an eighth."""
-    return inventory.get("oak_log", 0) + inventory.get("planks", 0) / 4 + inventory.get("sticks", 0) / 8
+    """Wood carried, counted in logs: a log of any wood is 1, planks a quarter, a stick an eighth."""
+    return have(inventory, "oak_log") + have(inventory, "planks") / 4 + inventory.get("sticks", 0) / 8
 
 
 def has_pickaxe(inventory: dict) -> bool:

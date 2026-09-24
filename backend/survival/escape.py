@@ -30,7 +30,8 @@ ESCAPE_RETRY = 60.0
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 FLUIDS = ("water", "lava")
 # Blocks Mimo will place to stand on, cheapest first.
-PLACEABLE = ("dirt", "cobblestone", "sand", "gravel", "clay", "planks", "oak_log")
+PLACEABLE = ("dirt", "cobblestone", "sand", "gravel", "clay", "planks", "birch_planks", "spruce_planks", "stone_bricks",
+             "oak_log", "birch_log", "spruce_log")
 
 
 def walks_failed_twice(state: dict) -> bool:

@@ -36,6 +36,19 @@ RECIPES = {
     "leather_tunic": {"ingredients": {"leather": 3}, "output": {"leather_tunic": 1}, "station": "crafting_table"},
 }
 
+# L3, the bigger world: birch and spruce make planks of their own, cobblestone makes stone bricks.
+RECIPES.update({
+    "birch_planks": {"ingredients": {"birch_log": 1}, "output": {"birch_planks": 4}},
+    "spruce_planks": {"ingredients": {"spruce_log": 1}, "output": {"spruce_planks": 4}},
+    "stone_bricks": {"ingredients": {"cobblestone": 4}, "output": {"stone_bricks": 4}},
+})
+# Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
+# their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.
+LOGS = ("oak_log", "birch_log", "spruce_log")
+PLANKS = ("planks", "birch_planks", "spruce_planks")
+PLANKS_OF = dict(zip(LOGS, PLANKS))  # the planks each log makes, which is also that recipe's name
+STAND_INS = {"oak_log": LOGS[1:], "planks": PLANKS[1:]}
+
 TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3}
 SMELTING = {"iron_ore": "iron_ingot", "copper_ore": "copper_ingot", "sand": "glass", "clay": "brick",
             "raw_fish": "cooked_fish", "raw_beef": "cooked_beef", "raw_mutton": "cooked_mutton",
@@ -61,13 +74,46 @@ def take_items(inventory: dict[str, int], ingredients: dict[str, int]) -> dict[s
     return result
 
 
+def have(inventory: dict[str, int], item: str) -> int:
+    """How many of `item` a recipe can use: the item itself and what stands in for it."""
+    return sum(inventory.get(name, 0) for name in (item, *STAND_INS.get(item, ())))
+
+
+def paid(inventory: dict[str, int], ingredients: dict[str, int]) -> dict[str, int]:
+    """The items `ingredients` take out of `inventory`: each ingredient itself first, then its
+    stand-ins in order. What cannot be paid stays under the ingredient's own name, so take_items
+    reports it missing."""
+    bill: dict[str, int] = {}
+    for item, amount in ingredients.items():
+        for name in (item, *STAND_INS.get(item, ())):
+            take = min(amount, inventory.get(name, 0) - bill.get(name, 0))
+            if take > 0:
+                bill[name] = bill.get(name, 0) + take
+                amount -= take
+        if amount > 0:
+            bill[item] = bill.get(item, 0) + amount
+    return bill
+
+
+def planks_recipe(inventory: dict[str, int]) -> str:
+    """The recipe that turns a carried log into planks of its wood, oak first ("planks" with none)."""
+    return PLANKS_OF[next((log for log in LOGS if inventory.get(log, 0) > 0), "oak_log")]
+
+
+def fuel_of(inventory: dict[str, int]) -> str:
+    """What a furnace burns: coal, else the first planks carried ("planks" when there are none)."""
+    if inventory.get("coal", 0):
+        return "coal"
+    return next((planks for planks in PLANKS if inventory.get(planks, 0) > 0), "planks")
+
+
 def craft(inventory: dict[str, int], recipe_name: str, nearby_stations: set[str]) -> dict[str, int]:
     recipe = RECIPES.get(recipe_name)
     if not recipe:
         raise ValueError("Unknown recipe")
     if recipe.get("station") and recipe["station"] not in nearby_stations:
         raise ValueError(f"A placed {recipe['station']} is required")
-    result = take_items(inventory, recipe["ingredients"])
+    result = take_items(inventory, paid(inventory, recipe["ingredients"]))
     for item, amount in recipe["output"].items():
         add_item(result, item, amount)
     return result
@@ -84,7 +130,7 @@ def smelt(inventory: dict[str, int], input_item: str, nearby_stations: set[str])
     else:
         if "furnace" not in nearby_stations:
             raise ValueError("A placed furnace is required")
-        fuel = "coal" if inventory.get("coal", 0) else "planks"
+        fuel = fuel_of(inventory)
         result = take_items(inventory, {input_item: 1, fuel: 1})
     add_item(result, output)
     return result

@@ -36,6 +36,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import LOGS, PLANKS_OF, planks_recipe
 from backend.services.worldgen import terrain_height
 from backend.survival.blueprints import Blueprint, Planned, bill, design_shelter, pick_block, supplies
 from backend.survival.carrying import crafts_fit
@@ -94,13 +95,13 @@ def site_center(s: Situation) -> Cell:
 
 
 def without_logs(inventory: dict) -> dict:
-    return {item: count for item, count in inventory.items() if item != "oak_log"}
+    return {item: count for item, count in inventory.items() if item not in LOGS}
 
 
 def usable_supplies(inventory: dict) -> dict[str, int]:
     """The building blocks Mimo can use now (blueprints.supplies): its logs count as planks only
     while it has room to carry the planks a log makes (carrying.crafts_fit)."""
-    if crafts_fit(inventory, [{"kind": "craft", "recipe": "planks"}]):
+    if crafts_fit(inventory, [{"kind": "craft", "recipe": planks_recipe(inventory)}]):
         return supplies(inventory)
     return supplies(without_logs(inventory))
 
@@ -190,10 +191,14 @@ def stand_for(blueprint: Blueprint, at: Cell, cell: Cell) -> Cell | None:
 
 
 def planks_first(inventory: dict, blocks: list[str]) -> list[dict]:
-    """Craft steps turning logs into the planks `blocks` use beyond the planks carried."""
-    short = sum(1 for block in blocks if block == "planks") - inventory.get("planks", 0)
-    crafts = min(math.ceil(max(0, short) / 4), inventory.get("oak_log", 0))
-    return [{"kind": "craft", "recipe": "planks"} for _ in range(crafts)]
+    """Craft steps turning logs into the planks `blocks` use beyond the planks carried, each wood's
+    logs into its own planks."""
+    steps = []
+    for log, planks in PLANKS_OF.items():
+        short = sum(1 for block in blocks if block == planks) - inventory.get(planks, 0)
+        crafts = min(math.ceil(max(0, short) / 4), inventory.get(log, 0))
+        steps += [{"kind": "craft", "recipe": planks} for _ in range(crafts)]
+    return steps
 
 
 def reach_all(blueprint: Blueprint, stand: Cell, jobs: list[tuple[Cell, list[dict]]]) -> list[dict]:

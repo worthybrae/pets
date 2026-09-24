@@ -51,6 +51,10 @@ KEEP = {"cobblestone": 16, "planks": 16, "oak_log": 8, "sticks": 8, "coal": 8, "
         # take (backend.survival.creatures.gear), and that only while the gear is still missing
         # (final fix wave, `kept`); gloom dust waits for L3.
         "leather": 5, "wool": 0, "feather": 4, "rabbit_hide": 8, "string": 3, "flint": 4, "gloom_dust": 0}
+# L3: birch and spruce are kept like oak, stone bricks like cobblestone; fruit and desert or swamp
+# plants Mimo happens to break are put away.
+KEEP.update({"birch_log": 8, "spruce_log": 8, "birch_planks": 16, "spruce_planks": 16, "stone_bricks": 16,
+             "pumpkin": 0, "melon": 0, "cactus": 0, "sugar_cane": 0})
 FLOWERS = ("flower_orange", "flower_pink", "flower_yellow")
 LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
 # With full arms and no chest to use, what goes after LEAST_USEFUL, each only when nothing before it
@@ -214,7 +218,7 @@ def loose_blocks(s: Situation) -> list[tuple[str, int]]:
         return []
     need = shelter_blocks_left(s) - sum(count for item, count in usable_supplies(s.inventory).items()
                                         if item not in LAST_RESORT and item not in LEAST_USEFUL)
-    keep = {"cobblestone": min(s.count("cobblestone"), max(0, STONE_GOAL + need))}
+    keep = {"cobblestone": min(s.count("cobblestone"), STONE_GOAL + max(0, need))}
     keep["dirt"] = min(s.count("dirt"), max(0, need - keep["cobblestone"]))
     for item in LAST_RESORT:
         if s.count(item) > keep[item]:

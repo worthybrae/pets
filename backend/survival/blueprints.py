@@ -35,6 +35,7 @@ import math
 from dataclasses import dataclass, field, replace
 
 from backend.services.blocks import is_replaceable, is_solid
+from backend.services.crafting import PLANKS_OF, STAND_INS
 from backend.services.worldgen import hash32
 from backend.survival.grid import Cell, Grid
 
@@ -42,8 +43,8 @@ ROOFS = ("flat", "gable", "dome")
 DOOR_SIDES = ("north", "east", "south", "west")
 TIERS = ((3, 3), (4, 3), (5, 4))  # (width across the door side, depth), inside
 # Blocks a structure can be built from, in the order they stand in for each other; dirt is last.
-BUILDING = ("cobblestone", "planks", "brick", "limestone", "sandstone", "basalt", "moss", "clay", "sand",
-            "gravel", "dirt")
+BUILDING = ("cobblestone", "planks", "birch_planks", "spruce_planks", "stone_bricks", "brick", "limestone",
+            "sandstone", "basalt", "moss", "clay", "sand", "gravel", "dirt")
 LOGS_KEPT = 2  # logs Mimo never turns into building planks: a campfire's worth
 STRUCTURAL = ("floor", "wall", "roof")
 FITTINGS = ("bed", "chest", "campfire", "torch")
@@ -141,18 +142,23 @@ def style_for(traits: dict, seed: str, salt: int = 0) -> Style:
 
 def supplies(inventory: dict) -> dict[str, int]:
     """Building blocks Mimo has, with each log beyond the LOGS_KEPT it keeps for a campfire or a
-    tool's sticks counted as the 4 planks it makes."""
+    tool's sticks counted as the 4 planks of its own wood it makes (oak logs are the ones kept first)."""
     have = {block: inventory.get(block, 0) for block in BUILDING if inventory.get(block, 0) > 0}
-    logs = inventory.get("oak_log", 0) - LOGS_KEPT
-    if logs > 0:
-        have["planks"] = have.get("planks", 0) + 4 * logs
+    keep = LOGS_KEPT
+    for log, planks in PLANKS_OF.items():
+        spare = inventory.get(log, 0) - keep
+        keep = max(0, -spare)
+        if spare > 0:
+            have[planks] = have.get(planks, 0) + 4 * spare
     return have
 
 
 def pick_block(wanted: str, have: dict[str, int]) -> str | None:
-    """The block to place for a cell that wants `wanted`: it, else the first building block left."""
-    if have.get(wanted, 0) > 0:
-        return wanted
+    """The block to place for a cell that wants `wanted`: it or what stands in for it (other planks for
+    planks), else the first building block left."""
+    for block in (wanted, *STAND_INS.get(wanted, ())):
+        if have.get(block, 0) > 0:
+            return block
     return next((block for block in BUILDING if have.get(block, 0) > 0), None)
 
 

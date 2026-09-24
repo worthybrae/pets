@@ -35,6 +35,11 @@ CHANCE_DROPS = {"tall_grass": (("seeds", 0.2, 30), ("carrot", 0.05, 31)),
                 "gravel": (("flint", 1 / 8, 38),)}  # L2: flint for arrows
 
 
+# L3: birch and spruce leaves decay like oak's and drop saplings too, but no apples.
+LEAVES = ("leaves", "birch_leaves", "spruce_leaves")
+CHANCE_DROPS.update({leaf: (("sapling", 1 / 12, 32),) for leaf in LEAVES[1:]})
+
+
 def roll(seed: str, cell: Cell, channel: int, salt: int = 0) -> float:
     """A number in [0, 1) fixed by the world seed, the cell, the channel and the salt."""
     x, y, z = cell

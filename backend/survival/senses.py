@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from functools import lru_cache
 
+from backend.services.crafting import LOGS
 from backend.services.worldgen import SEA_LEVEL, plant_at, terrain_height, trees_in_chunk
 from backend.survival.grid import CHUNK, Cell, Grid
 from backend.survival.steps import REACH
@@ -62,7 +63,7 @@ def standing_logs(grid: Grid, seed: str, here: Cell, skip: set[tuple[int, int]] 
     for (tx, tz), cells in trunks.items():
         if (tx, tz) in skip:
             continue
-        logs = sorted((cell for cell in cells if grid.material(*cell) == LOG), key=lambda cell: cell[1])
+        logs = sorted((cell for cell in cells if grid.material(*cell) in LOGS), key=lambda cell: cell[1])
         distance = math.hypot(tx - x, tz - z)
         if logs and (best is None or (distance, (tx, tz)) < best[:2]):
             best = (distance, (tx, tz), logs)
