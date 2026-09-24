@@ -30,6 +30,7 @@ WILD_FOOD = ("berry_bush_ripe", "brown_mushroom", "red_mushroom")
 KIND_CHUNKS = [(cx, cz) for cz in range(-30, 30) for cx in range(16, 80)]
 STACKS = ("cactus", "sugar_cane", "dead_bush", "fern", "pumpkin", "melon")
 NEW_BIOMES = ("taiga", "swamp", "birch_forest")
+DEEP = ("gold_ore", "diamond_ore", "water", "lava", "gravel", "granite", "andesite", "diorite", "ashstone")
 
 
 def _trees(seed: str, chunks: list[tuple[int, int]], count: int,
@@ -122,6 +123,22 @@ def _features(seed: str, count: int) -> list[tuple[int, int]]:
     return found
 
 
+def _deep(seed: str, count: int) -> list[tuple[int, int, int]]:
+    """Underground cells of gold, diamond, a cave lake, lava and each kind of stone, `count` of each."""
+    seen: dict[str, int] = {}
+    found = []
+    for x in range(250, 700, 3):
+        for z in range(-100, 100, 3):
+            for y in range(-4, terrain_height(x, z, seed) - 2):
+                block = block_at(x, y, z, seed)
+                if block in DEEP and seen.get(block, 0) < count:
+                    seen[block] = seen.get(block, 0) + 1
+                    found.append((x, y, z))
+                    if len(seen) == len(DEEP) and all(value == count for value in seen.values()):
+                        return found
+    return found
+
+
 def sample_cells() -> list[tuple[str, int, int, int]]:
     """Home clearing, tree canopies, plants, rare biomes and random cells for both seeds."""
     cells = {(LEGACY_WORLD_SEED, x, y, z) for x in range(-12, 13) for z in range(-12, 13) for y in range(-2, 8)}
@@ -142,6 +159,8 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
             for tx, tz, base in _kind_trees(seed, kind, 2):
                 cells |= {(seed, tx + dx, base + dy, tz + dz)
                           for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 9)}
+        for x, y, z in _deep(seed, 3):
+            cells |= {(seed, x + dx, y + dy, z + dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)}
         for x, z in _features(seed, 3):
             height = terrain_height(x, z, seed)
             cells |= {(seed, x, height + dy, z) for dy in range(-2, 5)}

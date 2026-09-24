@@ -80,6 +80,22 @@ describe('worldgen', () => {
     }
   })
 
+  it('generates gold, diamond, cave lakes, lava and the stone seams inside columns exactly like blockAt', () => {
+    const deep = ['gold_ore', 'diamond_ore', 'water', 'lava', 'gravel', 'granite', 'andesite', 'diorite', 'ashstone']
+    const chunks = new Map<string, [number, number]>()
+    for (let x = 250; x < 700 && chunks.size < deep.length; x += 3) {
+      for (let z = -100; z < 100; z += 3) {
+        for (let y = -4; y < terrainHeight(x, z, WILD_SEED) - 2; y++) {
+          const name = blockAt(x, y, z, WILD_SEED)
+          if (deep.includes(name) && !chunks.has(name)) chunks.set(name, [Math.floor(x / 16), Math.floor(z / 16)])
+        }
+      }
+    }
+    expect([...chunks.keys()].sort()).toEqual([...deep].sort())
+    const unique = new Map([...chunks.values()].map((chunk) => [chunk.join(','), chunk]))
+    for (const [cx, cz] of unique.values()) expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
+
   it('generates wild food and cave mushrooms inside columns exactly like blockAt', () => {
     let foodChunk: [number, number] | null = null
     for (let x = 300; x < 900 && !foodChunk; x++) {

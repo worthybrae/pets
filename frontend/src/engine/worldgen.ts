@@ -36,6 +36,19 @@ const FERN_RARITY = 5
 const FRUIT_RARITY = 421
 const FRUIT_BIOMES = new Set(['meadow', 'forest', 'birch_forest'])
 const SIDES: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+// L3 underground: bigger, taller caves, lakes and lava in them, seams of other stone, gold and diamond.
+const CAVE_SCALE = 13
+const CAVE_STRETCH = 0.6
+const CAVE_OPEN = 0.22
+const CAVE_ROOM = -0.15
+const LAKE_LEVEL = -2
+const LAVA_LEVEL = -4
+const GOLD_RARITY = 181
+const GOLD_DEPTH = 0
+const DIAMOND_RARITY = 331
+const DIAMOND_DEPTH = -3
+const ASH_DEPTH = -2
+const VARIANTS = ['granite', 'andesite', 'diorite']
 const biomeCache = new Map<string, string>()
 const seedCache = new Map<string, [number, number]>()
 const heightCache = new Map<string, number>()
@@ -172,7 +185,30 @@ export function swampPool(x: number, z: number, seed = DEFAULT_WORLD_SEED): bool
 
 export function caveAt(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): boolean {
   if (Math.hypot(x, z) <= LEGACY_RADIUS || y <= -5 || y >= terrainHeight(x, z, seed) - 2) return false
-  return noise3(x, y, z, 11, seed, 7) > 0.27 && noise3(x, y, z, 5, seed, 8) > -0.12
+  return noise3(x, y * CAVE_STRETCH, z, CAVE_SCALE, seed, 7) > CAVE_OPEN && noise3(x, y, z, 6, seed, 8) > CAVE_ROOM
+}
+
+/** What fills an open cave cell: water low down in a lake region, lava on the lowest floor of a lava
+ * region, else air. */
+export function caveFill(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string {
+  if (y <= LAKE_LEVEL && noise2(x, z, 40, seed, 27) > 0.3) return 'water'
+  if (y === LAVA_LEVEL && noise2(x, z, 32, seed, 28) > 0.25) return 'lava'
+  return 'air'
+}
+
+/** Gravel in patches on cave floors: the rock right under an open cave cell of air. */
+function gravelFloor(x: number, y: number, z: number, seed: string): boolean {
+  return noise2(x, z, 8, seed, 90) > 0.1 && caveAt(x, y + 1, z, seed) && caveFill(x, y + 1, z, seed) === 'air'
+}
+
+/** The rock of a solid cell underground: ashstone in deep seams, blobs of granite, andesite or diorite
+ * (one kind to a blob region), else stone. */
+function stoneAt(x: number, y: number, z: number, seed: string): string {
+  if (y <= ASH_DEPTH && noise3(x, y, z, 9, seed, 29) > 0.35) return 'ashstone'
+  if (noise3(x, y, z, 8, seed, 80) > 0.38) {
+    return VARIANTS[hash32(Math.floor(x / 24), Math.floor(y / 8), Math.floor(z / 24), seed, 81) % VARIANTS.length]
+  }
+  return 'stone'
 }
 
 function inPond(x: number, z: number): boolean {
@@ -257,12 +293,15 @@ export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WOR
     const biome = biomeAt(x, z, seed)
     return biome === 'desert' ? 'sand' : biome === 'swamp' && y === height - 1 ? 'mud' : 'dirt'
   }
-  if (caveAt(x, y, z, seed)) return 'air'
+  if (caveAt(x, y, z, seed)) return caveFill(x, y, z, seed)
   const ore = hash32(x, y, z, seed, 9)
   if (ore % 97 === 0) return 'iron_ore'
   if (ore % 61 === 0) return 'coal_ore'
   if (ore % 151 === 0) return 'copper_ore'
-  return 'stone'
+  if (ore % GOLD_RARITY === 0 && y <= GOLD_DEPTH) return 'gold_ore'
+  if (ore % DIAMOND_RARITY === 0 && y <= DIAMOND_DEPTH) return 'diamond_ore'
+  if (gravelFloor(x, y, z, seed)) return 'gravel'
+  return stoneAt(x, y, z, seed)
 }
 
 /** Columns where the viewer has always allowed trees and flowers. */
@@ -381,7 +420,7 @@ export function wildFood(x: number, z: number, seed = DEFAULT_WORLD_SEED): strin
 export function cavePlant(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
   const roll = hash32(x, y, z, seed, 17)
   if (roll % CAVE_MUSHROOM_RARITY !== 0) return null
-  if (!caveAt(x, y, z, seed) || caveAt(x, y - 1, z, seed)) return null
+  if (!caveAt(x, y, z, seed) || caveAt(x, y - 1, z, seed) || caveFill(x, y, z, seed) !== 'air') return null
   return Math.floor(roll / CAVE_MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
 }
 

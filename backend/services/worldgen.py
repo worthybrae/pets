@@ -46,6 +46,19 @@ FERN_RARITY = 5
 FRUIT_RARITY = 421  # a pumpkin or melon patch, on meadow and forest grass
 FRUIT_BIOMES = ("meadow", "forest", "birch_forest")
 SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
+# L3 underground: bigger, taller caves, lakes and lava in them, seams of other stone, gold and diamond.
+CAVE_SCALE = 13  # blocks across the cave network's noise (it was 11)
+CAVE_STRETCH = 0.6  # the network's noise runs this much slower upward, so caves stand taller
+CAVE_OPEN = 0.22  # the network is open above this (it was 0.27)
+CAVE_ROOM = -0.15  # and its rooms are carved where the finer noise is above this (it was -0.12)
+LAKE_LEVEL = -2  # in a lake region, cave cells this low are water
+LAVA_LEVEL = -4  # in a lava region, the lowest cave cells (just above bedrock) are lava
+GOLD_RARITY = 181  # stone cells per gold ore, at y 0 and below
+GOLD_DEPTH = 0
+DIAMOND_RARITY = 331  # stone cells per diamond ore, at y -3 and below
+DIAMOND_DEPTH = -3
+ASH_DEPTH = -2  # ashstone seams lie this deep and deeper
+VARIANTS = ("granite", "andesite", "diorite")
 
 
 @lru_cache(maxsize=64)
@@ -190,7 +203,33 @@ def swamp_pool(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
 def cave_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
     if math.hypot(x, z) <= LEGACY_RADIUS or y <= -5 or y >= terrain_height(x, z, seed) - 2:
         return False
-    return noise3(x, y, z, 11, seed, 7) > 0.27 and noise3(x, y, z, 5, seed, 8) > -0.12
+    return (noise3(x, y * CAVE_STRETCH, z, CAVE_SCALE, seed, 7) > CAVE_OPEN
+            and noise3(x, y, z, 6, seed, 8) > CAVE_ROOM)
+
+
+def cave_fill(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
+    """What fills an open cave cell: water low down in a lake region, lava on the lowest floor of a
+    lava region, else air."""
+    if y <= LAKE_LEVEL and noise2(x, z, 40, seed, 27) > 0.3:
+        return "water"
+    if y == LAVA_LEVEL and noise2(x, z, 32, seed, 28) > 0.25:
+        return "lava"
+    return "air"
+
+
+def gravel_floor(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
+    """Gravel in patches on cave floors: the rock right under an open cave cell of air."""
+    return noise2(x, z, 8, seed, 90) > 0.1 and cave_at(x, y + 1, z, seed) and cave_fill(x, y + 1, z, seed) == "air"
+
+
+def stone_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
+    """The rock of a solid cell underground: ashstone in deep seams, blobs of granite, andesite or
+    diorite (one kind to a blob region), else stone."""
+    if y <= ASH_DEPTH and noise3(x, y, z, 9, seed, 29) > 0.35:
+        return "ashstone"
+    if noise3(x, y, z, 8, seed, 80) > 0.38:
+        return VARIANTS[hash32(x // 24, y // 8, z // 24, seed, 81) % len(VARIANTS)]
+    return "stone"
 
 
 def in_pond(x: int, z: int) -> bool:
@@ -288,7 +327,7 @@ def terrain_block(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
         biome = biome_at(x, z, seed)
         return "sand" if biome == "desert" else "mud" if biome == "swamp" and y == height - 1 else "dirt"
     if cave_at(x, y, z, seed):
-        return "air"
+        return cave_fill(x, y, z, seed)
     ore = hash32(x, y, z, seed, 9)
     if ore % 97 == 0:
         return "iron_ore"
@@ -296,7 +335,13 @@ def terrain_block(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
         return "coal_ore"
     if ore % 151 == 0:
         return "copper_ore"
-    return "stone"
+    if ore % GOLD_RARITY == 0 and y <= GOLD_DEPTH:
+        return "gold_ore"
+    if ore % DIAMOND_RARITY == 0 and y <= DIAMOND_DEPTH:
+        return "diamond_ore"
+    if gravel_floor(x, y, z, seed):
+        return "gravel"
+    return stone_at(x, y, z, seed)
 
 
 def _decoration_column(x: int, z: int, seed: str) -> bool:
@@ -406,11 +451,11 @@ def wild_food(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
 
 
 def cave_plant(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
-    """A mushroom on a cave floor: an open cave cell with solid rock (or bedrock) under it."""
+    """A mushroom on a cave floor: an open cave cell of air with solid rock (or bedrock) under it."""
     roll = hash32(x, y, z, seed, 17)
     if roll % CAVE_MUSHROOM_RARITY != 0:
         return None
-    if not cave_at(x, y, z, seed) or cave_at(x, y - 1, z, seed):
+    if not cave_at(x, y, z, seed) or cave_at(x, y - 1, z, seed) or cave_fill(x, y, z, seed) != "air":
         return None
     return "red_mushroom" if roll // CAVE_MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"
 
