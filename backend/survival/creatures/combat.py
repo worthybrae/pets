@@ -9,12 +9,13 @@ It lands when the swing ends if the creature still lives and is within a block o
 
 A blow (`strike`) takes health, marks the creature hurt (the viewer flashes it, knocks it back
 and shows its health bar) and, for a kind that flees when hurt, sends it running from Mimo at
-once. At 0 health it dies: it stays listed a few seconds as "dead" with what it dropped (the
-viewer's puff), its home chunk counts one animal fewer, and its drops go straight into Mimo's
-arms, as far as the carry limit lets them (the engine settles the inventory after the step,
-backend.survival.carrying). A kill sets `state["hunted_at"]` and is a routine "hunt" event.
-Drops are rolled from the world seed and the creature, so they never depend on how often the
-tick ran.
+once. At 0 health it dies where it is: its move is cut at that moment, keeping the cells it
+reached, so the viewer replays it running up to the spot where it fell. It stays listed a few
+seconds as "dead" with what it dropped (the viewer's puff), its home chunk counts one animal
+fewer, and its drops go straight into Mimo's arms, as far as the carry limit lets them (the
+engine settles the inventory after the step, backend.survival.carrying). A kill sets
+`state["hunted_at"]` and is a routine "hunt" event. Drops are rolled from the world seed and
+the creature, so they never depend on how often the tick ran.
 """
 
 from __future__ import annotations
@@ -62,6 +63,13 @@ def drops_of(seed: str, creature: dict, kind: Kind) -> dict[str, int]:
     return found
 
 
+def reached(path: list[dict] | None, at: float) -> list[dict] | None:
+    """The part of a move that is done by `at`: its start and each cell reached by then."""
+    if not path:
+        return None
+    return [entry for entry in path if entry["at"] <= at] or path[:1]
+
+
 def strike(scene: Scene, creature: dict, damage: float, source: Cell) -> dict[str, int] | None:
     """Hit a creature from `source`: take `damage` from its health and mark it hurt, then either
     kill it (returns its drops) or, for a kind that flees when hurt, send it running (returns
@@ -74,7 +82,7 @@ def strike(scene: Scene, creature: dict, damage: float, source: Cell) -> dict[st
         found = drops_of(scene.seed, creature, kind) if kind is not None else {}
         cell = where(creature, scene.at)
         creature["x"], creature["y"], creature["z"] = map(float, cell)
-        state.update(pose="dead", dead_at=scene.at, drops=sorted(found), path=None)
+        state.update(pose="dead", dead_at=scene.at, drops=sorted(found), path=reached(state.get("path"), scene.at))
         scene.herd.save(creature)
         if kind is not None and not kind.water and not kind.hostile:
             scene.herd.lost(state.get("chunk"), scene.at)

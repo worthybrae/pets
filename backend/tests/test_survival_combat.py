@@ -6,9 +6,12 @@ from unittest.mock import patch
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.carrying import CARRY_STACKS
 from backend.survival.creatures import combat
-from backend.survival.creatures.combat import ATTACK_REACH, LUNGE, blow, drops_of, weapon
+from backend.survival.creatures.acts import Scene
+from backend.survival.creatures.combat import ATTACK_REACH, LUNGE, blow, drops_of, strike, weapon
 from backend.survival.creatures.kinds import KINDS
-from backend.survival.creatures.table import Herd, create_creature_tables, dead
+from backend.survival.creatures.moves import move
+from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
+from backend.survival.creatures.view import move_view
 from backend.survival.grid import Grid
 from backend.survival.steps import StepFailed, finish_step, start_step
 from backend.survival.vitals import START_VITALS
@@ -142,6 +145,32 @@ class AttackStepTests(unittest.TestCase):
         self.assertEqual(grid.herd.chunks((0, 0), (0, 0))[(0, 0)]["animals"], 0)
         with self.assertRaisesRegex(StepFailed, "got away"):
             start_step(attack(cow), state, grid, 11.0)
+
+    def test_an_animal_killed_mid_run_keeps_the_way_it_ran_up_to_where_it_fell(self):
+        grid, state = meadow(), pet()
+        cow = animal(grid)
+        move(cow, [(3, 1, 0), (4, 1, 0), (5, 1, 0), (6, 1, 0)], 10.0, 0.5, "fleeing")
+        grid.herd.save(cow)
+        ran = list(cow["state"]["path"])
+        strike(Scene(grid, grid.herd, "5", state, 11.2, events=[]), cow, 20.0, (0, 1, 0))
+        body = grid.herd.get(cow["id"])
+        self.assertTrue(dead(body))
+        self.assertEqual(body["state"]["path"], ran[:3])  # it got to (4, 1, 0) at 11.0 and fell there
+        self.assertEqual(cell_of(body), (4, 1, 0))
+        replay = move_view(body)
+        self.assertEqual((replay["from"], replay["to"], replay["started"], replay["ends"]),
+                         ({"x": 2, "y": 1, "z": 0}, {"x": 4, "y": 1, "z": 0}, 10.0, 11.0))
+
+    def test_an_animal_killed_standing_keeps_its_last_move_or_none(self):
+        grid, state = meadow(), pet()
+        walked, still = animal(grid), animal(grid, cell=(0, 1, 2))
+        move(walked, [(3, 1, 0)], 5.0, 1.0, "walking")
+        grid.herd.save(walked)
+        whole = list(walked["state"]["path"])
+        for creature in (walked, still):
+            strike(Scene(grid, grid.herd, "5", state, 11.2, events=[]), creature, 20.0, (0, 1, 0))
+        self.assertEqual(grid.herd.get(walked["id"])["state"]["path"], whole)
+        self.assertIsNone(grid.herd.get(still["id"])["state"].get("path"))
 
     def test_what_does_not_fit_in_full_arms_stays_behind_and_meat_pushes_out_dirt(self):
         grid = meadow()
