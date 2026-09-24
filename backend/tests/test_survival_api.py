@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import sqlite3
 import tempfile
@@ -15,7 +16,7 @@ from backend.api.mimo import (
     CareRequest, OwnerAction, act_with_mimo, care_for_mimo, get_mimo, get_mimo_blocks, greet_mimo,
 )
 from backend.services.live_mimo import MimoStore
-from backend.survival.memory import add_structure
+from backend.survival.memory import add_structure, mark_explored, patch_of, remember
 from backend.survival.registry import LifeRegistry
 from backend.survival.snapshot import built_view, notable, recent_decays, replayable, survival_view
 from backend.survival.tick import tick_life
@@ -71,6 +72,7 @@ class SurvivalApiTests(unittest.TestCase):
         self.assertEqual(state["care"], {"snack": 1, "bandage": 1})
         self.assertEqual(state["decays"], [])
         self.assertEqual((state["structures"], state["chests"]), ([], {}))
+        self.assertEqual((state["explored"], state["landmarks"]), ([], []))
         self.assertNotIn("plans", state)
         self.assertEqual(self.status_of(hatch_egg), 409)
 
@@ -272,6 +274,47 @@ class SurvivalApiTests(unittest.TestCase):
                                                 "status": "building", "x": 5, "y": 6, "z": 7}])
         self.assertEqual(state["chests"], {"6,6,8": {"dirt": 9}})
 
+    def explore_around_mimo(self, reach, visits=1):
+        """Mark every patch within `reach` patches of Mimo explored `visits` times."""
+        world = self.active_world()
+        with world.transaction() as db:
+            position = read_state(db)["position"]
+            rx, rz = patch_of(round(position["x"]), round(position["z"]))
+            patches = [(rx + dx, rz + dz) for dx in range(-reach, reach + 1) for dz in range(-reach, reach + 1)]
+            mark_explored(db, patches, 10.0)
+            db.execute("UPDATE memory_explored SET visits = ?", (visits,))
+        return world, rx, rz
+
+    def test_the_ground_mimo_explored_around_it_and_its_landmarks_are_streamed(self):
+        hatch_egg()
+        world, rx, rz = self.explore_around_mimo(1)
+        with world.transaction() as db:
+            mark_explored(db, [(rx, rz), (rx + 12, rz - 12), (rx + 13, rz)], 20.0)  # the last is too far
+            position = read_state(db)["position"]
+            x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
+            remember(db, "home", (x + 3, y, z), 5.0)
+            remember(db, "farm", (x - 20, y, z + 4), 6.0)
+            remember(db, "farm", (x + 90, y, z), 7.0)  # a farther farm is left out
+            remember(db, "ore", (x, y - 5, z), 8.0, "coal_ore")
+        state = get_mimo()
+        self.assertEqual(state["explored"], sorted([[rx + dx, rz + dz, 2 if (dx, dz) == (0, 0) else 1]
+                                                    for dx in (-1, 0, 1) for dz in (-1, 0, 1)] + [[rx + 12, rz - 12, 1]]))
+        self.assertEqual(state["landmarks"], [{"kind": "home", "x": x + 3, "y": y, "z": z},
+                                              {"kind": "farm", "x": x - 20, "y": y, "z": z + 4}])
+
+    def test_the_explored_ground_stays_small_and_is_read_without_writing(self):
+        hatch_egg()
+        world, _, _ = self.explore_around_mimo(20, visits=4321)
+        before = {suffix: hashlib.sha256(Path(f"{world.path}{suffix}").read_bytes()).hexdigest()
+                  for suffix in ("", "-wal") if Path(f"{world.path}{suffix}").exists()}
+        explored = get_mimo()["explored"]
+        after = {suffix: hashlib.sha256(Path(f"{world.path}{suffix}").read_bytes()).hexdigest()
+                 for suffix in ("", "-wal") if Path(f"{world.path}{suffix}").exists()}
+        self.assertEqual(before, after)
+        self.assertEqual(len(explored), 625)  # 12 patches (96 blocks) each way
+        self.assertEqual({visits for _, _, visits in explored}, {99})  # capped: the viewer only needs "seen"
+        self.assertLess(len(json.dumps(explored, separators=(",", ":"))), 9_000)  # as the API sends it
+
     def test_an_archived_world_from_before_m5_built_nothing(self):
         """Fix wave fold-in: a pre-M5 world opened read-only (an archive) has no structures table,
         and built_view falls back to an empty list instead of failing the whole view."""
@@ -287,6 +330,7 @@ class SurvivalApiTests(unittest.TestCase):
         self.assertEqual(built_view(archive), [])
         view = survival_view(archive, 20.0, 1.0)
         self.assertEqual((view["structures"], view["chests"]), ([], {}))
+        self.assertEqual(view["explored"], [])
         with archive.connect() as db:  # the read-only view did not add the tables
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='structures'").fetchone())
 

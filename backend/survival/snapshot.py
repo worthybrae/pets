@@ -5,18 +5,21 @@ from __future__ import annotations
 import math
 import sqlite3
 
+from backend.services.block_table import blocks_seq
 from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
-from backend.survival.memory import structures
+from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.registry import LifeRegistry
-from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld
+from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
 
 NOTABLE_LIMIT = 6
 EVENTS_SHOWN = 12
 DECAY_WINDOW = 10.0  # real seconds a decayed leaf is streamed for its puff
+MAP_REACH = 96  # blocks each way (12 patches) of explored ground streamed for the minimap
+VISITS_SHOWN = 99  # visits are capped in the stream: the viewer only needs "seen"
 
 # The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
 # planner's bookkeeping.
@@ -79,20 +82,57 @@ def open_archive(registry: LifeRegistry, life: dict) -> MimoStore | SurvivalWorl
     return SurvivalWorld(path, read_only=True)
 
 
-def built_view(world: SurvivalWorld) -> list[dict]:
+def built_rows(db: sqlite3.Connection) -> list[dict]:
     """What Mimo built, oldest first: kind, name, status and anchor. A world from before M5 that
     is only read (an archive) has no structures table yet, and so built nothing."""
     try:
-        with world.connect() as db:
-            found = structures(db)
+        found = structures(db)
     except sqlite3.OperationalError:
         return []
     return [{key: structure[key] for key in ("id", "kind", "name", "status", "x", "y", "z")} for structure in found]
 
 
+def built_view(world: SurvivalWorld) -> list[dict]:
+    with world.connect() as db:
+        return built_rows(db)
+
+
+def here_of(state: dict) -> tuple[int, int, int]:
+    position = state["position"]
+    return round(position["x"]), round(position["y"]), round(position["z"])
+
+
+def explored_view(db: sqlite3.Connection, state: dict) -> list[list[int]]:
+    """[rx, rz, visits] for each 8x8 patch Mimo visited within 12 patches (96 blocks) of it, at most
+    625, visits capped at 99, for the minimap's fog of war."""
+    found = explored(db, here_of(state), MAP_REACH)
+    return [[rx, rz, min(visits, VISITS_SHOWN)] for (rx, rz), (visits, _) in sorted(found.items())]
+
+
+def landmarks_view(db: sqlite3.Connection, state: dict) -> list[dict]:
+    """Home and the nearest farm within 96 blocks, as {kind, x, y, z}, for the minimap. A world
+    from before M3 read as an archive remembers none."""
+    here = here_of(state)
+    try:
+        home = places(db, ("home",))
+        farms = places(db, ("farm",), around=here, reach=MAP_REACH)
+    except sqlite3.OperationalError:
+        return []
+    shown = home[:1] + [farm for farm in [nearest(farms, here, ("farm",), MAP_REACH)] if farm is not None]
+    return [{key: place[key] for key in ("kind", "x", "y", "z")} for place in shown]
+
+
 def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
-    """A survival world's state. A dead life's clock stops at its death."""
-    state = world.state()
+    """A survival world's state. A dead life's clock stops at its death. Everything is read in one
+    read-only transaction, so the state, events, blocks and memory agree."""
+    with world.connect() as db:
+        db.execute("BEGIN")
+        state = read_state(db)
+        events = recent_events(db, EVENTS_SHOWN)
+        seq = blocks_seq(db)
+        built = built_rows(db)
+        ground = explored_view(db, state)
+        landmarks = landmarks_view(db, state)
     at = state["died_at"] if state["died_at"] is not None else now
     return {
         "clock": clock_at(state["born_at"], at, scale),
@@ -100,10 +140,10 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "position": state["position"],
         "status": state["status"],
         "last_thought": state["last_thought"],
-        "events": world.recent_events(EVENTS_SHOWN),
+        "events": events,
         "inventory": state["inventory"],
         "recipes": RECIPES,
-        "blocks_seq": world.blocks_seq(),
+        "blocks_seq": seq,
         "care": care_remaining(state, now),
         "world_seed": state["world_seed"],
         "last_tick_at": state["last_tick_at"],
@@ -116,8 +156,12 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # Leaves that decayed lately ({x, y, z, at}), so the viewer can show a puff as each goes.
         "decays": recent_decays(state.get("decays", []), now),
         # M5: what Mimo built, and what its chests hold ({"x,y,z": {item: count}}).
-        "structures": built_view(world),
+        "structures": built,
         "chests": state.get("chests", {}),
+        # Where Mimo has been ([rx, rz, visits] per 8x8 patch near it) and its home and farm, for
+        # the minimap.
+        "explored": ground,
+        "landmarks": landmarks,
         **brain_view(state.get("brain")),
     }
 
