@@ -6,11 +6,12 @@ After each tick the worker calls `Chooser.poll`. When the active life has a pend
    scores, the model payload, and which picker may answer (the route): Jev when TYPESAFE_API_KEY
    is set, else Luna when MIMO_MODEL_API_KEY or OPENAI_API_KEY is set, else utility. Utility also
    answers
-   - when a daily cap is spent (MIMO_MAX_DECISIONS_PER_DAY, default 200, counts Jev and Luna
+   - when a daily cap is spent (MIMO_MAX_DECISIONS_PER_DAY, default 2000, counts Jev and Luna
      picks; MIMO_MAX_LUNA_DECISIONS_PER_DAY every Luna call);
-   - when 8 model picks were made in the last game hour (3,600 game seconds on the life's clock,
-     so the budget holds at any MIMO_TIME_SCALE), even for a vital crossing (spec section 11:
-     3 to 8 calls per game hour);
+   - when Jev's or Luna's own rolling budget for the game hour before now (3,600 game seconds on
+     the life's clock, so it holds at any MIMO_TIME_SCALE) is spent: MIMO_JEV_CALLS_PER_HOUR
+     (default 60; Jev is cheap) or MIMO_LUNA_CALLS_PER_HOUR (default 8; Luna is not), even for a
+     vital crossing;
    - when a short purpose (rest, explore, eat, go_home) just ended in the ordinary way
      (plan_done, idle or reflex_ended) and nothing more significant (dawn, dusk, a discovery, a
      hello, a failed plan, a quiet game hour, a vital crossing) is waiting;
@@ -61,14 +62,16 @@ logger = logging.getLogger(__name__)
 
 MODEL_GAP = 60.0
 GIVE_UP_AFTER = 15.0  # seconds past a model call's own timeouts
-MODEL_BUDGET = 8  # model picks per rolling game hour
 REFLECTION_CAP = 12
 REFLECT_ON = ("dawn", "hello", "discovery")
-DECISION_CAP = ("MIMO_MAX_DECISIONS_PER_DAY", 200)
+DECISION_CAP = ("MIMO_MAX_DECISIONS_PER_DAY", 2000)
 # A short purpose that ends for one of these reasons alone is chosen again by the utility picker.
 SHORT_PURPOSES = frozenset({"rest", "explore", "eat", "go_home"})
 ROUTINE_REASONS = frozenset({"plan_done", "idle", "reflex_ended"})
 LUNA_CAP = ("MIMO_MAX_LUNA_DECISIONS_PER_DAY", 64)
+# Rolling game-hour budgets, one per picker: Jev is cheap, so it gets a much bigger allowance.
+JEV_HOUR_CAP = ("MIMO_JEV_CALLS_PER_HOUR", 60)
+LUNA_HOUR_CAP = ("MIMO_LUNA_CALLS_PER_HOUR", 8)
 EVENTS_SHOWN = 8
 
 Env = Mapping[str, str]
@@ -110,9 +113,10 @@ def calls_today(brain: dict, now: float) -> dict:
     return brain["calls"]
 
 
-def recent_model_calls(brain: dict, game_at: float) -> list[float]:
-    """The game times of the model picks made in the game hour before `game_at`."""
-    return [at for at in brain.get("model_calls", []) if game_at - HOUR < at <= game_at]
+def recent_calls(brain: dict, key: str, game_at: float) -> list[float]:
+    """The game times of the picks in `brain[key]` (one picker's own list) made in the game hour
+    before `game_at`."""
+    return [at for at in brain.get(key, []) if game_at - HOUR < at <= game_at]
 
 
 def routine(brain: dict) -> bool:
@@ -122,18 +126,22 @@ def routine(brain: dict) -> bool:
 
 
 def route_for(brain: dict, now: float, env: Env, game_at: float) -> str:
-    """Who may answer the pending choice: "jev", "luna" or "utility". `game_at` is the life's
-    game time in seconds, for the budget of 8 model picks per game hour."""
+    """Who may answer the pending choice: "jev", "luna" or "utility". `game_at` is the life's game
+    time in seconds, for each picker's own rolling game-hour budget (MIMO_JEV_CALLS_PER_HOUR,
+    MIMO_LUNA_CALLS_PER_HOUR): once a picker's budget is spent it does not borrow the other's."""
     counters = calls_today(brain, now)
-    if counters["model"] >= cap(env, DECISION_CAP):
-        return "utility"
-    if len(recent_model_calls(brain, game_at)) >= MODEL_BUDGET or routine(brain):
+    if counters["model"] >= cap(env, DECISION_CAP) or routine(brain):
         return "utility"
     if not brain["pending"]["urgent"] and brain["last_call_at"] is not None and now - brain["last_call_at"] < MODEL_GAP:
         return "utility"
     if jev_configured(env):
+        if len(recent_calls(brain, "jev_calls", game_at)) >= cap(env, JEV_HOUR_CAP):
+            return "utility"
         return "jev"
-    if luna_configured(env) and counters["luna"] < cap(env, LUNA_CAP):
+    if luna_configured(env):
+        if counters["luna"] >= cap(env, LUNA_CAP) or len(recent_calls(brain, "luna_calls", game_at)) >= cap(
+                env, LUNA_HOUR_CAP):
+            return "utility"
         return "luna"
     return "utility"
 
@@ -242,7 +250,8 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> 
         if choice.calls["model"] or choice.calls["luna"]:
             brain["last_call_at"] = ask.asked_at
         if choice.calls["model"]:
-            brain["model_calls"] = [*recent_model_calls(brain, ask.game_at), ask.game_at]
+            key = "jev_calls" if ask.route == "jev" else "luna_calls"
+            brain[key] = [*recent_calls(brain, key, ask.game_at), ask.game_at]
         pending = brain["pending"]
         fresh = pending is not None and pending["id"] == ask.pending_id
         if fresh:

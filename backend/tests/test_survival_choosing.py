@@ -6,7 +6,8 @@ from pathlib import Path
 
 from backend.survival.brain import BRAIN
 from backend.survival.choosing import (
-    DECISION_CAP, Ask, Choice, Chooser, InlineExecutor, cap, deadline, prepare, store_choice,
+    DECISION_CAP, JEV_HOUR_CAP, LUNA_CAP, LUNA_HOUR_CAP, Ask, Choice, Chooser, InlineExecutor, cap, deadline,
+    prepare, store_choice,
 )
 from backend.survival.hatch import hatch
 from backend.survival.models import ModelError
@@ -124,20 +125,44 @@ class ChoosingTests(unittest.TestCase):
                          "utility")
         self.assertEqual(self.ask(now, {}).route, "utility")
 
-    def test_at_most_eight_model_calls_per_rolling_game_hour_even_when_urgent(self):
+    def test_jev_can_make_up_to_the_configured_number_of_calls_per_rolling_game_hour(self):
         now = BORN + 5000
         env = {"TYPESAFE_API_KEY": "k"}
+        gap = 60.0  # an hour split evenly across the default budget of 60
+        sixty = [4990.0 - gap * index for index in range(60)]  # game seconds since birth, newest first
+
+        def spent(state):
+            ensure_brain(state).update(jev_calls=sixty, last_call_at=None)
+            mark_trigger(state, "health_30", now, urgent=True)
+
+        self.edit(spent)
+        self.assertEqual(self.ask(now, env).route, "utility")  # the default budget (60) is spent
+        self.assertEqual(self.ask(now, {**env, "MIMO_JEV_CALLS_PER_HOUR": "61"}).route, "jev")  # raised
+        self.assertEqual(self.ask(now + gap, env).route, "jev")  # the oldest call left the hour
+        self.assertEqual(self.ask(BORN + 83.4, env, scale=60.0).route, "utility")  # 5004 game s at 60x
+        self.assertEqual(cap({}, JEV_HOUR_CAP), 60)
+        self.assertEqual(cap({}, DECISION_CAP), 2000)
+
+    def test_luna_stays_capped_at_eight_calls_per_rolling_game_hour(self):
+        now = BORN + 5000
+        env = {"OPENAI_API_KEY": "sk"}
         eight = [4990.0 - 400 * index for index in range(8)]  # game seconds since birth, newest first
 
         def spent(state):
-            ensure_brain(state).update(model_calls=eight, last_call_at=None)
+            ensure_brain(state).update(luna_calls=eight, last_call_at=None)
             mark_trigger(state, "health_30", now, urgent=True)
 
         self.edit(spent)
         self.assertEqual(self.ask(now, env).route, "utility")
-        self.assertEqual(self.ask(now + 2200, env).route, "jev")  # the oldest call left the hour
-        self.assertEqual(self.ask(BORN + 83.4, env, scale=60.0).route, "utility")  # 5004 game s at 60x
-        self.assertEqual(cap({}, DECISION_CAP), 200)
+        self.assertEqual(self.ask(now, {**env, "MIMO_LUNA_CALLS_PER_HOUR": "9"}).route, "luna")  # raised
+        self.assertEqual(self.ask(now + 2200, env).route, "luna")  # the oldest call left the hour
+        self.assertEqual(cap({}, LUNA_HOUR_CAP), 8)
+
+    def test_invalid_or_non_finite_env_values_fall_back_to_defaults(self):
+        for setting in (DECISION_CAP, LUNA_CAP, JEV_HOUR_CAP, LUNA_HOUR_CAP):
+            name, default = setting
+            for junk in ("nan", "inf", "-inf", "abc", "1.5", ""):
+                self.assertEqual(cap({name: junk}, setting), default, (name, junk))
 
     def test_a_short_purpose_ending_routinely_is_rechosen_by_utility(self):
         now = BORN + 100
@@ -160,11 +185,12 @@ class ChoosingTests(unittest.TestCase):
         self.edit(ended("gather_wood", "plan_done"))
         self.assertEqual(self.ask(now, env).route, "jev")
 
-    def test_model_calls_are_remembered_in_game_time_for_one_game_hour(self):
-        self.edit(lambda state: ensure_brain(state).update(model_calls=[10.0, 2000.0]))
+    def test_jev_calls_are_remembered_in_game_time_for_one_game_hour(self):
+        self.edit(lambda state: ensure_brain(state).update(jev_calls=[10.0, 2000.0]))
         chooser = self.chooser({"TYPESAFE_API_KEY": "k"}, {JEV_URL: JEV_REST})
         chooser.poll(self.registry, BORN + 4000)
-        self.assertEqual(self.brain()["model_calls"], [2000.0, 4000.0])
+        self.assertEqual(self.brain()["jev_calls"], [2000.0, 4000.0])
+        self.assertEqual(self.brain()["luna_calls"], [])
         self.assertEqual(self.brain()["last_chosen"], "rest")
 
     def test_a_failed_model_call_falls_back_to_utility_is_counted_and_logged_once(self):

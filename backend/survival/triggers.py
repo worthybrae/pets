@@ -12,9 +12,10 @@ Everything the brain keeps lives in state["brain"], saved as JSON with the rest 
 - penalties: {purpose: server time until which it scores lower, after it failed twice}
 - reflex, set_aside, reflex_ends: the reflex running now (or None), the purpose's steps it set
   aside, and {reflex: server time it last ended} for cooldowns
-- calls, last_call_at, model_calls: today's model-call counters {"day", "model", "luna",
+- calls, last_call_at, jev_calls, luna_calls: today's model-call counters {"day", "model", "luna",
   "reflections"}, the server time of the last model call, and the game times (seconds since the
-  life began) of the model picks in the last game hour
+  life began) of each picker's own picks in the last game hour (backend.survival.choosing's
+  MIMO_JEV_CALLS_PER_HOUR and MIMO_LUNA_CALLS_PER_HOUR budgets)
 - explored, escaped_at, dig_heading: explore walks so far (to vary the heading), the last
   dig-out of a pit, and the [dx, dz] heading gather_stone last dug in
 - found: ore materials and "water" Mimo has discovered at least once (first sightings trigger a choice)
@@ -42,8 +43,8 @@ def new_brain(at: float) -> dict:
             "pending": {"id": 1, "reasons": ["born"], "since": at, "urgent": False}, "next_id": 2,
             "penalties": {}, "reflex": None, "set_aside": [], "reflex_ends": {},
             "calls": {"day": None, "model": 0, "luna": 0, "reflections": 0}, "last_call_at": None,
-            "model_calls": [], "explored": 0, "escaped_at": None, "dig_heading": None, "new_ground_at": None,
-            "ground_found_at": None}
+            "jev_calls": [], "luna_calls": [], "explored": 0, "escaped_at": None, "dig_heading": None,
+            "new_ground_at": None, "ground_found_at": None}
 
 
 def ensure_brain(state: dict) -> dict:

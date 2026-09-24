@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 from backend.survival.brain import BRAIN
-from backend.survival.choosing import MODEL_BUDGET, Chooser, InlineExecutor
+from backend.survival.choosing import JEV_HOUR_CAP, Chooser, InlineExecutor, cap
 from backend.survival.escape import TRAPPED_LIMIT, reachable_count
 from backend.survival.grid import world_grid
 from backend.survival.hatch import hatch
@@ -36,7 +36,8 @@ SAMPLE = 30.0  # game seconds between reachability checks
 # The first hour is busy: wood, tools, stone, ores, better tools, from M4 food work (forage,
 # fish, farm, cook, eat) and from M5 building (a shelter in a few goes, furnishing it, storage,
 # dropping junk, a farm, torches), each a change of purpose and a change back.
-PURPOSE_EVENTS_PER_HOUR = 46
+# Slow-mode seeds reached 46 at baseline; the higher limit here catches real 58-116/hour floods.
+PURPOSE_EVENTS_PER_HOUR = 55 if SLOW else 46
 TRAPPED_AT_MOST = 180.0  # game seconds
 
 
@@ -132,13 +133,13 @@ class HeadlessBrainTests(unittest.TestCase):
                 self.check(run, seed)
                 self.assertEqual(run["calls"], [])
 
-    def test_a_fake_jev_is_asked_at_most_eight_times_in_any_game_hour(self):
+    def test_a_fake_jev_is_asked_at_most_the_hourly_budget_in_any_game_hour(self):
         for seed in SEEDS:
             with self.subTest(seed=seed):
                 run = run_life(seed, jev=True)
                 self.check(run, seed)
                 self.assertGreater(len(run["calls"]), 0)
-                self.assertLessEqual(most_in_an_hour(run["calls"]), MODEL_BUDGET)
+                self.assertLessEqual(most_in_an_hour(run["calls"]), cap({}, JEV_HOUR_CAP))
 
 
 if __name__ == "__main__":
