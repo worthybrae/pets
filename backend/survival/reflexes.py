@@ -7,7 +7,9 @@ holds and whose planner returns steps takes over:
 
 - The first takeover sets the purpose's queue aside (a cut walk is queued again toward its
   target) and puts the reflex's steps in the queue, tagged with the reflex's name. A more urgent
-  reflex can take over from a running one; a less urgent one waits.
+  reflex can take over from a running one; a less urgent one waits. Preempting a different running
+  reflex ends it there and then (its cooldown and quiet start from that moment), so it does not
+  fire again the instant the one that cut it off lets go.
 - When the reflex's steps run out, `end_reflex` brings the set-aside steps back, starts the
   reflex's cooldown and asks for a new choice (`reflex_ended`). The set-aside steps include the
   plan's cleanup steps (`keep`), which come back even when the purpose changed meanwhile. A
@@ -116,6 +118,10 @@ def take_over(state: dict, reflex: Reflex, steps: list[dict], context: ActionCon
     else:
         if brain["reflex"] is None:
             brain["set_aside"] = set_aside(state)
+        elif brain["reflex"] != reflex.name:
+            # A different reflex was running: it ends here, so its cooldown and quiet start now
+            # instead of never, which would let it fire again the moment this one lets go.
+            brain["reflex_ends"][brain["reflex"]] = at
         state["queue"] = [{**step, "purpose": reflex.name} for step in steps]
         brain["reflex"] = reflex.name
     state["last_thought"] = reflex.thought

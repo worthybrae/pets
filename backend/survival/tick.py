@@ -182,7 +182,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                     record_death(state, state["hurt_by"], cursor, scale, events)
                     break
             step = min(MAX_STEP_SECONDS, remaining)
-            if hostile_near(context.grid, state):
+            if hostile_near(context.grid, context.db, state):
                 step = min(step, FIGHT_SLICE / action_scale * scale)
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]

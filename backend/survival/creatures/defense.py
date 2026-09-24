@@ -23,9 +23,9 @@ told about danger comes from here too (`threats_payload`).
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
 
 from backend.services.worldgen import terrain_height
+from backend.survival.actions import ActionContext, take_search
 from backend.survival.creatures.archery import SHOOT_RANGE
 from backend.survival.creatures.combat import ATTACK_REACH, weapon
 from backend.survival.creatures.harm import ARMOR, sheltered
@@ -35,12 +35,10 @@ from backend.survival.creatures.moves import where
 from backend.survival.creatures.table import dead
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import cell_of
-from backend.survival.purposes import AT_HOME, home_of, underground, walk_to
+from backend.survival.pathing import route
+from backend.survival.purposes import home_of, underground, walk_to
 from backend.survival.reflexes import Reflex, register
 from backend.survival.situation import Situation
-
-if TYPE_CHECKING:
-    from backend.survival.actions import ActionContext
 
 FLEE_BELOW = 35.0
 FLEE_NEAR = 6.0
@@ -51,6 +49,7 @@ FIGHT_REACH = 4.0
 SHOOT_FROM = 5.0  # blocks from which Mimo shoots rather than strikes
 BOW_SIGHT = 12.0  # blocks within which Mimo shoots at a hostile coming after it
 CLOSE_IN = 2.0  # a step up to the target ends this close to it
+STEP_UP_LIMIT = 2 * FIGHT_REACH  # cells a step-up route may cover; farther is left for the bow or another round
 FIGHT_KEEP = 3.0  # server seconds after a round in which the fight is still on
 QUIET = 30.0  # server seconds after the reflex ended during which a new round logs no event
 THREATS_SHOWN = 4
@@ -121,12 +120,16 @@ def flee_due(s: Situation) -> bool:
 
 
 def plan_flee(s: Situation, context: ActionContext) -> list[dict]:
-    """Home when the threat is no nearer it than Mimo, else FLEE_RUN blocks straight away."""
+    """Home when Mimo is not already safe there and the threat is no nearer it than Mimo, else
+    FLEE_RUN blocks straight away. `not indoors(s)` holds whenever this runs at all (a threat was
+    found, and threats() finds none while indoors), so this only turns away a home whose refuge
+    cell Mimo already occupies; it is what keeps a doorway (claimed but not itself a room or
+    passage, and so AT_HOME blocks from a shelter built on the small tier) from being skipped."""
     danger = where(threats(s)[0], s.at)
     home = home_of(s)
-    if home is not None:
+    if home is not None and not indoors(s):
         refuge = cell_of(home)
-        if s.distance(refuge) > AT_HOME and math.dist(danger, refuge) >= s.distance(refuge):
+        if math.dist(danger, refuge) >= s.distance(refuge):
             return [walk_to(refuge)]
     x, y, z = s.here
     dx, dz = x - danger[0], z - danger[2]
@@ -152,7 +155,7 @@ def fight_target(s: Situation) -> dict | None:
     for creature in threats(s):
         there = where(creature, s.at)
         distance = s.distance(there)
-        if distance <= FIGHT_REACH:
+        if distance <= FIGHT_REACH and clear_line(s.grid, s.here, there):
             return creature
         if (bow_ready(s) and distance <= BOW_SIGHT and creature["state"].get("chasing")
                 and clear_line(s.grid, s.here, there)):
@@ -174,6 +177,14 @@ def plan_fight(s: Situation, context: ActionContext) -> list[dict]:
         return []
     if distance <= ATTACK_REACH:
         return [{"kind": "attack", **blow}]
+    # fight_target already checked line of sight; still bound the walk itself, so a target the
+    # straight line clears but the ground does not (a pit, a long way round) is left for later
+    # rather than marched to across the map (take_search: this shares the tick's search budget).
+    if not take_search(context):
+        return []
+    cells, reached = route(s.grid, s.here, there, CLOSE_IN)
+    if not reached or len(cells) > STEP_UP_LIMIT:
+        return []
     return [{"kind": "walk", "target": list(there), "reach": CLOSE_IN}, {"kind": "attack", **blow}]
 
 

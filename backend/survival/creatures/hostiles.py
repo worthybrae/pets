@@ -18,10 +18,12 @@ in the registry and act through the creature-action registry, ahead of the anima
   cave under Mimo's feet leaves it be), or 24 once it is after Mimo or was just hurt by it, it
   moves up to 2 blocks toward Mimo, each step to the neighbour nearest Mimo, never through a
   door, into anything Mimo built or, for a gloomling (2 cells tall), under a ceiling lower than
-  that (creatures.moves.steps): Mimo is safe in its
-  shelter, and a hostile outside waits at the wall. The first to come after Mimo outside its
-  shelter raises the alarm: an urgent "threat" choice and event, at most one every 5 game
-  minutes, so a model picker (Jev) can react at once.
+  that (creatures.moves.steps), so a hostile outside a finished shelter waits at the wall; but a
+  claimed cell it cannot enter (a door, say) is not always one a blow cannot reach from outside
+  it, so the alarm and `hostile_near` (backend.survival.tick's short slicing) use `harm.sheltered`
+  (a room or passage cell) like `strike` does, not every claimed cell. The first to come after
+  Mimo outside its shelter raises the alarm: an urgent "threat" choice and event, at most one
+  every 5 game minutes, so a model picker (Jev) can react at once.
 - prowl (25): otherwise it gives up the chase and wanders near where it spawned, or stands. One
   that has not come after Mimo for LOITER game seconds fades away, so the few hostiles about are
   the ones Mimo has to deal with, and new ones can come out where it is.
@@ -31,6 +33,7 @@ Spawning in the dark, the cap of 8 and despawning far away are backend.survival.
 from __future__ import annotations
 
 import math
+import sqlite3
 
 from backend.survival.creatures.acts import (
     IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, flat_distance, pause, register_action, wander,
@@ -136,13 +139,14 @@ def chases(creature: dict, kind: Kind, scene: Scene) -> bool:
     return distance <= CHASE_SIGHT or (bool(roused) and distance <= GIVE_UP)
 
 
-def hostile_near(grid: Grid, state: dict) -> bool:
+def hostile_near(grid: Grid, db: sqlite3.Connection | None, state: dict) -> bool:
     """A living hostile could come after Mimo now: one within CHASE_SIGHT across and CHASE_RISE up
-    or down, while Mimo is not in a cell something it built claims (its shelter keeps them out).
-    The tick then runs in short steps (backend.survival.tick)."""
+    or down, while Mimo is not sheltered (a room or passage cell of a shelter it built) -- the
+    same cell a blow cannot reach (harm.sheltered), so this agrees with `strikes` about what is
+    safe. The tick then runs in short steps (backend.survival.tick)."""
     position = state["position"]
     x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
-    if grid.herd is None or grid.claimed((x, y, z)):
+    if grid.herd is None or (db is not None and sheltered(db, (x, y, z))):
         return False
     for creature in grid.herd.near(x, z, CHASE_SIGHT):
         kind = kind_of(creature["kind"])
@@ -152,10 +156,11 @@ def hostile_near(grid: Grid, state: dict) -> bool:
 
 
 def alarm(scene: Scene, kind: Kind) -> None:
-    """The first hostile to come after Mimo outside its shelter asks for a new choice at once."""
+    """The first hostile to come after Mimo outside its shelter (harm.sheltered, the same room or
+    passage a blow cannot reach) asks for a new choice at once."""
     brain = ensure_brain(scene.state)
     last = brain.get("threat_at")
-    if scene.grid.claimed(scene.pet) or (last is not None and (scene.at - last) * scene.scale < ALARM_GAP):
+    if sheltered(scene.herd.db, scene.pet) or (last is not None and (scene.at - last) * scene.scale < ALARM_GAP):
         return
     brain["threat_at"] = scene.at
     mark_trigger(scene.state, "threat", scene.at, urgent=True)

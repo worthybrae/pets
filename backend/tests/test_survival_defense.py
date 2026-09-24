@@ -122,6 +122,20 @@ class FleeTests(unittest.TestCase):
         self.assertEqual(FLEE.plan(situation(cut_off, pet()), context(cut_off)),
                          [{"kind": "walk", "target": [12, 1, 0], "reach": 4.0}])
 
+    def test_from_its_own_doorway_it_runs_deeper_in_not_out_past_the_threat(self):
+        # The smallest M5 shelter's door sits exactly AT_HOME (2 blocks) from the home cell: a
+        # doorway must still send Mimo home, not just when it is strictly farther than that.
+        grid = meadow()
+        hostile(grid, cell=(0, 1, -6))
+        add_structure(grid.herd.db, "shelter", "Pip's Hut", (0, 1, 0), 0.0, {},
+                      [((0, 1, 0), "passage", "air"), ((0, 1, -1), "passage", "air"),
+                       ((0, 1, -2), "door", "door")])
+        grid.claims.update({(0, 1, 0), (0, 1, -1), (0, 1, -2)})
+        set_home(grid.herd.db, (0, 1, 0), 0.0)
+        doorway = pet(position={"x": 0.0, "y": 1.0, "z": -2.0})
+        self.assertEqual(FLEE.plan(situation(grid, doorway), context(grid)),
+                         [{"kind": "walk", "target": [0, 1, 0], "reach": 0.0}])
+
 
 class FightTests(unittest.TestCase):
     def test_armed_and_healthy_it_fights_a_hostile_within_four_blocks_then_flees_when_hurt(self):
@@ -158,6 +172,12 @@ class FightTests(unittest.TestCase):
         idle = meadow()
         hostile(idle, cell=(9, 1, 0))
         self.assertIsNone(fight_target(situation(idle, archer)))  # not after Mimo: left alone
+
+    def test_a_melee_target_behind_a_wall_within_reach_gets_no_fight_takeover(self):
+        walled = meadow({(2, 1, 0): "cobblestone", (2, 2, 0): "cobblestone", (2, 3, 0): "cobblestone"})
+        hostile(walled, cell=(4, 1, 0))  # within FIGHT_REACH in a straight line, but through a wall
+        self.assertIsNone(fight_target(situation(walled, pet(inventory=SWORD))))
+        self.assertEqual(FIGHT.plan(situation(walled, pet(inventory=SWORD)), context(walled)), [])
 
     def test_a_fight_logs_its_event_once_an_encounter(self):
         grid = meadow()
@@ -206,6 +226,19 @@ class InTheTickTests(unittest.TestCase):
         chaser = grid.herd.get(gloom["id"])
         self.assertGreater(math.hypot(state["position"]["x"] - chaser["x"], state["position"]["z"] - chaser["z"]), 6.0)
         self.assertGreater(state["vitals"]["health"], 90.0)
+
+    def test_a_collapse_flee_keeps_preempting_still_rests_once_not_every_time(self):
+        # Fix round 1, defect 2: flee (30) keeps cutting off collapse (70) as the gloomling comes
+        # and goes; each cut-off must start collapse's own cooldown and quiet, or it fires again
+        # (and logs again) the instant flee lets go, unbounded.
+        grid = meadow()
+        gloom = hostile(grid, cell=(4, 1, 0))
+        gloom["next_at"] = 0.0
+        grid.herd.save(gloom)
+        state = pet(vitals={**START_VITALS, "energy": 5.0})
+        ctx = self.night(grid, state, 120.0)
+        collapses = [event for event in ctx.events if event[1] == "reflex" and "collapsed" in event[2]]
+        self.assertLessEqual(len(collapses), 5)  # collapse's own 30 s cooldown bounds it; the bug logs 16+
 
 
 class HatchedWorldTests(unittest.TestCase):

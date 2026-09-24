@@ -4,7 +4,7 @@ import unittest
 from backend.survival.creatures.acts import Scene, act
 from backend.survival.creatures.combat import drops_of, strike
 from backend.survival.creatures.harm import armor_cut, hurt_pet
-from backend.survival.creatures.hostiles import BURN_SECONDS, CHASE_STEPS, LOITER
+from backend.survival.creatures.hostiles import BURN_SECONDS, CHASE_STEPS, LOITER, hostile_near
 from backend.survival.creatures.kinds import KINDS, huntable, land_kinds
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
 from backend.survival.grid import Grid
@@ -74,6 +74,18 @@ class ChaseTests(unittest.TestCase):
         other = hostile(grid, "skitter", (0, 1, 12))
         self.assertEqual(act(other, night), "chase")
         self.assertEqual([event[1:] for event in night.events], [("threat", "Pip saw a gloomling coming.")])
+
+    def test_hostile_near_and_the_alarm_agree_with_strike_that_a_claimed_door_is_not_safe(self):
+        # Fix round 1, defect 4: a shelter's door is claimed (so nothing built there ever gets
+        # dug up, and no creature ever steps into it), but it is not a room or passage cell, so a
+        # blow still lands there (harm.sheltered); hostile_near and the alarm must agree.
+        grid, state = meadow(), pet()
+        grid.herd.db.execute("INSERT INTO structure_cells(x,y,z,structure,part,block) VALUES (0,1,0,1,'door','door')")
+        grid.claims.add((0, 1, 0))
+        gloom = hostile(grid, cell=(5, 1, 0))
+        self.assertTrue(hostile_near(grid, grid.herd.db, state))
+        self.assertEqual(act(gloom, scene(grid, state)), "chase")
+        self.assertEqual(state["brain"]["pending"]["reasons"], ["threat"])
 
     def test_farther_than_sixteen_it_prowls_and_it_gives_up_a_chase_past_twenty_four(self):
         grid, state = meadow(), pet()
