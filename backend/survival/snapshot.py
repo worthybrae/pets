@@ -11,6 +11,7 @@ from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
+from backend.survival.creatures.view import creatures_view
 from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.registry import LifeRegistry
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
@@ -133,6 +134,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         built = built_rows(db)
         ground = explored_view(db, state)
         landmarks = landmarks_view(db, state)
+        creatures = creatures_view(db, state["position"], now)
     at = state["died_at"] if state["died_at"] is not None else now
     return {
         "clock": clock_at(state["born_at"], at, scale),
@@ -162,6 +164,8 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # the minimap.
         "explored": ground,
         "landmarks": landmarks,
+        # L1: the creatures within 48 blocks of Mimo and their last moves (backend.survival.creatures.view).
+        **creatures,
         **brain_view(state.get("brain")),
     }
 
