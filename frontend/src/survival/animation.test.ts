@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bodyPose, crumbs, moveFor, zPuffs } from './animation'
+import { DRAW_SECONDS, bodyPose, crumbs, moveFor, zPuffs } from './animation'
 import type { MimoAction } from './types'
 
 const mine: MimoAction = { kind: 'mine', started_at: 10, ends_at: 12, target: { x: 1, y: 1, z: 0 }, block: 'dirt' }
@@ -18,6 +18,7 @@ describe('moveFor', () => {
     expect(moveFor({ kind: 'store', started_at: 0, ends_at: 0.3 }, 0.1)).toBe('place')
     expect(moveFor({ kind: 'drop', started_at: 0, ends_at: 0.3 }, 0.1)).toBe('place')
     expect(moveFor({ kind: 'attack', started_at: 0, ends_at: 0.6, target: { x: 2, y: 1, z: 0 } }, 0.3)).toBe('swing')
+    expect(moveFor({ kind: 'shoot', started_at: 0, ends_at: 1, target: { x: 9, y: 1, z: 0 }, hit: true }, 0.3)).toBe('aim')
   })
 
   it('leans over the water while fishing', () => {
@@ -38,6 +39,13 @@ describe('bodyPose', () => {
     expect(bodyPose('swing', 0.25, 0, 0)).toMatchObject({ pitch: 0.55, lift: 0.08 })
     expect(bodyPose('swing', 0.5, 0, 0).pitch).toBeCloseTo(0)
     expect(bodyPose('swing', 0.6, 0, 0).pitch).toBeCloseTo(0)
+  })
+
+  it('leans back to draw the bow, then recoils as the arrow goes', () => {
+    expect(bodyPose('aim', 0, 0, 0).pitch).toBeCloseTo(0)
+    expect(bodyPose('aim', DRAW_SECONDS - 0.01, 0, 0).pitch).toBeLessThan(-0.15)
+    expect(bodyPose('aim', DRAW_SECONDS, 0, 0).pitch).toBeCloseTo(0.12)
+    expect(bodyPose('aim', DRAW_SECONDS + 0.5, 0, 0).pitch).toBeCloseTo(0)
   })
 
   it('hops once per block while walking', () => {

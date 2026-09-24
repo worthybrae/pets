@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { CAMERA_MODES, modeLabel, type AutoPick, type CameraMode } from './cameraModes'
 import { dialPosition } from './clock'
-import { actionText, careLabel, clockTime, dayLabel, homeText, purposeText, vitalBars, type VitalLevel } from './hud'
+import {
+  actionText, careLabel, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay, purposeText, vitalBars, type VitalLevel,
+} from './hud'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -20,6 +22,19 @@ function SkyDial({ secondsIntoDay }: { secondsIntoDay: number }) {
       <circle cx={x} cy={y} r="5" fill={body === 'sun' ? '#f5c46b' : '#c9d4f0'} stroke={body === 'sun' ? '#e0a23c' : '#8f9fc8'} />
     </svg>
   )
+}
+
+/** L2: a red glow at the screen's edges that fades once, `delay` seconds after it mounts (one per blow). */
+function HurtFlash({ delay }: { delay: number }) {
+  const glow = useRef<HTMLDivElement>(null)
+  const [start] = useState(delay)
+  useEffect(() => {
+    const fade = glow.current?.animate([{ opacity: 1 }, { opacity: 0 }],
+      { duration: 700, delay: start * 1000, easing: 'ease-out', fill: 'forwards' })
+    return () => fade?.cancel()
+  }, [start])
+  return <div ref={glow} aria-hidden
+    className="pointer-events-none absolute inset-0 z-20 opacity-0 shadow-[inset_0_0_120px_30px_rgba(199,70,58,0.55)]" />
 }
 
 /** Auto, Overview, Close and Eyes as one small segmented control; the chosen one shows auto's pick. */
@@ -60,8 +75,11 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const { clock, life } = state
   const careKinds: CareKind[] = ['snack', 'bandage']
   const home = homeText(state.structures)
+  const danger = dangerText(state.creatures, state.position)
+  const flash = hurtFlashDelay(state.hurt_at, state.server_time)
   return (
     <>
+      {flash !== null && <HurtFlash key={state.hurt_at ?? 0} delay={flash} />}
       <div className="absolute inset-x-4 top-4 z-10 flex flex-col gap-3 sm:inset-x-8 sm:top-8 sm:flex-row sm:items-start sm:justify-between">
         <section className={`${PANEL} px-4 py-3 sm:w-80`} aria-label={`${life.name}'s day`}>
           <div className="flex items-center justify-between gap-3">
@@ -72,6 +90,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
             <SkyDial secondsIntoDay={clock.seconds_into_day} />
           </div>
           <p className="mt-2 text-sm font-medium leading-5 text-[#315e58]">{purposeText(state)}</p>
+          {danger && <p className="mt-0.5 text-sm font-semibold text-[#b5473a]" role="status">{danger}</p>}
           {home && <p className="mt-0.5 truncate text-xs text-[#54726e]">{home}</p>}
           <p className="mt-0.5 text-xs text-[#54726e]">
             <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}

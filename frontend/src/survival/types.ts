@@ -17,7 +17,7 @@ export interface Point {
 }
 
 export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
-  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop' | 'attack'
+  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop' | 'attack' | 'shoot'
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -39,6 +39,8 @@ export interface MimoAction {
   recipe?: string
   /** How far a fall drops. */
   blocks?: number
+  /** A shot (L2): whether the arrow flies true. */
+  hit?: boolean
 }
 
 /** A step that finished, oldest first. Waits are left out. */
@@ -59,6 +61,8 @@ export interface FinishedAction {
   purpose?: string
   /** Walks, swims and falls keep their timed path (the newest few only), for replay. */
   path?: PathPoint[]
+  /** A shot (L2): whether the arrow flew true. */
+  hit?: boolean
 }
 
 /** A leaf that decayed after its tree lost its logs, at server time `at`. */
@@ -88,6 +92,7 @@ export interface Landmark extends Point {
 
 /** What a creature is doing (backend/survival/creatures/view.py); a finished walk reads idle. */
 export type CreatureState = 'idle' | 'walking' | 'grazing' | 'fleeing' | 'swimming' | 'dead'
+  | 'chasing' | 'attacking' | 'burning'
 
 /** A creature within 48 blocks of Mimo, standing in the cell its last move ends in. */
 export interface Creature extends Point {
@@ -106,6 +111,12 @@ export interface Creature extends Point {
   drops?: string[]
   /** Server time a fish leapt at Mimo's hook. */
   caught_at?: number
+  /** L2: a gloomling or skitter, which hunts Mimo. */
+  hostile?: boolean
+  /** Server time a hostile last struck Mimo: its lunge. */
+  struck_at?: number
+  /** Server time a hostile caught fire in the sun. */
+  burning_at?: number
 }
 
 /** A creature's last move, for replay: one block from `from` to `to`, or through every cell of `cells`. */
@@ -198,6 +209,9 @@ export interface SurvivalState {
   /** The creatures within 48 blocks, nearest first, and their last moves (L1). */
   creatures: Creature[]
   creature_moves: CreatureMove[]
+  /** When a creature last hurt Mimo (server time) and its kind (L2); an older API sends neither. */
+  hurt_at?: number | null
+  hurt_by?: string | null
   /** The patches Mimo visited within 96 blocks of it, for the minimap's fog of war. */
   explored: ExploredPatch[]
   /** Its home and nearest farm, for the minimap. */

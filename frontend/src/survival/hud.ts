@@ -1,4 +1,7 @@
-import type { ActionKind, Built, CareKind, Chests, ClockPhase, LifeRow, MimoAction, SurvivalState, VitalName, Vitals } from './types'
+import { REPLAY_DELAY } from './replay'
+import type {
+  ActionKind, Built, CareKind, Chests, ClockPhase, Creature, LifeRow, MimoAction, Point, SurvivalState, VitalName, Vitals,
+} from './types'
 
 export type VitalLevel = 'ok' | 'low' | 'critical'
 
@@ -29,6 +32,12 @@ const STATUS_TEXT: Record<string, string> = { idle: 'Standing still', sleeping: 
 const CAUSES: Record<string, string> = {
   starvation: 'starvation', cold: 'the cold', drowning: 'drowning', fall: 'a fall', creature: 'a creature',
 }
+/** Causes of death that are a creature's kind (L2): the pet was caught, not killed by the world. */
+const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature'])
+/** How close (blocks, across) a hostile creature is for the HUD to warn of it. */
+export const DANGER_REACH = 12
+/** How long after a blow (server seconds) its flash may still start. */
+const FLASH_WINDOW = 3
 
 export function vitalBars(vitals: Vitals, names: VitalName[] = HUD_VITALS): VitalBar[] {
   return names.map((key) => {
@@ -56,7 +65,7 @@ const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
   walk: 'Walking', swim: 'Swimming', fall: 'Falling!', mine: 'Mining', place: 'Placing', eat: 'Eating',
   craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping', pick: 'Picking', harvest: 'Harvesting',
   till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking', store: 'Putting away', take: 'Taking out',
-  drop: 'Dropping', attack: 'Attacking',
+  drop: 'Dropping', attack: 'Attacking', shoot: 'Shooting',
 }
 
 /** A block or item in plain words: a crop's stage and a bush's ripeness are left out. */
@@ -78,12 +87,12 @@ const PURPOSE_TEXT: Record<string, string> = {
   rest: 'Resting', eat: 'Having a meal', escape: 'Digging out of a pit', forage: 'Foraging for food',
   fish: 'Fishing', farm: 'Tending the farm', cook: 'Cooking a meal', build_shelter: 'Building a shelter',
   build_farm: 'Laying out a farm', build_storage: 'Putting things away', drop_items: 'Dropping what it cannot use',
-  light_up: 'Lighting torches', hunt: 'Hunting',
+  light_up: 'Lighting torches', hunt: 'Hunting', make_gear: 'Making gear',
 }
 const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
   warm_up: 'Getting warm', head_home: 'Hurrying home before dark', collapse: 'Collapsed from exhaustion',
-  flee: 'Running away!',
+  flee: 'Running away!', fight: 'Fighting back!',
 }
 
 function sentence(name: string): string {
@@ -137,7 +146,32 @@ export function daysText(days: number): string {
 export function lifeLine(life: Pick<LifeRow, 'kind' | 'alive' | 'days' | 'cause'>): string {
   if (life.kind === 'legacy') return `Retired after ${daysText(life.days)}`
   if (life.alive) return `Alive · day ${life.days}`
+  if (life.cause && CAUGHT_BY.has(life.cause)) return `Survived ${daysText(life.days)} · caught by a ${thingName(life.cause)}`
   return `Survived ${daysText(life.days)} · died of ${causeText(life.cause)}`
+}
+
+/**
+ * The HUD's danger line (L2): the living hostile creatures within DANGER_REACH blocks of Mimo, like
+ * "A gloomling is close!", or null. The server lists creatures nearest first; a burning one is no danger.
+ */
+export function dangerText(creatures: readonly Creature[] | null | undefined, position: Point): string | null {
+  const near = (creatures ?? []).filter((creature) => creature.hostile && creature.state !== 'dead'
+    && creature.state !== 'burning' && Math.hypot(creature.x - position.x, creature.z - position.z) <= DANGER_REACH)
+  if (near.length === 0) return null
+  const kind = thingName(near[0].kind)
+  if (near.length === 1) return `A ${kind} is close!`
+  return new Set(near.map((creature) => creature.kind)).size === 1 ? `${near.length} ${kind}s are close!`
+    : `${near.length} creatures are close!`
+}
+
+/**
+ * Seconds from now until the HUD flashes for Mimo's last blow (L2), so the flash lands with the
+ * pet drawn REPLAY_DELAY behind the server; null when there is no blow to flash for.
+ */
+export function hurtFlashDelay(hurtAt: number | null | undefined, serverTime: number): number | null {
+  if (hurtAt === null || hurtAt === undefined) return null
+  const age = serverTime - hurtAt
+  return age < 0 || age > FLASH_WINDOW ? null : Math.max(0, REPLAY_DELAY - age)
 }
 
 /** The worker ticks every second; a state older than 10 s means it stopped. */

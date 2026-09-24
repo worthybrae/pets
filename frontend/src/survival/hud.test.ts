@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  actionText, careLabel, causeText, chestText, clockTime, dayLabel, homeText, lifeLine, purposeText, statusText, thingName,
-  vitalBars, workerOnline,
+  DANGER_REACH, actionText, careLabel, causeText, chestText, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay,
+  lifeLine, purposeText, statusText, thingName, vitalBars, workerOnline,
 } from './hud'
-import type { Built, Chests } from './types'
+import { REPLAY_DELAY } from './replay'
+import type { Built, Chests, Creature } from './types'
 
 const vitals = { health: 100, hunger: 14.6, warmth: 34, energy: 62.4, air: 100, mood: 70 }
 
@@ -54,6 +55,31 @@ describe('HUD text', () => {
     expect(lifeLine({ kind: 'survival', alive: true, days: 2, cause: null })).toBe('Alive · day 2')
     expect(lifeLine({ kind: 'survival', alive: false, days: 1, cause: 'starvation' }))
       .toBe('Survived 1 day · died of starvation')
+    expect(lifeLine({ kind: 'survival', alive: false, days: 3, cause: 'gloomling' }))
+      .toBe('Survived 3 days · caught by a gloomling')
+  })
+})
+
+describe('danger', () => {
+  const gloom: Creature = { id: 1, kind: 'gloomling', x: 5, y: 1, z: 0, heading: 0, health: 1, state: 'chasing', hostile: true }
+  const here = { x: 0, y: 1, z: 0 }
+
+  it('warns of the hostile creatures close to Mimo', () => {
+    expect(dangerText([gloom], here)).toBe('A gloomling is close!')
+    expect(dangerText([gloom, { ...gloom, id: 2, x: -3 }], here)).toBe('2 gloomlings are close!')
+    expect(dangerText([gloom, { ...gloom, id: 3, kind: 'skitter' }], here)).toBe('2 creatures are close!')
+    const cow: Creature = { ...gloom, id: 4, kind: 'cow', hostile: undefined }
+    expect(dangerText([cow, { ...gloom, x: DANGER_REACH + 1 }, { ...gloom, state: 'burning' }, { ...gloom, state: 'dead' }], here))
+      .toBeNull()
+    expect(dangerText(undefined, here)).toBeNull()
+  })
+
+  it('flashes for a blow when the pet drawn behind the server takes it', () => {
+    expect(hurtFlashDelay(100, 100.5)).toBeCloseTo(REPLAY_DELAY - 0.5)
+    expect(hurtFlashDelay(100, 102)).toBe(0)
+    expect(hurtFlashDelay(100, 104)).toBeNull()
+    expect(hurtFlashDelay(null, 100)).toBeNull()
+    expect(hurtFlashDelay(undefined, 100)).toBeNull()
   })
 })
 
@@ -75,6 +101,8 @@ describe('actionText', () => {
     expect(actionText({ kind: 'cook', started_at: 0, ends_at: 5, item: 'raw_fish' }, 'cooking')).toBe('Cooking raw fish')
     expect(actionText({ kind: 'attack', started_at: 0, ends_at: 0.6, target: { x: 1, y: 2, z: 3 } }, 'attacking'))
       .toBe('Attacking')
+    expect(actionText({ kind: 'shoot', started_at: 0, ends_at: 1, target: { x: 1, y: 2, z: 3 }, hit: true }, 'shooting'))
+      .toBe('Shooting')
     expect(thingName('red_mushroom')).toBe('red mushroom')
   })
 })
@@ -89,6 +117,9 @@ describe('purposeText', () => {
     expect(purposeText({ purpose: 'forage', reflex: null, choosing: false })).toBe('Foraging for food')
     expect(purposeText({ purpose: 'farm', reflex: null, choosing: false })).toBe('Tending the farm')
     expect(purposeText({ purpose: 'hunt', reflex: null, choosing: false })).toBe('Hunting')
+    expect(purposeText({ purpose: 'make_gear', reflex: null, choosing: false })).toBe('Making gear')
+    expect(purposeText({ purpose: 'sleep', reflex: 'fight', choosing: false })).toBe('Fighting back!')
+    expect(purposeText({ purpose: 'sleep', reflex: 'flee', choosing: false })).toBe('Running away!')
     expect(purposeText({ purpose: null, reflex: null, choosing: true })).toBe('Deciding what to do')
     expect(purposeText({ purpose: null, reflex: null, choosing: false })).toBe('Taking it easy')
   })

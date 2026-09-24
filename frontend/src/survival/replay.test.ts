@@ -42,6 +42,12 @@ describe('replayAt', () => {
     expect(replayAt(null, [cut], server, 12).rest).toEqual({ x: 1, y: 1, z: 0 })
   })
 
+  it('replays a finished shot with whether its arrow flew true', () => {
+    const shot: FinishedAction = { kind: 'shoot', started_at: 20, ended_at: 21, result: 'done', target: { x: 9, y: 1, z: 0 },
+      hit: false }
+    expect(replayAt(null, [shot], server, 20.5).step).toMatchObject({ kind: 'shoot', ends_at: 21, hit: false })
+  })
+
   it('falls back to the server position when no path says', () => {
     const craft: FinishedAction = { kind: 'craft', started_at: 1, ended_at: 2, result: 'done', recipe: 'planks' }
     expect(replayAt(null, [craft], server, 5)).toEqual({ step: null, rest: server })

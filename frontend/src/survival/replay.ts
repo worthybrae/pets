@@ -21,6 +21,7 @@ function asStep(entry: FinishedAction): MimoAction {
   if (entry.block) step.block = entry.block
   if (entry.item) step.item = entry.item
   if (entry.recipe) step.recipe = entry.recipe
+  if (entry.hit !== undefined) step.hit = entry.hit
   return step
 }
 
