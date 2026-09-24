@@ -55,6 +55,14 @@ describe('worldgen', () => {
     expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
   })
 
+  it('stamps overlapping canopies so the first tree wins, exactly like blockAt', () => {
+    // Chunk (-199, -35): an oak at (-3178, -549) and a birch at (-3176, -551) whose crowns meet.
+    const cx = -199, cz = -35
+    const trees = treesInChunk(cx, cz, WILD_SEED)
+    expect(trees.map(([tx, tz]) => treeKind(tx, tz, WILD_SEED))).toEqual(['oak', 'birch'])
+    expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
+
   it('generates every wood, the tall plants, fruit, pools and frozen lakes inside columns exactly like blockAt', () => {
     const chunks = new Map<string, [number, number]>()
     const plants = ['cactus', 'sugar_cane', 'pumpkin', 'melon', 'dead_bush', 'fern']

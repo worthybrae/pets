@@ -198,15 +198,15 @@ def grow_tree(grid: Grid, sapling: Cell) -> None:
 
 def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float,
                  avoid: frozenset[Cell] = frozenset()) -> Cell | None:
-    """An open cell on forest grass or moss in the chunk, picked by the roll; None if 8 tries miss.
-    A cell in `avoid` (already scheduled there, or already chosen earlier in this batch) is
-    skipped in favour of the next attempt, so two picks in one chunk in one call land apart, and
-    so is a cell something Mimo built claims."""
+    """An open cell on grass or moss in the chunk, in a forest or a birch forest, picked by the roll;
+    None if 8 tries miss. A cell in `avoid` (already scheduled there, or already chosen earlier in
+    this batch) is skipped in favour of the next attempt, so two picks in one chunk in one call land
+    apart, and so is a cell something Mimo built claims."""
     cx, cz = chunk
     for attempt in range(8):
         pick = nature.roll(seed, (cx, attempt, cz), MUSHROOM_SPOT_CHANNEL, int(at))
         x, z = cx * CHUNK + int(pick * CHUNK), cz * CHUNK + int(pick * CHUNK * CHUNK) % CHUNK
-        if biome_at(x, z, seed) != "forest":
+        if biome_at(x, z, seed) not in ("forest", "birch_forest"):
             continue
         y = terrain_height(x, z, seed) + 1
         cell = (x, y, z)

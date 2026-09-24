@@ -29,6 +29,9 @@ const MEADOW_TREES = 300
 const TREE_LOGS: Record<string, string> = { oak: 'oak_log', birch: 'birch_log', spruce: 'spruce_log' }
 const TREE_LEAVES: Record<string, string> = { oak: 'leaves', birch: 'birch_leaves', spruce: 'spruce_leaves' }
 const CANOPY_TOP = 7
+// Canopies reach at most this far; a trunk this close past the clearing's edge keeps its pre-L3 rules,
+// so its leaves never change a block the clearing already had.
+const RIM_MARGIN = 3
 const CACTUS_RARITY = 47
 const CANE_RARITY = 11
 const DEAD_BUSH_RARITY = 53
@@ -442,23 +445,35 @@ export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WOR
   return stoneAt(x, y, z, seed)
 }
 
-/** Columns where the viewer has always allowed trees and flowers. */
-function decorationColumn(x: number, z: number, seed: string): boolean {
+/** Columns where the viewer has always allowed trees and flowers. `rim` is a trunk within RIM_MARGIN
+ * of the legacy clearing's edge: it skips the swamp-pool exclusion L3 added, so it grows exactly where
+ * it would have before L3 (its canopy can reach inside the clearing). */
+function decorationColumn(x: number, z: number, seed: string, rim = false): boolean {
   const lx = mod(x, 16), lz = mod(z, 16)
   if (lx < 3 || lx > 12 || lz < 3 || lz > 12 || Math.hypot(x, z) < 17) return false
   if (terrainHeight(x, z, seed) < SEA_LEVEL) return false
   const biome = biomeAt(x, z, seed)
-  if (biome === 'desert' || biome === 'alpine' || swampPool(x, z, seed) || surfaceOpened(x, z, seed)) return false
+  if (biome === 'desert' || biome === 'alpine' || surfaceOpened(x, z, seed)) return false
+  if (swampPool(x, z, seed) && !rim) return false
   const mx = mod(x, 13), mz = mod(z, 13)
   return !(Math.min(mx, 13 - mx) < 5 && Math.min(mz, 13 - mz) < 5)
 }
 
+/** Whether (x, z) was forest under the pre-L3 biomeAt (moisture above 0.08, neither desert nor alpine):
+ * desert and alpine are unchanged by L3, so this only needs the old moisture check. */
+function legacyForest(x: number, z: number, seed: string): boolean {
+  const biome = biomeAt(x, z, seed)
+  return biome !== 'desert' && biome !== 'alpine' && noise2(x, z, 160, seed, 5) > 0.08
+}
+
 /** Ground height under a tree trunk at (x, z), or null when no tree grows there. */
 export function treeBase(x: number, z: number, seed = DEFAULT_WORLD_SEED): number | null {
-  if (!decorationColumn(x, z, seed)) return null
-  const grows = Math.hypot(x, z) <= LEGACY_RADIUS
-    ? legacyHash(x, z) % 257 === 0
-    : hash32(x, 0, z, seed, 12) % (TREE_RARITY[biomeAt(x, z, seed)] ?? MEADOW_TREES) === 0
+  const rim = Math.hypot(x, z) <= LEGACY_RADIUS + RIM_MARGIN
+  if (!decorationColumn(x, z, seed, rim)) return null
+  let grows: boolean
+  if (Math.hypot(x, z) <= LEGACY_RADIUS) grows = legacyHash(x, z) % 257 === 0
+  else if (rim) grows = hash32(x, 0, z, seed, 12) % (legacyForest(x, z, seed) ? 78 : 300) === 0
+  else grows = hash32(x, 0, z, seed, 12) % (TREE_RARITY[biomeAt(x, z, seed)] ?? MEADOW_TREES) === 0
   return grows ? terrainHeight(x, z, seed) : null
 }
 
@@ -487,9 +502,11 @@ function isLeaf(dx: number, dy: number, dz: number): boolean {
   return dy === 6 && ax + az < 2
 }
 
-/** The wood of the tree rooted at (x, z): spruce in the taiga, birch in a birch forest (one in five an
- * oak), now and then a birch in a forest, else oak. */
+/** The wood of the tree rooted at (x, z): oak within RIM_MARGIN of the legacy clearing (its canopy can
+ * reach inside), spruce in the taiga, birch in a birch forest (one in five an oak), now and then a
+ * birch in a forest, else oak. */
 export function treeKind(x: number, z: number, seed = DEFAULT_WORLD_SEED): string {
+  if (Math.hypot(x, z) <= LEGACY_RADIUS + RIM_MARGIN) return 'oak'
   const biome = biomeAt(x, z, seed)
   const roll = hash32(x, 0, z, seed, 21) % 10
   if (biome === 'taiga') return 'spruce'
@@ -544,10 +561,11 @@ export function canopyTop(x: number, z: number, seed = DEFAULT_WORLD_SEED): [str
 export function wildFood(x: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
   if (Math.hypot(x, z) <= LEGACY_RADIUS) return null
   const biome = biomeAt(x, z, seed)
-  if (biome === 'meadow' || (biome === 'forest' && noise2(x, z, 160, seed, 5) < FOREST_EDGE)) {
+  const wooded = biome === 'forest' || biome === 'birch_forest'
+  if (biome === 'meadow' || (wooded && noise2(x, z, 160, seed, 5) < FOREST_EDGE)) {
     if (hash32(x, 0, z, seed, 15) % BUSH_RARITY === 0) return 'berry_bush_ripe'
   }
-  if (biome === 'forest') {
+  if (wooded) {
     const roll = hash32(x, 0, z, seed, 16)
     if (roll % MUSHROOM_RARITY === 0) return Math.floor(roll / MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
   }

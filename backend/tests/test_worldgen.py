@@ -25,6 +25,11 @@ class WorldgenTests(unittest.TestCase):
         self.assertEqual(base_material(0, -5, 0, LEGACY_WORLD_SEED), "bedrock")
         self.assertEqual(terrain_height(40, 20, "1"), terrain_height(40, 20, "2"))
 
+    def test_a_rim_tree_just_outside_the_clearing_keeps_its_pre_l3_leaves(self):
+        # The oak at (-123, 149), 193.2 from the origin: its canopy reaches inside the clearing.
+        for x, z in ((-123, 147), (-122, 147), (-122, 148), (-121, 148), (-121, 149)):
+            self.assertEqual(block_at(x, 8, z, LEGACY_WORLD_SEED), "leaves")
+
     def test_generated_region_has_height_biomes_caves_and_ores(self):
         seed = "123456789123456789"
         points = [(x, z) for x in range(180, 520, 12) for z in range(-500, 500, 24)]
@@ -109,13 +114,20 @@ class WildFoodTests(unittest.TestCase):
                 food = wild_food(x, z, seed)
                 if food is None:
                     continue
-                expected = ("meadow", "forest") if food == "berry_bush_ripe" else ("forest",)
+                expected = ("meadow", "forest", "birch_forest") if food == "berry_bush_ripe" else ("forest", "birch_forest")
                 self.assertIn(biome_at(x, z, seed), expected, (x, z, food))
                 if plant_at(x, z, seed) == food:
                     found.setdefault(food, (x, z))
         self.assertEqual(set(found), {"berry_bush_ripe", "brown_mushroom", "red_mushroom"})
         for food, (x, z) in found.items():
             self.assertEqual(block_at(x, terrain_height(x, z, seed) + 1, z, seed), food)
+
+    def test_a_birch_forest_grows_wild_food_like_any_other_forest(self):
+        seed = "123456789123456789"
+        self.assertEqual(biome_at(554, 299, seed), "birch_forest")
+        self.assertEqual(wild_food(554, 299, seed), "berry_bush_ripe")
+        self.assertEqual(biome_at(544, 295, seed), "birch_forest")
+        self.assertEqual(wild_food(544, 295, seed), "brown_mushroom")
 
     def test_the_legacy_clearing_grows_no_wild_food(self):
         for x in range(-LEGACY_RADIUS, LEGACY_RADIUS + 1, 3):

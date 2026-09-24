@@ -335,6 +335,14 @@ class MushroomTests(unittest.TestCase):
         renew(pet(), ctx, 3600.0)
         self.assertEqual(ctx.grid.material(*coming[0][0]), "brown_mushroom")
 
+    def test_a_mushroom_also_comes_back_on_a_birch_forest_floor(self):
+        ctx = world(field({(3, 1, 3): "brown_mushroom"}))
+        ctx.grid.put(3, 1, 3, "air")
+        with patch("backend.survival.renewal.biome_at", lambda x, z, seed: "birch_forest"):
+            renew(pet(), ctx, 0.0)
+        coming = scheduled(ctx.db)
+        self.assertEqual([(block, ready_at) for _, block, ready_at in coming], [("brown_mushroom", 3600.0)])
+
     def test_a_chunk_holds_at_most_three_mushrooms(self):
         ctx = world(field({(1, 1, 1): "brown_mushroom", (2, 1, 2): "red_mushroom", (3, 1, 3): "brown_mushroom"}))
         schedule(ctx.db, (9, 1, 9), "brown_mushroom", 5.0)

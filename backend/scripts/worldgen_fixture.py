@@ -28,6 +28,9 @@ FAR_LIMIT = 30000
 WILD_FOOD = ("berry_bush_ripe", "brown_mushroom", "red_mushroom")
 # L3: trees of each wood, the taller plants and fruit, swamp pools and frozen lakes.
 KIND_CHUNKS = [(cx, cz) for cz in range(-30, 30) for cx in range(16, 80)]
+KIND_CHUNKS_NEG = [(cx, cz) for cz in range(-30, 30) for cx in range(-80, -16)]
+FEATURE_XS = range(250, 1250)
+FEATURE_XS_NEG = range(-1250, -250)
 STACKS = ("cactus", "sugar_cane", "dead_bush", "fern", "pumpkin", "melon")
 NEW_BIOMES = ("taiga", "swamp", "birch_forest")
 DEEP = ("gold_ore", "diamond_ore", "water", "lava", "gravel", "granite", "andesite", "diorite", "ashstone")
@@ -91,10 +94,10 @@ def _biome_patch(seed: str, biome: str) -> list[tuple[int, int, int]]:
     return []
 
 
-def _kind_trees(seed: str, kind: str, count: int) -> list[tuple[int, int, int]]:
+def _kind_trees(seed: str, kind: str, count: int, chunks: list[tuple[int, int]] = KIND_CHUNKS) -> list[tuple[int, int, int]]:
     """Generated trees of one wood (oak, birch or spruce)."""
     found = []
-    for cx, cz in KIND_CHUNKS:
+    for cx, cz in chunks:
         for tree in trees_in_chunk(cx, cz, seed):
             if tree_kind(tree[0], tree[1], seed) == kind:
                 found.append(tree)
@@ -103,11 +106,11 @@ def _kind_trees(seed: str, kind: str, count: int) -> list[tuple[int, int, int]]:
     return found
 
 
-def _features(seed: str, count: int) -> list[tuple[int, int]]:
+def _features(seed: str, count: int, xs: range = FEATURE_XS) -> list[tuple[int, int]]:
     """Columns with each of the taller plants and fruit, a swamp pool or a frozen lake, `count` of each."""
     seen: dict[str, int] = {}
     found = []
-    for x in range(250, 1250):
+    for x in xs:
         for z in range(-60, 60, 2):
             stack = plant_stack(x, z, seed)
             kind = stack[0] if stack and stack[0] in STACKS else None
@@ -180,7 +183,7 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
         for biome in ("desert", "alpine") + NEW_BIOMES:
             cells |= {(seed, x, y, z) for x, y, z in _biome_patch(seed, biome)}
         for kind in ("oak", "birch", "spruce"):
-            for tx, tz, base in _kind_trees(seed, kind, 2):
+            for tx, tz, base in _kind_trees(seed, kind, 2) + _kind_trees(seed, kind, 2, KIND_CHUNKS_NEG):
                 cells |= {(seed, tx + dx, base + dy, tz + dz)
                           for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 9)}
         for spans in _entrances(seed, 2):
@@ -191,7 +194,7 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
                       for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 5)}
         for x, y, z in _deep(seed, 3):
             cells |= {(seed, x + dx, y + dy, z + dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)}
-        for x, z in _features(seed, 3):
+        for x, z in _features(seed, 3) + _features(seed, 3, FEATURE_XS_NEG):
             height = terrain_height(x, z, seed)
             cells |= {(seed, x, height + dy, z) for dy in range(-2, 5)}
         for _ in range(1500):

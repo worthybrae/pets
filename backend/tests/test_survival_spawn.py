@@ -23,7 +23,7 @@ class SpawnTests(unittest.TestCase):
             spawn = find_spawn(seed, random.Random(index))
             x, y, z = spawn["x"], spawn["y"], spawn["z"]
             self.assertTrue(MIN_DISTANCE <= math.hypot(x, z) <= MAX_DISTANCE, spawn)
-            self.assertIn(biome_at(x, z, seed), ("meadow", "forest"))
+            self.assertIn(biome_at(x, z, seed), ("meadow", "forest", "birch_forest"))
             self.assertIn(surface_material(x, z, seed), ("grass", "moss"))
             self.assertEqual(y, terrain_height(x, z, seed) + 1)
             self.assertGreaterEqual(y - 1, SEA_LEVEL)
@@ -31,6 +31,11 @@ class SpawnTests(unittest.TestCase):
                 here = block_at(x, cell_y, z, seed)
                 self.assertTrue(is_replaceable(here) and here != "water", (spawn, here))
             self.assertTrue(trees_within(x, z, seed, 24), f"no tree near {spawn}")
+
+    def test_a_birch_forest_is_a_fit_spawn_biome_like_any_other_forest(self):
+        seed = SEEDS[1]
+        self.assertEqual(biome_at(3000, -4642, seed), "birch_forest")
+        self.assertTrue(spawn_fits(3000, -4642, seed))
 
     def test_the_same_seed_and_random_state_give_the_same_spawn(self):
         self.assertEqual(find_spawn("42", random.Random(9)), find_spawn("42", random.Random(9)))

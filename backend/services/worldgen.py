@@ -39,6 +39,8 @@ MEADOW_TREES = 300
 TREE_LOGS = {"oak": "oak_log", "birch": "birch_log", "spruce": "spruce_log"}
 TREE_LEAVES = {"oak": "leaves", "birch": "birch_leaves", "spruce": "spruce_leaves"}
 CANOPY_TOP = 7  # the highest leaf of any tree, above its ground
+RIM_MARGIN = 3  # canopies reach at most this far; a trunk this close past the clearing's edge keeps
+                # its pre-L3 rules, so its leaves never change a block the clearing already had
 CACTUS_RARITY = 47
 CANE_RARITY = 11  # on a shore; three times likelier in a swamp
 DEAD_BUSH_RARITY = 53
@@ -472,24 +474,35 @@ def terrain_block(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     return stone_at(x, y, z, seed)
 
 
-def _decoration_column(x: int, z: int, seed: str) -> bool:
-    """Columns where the viewer has always allowed trees and flowers."""
+def _decoration_column(x: int, z: int, seed: str, rim: bool = False) -> bool:
+    """Columns where the viewer has always allowed trees and flowers. `rim` is a trunk within
+    RIM_MARGIN of the legacy clearing's edge: it skips the swamp-pool exclusion L3 added, so it grows
+    exactly where it would have before L3 (its canopy can reach inside the clearing)."""
     if not (3 <= x % 16 <= 12 and 3 <= z % 16 <= 12) or math.hypot(x, z) < 17:
         return False
     if terrain_height(x, z, seed) < SEA_LEVEL or biome_at(x, z, seed) in ("desert", "alpine"):
         return False
-    if swamp_pool(x, z, seed) or surface_opened(x, z, seed):
+    if surface_opened(x, z, seed) or (swamp_pool(x, z, seed) and not rim):
         return False
     mx, mz = x % 13, z % 13
     return not (min(mx, 13 - mx) < 5 and min(mz, 13 - mz) < 5)
 
 
+def _legacy_forest(x: int, z: int, seed: str) -> bool:
+    """Whether (x, z) was forest under the pre-L3 biome_at (moisture above 0.08, neither desert nor
+    alpine): desert and alpine are unchanged by L3, so this only needs the old moisture check."""
+    return biome_at(x, z, seed) not in ("desert", "alpine") and noise2(x, z, 160, seed, 5) > 0.08
+
+
 def tree_base(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> int | None:
     """Ground height under a tree trunk at (x, z), or None when no tree grows there."""
-    if not _decoration_column(x, z, seed):
+    rim = math.hypot(x, z) <= LEGACY_RADIUS + RIM_MARGIN
+    if not _decoration_column(x, z, seed, rim):
         return None
     if math.hypot(x, z) <= LEGACY_RADIUS:
         grows = legacy_hash(x, z) % 257 == 0
+    elif rim:
+        grows = hash32(x, 0, z, seed, 12) % (78 if _legacy_forest(x, z, seed) else 300) == 0
     else:
         grows = hash32(x, 0, z, seed, 12) % TREE_RARITY.get(biome_at(x, z, seed), MEADOW_TREES) == 0
     return terrain_height(x, z, seed) if grows else None
@@ -517,8 +530,11 @@ def is_leaf(dx: int, dy: int, dz: int) -> bool:
 
 @lru_cache(maxsize=65536)
 def tree_kind(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
-    """The wood of the tree rooted at (x, z): spruce in the taiga, birch in a birch forest (one in five
-    an oak), now and then a birch in a forest, else oak."""
+    """The wood of the tree rooted at (x, z): oak within RIM_MARGIN of the legacy clearing (its canopy
+    can reach inside), spruce in the taiga, birch in a birch forest (one in five an oak), now and then
+    a birch in a forest, else oak."""
+    if math.hypot(x, z) <= LEGACY_RADIUS + RIM_MARGIN:
+        return "oak"
     biome = biome_at(x, z, seed)
     roll = hash32(x, 0, z, seed, 21) % 10
     if biome == "taiga":
@@ -563,15 +579,16 @@ def tree_block(x: int, y: int, z: int, seed: str) -> str | None:
 
 
 def wild_food(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
-    """A ripe berry bush (meadows and forest edges) or a mushroom (forest floor) on generated land.
-    The legacy clearing keeps exactly the plants it always had."""
+    """A ripe berry bush (meadows and forest edges, oak or birch) or a mushroom (either forest's
+    floor) on generated land. The legacy clearing keeps exactly the plants it always had."""
     if math.hypot(x, z) <= LEGACY_RADIUS:
         return None
     biome = biome_at(x, z, seed)
-    if biome == "meadow" or (biome == "forest" and noise2(x, z, 160, seed, 5) < FOREST_EDGE):
+    wooded = biome in ("forest", "birch_forest")
+    if biome == "meadow" or (wooded and noise2(x, z, 160, seed, 5) < FOREST_EDGE):
         if hash32(x, 0, z, seed, 15) % BUSH_RARITY == 0:
             return "berry_bush_ripe"
-    if biome == "forest":
+    if wooded:
         roll = hash32(x, 0, z, seed, 16)
         if roll % MUSHROOM_RARITY == 0:
             return "red_mushroom" if roll // MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"

@@ -1,5 +1,5 @@
-"""Where a new life starts: 3,000-6,000 blocks from the origin, on dry grass or moss in a meadow
-or forest, with a tree within 24 blocks. The search spirals outward from a random point."""
+"""Where a new life starts: 3,000-6,000 blocks from the origin, on dry grass or moss in a meadow,
+forest or birch forest, with a tree within 24 blocks. The search spirals outward from a random point."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ TREE_REACH = 24
 SEARCH_STEP = 4
 MAX_RINGS = 200
 MAX_ATTEMPTS = 8
-SPAWN_BIOMES = ("meadow", "forest")
+SPAWN_BIOMES = ("meadow", "forest", "birch_forest")
 SPAWN_SURFACES = ("grass", "moss")
 CHUNK = 16
 
