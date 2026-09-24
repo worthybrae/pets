@@ -21,16 +21,22 @@ tick: a malformed step or a broken planner must not freeze a life (M3 will plug 
 here, so this must be airtight).
 
 A walk step starts with a path search (route(), inside start_step); on real terrain a search
-that exhausts its budget costs around 250ms. advance_world calls advance_actions at most twice in
-one write transaction (once mid-step, once for the final catch-up to its `timestamp`), both
-sharing one ActionContext, so the search budget lives on the context (`searches_left`, from
-MAX_SEARCHES_PER_TICK) instead of resetting every call: once it reaches zero, a walk at the front
-of the queue (or just re-queued by an unfinished segment) is left there and waits for the next
-advance_actions call instead of searching (Task 3 review ruling; Task 6 fix round 1 made the
-budget span one call's whole transaction). Since M5 Task 10, a long gap is caught up one
-60-game-second step per advance_world call, each its own transaction (tick.tick_life), so the
-budget covers one step, not the whole catch-up. Because that walk is left unpopped and unstarted,
-no step with an empty path is ever built.
+that exhausts its budget costs around 250ms. Every advance_actions call of one advance_world call
+(one write transaction) shares one ActionContext, so the search budget lives on the context
+(`searches_left`, from MAX_SEARCHES_PER_TICK) instead of resetting every call: once it reaches
+zero, a walk at the front of the queue (or just re-queued by an unfinished segment) is left there
+and waits for the next advance_actions call instead of searching (Task 3 review ruling; Task 6
+fix round 1 made the budget span one call's whole transaction). Since M5 Task 10, a long gap is
+caught up one 60-game-second step per advance_world call, each its own transaction
+(tick.tick_life), so the budget covers one step, not the whole catch-up. Because that walk is left
+unpopped and unstarted, no step with an empty path is ever built.
+L2 final fix wave: near a hostile that transaction is up to 60 short fight steps (backend.survival
+.tick), each an advance_actions call, and 2 searches for all of them left a flee walk waiting
+while Mimo was struck. So each fight step also brings one small search of its own
+(`small_searches_left`, set by the tick): once the whole searches are spent, a walk that is not
+`whole` starts on it, its route bounded to FIGHT_STEP_NODES cells (`walk_search`). 60 of those
+cost well under a second on real terrain even when every one runs out, far inside the owner's
+10 s write window; a whole walk (all or nothing) still waits for a whole search.
 
 A mind can take over through `context.interrupt` (the brain's reflexes). It is asked before every
 step starts and at every advance while an interruptible step (its StepKind in
@@ -52,7 +58,7 @@ from backend.survival.carrying import after_step
 from backend.survival.clock import is_night
 from backend.survival.grid import Cell, Grid
 from backend.survival.once import log_once
-from backend.survival.pathing import SWIM_SECONDS
+from backend.survival.pathing import MAX_NODES, SWIM_SECONDS
 from backend.survival.steps import as_cell, as_point, failure_code, finish_step, position_of, start_step, step_kind
 
 logger = logging.getLogger(__name__)
@@ -66,6 +72,10 @@ PATH_KEEP = 4
 PATH_WINDOW = 10.0
 MAX_STEPS_PER_ADVANCE = 1000
 MAX_SEARCHES_PER_TICK = 2  # route()/start_step(walk) calls allowed across one whole advance_world call
+# L2 final fix wave: the cells a fight step's own search may expand (about 12 ms on real terrain
+# when it runs out; 60 of them, one a fight step, stay under a second). Enough for a flee run or a
+# step up to a target over rough ground; a longer way is walked in parts, a search a step.
+FIGHT_STEP_NODES = 1000
 GRAVITY = 32.0  # blocks per second squared: a fall of b blocks takes sqrt(2 b / GRAVITY) seconds
 SAFE_FALL = 3
 FALL_DAMAGE = 10.0
@@ -96,9 +106,10 @@ class ActionContext:
     mutated down as walks start), so one 60-game-second catch-up step cannot run more than
     MAX_SEARCHES_PER_TICK searches; a long catch-up spends this budget once per step
     (tick.tick_life), not once for the whole gap. Planners that search themselves spend it through
-    `take_search`. `observe` hears about every step that finished well. `db` is the world's
-    connection inside the tick's transaction, for minds that keep memory; tests without a database
-    leave it None.
+    `take_search`. `small_searches_left` (L2) is the current fight step's own bounded search for a
+    walk (see the module docstring); the tick sets it to 1 for each fight step and 0 otherwise.
+    `observe` hears about every step that finished well. `db` is the world's connection inside
+    the tick's transaction, for minds that keep memory; tests without a database leave it None.
     """
 
     grid: Grid
@@ -110,6 +121,7 @@ class ActionContext:
     db: sqlite3.Connection | None = None
     action_scale: float = 1.0
     interrupt: Interrupt | None = None
+    small_searches_left: int = 0
 
 
 def take_search(context: ActionContext) -> bool:
@@ -118,6 +130,18 @@ def take_search(context: ActionContext) -> bool:
         return False
     context.searches_left -= 1
     return True
+
+
+def walk_search(context: ActionContext, spec: dict) -> int | None:
+    """The cells the search of a walk about to start may expand: MAX_NODES from the tick's budget,
+    else, for a walk that is not `whole`, FIGHT_STEP_NODES from the fight step's own search; None
+    when neither is left, and the walk waits."""
+    if take_search(context):
+        return MAX_NODES
+    if context.small_searches_left > 0 and not spec.get("whole"):
+        context.small_searches_left -= 1
+        return FIGHT_STEP_NODES
+    return None
 
 
 def status_of(kind: str) -> str:
@@ -415,11 +439,13 @@ def advance_actions(state: dict, context: ActionContext, until: float) -> float 
                 if context.interrupt is not None:
                     continue  # a fresh plan gets the same takeover check before its first step
             spec = state["queue"][0]
-            if spec.get("kind") == "walk" and not take_search(context):
+            nodes = walk_search(context, spec) if spec.get("kind") == "walk" else MAX_NODES
+            if nodes is None:
                 break  # search budget spent this tick; try this walk again next advance_actions
             state["queue"].pop(0)
             try:
-                state["action"] = start_step(spec, state, grid, at, context.action_scale)
+                bounded = spec if nodes == MAX_NODES else {**spec, "nodes": nodes}
+                state["action"] = start_step(bounded, state, grid, at, context.action_scale)
             except (ValueError, KeyError) as error:
                 fail(state, as_started(spec, at), at, str(error), failure_code(error))
                 break  # plan again at the next advance, not in a tight loop

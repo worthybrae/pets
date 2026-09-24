@@ -6,10 +6,12 @@ import logging
 
 from backend.survival import steps as steps_module
 from backend.survival.actions import (
-    ActionContext, activity_of, advance_actions, ensure_actions, is_interruptible, is_working, status_of, take_search,
+    FIGHT_STEP_NODES, ActionContext, activity_of, advance_actions, ensure_actions, is_interruptible, is_working,
+    status_of, take_search,
 )
 from backend.survival.grid import Grid
 from backend.survival.once import forget_logged, log_once
+from backend.survival.pathing import MAX_NODES
 from backend.survival.steps import STEP_KINDS, StepKind, nothing_happens, register_step, start_step
 from backend.survival.vitals import START_VITALS
 
@@ -347,6 +349,38 @@ class ActionEngineTests(unittest.TestCase):
             for until in (1.0, 2.0, 3.0):
                 advance_actions(pet(), context(small_world(), broken), until)
         self.assertEqual(len(logs.output), 1)
+
+    def test_a_fight_step_still_starts_a_walk_on_its_own_small_search_once_the_budget_is_spent(self):
+        """L2 final fix wave: a 60-game-second transaction near a hostile runs 60 one-second fight
+        steps on one ActionContext, and its 2 whole searches were gone after the first walks, so a
+        flee walk waited in the queue while Mimo was struck. Each fight step now brings one search
+        of its own, bounded to FIGHT_STEP_NODES cells, for a walk that is not `whole`."""
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "walk", "target": [3, 1, 0]}, {"kind": "walk", "target": [5, 1, 0]}]
+        ctx = context(grid)
+        ctx.searches_left, ctx.small_searches_left = 0, 1
+        with patch("backend.survival.steps.route", wraps=steps_module.route) as spy:
+            advance_actions(state, ctx, 100.0)
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(spy.call_args.kwargs.get("max_nodes"), FIGHT_STEP_NODES)
+        self.assertEqual((state["position"]["x"], ctx.small_searches_left), (3.0, 0))
+        self.assertEqual(state["queue"], [{"kind": "walk", "target": [5, 1, 0]}])  # one a step: it waits
+        whole = pet()
+        whole["queue"] = [{"kind": "walk", "target": [3, 1, 0], "whole": True}]
+        ctx = context(grid)
+        ctx.searches_left, ctx.small_searches_left = 0, 1
+        advance_actions(whole, ctx, 100.0)  # all or nothing: a small search could fail it for nothing
+        self.assertEqual((whole["position"]["x"], ctx.small_searches_left, len(whole["queue"])), (0.0, 1, 1))
+
+    def test_a_whole_search_is_spent_first_and_searches_the_whole_way(self):
+        grid, state = small_world(), pet()
+        state["queue"] = [{"kind": "walk", "target": [3, 1, 0]}]
+        ctx = context(grid)
+        ctx.small_searches_left = 1
+        with patch("backend.survival.steps.route", wraps=steps_module.route) as spy:
+            advance_actions(state, ctx, 100.0)
+        self.assertEqual(spy.call_args.kwargs.get("max_nodes"), MAX_NODES)
+        self.assertEqual((ctx.searches_left, ctx.small_searches_left), (1, 1))
 
     def test_take_search_spends_the_shared_budget(self):
         ctx = context(small_world())

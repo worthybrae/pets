@@ -28,7 +28,7 @@ from backend.services.crafting import BLOCKS, SMELTING, add_item, can_harvest, c
 from backend.survival import nature
 from backend.survival.carrying import fits
 from backend.survival.grid import Cell, Grid
-from backend.survival.pathing import route, timed_path
+from backend.survival.pathing import MAX_NODES, route, timed_path
 
 REACH = 4.0
 STATION_REACH = 6.0
@@ -247,12 +247,15 @@ def nothing_happens(step: dict, state: dict, grid: Grid, at: float) -> None:
 
 
 def start_walk(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
+    """A walk along a route() to its target (or its next segment). `nodes`, set only by the engine
+    on the spec it starts (L2: a fight step's own small search, backend.survival.actions), bounds
+    the search; a walk that way that runs out first takes the part of the way it found."""
     here, target = as_cell(state["position"]), as_cell(spec["target"])
     reach = float(spec.get("reach", 0.0))
     segments = int(spec.get("segments", 0))
     if segments > MAX_SEGMENTS:
         raise StepFailed("no way there", "no_path")
-    cells, reached = route(grid, here, target, reach)
+    cells, reached = route(grid, here, target, reach, max_nodes=int(spec.get("nodes", MAX_NODES)))
     # A walk marked `whole` goes all the way or not at all: part of the way can end in a pit.
     if not reached and (not cells or spec.get("whole")):
         raise StepFailed("no way there", "no_path")

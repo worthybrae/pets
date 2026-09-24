@@ -1,9 +1,10 @@
 """Reflexes: rules that take over at once, ahead of the purpose layer.
 
 A Reflex is data: a name, a priority (lower is more urgent), a trigger, a planner, a thought, an
-event line and a cooldown. The brain's interrupt hook (`reflex_hook`) checks them in priority
-order before every step starts and while a walk, sleep or wait runs. The first whose trigger
-holds and whose planner returns steps takes over:
+event line and a cooldown (real seconds, or, for a `paced` one, action time: divided by
+MIMO_ACTION_SCALE like the steps and blows around it). The brain's interrupt hook (`reflex_hook`)
+checks them in priority order before every step starts and while a walk, sleep or wait runs. The
+first whose trigger holds and whose planner returns steps takes over:
 
 - The first takeover sets the purpose's queue aside (a cut walk is queued again toward its
   target) and puts the reflex's steps in the queue, tagged with the reflex's name. A more urgent
@@ -13,8 +14,9 @@ holds and whose planner returns steps takes over:
 - When the reflex's steps run out, `end_reflex` brings the set-aside steps back, starts the
   reflex's cooldown and asks for a new choice (`reflex_ended`). The set-aside steps include the
   plan's cleanup steps (`keep`), which come back even when the purpose changed meanwhile. A
-  reflex with `ends_purpose` (head_home) finishes the purpose instead of resuming it, keeping
-  only the cleanup steps, so Mimo chooses again at home rather than walking back out.
+  reflex with `ends_purpose` (head_home, L2's flee) finishes the purpose instead of resuming it,
+  keeping only the cleanup steps, so Mimo chooses again where the reflex left it rather than
+  walking back out (or lying down again beside what it ran from).
 - A veto reflex (avoid_drop) does not set anything aside: it fails or replaces only the step that
   would fall too far, even when it has no steps of its own.
 
@@ -78,6 +80,9 @@ class Reflex:
     ends_purpose: bool = False
     # L2: real seconds after it last ended during which a new takeover logs no event.
     quiet: float = 0.0
+    # L2 final fix wave: the cooldown is action time, divided by MIMO_ACTION_SCALE like the hostile
+    # blows it answers (a flee's restart), instead of plain real seconds.
+    paced: bool = False
 
 
 REFLEXES: list[Reflex] = []
@@ -137,7 +142,8 @@ def reflex_hook(state: dict, context: ActionContext, at: float) -> str | None:
     for reflex in REFLEXES:
         if running is not None and reflex.priority >= running.priority:
             break
-        if at - brain["reflex_ends"].get(reflex.name, -math.inf) < reflex.cooldown:
+        cooldown = reflex.cooldown / context.action_scale if reflex.paced else reflex.cooldown
+        if at - brain["reflex_ends"].get(reflex.name, -math.inf) < cooldown:
             continue
         try:
             if not reflex.trigger(s):

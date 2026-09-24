@@ -64,11 +64,15 @@ PENALTY_GAME_SECONDS = 600.0
 
 def waiting(state: dict, context: ActionContext, at: float) -> list[dict]:
     """Wait for a choice, asking for one if nothing is pending: asleep at night (rest_plan's
-    rule), else a second at a time so a choice starts promptly."""
+    rule), else a second at a time so a choice starts promptly. L2 final fix wave: never asleep
+    while a hostile could come after Mimo (defense.threats), such as just after a flight (flee
+    ends the purpose): it stays awake, a second at a time, until the next choice."""
     if ensure_brain(state)["pending"] is None:
         mark_trigger(state, "idle", at)
     plan = rest_plan(state, context, at)
-    return plan if plan and plan[0]["kind"] == "sleep" else [{"kind": "wait", "seconds": PENDING_WAIT}]
+    if plan and plan[0]["kind"] == "sleep" and not defense.threats(in_tick(state, context, at)):
+        return plan
+    return [{"kind": "wait", "seconds": PENDING_WAIT}]
 
 
 def finish_purpose(state: dict, at: float, reason: str) -> None:

@@ -23,6 +23,10 @@ the same transaction (see below), so only that call's creature turn is a hostile
 (`run_creatures(..., fight_step=True)`, backend.survival.creatures.simulate): herd spawning and
 every animal's turn wait for the transaction's one final call, the ordinary L1 cadence, instead of
 running (and costing) on every short step too.
+
+L2 final fix wave: each of those short steps also gives Mimo's walks one small route search of
+its own (ActionContext.small_searches_left, backend.survival.actions), so a flee walk does not wait
+in the queue for the transaction's 2 whole searches while it is struck.
 """
 
 from __future__ import annotations
@@ -219,6 +223,10 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 step = min(step, max(FIGHT_SLICE / action_scale * scale, span / FIGHT_SLICES_MAX))
                 fight_slices += 1
                 fight_step = True
+            # Final fix wave: each fight step brings one small search of its own for a walk
+            # (backend.survival.actions.walk_search), so a flee or a step up never waits on the
+            # transaction's 2 whole searches while a hostile strikes; unused, it does not add up.
+            context.small_searches_left = 1 if fight_step else 0
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]

@@ -108,13 +108,16 @@ def find_path(grid: Grid, start: Cell, is_goal: Callable[[Cell], bool], toward: 
     return trace(came_from, nearest), False
 
 
-def route(grid: Grid, start: Cell, target: Cell, reach: float = 0.0) -> tuple[list[Cell], bool]:
-    """A route from `start` toward `target`.
+def route(grid: Grid, start: Cell, target: Cell, reach: float = 0.0,
+          max_nodes: int = MAX_NODES) -> tuple[list[Cell], bool]:
+    """A route from `start` toward `target`, expanding at most `max_nodes` cells.
 
     With reach 0 the route ends on `target`; otherwise on any cell other than `target` within
     `reach` blocks of it. A target more than MAX_RANGE blocks away on either axis is approached
     one segment at a time: the route ends near a waypoint SEGMENT blocks along the way and
-    `reached` is False. The caller walks the segment and asks again.
+    `reached` is False. The caller walks the segment and asks again. A smaller `max_nodes` (L2: a
+    fight step's own search, backend.survival.actions.FIGHT_STEP_NODES) ends sooner, with the
+    route to the explored cell nearest the goal when it runs out first.
     """
     dx, dz = target[0] - start[0], target[2] - start[2]
     if max(abs(dx), abs(dz)) > MAX_RANGE:
@@ -122,12 +125,12 @@ def route(grid: Grid, start: Cell, target: Cell, reach: float = 0.0) -> tuple[li
         waypoint = (start[0] + round(dx * share), start[1], start[2] + round(dz * share))
         cells, _ = find_path(grid, start,
                              lambda cell: abs(cell[0] - waypoint[0]) + abs(cell[2] - waypoint[2]) <= WAYPOINT_SLACK,
-                             waypoint, slack=WAYPOINT_SLACK)
+                             waypoint, slack=WAYPOINT_SLACK, max_nodes=max_nodes)
         return cells, False
     if reach <= 0:
-        return find_path(grid, start, lambda cell: cell == target, target)
+        return find_path(grid, start, lambda cell: cell == target, target, max_nodes=max_nodes)
     return find_path(grid, start, lambda cell: cell != target and math.dist(cell, target) <= reach,
-                     target, slack=math.ceil(reach * math.sqrt(2)))
+                     target, slack=math.ceil(reach * math.sqrt(2)), max_nodes=max_nodes)
 
 
 def timed_path(grid: Grid, start: Cell, cells: list[Cell], started_at: float, scale: float = 1.0) -> list[dict]:
