@@ -34,6 +34,7 @@ class Home:
             self.grid.put(*planned.cell, "cobblestone")
         finish_structure(self.db, start(self.db, self.grid, design, 0.0), 1.0)
         self.chest = design.one("chest")
+        self.torches = [planned.cell for planned in design.parts("torch")]
         self.state = {"name": "Pip", "world_seed": "1", "position": dict(zip("xyz", map(float, position))),
                       "inventory": dict(inventory), "vitals": dict(START_VITALS), "traits": {}, "last_tick_at": 0.0}
         if chest is not None:
@@ -120,6 +121,26 @@ class StorageTests(unittest.TestCase):
         home.state["full_at"] = 5.0
         self.assertEqual(score(home.situation()), 70.0)
 
+    def test_torch_keep_matches_the_shelters_own_dark_corners(self):
+        """L3 fix round 1, item 1: KEEP held a flat 4 torches, so once light_up lit every corner a
+        spare torch stayed in Mimo's arms instead of going in the chest (the root cause of the
+        failing hunt test). It now keeps only as many torches as dark corners are left, and a
+        carried lantern -- which fills a corner just as well -- counts against that too."""
+        lit = Home({"torch": 1}, chest={})
+        for cell in lit.torches:  # every corner lit
+            lit.grid.put(*cell, "torch")
+        s = lit.situation()
+        self.assertEqual(storage.kept(s, "torch"), 0)
+        self.assertIn(("torch", 1), storage.to_store(s, lit.chest))
+
+        half_lit = Home({"torch": 5}, chest={})
+        for cell in half_lit.torches[:2]:  # 2 of 4 corners lit, 2 still dark
+            half_lit.grid.put(*cell, "torch")
+        self.assertEqual(storage.kept(half_lit.situation(), "torch"), 2)
+
+        with_lantern = Home({"torch": 5, "lantern": 1})  # every corner dark, but a lantern fills one first
+        self.assertEqual(storage.kept(with_lantern.situation(), "torch"), 3)
+
 
 class DropTests(unittest.TestCase):
     def test_known_poison_old_pickaxes_and_flowers_are_dropped(self):
@@ -140,6 +161,18 @@ class DropTests(unittest.TestCase):
         self.assertEqual([step["item"] for step in home.plan("drop_items")], ["moss", "gravel", "sand", "clay"])
         with_chest = Home(full, chest={})
         self.assertFalse(PURPOSES["drop_items"].valid(with_chest.situation()))
+
+    def test_a_spare_torch_is_dropped_without_waiting_for_a_chest(self):
+        """L3 fix round 1: spare_torches lets drop_items shed a torch home's own dark corners no
+        longer need directly, the same 'spare' pattern as spare_fences, instead of it sitting in
+        Mimo's arms until build_storage next has a reason to walk home."""
+        home = Home({**LOOSE, "torch": 2})  # 15 stacks; every corner lit, so both torches are spare
+        for cell in home.torches:
+            home.grid.put(*cell, "torch")
+        s = home.situation()
+        self.assertIn(("torch", 2), storage.junk(s))
+        self.assertTrue(PURPOSES["drop_items"].valid(s))
+        self.assertIn({"kind": "drop", "item": "torch", "amount": 2}, home.plan("drop_items"))
 
 
 class DropWhenStuckTests(unittest.TestCase):

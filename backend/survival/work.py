@@ -35,7 +35,7 @@ import math
 from typing import TYPE_CHECKING
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
-from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest, have
+from backend.services.crafting import BLOCKS, LOGS, TOOL_RANK, can_harvest, have
 from backend.services.worldgen import terrain_height
 from backend.survival.grid import Cell, Grid, supports
 from backend.survival.memory import SHELTER_KINDS, cell_of, forget
@@ -45,7 +45,7 @@ from backend.survival.creatures.harm import armor_iron, armor_wanted
 from backend.survival.carrying import CARRY_STACKS, room_for
 from backend.survival.farming import plant
 from backend.survival.nature import SOIL
-from backend.survival.senses import by_distance, failed_columns, standing_logs, trunks_near
+from backend.survival.senses import ORES, by_distance, failed_columns, standing_logs, trunks_near
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
 from backend.survival.structures import reserved
@@ -68,7 +68,12 @@ FLUIDS = ("water", "lava")
 PASSAGE_TALL = 3  # cells a stair or tunnel is cut high; its second column (left of the heading) too
 TREE = "tree"  # a remembered place: a sapling Mimo planted, so the tree there is its to chop
 ORE_RANGE = 48.0
-ORE_REACH = 3.0
+# The walk toward a remembered ore stops this close to it (fix round 1, item 4): a rubble cell can
+# reveal an ore diagonally, up to 3.32 blocks from every floor cell around it, and REACH (4.0,
+# steps.py's own mine reach) is the smallest of the reaches the mine step accepts that still covers
+# that: a 3.0 reach asked for a walk closer than the ore's own floor ever let mine_ore stand, so
+# the route search ran to its node limit and failed, wasted on every such ore.
+ORE_REACH = REACH
 ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late in the day
 
 
@@ -202,7 +207,9 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
     either cannot be cut the way is blocked and this returns None. Every other cell (the third one
     up, and the side column, which is only cut over solid ground) opens where it can and stays where
     it cannot, so the passage narrows or lowers there. Those widening cells break into rubble Mimo
-    leaves behind (`rubble` mine steps), so a stair yields what a narrow one did (resolution 17).
+    leaves behind (`rubble` mine steps), so a stair yields what a narrow one did (resolution 17),
+    except an ore or a surface log: left standing, since either is worth a trip on purpose and a
+    rubble cell drops nothing (fix round 1, item 3 and the minors).
     Returns the steps, top cells first, where Mimo ends up and how many cobblestone the mining
     yields. `changed` holds the cells earlier stairs of
     the same plan opened. A block whose cell above is open below the natural surface is the floor of
@@ -231,6 +238,8 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
                 continue
             if block:
                 keep = dy < needed  # the cells Mimo walks through; it leaves the rest as rubble
+                if not keep and (block in ORES or block in LOGS):
+                    continue  # an ore or a surface log is worth a trip on purpose: leave it standing
                 steps.append({"kind": "mine", "target": list(cell), **({} if keep else {"rubble": True})})
                 stones += 1 if keep and BLOCKS.get(block, {}).get("drop") == "cobblestone" else 0
                 changed[cell] = "air"

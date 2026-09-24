@@ -8,9 +8,11 @@ is trapped. The way out is a staircase up, one block up per step: mine the block
 and the stair cell when they are solid, and place a carried block where a stair has nothing to
 stand on (mined dirt and stone go into the stock too). Where they fit (L3), the two cells over each
 stair and the three beside it (left of the heading, over solid ground) open too, so the way out is
-2 wide and 3 tall like Mimo's own stairs; a cell that cannot be mined there is left. The cell over a
-stair is the next stair's headroom and is kept; the other widening cells break into rubble Mimo
-leaves behind. It tries the four directions and takes the
+2 wide and 3 tall like Mimo's own stairs; a cell that cannot be mined there is left, the same rule
+as work.cut: never something Mimo built or tends (or the cell above it), and never an ore or a
+surface log, left standing for Mimo to gather later (fix round 1). The cell over a stair is the
+next stair's headroom and is kept; the other widening cells break into rubble Mimo leaves behind.
+It tries the four directions and takes the
 first staircase that brings Mimo above the natural surface within 24 stairs, at most once per 60
 real seconds. There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
 to place, stays a trap.
@@ -19,14 +21,17 @@ to place, stays a trap.
 from __future__ import annotations
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
-from backend.services.crafting import BLOCKS, can_harvest
+from backend.services.crafting import BLOCKS, LOGS, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext, take_search
 from backend.survival.grid import Cell, Grid, supports
 from backend.survival.pathing import moves
 from backend.survival.purposes import walk_to
+from backend.survival.senses import ORES
 from backend.survival.steps import as_cell
+from backend.survival.structures import reserved
 from backend.survival.triggers import ensure_brain
+from backend.survival.work import side_of
 
 TRAPPED_LIMIT = 256
 MAX_STAIRS = 24
@@ -65,14 +70,20 @@ def look(grid: Grid, changed: dict[Cell, str], cell: Cell) -> str:
 
 def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps: list[dict],
             rubble: bool = False) -> bool:
-    """Make `cell` open, mining it if it is solid. False for fluids and blocks Mimo cannot mine. A
-    `rubble` cell's block is left behind, so it adds nothing to the stock."""
+    """Make `cell` open, mining it if it is solid. False for fluids, something Mimo built or tends
+    (or the cell above it, the same rule as work.cut), and blocks Mimo cannot mine. A `rubble` cell
+    is also left standing when it holds an ore or a surface log (fix round 1, items 3 and the
+    minors): those are worth collecting on purpose, not losing to a widening cell with no drop.
+    A `rubble` cell that is mined is left behind, so it adds nothing to the stock."""
+    x, y, z = cell
     material = look(grid, changed, cell)
-    if material in FLUIDS:
+    if material in FLUIDS or reserved(grid, cell) or reserved(grid, (x, y + 1, z)):
         return False
     if not is_solid(material):
         return True
     if hardness(material) is None or not can_harvest(material, stock):
+        return False
+    if rubble and (material in ORES or material in LOGS):
         return False
     steps.append({"kind": "mine", "target": list(cell), **({"rubble": True} if rubble else {})})
     changed[cell] = "air"
@@ -96,7 +107,8 @@ def staircase(grid: Grid, here: Cell, heading: tuple[int, int], inventory: dict,
             return None
         open_up(grid, changed, (stair[0], stair[1] + 1, stair[2]), stock, steps)  # the next stair's headroom
         open_up(grid, changed, (stair[0], stair[1] + 2, stair[2]), stock, steps, rubble=True)
-        side = (stair[0] - dz, stair[1], stair[2] + dx)
+        sx, sz = side_of(heading)
+        side = (stair[0] + sx, stair[1], stair[2] + sz)
         if is_solid(look(grid, changed, (side[0], side[1] - 1, side[2]))):
             for dy in (0, 1, 2):
                 open_up(grid, changed, (side[0], side[1] + dy, side[2]), stock, steps, rubble=True)

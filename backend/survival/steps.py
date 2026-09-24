@@ -14,7 +14,9 @@ field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fi
 housework (store, take, drop) in backend.survival.housework, L1's attack in
 backend.survival.creatures.combat and L2's shoot in backend.survival.creatures.archery. Mining
 leaves, tall grass or gravel may drop more (nature.CHANCE_DROPS): saplings, apples, seeds, flint.
-Sleep on a bed is sleep in a bed.
+A mine step marked `rubble` (L3: a passage's widening cell, backend.survival.work.stair and
+escape.open_up) drops neither its block nor a chance drop: Mimo leaves it behind. Sleep on a bed
+is sleep in a bed.
 """
 
 from __future__ import annotations
@@ -294,7 +296,7 @@ def finish_mine(step: dict, state: dict, grid: Grid, at: float) -> None:
     if step["block"] == "chest":
         x, y, z = target
         state.get("chests", {}).pop(f"{x},{y},{z}", None)
-    if step.get("rubble"):  # L3: a widening cell of a passage: Mimo leaves its block behind
+    if step.get("rubble"):  # L3: a widening cell of a passage: Mimo leaves its block and any chance drop behind
         return None
     drop = BLOCKS.get(step["block"], {}).get("drop")
     if drop:

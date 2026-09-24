@@ -10,12 +10,15 @@ shelter when Mimo's arms are getting full (13 stacks) or the chest holds food Mi
 scores higher the fuller Mimo is.
 
 drop_items leaves behind what is no use at all: food Mimo knows is poisonous, pickaxes, axes and
-swords a better one replaced, and flowers. When its arms are full and build_storage cannot use a chest
-instead (none, none Mimo could place either, or a full one), loose blocks go too, least useful
-first and only as far as it takes: moss, gravel, sand and clay; with none of those, dirt; with no
-dirt either, cobblestone. Dirt and cobblestone that a shelter Mimo started still needs stay, and
-cobblestone never drops below gather_stone's own goal (work.STONE_GOAL), so the two do not dig up
-and drop the same stone forever. It scores low while Mimo has room and high when it is full.
+swords a better one replaced, flowers, spare fences a finished pen left over (L3) and a spare
+torch home's own dark corners no longer need (fix round 1: `kept` decides both what build_storage
+puts away and what drop_items sheds outright, so a lone spare torch need not wait for a chest
+visit). When its arms are full and build_storage cannot use a chest instead (none, none Mimo could
+place either, or a full one), loose blocks go too, least useful first and only as far as it takes:
+moss, gravel, sand and clay; with none of those, dirt; with no dirt either, cobblestone. Dirt and
+cobblestone that a shelter Mimo started still needs stay, and cobblestone never drops below
+gather_stone's own goal (work.STONE_GOAL), so the two do not dig up and drop the same stone
+forever. It scores low while Mimo has room and high when it is full.
 """
 
 from __future__ import annotations
@@ -99,9 +102,15 @@ def spare_food(s: Situation) -> list[tuple[str, int]]:
 
 def kept(s: Situation, item: str) -> int:
     """How many of `item` Mimo keeps on it: KEEP, or none of a building block when its arms are
-    full, or (final fix wave) of a gear material once the gear it is for is made."""
+    full, only as many torches as home's own dark corners still need (fix round 1, item 1: a
+    carried lantern fills a corner as well as a torch does, so it counts against the need too,
+    and once every corner is lit or Mimo has no finished shelter near enough to light, that need
+    is 0), or (final fix wave) of a gear material once the gear it is for is made."""
     from backend.survival.creatures.gear import GEAR_MATERIALS, materials_wanted  # here: keeps purpose order
+    from backend.survival.lighting import dark_corners  # here: lighting imports building; keeps purpose order
 
+    if item == "torch":
+        return max(0, len(dark_corners(s)) - s.count("lantern"))
     if item in BUILDING and full(s.inventory):
         return 0
     if item in GEAR_MATERIALS and item not in materials_wanted(s.inventory):
@@ -240,6 +249,15 @@ def spare_fences(s: Situation) -> list[tuple[str, int]]:
     return [("fence", s.count("fence"))]
 
 
+def spare_torches(s: Situation) -> list[tuple[str, int]]:
+    """Fix round 1: a torch beyond what home's own dark corners still need (storage.kept) is spare
+    the same way an extra fence is (spare_fences): drop_items can shed it without waiting for a
+    chest visit, so it does not sit in Mimo's arms until build_storage next has a reason to walk
+    home."""
+    excess = s.count("torch") - kept(s, "torch")
+    return [("torch", excess)] if excess > 0 else []
+
+
 def junk(s: Situation) -> list[tuple[str, int]]:
     """(item, amount) that is no use to carry: known poison, replaced tools and swords, flowers; and, full with
     no chest to use, loose blocks (loose_blocks)."""
@@ -254,6 +272,7 @@ def junk(s: Situation) -> list[tuple[str, int]]:
               if s.count(piece) and s.count(piece.replace("leather", "iron"))]  # L3: iron replaced it
     found += [(flower, s.count(flower)) for flower in FLOWERS if s.count(flower)]
     found += spare_fences(s)
+    found += spare_torches(s)
     if stacks(s.inventory) >= CARRY_STACKS and no_chest_to_use(s):
         found += loose_blocks(s)
     return found

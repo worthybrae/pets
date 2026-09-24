@@ -1,3 +1,4 @@
+import math
 import sqlite3
 import unittest
 from unittest.mock import patch
@@ -6,12 +7,13 @@ from backend.services.crafting import BLOCKS
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, places, remember
+from backend.survival.pathing import route
 from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ores_around
 from backend.survival.situation import Situation
 from backend.survival import storage  # noqa: F401  (registers drop_items)
 from backend.survival import work  # noqa: F401  (registers the gathering purposes)
-from backend.survival.work import dig_heading, sapling_fits, stair, stone_goal
+from backend.survival.work import ORE_REACH, dig_heading, sapling_fits, stair, stone_goal
 from backend.survival.vitals import START_VITALS
 from backend.tests.test_survival_building import World
 
@@ -201,6 +203,20 @@ class StoneTests(unittest.TestCase):
         self.assertIsNone(stair(ground({(4, -3, 0): "air", (5, -4, 0): "fence"}), {}, (4, -3, 0), (1, 0),
                                 inventory, "1"))
 
+    def test_a_widening_cell_leaves_an_ore_standing_for_mine_ore_to_collect_later(self):
+        """L3 fix round 1, item 3: a widening cell mined as rubble drops nothing, so an ore there
+        was lost for good. The side column's second cell is never needed (`needed` is 0 there), so
+        overriding it with an ore that CAN be mined (a stone pickaxe, not just too hard) shows the
+        fix leaves it standing rather than rubbling it away; the grass beside it still widens."""
+        self.assertEqual(stair(ground({(1, 1, 1): "iron_ore"}), {}, (0, 1, 0), (1, 0), {"stone_pickaxe": 1}, "1"),
+                         ([mine(1, 0, 0), rubble(1, 0, 1), walk(1, 0, 0)], (1, 0, 0), 0))
+
+    def test_a_widening_cell_leaves_a_surface_log_standing_too(self):
+        """Minor (fix round 1): a surface log in a not-needed cell is worth a trip on purpose
+        (gather_wood), like an ore, so it is left standing rather than rubbled away with no drop."""
+        self.assertEqual(stair(ground({(1, 1, 1): "oak_log"}), {}, (0, 1, 0), (1, 0), {"wooden_pickaxe": 1}, "1"),
+                         ([mine(1, 0, 0), rubble(1, 0, 1), walk(1, 0, 0)], (1, 0, 0), 0))
+
     def test_a_stair_never_digs_up_farmland_or_a_sapling(self):
         inventory = {"wooden_pickaxe": 1}
         self.assertIsNone(stair(ground({(1, 0, 0): "farmland"}), {}, (0, 1, 0), (1, 0), inventory, "1"))
@@ -289,7 +305,7 @@ class OreTests(unittest.TestCase):
         self.assertFalse(ore.valid(situation(pet(inventory={"wooden_pickaxe": 1}), grid, seen)))
         s = situation(pet(inventory={"stone_pickaxe": 1}), grid, seen)
         self.assertTrue(ore.valid(s))
-        self.assertEqual(ore.plan(s, context(grid)), [walk(3, -3, 0, 3.0), mine(3, -3, 0)])
+        self.assertEqual(ore.plan(s, context(grid)), [walk(3, -3, 0, 4.0), mine(3, -3, 0)])  # fix round 1: ORE_REACH = REACH
 
     def test_an_ore_that_is_gone_is_forgotten(self):
         s = situation(pet(inventory={"stone_pickaxe": 1}), ground(), [("ore", (3, -3, 0), "iron_ore")])
@@ -310,6 +326,23 @@ class OreTests(unittest.TestCase):
         self.assertFalse(PURPOSES["mine_ore"].valid(cut))
         buried = situation(pet(inventory={"stone_pickaxe": 1}), ground({(3, -3, 0): "iron_ore"}), seen)
         self.assertTrue(PURPOSES["mine_ore"].valid(buried))
+
+    def test_an_ore_revealed_diagonally_by_rubble_is_targetable_from_the_floor(self):
+        """L3 fix round 1, item 4: a rubble cell can reveal an ore diagonally, up to 3.32 blocks
+        from every cell of the floor around it (a straight 3.16 case here). ORE_REACH (now
+        steps.REACH, 4.0) reaches that; the old 3.0 could not, so the walk's own route search ran
+        to its node limit for nothing every time. A straight corridor at z=0, y 0-1, x 0-10 is the
+        only standable ground; the ore sits embedded in rock at (5, 2, 3), sqrt(1**2 + 3**2) =
+        3.162 from the corridor cell straight below it."""
+        def rule(x, y, z):
+            return "air" if 0 <= x <= 10 and z == 0 and y in (0, 1) else "stone"
+        grid = Grid(rule)
+        ore = (5, 2, 3)
+        cells, reached = route(grid, (0, 0, 0), ore, reach=ORE_REACH)
+        self.assertTrue(reached)
+        self.assertLessEqual(math.dist(cells[-1], ore), ORE_REACH)
+        _, reached_old = route(grid, (0, 0, 0), ore, reach=3.0)
+        self.assertFalse(reached_old)  # the pre-fix reach could never get close enough
 
 
 @patch("backend.survival.purposes.terrain_height", lambda x, z, seed: 0)

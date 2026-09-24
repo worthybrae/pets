@@ -1,3 +1,4 @@
+import os
 import random
 import tempfile
 import unittest
@@ -87,6 +88,29 @@ class LivingDaysTests(unittest.TestCase):
         self.assertTrue(any(f"raw {meat}" in text for text in cooked for meat in ("beef", "mutton", "chicken", "rabbit")),
                         cooked)
         self.assertNotIn("hunt", [event["kind"] for event in notable(events)])
+        if os.environ.get("MIMO_SLOW_TESTS"):
+            # L3 fix round 1, item 1: a spare torch filling Mimo's arms made gather_stone and
+            # build_storage beat hunt far more often (30/40 across Chooser seeds 0-39, down from
+            # 38/40 before Task 6). Chooser seeds 5-9 alone went from 5/5 hunting and cooking to
+            # 2/5; the fix should put it back near 5/5, so at least 4 of 5 is the floor here.
+            successes = 0
+            for seed in range(5, 10):
+                with tempfile.TemporaryDirectory() as root:
+                    registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+                    life = hatch(registry, random.Random(8), timestamp=BORN)
+                    world = SurvivalWorld(registry.world_path(life))
+                    chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
+                    for second in range(1, 4 * 60 + 1):
+                        seed_state = tick_life(registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
+                        self.assertIsNone(seed_state["died_at"], seed_state["cause"])
+                        chooser.poll(registry, BORN + second)
+                    seed_events = world.events(5000)
+                    seed_hunts = [event["text"] for event in seed_events if event["kind"] == "hunt"]
+                    seed_cooked = [event["text"] for event in seed_events if event["kind"] == "cook"]
+                    if seed_hunts and any(f"raw {meat}" in text for text in seed_cooked
+                                          for meat in ("beef", "mutton", "chicken", "rabbit")):
+                        successes += 1
+            self.assertGreaterEqual(successes, 4, f"only {successes}/5 Chooser seeds 5-9 hunted and cooked")
 
 
 if __name__ == "__main__":

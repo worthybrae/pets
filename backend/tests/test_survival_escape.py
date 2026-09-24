@@ -45,6 +45,21 @@ def fenced_pit(width=5):
     return Grid(rule)
 
 
+def overridden_pit(overrides, wall="dirt", width=1):
+    """Like pit(), but specific cells are overridden: for narrowing (water, an unminable block, an
+    ore or a surface log) and for what Mimo built (fix round 1, items 2 and 3, and the minors)."""
+    def rule(x, y, z):
+        if (x, y, z) in overrides:
+            return overrides[(x, y, z)]
+        if y <= 0:
+            return "stone"
+        if y >= 5:
+            return "air"
+        return "air" if z == 0 and 0 <= x < width else wall
+
+    return Grid(rule)
+
+
 def pet(**changes):
     state = {"name": "Pip", "world_seed": "1", "position": {"x": 0.0, "y": 1.0, "z": 0.0}, "inventory": {},
              "vitals": dict(START_VITALS), "traits": {}, "last_tick_at": 0.0}
@@ -120,6 +135,38 @@ class EscapeTests(unittest.TestCase):
         (Grid.supported). Fixed, the fence is read as no support, but it already fills the cell a
         placed support block would go in, so this heading is abandoned instead of built on a lie."""
         self.assertIsNone(staircase(fenced_pit(), (0, 1, 0), (1, 0), {"dirt": 5}, "1"))
+
+    def test_narrows_at_water_and_an_unminable_block(self):
+        """Minor (fix round 1): the pit shape was the only one tested; water is never mined and
+        bedrock cannot be, so both widening cells are skipped and the rest still opens."""
+        grid = overridden_pit({(1, 2, 1): "water", (2, 4, 1): "bedrock"})
+        self.assertEqual(staircase(grid, (0, 1, 0), (1, 0), {}, "1"),
+                         [mine(1, 2, 0), mine(1, 3, 0), rubble(1, 4, 0), rubble(1, 3, 1), rubble(1, 4, 1),
+                          walk(1, 2, 0), mine(2, 3, 0), mine(2, 4, 0), rubble(2, 3, 1), walk(2, 3, 0),
+                          mine(3, 4, 0), rubble(3, 4, 1), walk(3, 4, 0), walk(4, 5, 0)])
+
+    def test_never_mines_a_claimed_chest_or_wall_or_the_cell_below_a_claimed_cell(self):
+        """L3 fix round 1, item 2: open_up never checked `reserved`, so a claimed chest or wall in
+        the widening could be mined for rubble and lost. Each claimed cell's own floor is also
+        left (the same rule as work.cut: never undermine a claimed cell), and Mimo still gets
+        out."""
+        grid = overridden_pit({(1, 3, 1): "chest"})
+        grid.claims.update({(1, 3, 1), (2, 4, 1)})  # a claimed chest, and a claimed wall elsewhere
+        self.assertEqual(staircase(grid, (0, 1, 0), (1, 0), {}, "1"),
+                         [mine(1, 2, 0), mine(1, 3, 0), rubble(1, 4, 0), rubble(1, 4, 1), walk(1, 2, 0),
+                          mine(2, 3, 0), mine(2, 4, 0), walk(2, 3, 0),
+                          mine(3, 4, 0), rubble(3, 4, 1), walk(3, 4, 0), walk(4, 5, 0)])
+        self.assertEqual((grid.material(1, 3, 1), grid.material(2, 4, 1)), ("chest", "dirt"))
+
+    def test_a_widening_cell_leaves_an_ore_or_a_surface_log_standing(self):
+        """L3 fix round 1, item 3 and the minors: a rubble cell drops nothing, so an ore or a
+        surface log in the widening was lost for good; both are left standing instead."""
+        grid = overridden_pit({(1, 3, 1): "iron_ore", (2, 4, 1): "oak_log"})
+        self.assertEqual(staircase(grid, (0, 1, 0), (1, 0), {"stone_pickaxe": 1}, "1"),
+                         [mine(1, 2, 0), mine(1, 3, 0), rubble(1, 4, 0), rubble(1, 2, 1), rubble(1, 4, 1),
+                          walk(1, 2, 0), mine(2, 3, 0), mine(2, 4, 0), rubble(2, 3, 1), walk(2, 3, 0),
+                          mine(3, 4, 0), rubble(3, 4, 1), walk(3, 4, 0), walk(4, 5, 0)])
+        self.assertEqual((grid.material(1, 3, 1), grid.material(2, 4, 1)), ("iron_ore", "oak_log"))
 
     def test_the_brain_digs_out_after_two_failed_walks(self):
         state = stuck()

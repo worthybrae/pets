@@ -107,7 +107,8 @@ class OreTests(unittest.TestCase):
         s = work_situation(pet(inventory={"iron_pickaxe": 1, "coal": 8, "diamond": 2}), grid, seen)
         self.assertTrue(PURPOSES["mine_ore"].valid(s))
         self.assertEqual(PURPOSES["mine_ore"].plan(s, None),
-                         [{"kind": "walk", "target": [3, -3, 0], "reach": 3.0}, {"kind": "mine", "target": [3, -3, 0]}])
+                         [{"kind": "walk", "target": [3, -3, 0], "reach": 4.0}, {"kind": "mine", "target": [3, -3, 0]}])
+        # fix round 1: ORE_REACH = steps.REACH (item 4)
 
 
 if __name__ == "__main__":
