@@ -19,7 +19,8 @@ Everything the brain keeps lives in state["brain"], saved as JSON with the rest 
   dig-out of a pit, and the [dx, dz] heading gather_stone last dug in
 - found: ore materials and "water" Mimo has discovered at least once (first sightings trigger a choice)
 - new_ground_at: the server time Mimo last set foot on a patch of ground it had never visited
-  (backend.survival.exploring), or None
+  (backend.survival.exploring), or None; ground_found_at: the last time a find on new ground
+  asked for a choice (at most once a game hour)
 
 The tick marks triggers (backend.survival.brain); the worker's Chooser answers them
 (backend.survival.choosing).
@@ -41,7 +42,8 @@ def new_brain(at: float) -> dict:
             "pending": {"id": 1, "reasons": ["born"], "since": at, "urgent": False}, "next_id": 2,
             "penalties": {}, "reflex": None, "set_aside": [], "reflex_ends": {},
             "calls": {"day": None, "model": 0, "luna": 0, "reflections": 0}, "last_call_at": None,
-            "model_calls": [], "explored": 0, "escaped_at": None, "dig_heading": None, "new_ground_at": None}
+            "model_calls": [], "explored": 0, "escaped_at": None, "dig_heading": None, "new_ground_at": None,
+            "ground_found_at": None}
 
 
 def ensure_brain(state: dict) -> dict:

@@ -225,6 +225,20 @@ class NewGroundTests(unittest.TestCase):
         self.assertEqual(len(self.context.events), 2)
         self.assertIsNone(self.state["brain"]["pending"])
 
+    def test_new_ground_asks_for_a_new_choice_at_most_once_a_game_hour(self):
+        second = (44, GROUND + 1, 60)  # another bush, far from the first
+        self.grid.put(*second, "berry_bush_ripe")
+        plants = [self.bush, second]
+        with patch("backend.survival.exploring.natural_plants",
+                   lambda seed, x, z, radius, kinds: [cell for cell in plants
+                                                      if math.hypot(cell[0] - x, cell[2] - z) <= radius]):
+            self.walk([(x, 3) for x in range(0, 50)], 10.0)
+            self.state["brain"]["pending"] = None
+            self.walk([(44, z) for z in range(4, 64)], 20.0)  # the second bush, soon after
+            self.assertEqual(self.context.events[-1], (20.0, "explore", "Pip found berries on new ground."))
+            self.assertIsNone(self.state["brain"]["pending"])  # logged, but no new choice so soon
+        self.assertEqual(len(places(self.context.db, ("food",))), 2)
+
     def test_ground_near_home_holds_no_discoveries(self):
         self.walk([(10, z) for z in range(0, 24)], 10.0)
         self.assertEqual((self.context.events, places(self.context.db, ("food",))), ([], []))

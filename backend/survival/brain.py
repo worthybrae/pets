@@ -28,7 +28,8 @@ in, places visited, the ground walked (backend.survival.exploring), M4's lessons
 runs after each vitals step: vital crossings (urgent), dawn and dusk, a game hour since the last
 choice, and shelter (the first sheltered spot becomes home).
 First sightings (home, each ore material, water) are discoveries and ask for a new choice, and so
-is food or water found on new ground far from home (one a step, logged as an explore event).
+is food or water found on new ground far from home on an explore trip (logged as an explore
+event, one a step; it asks for a choice at most once a game hour).
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ from backend.survival.senses import ORES, ores_around
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell, label
 from backend.survival.tick import Mind
-from backend.survival.triggers import crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
+from backend.survival.triggers import HOUR, crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
 from backend.survival.vitals import Surroundings
 
 logger = logging.getLogger(__name__)
@@ -172,15 +173,18 @@ def discover(state: dict, context: ActionContext, at: float, what: str, kind: st
 def announce_find(state: dict, step: dict, context: ActionContext, at: float, kind: str, words: str) -> None:
     """New ground held something new (exploring.note_ground). The first water ever is logged as a
     discovery like any first sighting, anything else as a find. Either asks for a new choice only
-    on an explore trip: other purposes are not cut short for it, or they would churn in a forest
-    full of mushrooms."""
+    on an explore trip, and at most once a game hour: other purposes are not cut short for it, and
+    a forest full of mushrooms does not keep Mimo choosing."""
     brain, name = ensure_brain(state), state["name"]
     if kind == "water" and "water" not in brain["found"]:
         brain["found"].append("water")
         context.events.append((at, "discovered", f"{name} found water."))
     else:
         context.events.append((at, "explore", f"{name} found {words} on new ground."))
-    if step.get("purpose") == "explore":
+    last = brain.get("ground_found_at")
+    lately = last is not None and (at - last) * context.clock_at(at)["time_scale"] < HOUR
+    if step.get("purpose") == "explore" and not lately:
+        brain["ground_found_at"] = at
         mark_trigger(state, "discovery", at)
 
 
