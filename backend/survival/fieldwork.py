@@ -6,7 +6,9 @@
 - till(cell): turn grass, dirt or moss with nothing growing on it into farmland.
 - plant(cell, item): put seeds or a carrot on farmland, or a sapling on grass, dirt or moss.
 - fish(water cell): 20 to 60 s per catch. Whether a fish bites depends on the stock of the water
-  cell's 16x16 region (nature.catches); a catch takes one fish from it. A reflex may cut it short.
+  cell's 16x16 region (nature.catches), a little more when fish swim near the hook (L1,
+  backend.survival.creatures.fishing); a catch takes one fish from the stock, and the nearest fish
+  leaps at the hook. A reflex may cut it short.
 - cook(item): 5 s at a lit campfire or furnace within 6 blocks, with no fuel (crafting.smelt's
   rule for food). Like crafting and smelting, it does not start when the cooked food would not
   fit (backend.survival.carrying).
@@ -19,6 +21,7 @@ from __future__ import annotations
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import COOKING, FIRES, SMELTING, add_item, smelt, take_items
 from backend.survival import nature
+from backend.survival.creatures import fishing
 from backend.survival.grid import Cell, Grid
 from backend.survival.steps import (
     StepFailed, StepKind, as_cell, as_point, in_reach, label, register_step, room_to_make, seed_of, stations_near,
@@ -143,9 +146,11 @@ def start_fish(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
 
 def finish_fish(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str] | None:
     target = as_cell(step["target"])
-    if not nature.catches(seed_of(state), target, step["started_at"], nature.fish_stock(state, target)):
+    bonus = fishing.bite_bonus(grid, target, at)
+    if not nature.catches(seed_of(state), target, step["started_at"], nature.fish_stock(state, target), bonus):
         return None
     nature.take_fish(state, target, at)
+    fishing.show_catch(grid, target, at)
     add_item(state["inventory"], "raw_fish")
     return "fish", f"{state['name']} caught a fish."
 

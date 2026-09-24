@@ -87,9 +87,12 @@ def fish_seconds(seed: str, cell: Cell, at: float) -> float:
     return low + (high - low) * roll(seed, cell, FISH_TIME, int(at))
 
 
-def catches(seed: str, cell: Cell, at: float, stock: int) -> bool:
-    """Whether a catch started at `at` lands a fish, with the region's stock as it is."""
-    return roll(seed, cell, FISH_CATCH, int(at)) < CATCH_CHANCE * stock / FULL_STOCK
+def catches(seed: str, cell: Cell, at: float, stock: int, bonus: float = 0.0) -> bool:
+    """Whether a catch started at `at` lands a fish, with the region's stock as it is. `bonus` (the
+    fish Mimo can see near the hook, backend.survival.creatures.fishing) adds to the chance while
+    the region has any stock."""
+    chance = CATCH_CHANCE * stock / FULL_STOCK + (bonus if stock > 0 else 0.0)
+    return roll(seed, cell, FISH_CATCH, int(at)) < chance
 
 
 def take_fish(state: dict, cell: Cell, at: float) -> None:
