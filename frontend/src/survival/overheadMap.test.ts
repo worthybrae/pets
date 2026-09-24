@@ -3,8 +3,8 @@ import { AIR, blockId, LAYER_BY_ID, LAYER_CUTOUT } from '../engine/blocks'
 import { blockAt, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
 import { WorldStore } from '../engine/worldStore'
 import {
-  composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, naturalTop, PATCH,
-  PatchCache, patchPixels, saveMapOpen, seenPatches, toMap, topBlock, topColor, travelHeading, UNKNOWN,
+  composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, mapShownByDefault, naturalTop, PATCH,
+  PatchCache, patchPixels, saveMapOpen, seenPatches, spreadMarks, toMap, topBlock, topColor, travelHeading, UNKNOWN,
 } from './overheadMap'
 import type { Built, MimoAction } from './types'
 
@@ -128,19 +128,21 @@ describe('patches and the composed map', () => {
       return new Uint8ClampedArray(PATCH * PATCH * 4)
     })
     const stop = store.subscribe((columns) => cache.invalidate(columns))
-    const wanted: [number, number][] = [[0, 0], [1, 0], [2, 0], [3, 0]]
+    const wanted: [number, number][] = [[0, 0], [1, 0], [2, 0], [3, 0], [0, 2], [0, 3]]
     expect(cache.fill(wanted, 3)).toBe(3)
     expect(cache.get(3, 0)).toBeNull()
-    expect(cache.fill(wanted, 3)).toBe(1)
-    expect(computed).toEqual(['0,0', '1,0', '2,0', '3,0'])
+    expect(cache.fill(wanted, 3)).toBe(3)
+    expect(computed).toEqual(['0,0', '1,0', '2,0', '3,0', '0,2', '0,3'])
     expect(cache.get(0, 0)).not.toBeNull()
-    store.applyServerChanges([{ x: 5, y: 9, z: 5, material: 'planks' }])  // chunk 0,0 holds patches 0..1
+    // Chunk 0,0 holds patches 0..1 each way. The row south of it (rz = 2) shades its hills by
+    // looking north into the chunk, so it is worked out again too; rz = 3 is not.
+    store.applyServerChanges([{ x: 5, y: 9, z: 5, material: 'planks' }])
     cache.fill(wanted, 10)
-    expect(computed.slice(4)).toEqual(['0,0', '1,0'])
+    expect(computed.slice(6)).toEqual(['0,0', '1,0', '0,2'])
     stop()
     store.applyServerChanges([{ x: 20, y: 9, z: 5, material: 'planks' }])  // chunk 1,0: patches 2..3
     cache.fill(wanted, 10)
-    expect(computed.length).toBe(6)  // nothing told the cache this time
+    expect(computed.length).toBe(9)  // nothing told the cache this time
   })
 
   it('composes seen patches in colour, the rest greyed, and patches not drawn yet as unknown', () => {
@@ -184,6 +186,17 @@ describe('what the minimap marks', () => {
     ])
     expect(mapMarks(undefined, undefined, origin)).toEqual([])
   })
+
+  it('pushes a farm glyph off the house glyph when they would overlap, and leaves far ones be', () => {
+    const home = { kind: 'home' as const, building: false, px: 50, py: 50 }
+    const east = { kind: 'farm' as const, building: false, px: 56, py: 50 }
+    const far = { kind: 'farm' as const, building: true, px: 90, py: 20 }
+    const on = { kind: 'farm' as const, building: false, px: 50, py: 50 }
+    expect(spreadMarks([home, east, far, on], 16)).toEqual([
+      home, { ...east, px: 66 }, far, { ...on, px: 34 },
+    ])
+    expect(spreadMarks([east], 16)).toEqual([east])
+  })
 })
 
 describe('showing and hiding the map', () => {
@@ -200,13 +213,25 @@ describe('showing and hiding the map', () => {
   it('remembers the choice, and survives blocked or full storage', () => {
     const saved: Record<string, string> = {}
     const storage = { getItem: (key: string) => saved[key] ?? null, setItem: (key: string, value: string) => { saved[key] = value } }
-    expect(loadMapOpen(() => storage)).toBe(true)
+    expect(loadMapOpen(() => storage, true)).toBe(true)
+    expect(loadMapOpen(() => storage, false)).toBe(false)
     saveMapOpen(() => storage, false)
-    expect(loadMapOpen(() => storage)).toBe(false)
+    expect(loadMapOpen(() => storage, true)).toBe(false)
     saveMapOpen(() => storage, true)
-    expect(loadMapOpen(() => storage)).toBe(true)
+    expect(loadMapOpen(() => storage, false)).toBe(true)  // shown on purpose, even on a short screen
     const blocked = () => { throw new Error('SecurityError') }
-    expect(loadMapOpen(blocked)).toBe(true)
+    expect(loadMapOpen(blocked, true)).toBe(true)
+    expect(loadMapOpen(blocked, false)).toBe(false)
     expect(() => saveMapOpen(blocked, false)).not.toThrow()
+  })
+
+  it('starts hidden where it would cover the vitals: short phones and short windows', () => {
+    expect(mapShownByDefault(375, 812)).toBe(true)
+    expect(mapShownByDefault(375, 667)).toBe(true)
+    expect(mapShownByDefault(375, 639)).toBe(false)
+    expect(mapShownByDefault(360, 560)).toBe(false)
+    expect(mapShownByDefault(1280, 800)).toBe(true)
+    expect(mapShownByDefault(1280, 600)).toBe(true)
+    expect(mapShownByDefault(1280, 560)).toBe(false)
   })
 })

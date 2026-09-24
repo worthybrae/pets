@@ -303,18 +303,46 @@ export function mapMarks(structures: readonly Built[] | null | undefined, landma
     .filter(({ px, py }) => px >= 0 && py >= 0 && px < MAP_BLOCKS && py < MAP_BLOCKS)
 }
 
+/** The marks with each farm moved straight away from any house closer than `gap` (map blocks), so
+ * the glyphs do not cover each other: a farm right on a house goes west. */
+export function spreadMarks(marks: readonly MapMark[], gap: number): MapMark[] {
+  const homes = marks.filter((mark) => mark.kind === 'home')
+  return marks.map((mark) => {
+    if (mark.kind !== 'farm') return mark
+    let { px, py } = mark
+    for (const home of homes) {
+      const dx = px - home.px, dy = py - home.py
+      const away = Math.hypot(dx, dy)
+      if (away >= gap) continue
+      const [ux, uy] = away > 0 ? [dx / away, dy / away] : [-1, 0]
+      px = home.px + ux * gap
+      py = home.py + uy * gap
+    }
+    return px === mark.px && py === mark.py ? mark : { ...mark, px, py }
+  })
+}
+
 /** Whether a key press shows or hides the map: M, without Ctrl, Cmd or Alt, and not while typing. */
 export function isMapKey(event: KeyPress): boolean {
   if (event.key !== 'm' && event.key !== 'M') return false
   return !event.ctrlKey && !event.metaKey && !event.altKey && !typingIn(event.target)
 }
 
-/** Whether the map was left open (it is, unless hidden). `storage` may throw, and so may reading it. */
-export function loadMapOpen(storage: () => Pick<Storage, 'getItem'>): boolean {
+/** Whether the map starts shown when nothing was saved: not where it would cover the vitals. On
+ * phones (narrower than 640 px, where the HUD stacks) it needs 640 px of height; wider, where it
+ * sits in the right-hand column under the vitals and over the recent events, 580. */
+export function mapShownByDefault(width: number, height: number): boolean {
+  return height >= (width < 640 ? 640 : 580)
+}
+
+/** Whether the map was left open, or `fallback` when nothing was saved (mapShownByDefault).
+ * `storage` may throw, and so may reading it. */
+export function loadMapOpen(storage: () => Pick<Storage, 'getItem'>, fallback: boolean): boolean {
   try {
-    return storage().getItem(MAP_OPEN_KEY) !== 'hidden'
+    const saved = storage().getItem(MAP_OPEN_KEY)
+    return saved === 'shown' ? true : saved === 'hidden' ? false : fallback
   } catch {
-    return true
+    return fallback
   }
 }
 

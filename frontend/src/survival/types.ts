@@ -78,7 +78,7 @@ export interface Built extends Point {
 export type Chests = Record<string, Record<string, number>>
 
 /** An 8x8-block patch of ground Mimo visited: [rx, rz, visits] with rx = x // 8, rz = z // 8.
- * Visits are capped at 99. */
+ * Visits are capped at 9: the minimap only needs to know it was seen. */
 export type ExploredPatch = [number, number, number]
 
 /** Home, or the nearest farm Mimo remembers (backend/survival/snapshot.py landmarks_view). */

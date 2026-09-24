@@ -19,7 +19,7 @@ NOTABLE_LIMIT = 6
 EVENTS_SHOWN = 12
 DECAY_WINDOW = 10.0  # real seconds a decayed leaf is streamed for its puff
 MAP_REACH = 96  # blocks each way (12 patches) of explored ground streamed for the minimap
-VISITS_SHOWN = 99  # visits are capped in the stream: the viewer only needs "seen"
+VISITS_SHOWN = 9  # visits are capped in the stream (one digit): the viewer only needs "seen"
 
 # The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
 # planner's bookkeeping.
@@ -104,7 +104,7 @@ def here_of(state: dict) -> tuple[int, int, int]:
 
 def explored_view(db: sqlite3.Connection, state: dict) -> list[list[int]]:
     """[rx, rz, visits] for each 8x8 patch Mimo visited within 12 patches (96 blocks) of it, at most
-    625, visits capped at 99, for the minimap's fog of war."""
+    625, visits capped at 9, for the minimap's fog of war: under 9 KB even 6,000 blocks out."""
     found = explored(db, here_of(state), MAP_REACH)
     return [[rx, rz, min(visits, VISITS_SHOWN)] for (rx, rz), (visits, _) in sorted(found.items())]
 

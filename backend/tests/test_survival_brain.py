@@ -224,9 +224,14 @@ class NoticeAndObserveTests(unittest.TestCase):
         state["position"] = {"x": 19.0, "y": 1.0, "z": 9.0}
         observe_step(state, {"kind": "swim", "path": swim}, ctx, 14.0)
         self.assertEqual(explored(ctx.db, (20, 1, 9), 3), {(2, 0): (2, 14.0), (2, 1): (1, 14.0)})
+        # Work where Mimo stands counts a visit at most once a game minute, so a day at home does
+        # not add thousands.
         observe_step(state, {"kind": "mine", "target": {"x": 20, "y": 1, "z": 9}, "block": "dirt"}, ctx, 15.0)
         observe_step(state, {"kind": "craft", "recipe": "planks"}, ctx, 16.0)
-        self.assertEqual(explored(ctx.db, (19, 1, 9), 4)[(2, 1)], (3, 16.0))
+        self.assertEqual(explored(ctx.db, (19, 1, 9), 4)[(2, 1)], (1, 14.0))
+        observe_step(state, {"kind": "craft", "recipe": "planks"}, ctx, 74.5)
+        observe_step(state, {"kind": "craft", "recipe": "planks"}, ctx, 80.0)
+        self.assertEqual(explored(ctx.db, (19, 1, 9), 4)[(2, 1)], (2, 74.5))
         self.assertEqual(state["brain"]["new_ground_at"], 14.0)  # no new patch since the swim
 
     def test_a_walk_that_ends_within_reach_of_its_target_counts_the_targets_patch_as_seen(self):

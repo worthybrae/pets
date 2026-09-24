@@ -3,7 +3,7 @@
 Mimo remembers the ground it walked in 8x8-block patches (memory.memory_explored). `note_ground`
 hears about every finished step (brain.observe_step): a walk or swim counts a visit to each
 distinct patch along its path (and to its target's, when it ended within reach of it: Mimo saw
-it), any other step a visit to the patch Mimo stands in. The server
+it), any other step a visit to the patch Mimo stands in, at most once a game minute. The server
 time a patch was first visited is kept as the brain's `new_ground_at`. A patch visited for the
 first time more than 32 blocks from home is looked over: ripe wild food or natural water that
 Mimo does not remember yet (none of its kind known within 24 blocks) is remembered and is a
@@ -58,6 +58,7 @@ TOP_DIRECTIONS = 3
 FOUND_KINDS = ("ore", "water", "food", "farm", "home")
 AWAY = 32.0  # new ground farther than this from home may hold a discovery
 SIGHT = max(FOOD_SIGHT, WATER_SIGHT)  # food or water this close to a known place of its kind is not new
+STAY = 60.0  # game seconds: staying in one patch counts one visit this often at most
 FOOD_WORDS = {"berry_bush_ripe": "berries", "brown_mushroom": "mushrooms", "red_mushroom": "mushrooms"}
 
 
@@ -118,10 +119,13 @@ def note_ground(state: dict, step: dict, context, at: float) -> list[tuple[str, 
         target = step.get("target")
         if step.get("reached") and isinstance(target, dict):
             patches.append(patch_of(int(target["x"]), int(target["z"])))  # seen from within reach
+        new = mark_explored(context.db, patches, at)
     else:
+        # Work where Mimo stands counts a visit at most once a game minute: a day of chores at
+        # home is not thousands of visits.
         x, _, z = as_cell(state["position"])
-        patches = [patch_of(x, z)]
-    new = mark_explored(context.db, patches, at)
+        quiet = at - STAY / context.clock_at(at)["time_scale"]
+        new = mark_explored(context.db, [patch_of(x, z)], at, quiet_since=quiet)
     if not new:
         return []
     ensure_brain(state)["new_ground_at"] = at

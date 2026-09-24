@@ -274,11 +274,16 @@ class SurvivalApiTests(unittest.TestCase):
                                                 "status": "building", "x": 5, "y": 6, "z": 7}])
         self.assertEqual(state["chests"], {"6,6,8": {"dirt": 9}})
 
-    def explore_around_mimo(self, reach, visits=1):
-        """Mark every patch within `reach` patches of Mimo explored `visits` times."""
+    def explore_around_mimo(self, reach, visits=1, at=None):
+        """Mark every patch within `reach` patches of Mimo explored `visits` times, after moving
+        Mimo to `at` ((x, z)) when given."""
         world = self.active_world()
         with world.transaction() as db:
-            position = read_state(db)["position"]
+            state = read_state(db)
+            if at is not None:
+                state["position"] = {**state["position"], "x": float(at[0]), "z": float(at[1])}
+                write_state(db, state)
+            position = state["position"]
             rx, rz = patch_of(round(position["x"]), round(position["z"]))
             patches = [(rx + dx, rz + dz) for dx in range(-reach, reach + 1) for dz in range(-reach, reach + 1)]
             mark_explored(db, patches, 10.0)
@@ -304,7 +309,9 @@ class SurvivalApiTests(unittest.TestCase):
 
     def test_the_explored_ground_stays_small_and_is_read_without_writing(self):
         hatch_egg()
-        world, _, _ = self.explore_around_mimo(20, visits=4321)
+        # The worst case for size: a life as far out as spawns go (6,000 blocks, so every patch
+        # coordinate has four characters with its sign) that saw all 625 patches many times.
+        world, _, _ = self.explore_around_mimo(20, visits=4321, at=(-5999, -5999))
         before = {suffix: hashlib.sha256(Path(f"{world.path}{suffix}").read_bytes()).hexdigest()
                   for suffix in ("", "-wal") if Path(f"{world.path}{suffix}").exists()}
         explored = get_mimo()["explored"]
@@ -312,8 +319,10 @@ class SurvivalApiTests(unittest.TestCase):
                  for suffix in ("", "-wal") if Path(f"{world.path}{suffix}").exists()}
         self.assertEqual(before, after)
         self.assertEqual(len(explored), 625)  # 12 patches (96 blocks) each way
-        self.assertEqual({visits for _, _, visits in explored}, {99})  # capped: the viewer only needs "seen"
-        self.assertLess(len(json.dumps(explored, separators=(",", ":"))), 9_000)  # as the API sends it
+        self.assertEqual({visits for _, _, visits in explored}, {9})  # the viewer only needs "seen"
+        largest = 625 * len("[-762,-762,9]") + 624 + 2  # entries, commas, brackets
+        self.assertLessEqual(len(json.dumps(explored, separators=(",", ":"))), largest)  # as the API sends it
+        self.assertLess(largest, 9_000)
 
     def test_an_archived_world_from_before_m5_built_nothing(self):
         """Fix wave fold-in: a pre-M5 world opened read-only (an archive) has no structures table,

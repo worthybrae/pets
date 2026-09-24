@@ -214,14 +214,15 @@ class NewGroundTests(unittest.TestCase):
         self.assertEqual([(place["x"], place["z"], place["data"]) for place in food],
                          [(44, 3, {"ripe": 1, "seen_at": 10.0})])
         self.state["brain"]["pending"] = None
-        # On into the lake's patch, fetching wood: the first water is logged, but the wood trip
-        # is not cut short for it.
-        self.walk([(x, 3) for x in range(55, 60)], 20.0, purpose="gather_wood")
-        self.assertEqual(self.context.events[-1], (20.0, "discovered", "Pip found water."))
+        # On into the lake's patch, fetching wood, well over a game hour later: the first water
+        # is logged, but the wood trip is not cut short for it.
+        later = 10.0 + 2 * 3600.0
+        self.walk([(x, 3) for x in range(55, 60)], later, purpose="gather_wood")
+        self.assertEqual(self.context.events[-1], (later, "discovered", "Pip found water."))
         self.assertEqual([place["kind"] for place in places(self.context.db, ("water",))], ["water"])
         self.assertEqual(self.state["brain"]["found"], ["water"])
         self.assertIsNone(self.state["brain"]["pending"])
-        self.walk([(x, 3) for x in range(59, -1, -1)], 30.0)  # home again: nothing new on the way
+        self.walk([(x, 3) for x in range(59, -1, -1)], later + 10.0)  # home again: nothing new on the way
         self.assertEqual(len(self.context.events), 2)
         self.assertIsNone(self.state["brain"]["pending"])
 

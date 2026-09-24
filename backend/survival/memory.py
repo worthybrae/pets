@@ -178,9 +178,10 @@ def patch_of(x: int, z: int) -> Patch:
     return x // PATCH, z // PATCH
 
 
-def mark_explored(db: sqlite3.Connection, patches, at: float) -> list[Patch]:
-    """Count a visit to each distinct patch now (visits + 1, last_at = at): one upsert each.
-    Returns the patches visited for the first time, in the order given."""
+def mark_explored(db: sqlite3.Connection, patches, at: float, quiet_since: float | None = None) -> list[Patch]:
+    """Count a visit to each distinct patch now (visits + 1, last_at = at): one upsert each. With
+    `quiet_since`, a patch last visited after then is left as it is. Returns the patches visited for
+    the first time, in the order given."""
     distinct = list(dict.fromkeys(patches))
     if not distinct:
         return []
@@ -188,9 +189,11 @@ def mark_explored(db: sqlite3.Connection, patches, at: float) -> list[Patch]:
     seen = {tuple(row) for row in db.execute(
         "SELECT rx, rz FROM memory_explored WHERE rx BETWEEN ? AND ? AND rz BETWEEN ? AND ?",
         (min(xs), max(xs), min(zs), max(zs))).fetchall()}
+    since = math.inf if quiet_since is None else quiet_since
     db.executemany("INSERT INTO memory_explored(rx, rz, visits, last_at) VALUES (?, ?, 1, ?) "
-                   "ON CONFLICT(rx, rz) DO UPDATE SET visits = visits + 1, last_at = excluded.last_at",
-                   [(rx, rz, at) for rx, rz in distinct])
+                   "ON CONFLICT(rx, rz) DO UPDATE SET visits = visits + 1, last_at = excluded.last_at "
+                   "WHERE memory_explored.last_at <= ?",
+                   [(rx, rz, at, since) for rx, rz in distinct])
     return [patch for patch in distinct if patch not in seen]
 
 

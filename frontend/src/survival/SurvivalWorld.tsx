@@ -8,7 +8,7 @@ import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
 import { workerOnline } from './hud'
 import Minimap from './Minimap'
-import { isMapKey, loadMapOpen, saveMapOpen } from './overheadMap'
+import { isMapKey, loadMapOpen, mapShownByDefault, saveMapOpen } from './overheadMap'
 import { serverNow } from './motion'
 import SurvivalHud from './SurvivalHud'
 import type { AliveResponse, CareKind } from './types'
@@ -46,7 +46,9 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   const [craftMessage, setCraftMessage] = useState('')
   const [cameraMode, setCameraMode] = useState<CameraMode>(() => loadCameraMode(browserStorage))
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
-  const [mapOpen, setMapOpen] = useState(() => loadMapOpen(browserStorage))
+  // Hidden at first on short screens, where it would cover the vitals; M or the Map button shows it.
+  const [mapOpen, setMapOpen] = useState(() => loadMapOpen(browserStorage,
+    mapShownByDefault(window.innerWidth, window.innerHeight)))
 
   // Any camera choice, or auto switching, follows Mimo again.
   const chooseCamera = useCallback((mode: CameraMode) => {
