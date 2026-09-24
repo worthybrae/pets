@@ -10,8 +10,11 @@ step or the queue it interrupts (recorded once with result "interrupted" and rea
 "swim") so the brain can tell its plan was abandoned, not failed. A step that fails is recorded
 with a failure code (steps.FAILURE_CODES) and kept as `state["last_failure"]` with its cell and
 the purpose that planned it; queued steps carry that purpose as `purpose`. A failure drops the
-rest of the plan except its cleanup steps (`keep`, see kept_steps). What a finished step brings
-in beyond what Mimo can carry stays behind (backend.survival.carrying).
+rest of the plan except its cleanup steps (`keep`, see kept_steps) -- except an escape step
+(`keep: "escape"`), which is instead protected only from a new choice taking over mid-escape; a
+failure of the escape plan itself drops the rest of the escape too and is charged to `last_failure`
+as usual. What a finished step brings in beyond what Mimo can carry stays behind
+(backend.survival.carrying).
 
 A crashing planner, or one returning something other than a list of dicts, is logged once per
 distinct error and replaced with rest_plan for that call; a step that fails to start or finish in some unexpected
@@ -201,8 +204,10 @@ def record(state: dict, step: dict, ended_at: float, result: str, reason: str | 
 
 def kept_steps(queue: list[dict]) -> list[dict]:
     """The cleanup steps of a plan that is being dropped: queued steps marked `keep` (a portable
-    station's mine-back), except one whose station is not down yet (its place step is still
-    queued), since there is nothing to pick up."""
+    station's mine-back, or `keep: "escape"` for an escape step riding out a new choice -- see
+    fail() for what protects an escape step from a new choice but not from its own failure),
+    except one whose station is not down yet (its place step is still queued), since there is
+    nothing to pick up."""
     unplaced = {tuple(spec["target"]) for spec in queue
                 if spec.get("kind") == "place" and isinstance(spec.get("target"), list)}
     return [spec for spec in queue if spec.get("keep") and not (
@@ -214,14 +219,21 @@ def fail(state: dict, step: dict, at: float, reason: str, code: str = "bad_step"
     cleanup steps, so the planner plans again. `seq` counts failures, so two alike failures at the
     same moment differ. A cleanup step (`keep`, a portable station's mine-back) is recorded like
     any other failure but never becomes `last_failure`: it is not the current purpose's doing, and
-    charging it would spend the purpose's one re-plan on someone else's mistake."""
+    charging it would spend the purpose's one re-plan on someone else's mistake. An escape step
+    (`keep: "escape"`) is different again: that tag only rides an escape plan out through a new
+    choice taking over mid-escape (choosing/brain's own use of kept_steps), not through the
+    escape's own failure -- a failed escape step is charged to last_failure and drops the rest of
+    the escape plan like any other step, so the trap check gets to run again instead of a broken
+    plan carrying on."""
     record(state, step, at, "failed", reason, code)
-    if not step.get("keep"):
+    escaping = step.get("keep") == "escape"
+    if not step.get("keep") or escaping:
         seq = (state.get("last_failure") or {}).get("seq", 0) + 1
         state["last_failure"] = {"code": code, "reason": reason, "kind": step["kind"], "cell": step.get("target"),
                                  "purpose": step.get("purpose"), "at": at, "seq": seq}
     state["action"] = None
-    state["queue"] = kept_steps(state["queue"])
+    kept = kept_steps(state["queue"])
+    state["queue"] = [spec for spec in kept if spec.get("keep") != "escape"] if escaping else kept
 
 
 def as_started(spec: dict, at: float) -> dict:

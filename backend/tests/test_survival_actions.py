@@ -438,6 +438,24 @@ class ActionEngineTests(unittest.TestCase):
         self.assertIsNone(state["last_failure"])
         self.assertEqual((state["action"], state["queue"]), (None, []))
 
+    def test_a_failed_escape_step_ends_the_escape_and_is_charged_to_the_purpose(self):
+        """Item 3: escape.py tags its steps `keep: "escape"`, not `keep: True` -- that protects
+        them from a new choice taking over mid-escape (choosing.kept_steps, see
+        test_survival_escape.py's "a new choice mid-escape keeps the escape steps"), but not from
+        a failure of the escape plan itself. Before the fix every escape step was `keep: True`, so
+        a step that failed on its own looked exactly like a cleanup step's own failure: fail()
+        skipped last_failure (test_a_kept_steps_own_failure_is_not_charged_to_the_purpose's rule)
+        and kept_steps kept every remaining escape step, so the broken plan carried on instead of
+        the trap check running again."""
+        state = pet()
+        rest = {"kind": "mine", "target": [1, 1, 0], "keep": "escape", "purpose": "escape"}
+        state["queue"] = [{"kind": "mine", "target": [9, 1, 0], "keep": "escape", "purpose": "escape"}, rest]
+        advance_actions(state, context(small_world({(9, 1, 0): "dirt"})), 1.0)
+        failed = state["recent_actions"][-1]
+        self.assertEqual((failed["kind"], failed["result"], failed["reason"]), ("mine", "failed", "out of reach"))
+        self.assertEqual(state["last_failure"]["purpose"], "escape")
+        self.assertEqual((state["action"], state["queue"]), (None, []))
+
     def test_a_running_step_keeps_the_purpose_that_planned_it(self):
         grid, state = small_world({(1, 1, 0): "dirt"}), pet()
         state["queue"] = [{"kind": "mine", "target": [1, 1, 0], "purpose": "gather_stone"}]

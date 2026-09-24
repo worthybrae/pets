@@ -6,14 +6,13 @@ from pathlib import Path
 
 from backend.survival.brain import BRAIN
 from backend.survival.choosing import Chooser, InlineExecutor
-from backend.survival.grid import world_grid
 from backend.survival.hatch import hatch
 from backend.survival.memory import places, structures
 from backend.survival.registry import LifeRegistry
 from backend.survival.snapshot import notable
 from backend.survival.structures import blueprint_of
 from backend.survival.tick import tick_life
-from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld
+from backend.survival.world import SurvivalWorld
 
 BORN = 1_000_000.0
 SCALE = 60.0  # a game day is 60 real seconds, as in the manual check
@@ -48,40 +47,38 @@ class LivingDaysTests(unittest.TestCase):
 
     def test_left_alone_mimo_builds_a_home_before_its_second_night_and_lives_in_it(self):
         chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
-        in_bed, lit, coal_found = set(), set(), False
+        in_bed = set()
         for second in range(1, 4 * 60 + 1):
             state = tick_life(self.registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
             self.assertIsNone(state["died_at"], state["cause"])
             chooser.poll(self.registry, BORN + second)
-            coal_found = coal_found or state["inventory"].get("coal", 0) > 0
             if second % 60 == 50:  # deep in the night
                 night = second // 60 + 1
                 action = state["action"] or {}
                 if action.get("kind") == "sleep" and action.get("bed"):
                     in_bed.add(night)
-                with self.world.connect() as db:
-                    grid = world_grid(db, state["world_seed"])
-                    for shelter in structures(db, ("shelter",)):
-                        if any(grid.material(*cell.cell) == "torch" for cell in blueprint_of(shelter).parts("torch")):
-                            lit.add(night)
         built = [event for event in self.world.events(5000) if event["kind"] == "built" and "moved in" in event["text"]]
         self.assertEqual(len(built), 1)
         self.assertLess(built[0]["at"], BORN + 60 + 40)  # before the second night falls
         # notable() is a recent-highlights window (NOTABLE_LIMIT), not a full chronicle: over the
         # rest of these four days it can fill with later sightings and roll the early home-build
-        # off the end. What is stable, and what actually makes a life's memorial or dashboard show
-        # a home being built, is that "built" is a kind notable() never treats as routine.
-        self.assertNotIn(built[0]["kind"], ROUTINE_EVENTS)
+        # off the end. Scoped to only the events up to the build, so later noise cannot roll it
+        # off, this checks what actually makes a life's memorial or dashboard show a home being
+        # built: that notable() surfaces "built" from what had happened by then.
+        events_by_then = [event for event in self.world.events(5000) if event["at"] <= built[0]["at"]]
+        self.assertIn("built", [event["kind"] for event in notable(events_by_then)])
         with self.world.connect() as db:
             home = places(db, ("home",))[0]
             shelter = blueprint_of(structures(db, ("shelter",))[0])
         self.assertEqual((home["note"], (home["x"], home["y"], home["z"])), ("built", shelter.anchor))
         self.assertGreaterEqual(len(in_bed), 2)
-        # light_up only fires once coal turns up to make torches from (or iron for a lantern):
-        # opportunistic, not a promise for every seed in four short days. Require it once the raw
-        # material actually showed up, so this still catches light_up failing to act on it.
-        if coal_found:
-            self.assertTrue(lit)
+        # light_up only fires once coal turns up to make torches from (or iron for a lantern), and
+        # this pinned seed (8) never finds coal in these four days (confirmed by instrumenting this
+        # loop), so there is no honest way to exercise light_up's corner-lighting from here. That
+        # deterministic path -- a finished shelter, coal and sticks at dusk, light_up crafts torches
+        # and hangs one on each dark corner -- is already covered by test_survival_lighting.py's
+        # test_it_makes_torches_puts_one_on_each_dark_corner_and_goes_back_inside. This test only
+        # checks what this seed really exercises: a home built early and slept in.
         self.assertTrue(any(state.get("chests", {}).values()))
 
     def test_left_alone_mimo_hunts_an_animal_and_cooks_its_meat(self):
