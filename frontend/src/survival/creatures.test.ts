@@ -37,6 +37,10 @@ describe('creatureModel', () => {
     expect(creatureModel('cow')).toBe(creatureModel('cow'))
   })
 
+  it('knows how tall it stands once, so a frame loop need not measure its voxels', () => {
+    for (const kind of [...KINDS, 'gloomling', 'skitter', 'unknown']) expect(creatureModel(kind).height).toBeCloseTo(height(kind))
+  })
+
   it('gives the rabbit long ears, the cow its spots and the sheep its wool', () => {
     const rabbit = creatureModel('rabbit')
     const top = Math.max(...rabbit.head.map((voxel) => voxel.y))

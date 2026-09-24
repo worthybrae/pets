@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DANGER_REACH, actionText, careLabel, causeText, chestText, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay,
+  DANGER_REACH, DANGER_RISE, actionText, careLabel, causeText, chestText, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay,
   lifeLine, purposeText, statusText, thingName, vitalBars, workerOnline,
 } from './hud'
 import { REPLAY_DELAY } from './replay'
@@ -72,6 +72,18 @@ describe('danger', () => {
     expect(dangerText([cow, { ...gloom, x: DANGER_REACH + 1 }, { ...gloom, state: 'burning' }, { ...gloom, state: 'dead' }], here))
       .toBeNull()
     expect(dangerText(undefined, here)).toBeNull()
+  })
+
+  it('leaves out what is far above or below Mimo, as the server does', () => {
+    expect(dangerText([{ ...gloom, y: here.y - DANGER_RISE - 1 }], here)).toBeNull() // a cave under its feet
+    expect(dangerText([{ ...gloom, y: here.y + DANGER_RISE + 1 }], here)).toBeNull()
+    expect(dangerText([{ ...gloom, y: here.y - DANGER_RISE }], here)).toBe('A gloomling is close!')
+  })
+
+  it('keeps quiet while Mimo is safe inside the shelter it built', () => {
+    const outside = [gloom, { ...gloom, id: 2, x: -3 }, { ...gloom, id: 3, z: 4 }, { ...gloom, id: 4, z: -4 }]
+    expect(dangerText(outside, here, true)).toBeNull()
+    expect(dangerText(outside, here, false)).toBe('4 gloomlings are close!')
   })
 
   it('flashes for a blow when the pet drawn behind the server takes it', () => {

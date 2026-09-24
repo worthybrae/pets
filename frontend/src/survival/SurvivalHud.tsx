@@ -75,7 +75,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const { clock, life } = state
   const careKinds: CareKind[] = ['snack', 'bandage']
   const home = homeText(state.structures)
-  const danger = dangerText(state.creatures, state.position)
+  const danger = dangerText(state.creatures, state.position, state.sheltered)
   const flash = hurtFlashDelay(state.hurt_at, state.server_time)
   return (
     <>

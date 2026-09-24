@@ -30,6 +30,8 @@ export default function CombatEffects({ action, recent, position, creatures = NO
   const arrow = useRef<THREE.Group>(null)
   const fire = useRef<THREE.InstancedMesh>(null)
   const scratch = useRef<THREE.Object3D | null>(null)
+  // The burning creatures of this frame, refilled in place: no new list every frame (L2 final fix wave).
+  const burning = useRef<Creature[]>([])
 
   useFrame(() => {
     const t = now()
@@ -46,12 +48,15 @@ export default function CombatEffects({ action, recent, position, creatures = NO
     const bits = fire.current
     if (!bits) return
     const dummy = (scratch.current ??= new THREE.Object3D())
+    const lit = burning.current
+    lit.length = 0
+    for (const creature of creatures) {
+      if (lit.length === MOST_BURNING) break
+      if (creature.state === 'burning') lit.push(creature)
+    }
     let count = 0
-    for (const creature of creatures.filter((found) => found.state === 'burning').slice(0, MOST_BURNING)) {
-      const model = creatureModel(creature.kind)
-      const ys = [...model.body, ...model.head].map((voxel) => voxel.y)
-      const height = (Math.max(...ys) - Math.min(...ys) + 1) * model.scale
-      for (const bit of flames(creature, t, height)) {
+    for (const creature of lit) {
+      for (const bit of flames(creature, t, creatureModel(creature.kind).height)) {
         dummy.position.set(creature.x + 0.5 + bit.x, creature.y + bit.y, creature.z + 0.5 + bit.z)
         dummy.scale.setScalar(FLAME_SIZE * bit.scale)
         dummy.updateMatrix()

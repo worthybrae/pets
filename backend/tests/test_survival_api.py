@@ -275,6 +275,19 @@ class SurvivalApiTests(unittest.TestCase):
                                                 "status": "building", "x": 5, "y": 6, "z": 7}])
         self.assertEqual(state["chests"], {"6,6,8": {"dirt": 9}})
 
+    def test_whether_mimo_is_safe_inside_its_shelter_is_streamed(self):
+        # L2 final fix wave: the HUD's danger line warned all night while Mimo slept safely indoors.
+        # `sheltered` is the server's own rule (harm.sheltered: a room or passage cell of a shelter
+        # it built, where no blow reaches), so the viewer need not guess from the structures.
+        hatch_egg()
+        self.assertFalse(get_mimo()["sheltered"])
+        world = self.active_world()
+        with world.transaction() as db:
+            state = read_state(db)
+            here = tuple(round(state["position"][axis]) for axis in "xyz")
+            add_structure(db, "shelter", "Pip's Snug Cottage", here, 10.0, {}, [(here, "room", "air")])
+        self.assertTrue(get_mimo()["sheltered"])
+
     def explore_around_mimo(self, reach, visits=1, at=None):
         """Mark every patch within `reach` patches of Mimo explored `visits` times, after moving
         Mimo to `at` ((x, z)) when given."""
@@ -339,7 +352,7 @@ class SurvivalApiTests(unittest.TestCase):
         archive = SurvivalWorld(path, read_only=True)
         self.assertEqual(built_view(archive), [])
         view = survival_view(archive, 20.0, 1.0)
-        self.assertEqual((view["structures"], view["chests"]), ([], {}))
+        self.assertEqual((view["structures"], view["chests"], view["sheltered"]), ([], {}, False))
         self.assertEqual(view["explored"], [])
         with archive.connect() as db:  # the read-only view did not add the tables
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='structures'").fetchone())

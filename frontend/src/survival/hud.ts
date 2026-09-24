@@ -36,6 +36,8 @@ const CAUSES: Record<string, string> = {
 const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature'])
 /** How close (blocks, across) a hostile creature is for the HUD to warn of it. */
 export const DANGER_REACH = 12
+/** How far above or below Mimo it may be (the server's CHASE_RISE): deeper is a cave under its feet. */
+export const DANGER_RISE = 4
 /** How long after a blow (server seconds) its flash may still start. */
 const FLASH_WINDOW = 3
 
@@ -151,12 +153,17 @@ export function lifeLine(life: Pick<LifeRow, 'kind' | 'alive' | 'days' | 'cause'
 }
 
 /**
- * The HUD's danger line (L2): the living hostile creatures within DANGER_REACH blocks of Mimo, like
- * "A gloomling is close!", or null. The server lists creatures nearest first; a burning one is no danger.
+ * The HUD's danger line (L2): the living hostile creatures within DANGER_REACH blocks of Mimo across
+ * and DANGER_RISE up or down, like "A gloomling is close!", or null. The server lists creatures
+ * nearest first; a burning one is no danger. While Mimo is `sheltered` (the server says it stands in
+ * a room or passage of the shelter it built, where no blow reaches) nothing is close enough to warn of.
  */
-export function dangerText(creatures: readonly Creature[] | null | undefined, position: Point): string | null {
+export function dangerText(creatures: readonly Creature[] | null | undefined, position: Point,
+  sheltered = false): string | null {
+  if (sheltered) return null
   const near = (creatures ?? []).filter((creature) => creature.hostile && creature.state !== 'dead'
-    && creature.state !== 'burning' && Math.hypot(creature.x - position.x, creature.z - position.z) <= DANGER_REACH)
+    && creature.state !== 'burning' && Math.abs(creature.y - position.y) <= DANGER_RISE
+    && Math.hypot(creature.x - position.x, creature.z - position.z) <= DANGER_REACH)
   if (near.length === 0) return null
   const kind = thingName(near[0].kind)
   if (near.length === 1) return `A ${kind} is close!`

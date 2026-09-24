@@ -20,6 +20,8 @@ export interface CreatureModel {
   neck: Point
   /** Blocks per voxel. */
   scale: number
+  /** Blocks tall, from the lowest voxel to the top of the highest (L2: where the flames of a burning one reach). */
+  height: number
   /** How high a walk hops, in blocks. */
   hop: number
 }
@@ -84,7 +86,7 @@ function spotted(x: number, y: number, z: number): Color {
 }
 
 /** 5 voxels tall: a round body, a head with ears 2 voxels long above it. */
-function rabbit(): Omit<CreatureModel, 'scale' | 'hop'> {
+function rabbit(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().box([-1, 1], [0, 1], [-2, 1], WHITE).box([-1, 1], [2, 2], [-2, 0], WHITE)
     .box([0, 0], [2, 2], [-3, -3], WHITE).pair(1, [0, 0], [2, 2], WHITE)
   const head = new Builder().box([-1, 1], [1, 2], [2, 3], WHITE).pair(1, [2, 2], [3, 3], EYE)
@@ -93,7 +95,7 @@ function rabbit(): Omit<CreatureModel, 'scale' | 'hop'> {
 }
 
 /** 6 voxels tall: legs, a plump body with wings and a tail, a head with eyes, a beak, a comb and a wattle. */
-function chicken(): Omit<CreatureModel, 'scale' | 'hop'> {
+function chicken(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().pair(1, [0, 0], [0, 0], BEAK).box([-1, 1], [1, 3], [-2, 0], WHITE)
     .box([-1, 1], [1, 2], [1, 1], WHITE).pair(2, [2, 3], [-1, 0], WING).box([0, 0], [2, 4], [-3, -3], WHITE)
   const head = new Builder().box([-1, 1], [3, 4], [1, 2], WHITE).pair(1, [4, 4], [2, 2], EYE)
@@ -102,7 +104,7 @@ function chicken(): Omit<CreatureModel, 'scale' | 'hop'> {
 }
 
 /** 10 voxels tall: four legs under a thick fleece, a face with eyes, ears and a woolly crown. */
-function sheep(): Omit<CreatureModel, 'scale' | 'hop'> {
+function sheep(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().box([-2, 2], [4, 8], [-3, 3], WOOL)
   for (const z of [-2, 2]) body.pair(1, [0, 3], [z, z], FACE)
   const head = new Builder().box([-1, 1], [5, 8], [4, 5], FACE).pair(1, [7, 7], [5, 5], EYE)
@@ -112,7 +114,7 @@ function sheep(): Omit<CreatureModel, 'scale' | 'hop'> {
 
 /** 13 voxels tall: sturdy legs, a long spotted body with a tail and udder, a head with a muzzle,
  * ears and horns that grow out of its sides. */
-function cow(): Omit<CreatureModel, 'scale' | 'hop'> {
+function cow(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().box([-3, 3], [5, 10], [-5, 4], spotted)
   for (const z of [-5, 3]) {
     body.box([-3, -2], [1, 4], [z, z + 1], WHITE).box([2, 3], [1, 4], [z, z + 1], WHITE)
@@ -125,14 +127,14 @@ function cow(): Omit<CreatureModel, 'scale' | 'hop'> {
 }
 
 /** 3 voxels tall: a tapered body with eyes, a back fin and a tail. */
-function fish(): Omit<CreatureModel, 'scale' | 'hop'> {
+function fish(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().box([0, 0], [0, 1], [-2, 1], SCALES).box([-1, 1], [0, 1], [-1, 0], SCALES)
     .pair(1, [1, 1], [0, 0], EYE).box([0, 0], [2, 2], [-1, 0], FIN).box([0, 0], [0, 2], [-3, -3], FIN)
   return { body: body.voxels, head: [], neck: { x: 0, y: 1, z: 1 } }
 }
 
 /** L2, 17 voxels tall: long legs, a thin dark body with its arms held out in front, a head with two glowing eyes. */
-function gloomling(): Omit<CreatureModel, 'scale' | 'hop'> {
+function gloomling(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().pair(1, [0, 6], [0, 0], GLOOM_DARK).box([-2, 2], [7, 12], [-1, 1], GLOOM)
     .pair(3, [9, 12], [0, 0], GLOOM).pair(3, [9, 9], [1, 4], GLOOM_DARK)
   const head = new Builder().box([-2, 2], [13, 16], [-1, 2], GLOOM).pair(1, [15, 15], [2, 2], GLOW)
@@ -140,7 +142,7 @@ function gloomling(): Omit<CreatureModel, 'scale' | 'hop'> {
 }
 
 /** L2, 6 voxels tall: a low, wide shell on eight splayed legs, a head with red eyes and fangs. */
-function skitter(): Omit<CreatureModel, 'scale' | 'hop'> {
+function skitter(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   const body = new Builder().box([-2, 2], [2, 4], [-3, 1], SHELL).box([-1, 1], [5, 5], [-2, 0], SHELL_DARK)
   for (const z of [-2, -1, 0, 1]) body.pair(3, [2, 2], [z, z], SHELL_DARK).pair(4, [0, 1], [z, z], SHELL_DARK)
   const head = new Builder().box([-1, 1], [2, 4], [2, 3], SHELL).pair(1, [4, 4], [3, 3], RED_EYE)
@@ -149,11 +151,11 @@ function skitter(): Omit<CreatureModel, 'scale' | 'hop'> {
 }
 
 /** A plain grey block for a kind this viewer does not know yet. */
-function unknown(): Omit<CreatureModel, 'scale' | 'hop'> {
+function unknown(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   return { body: new Builder().box([-2, 2], [0, 5], [-2, 2], [150, 150, 150]).voxels, head: [], neck: { x: 0, y: 5, z: 2 } }
 }
 
-const MODELS: Record<string, () => Omit<CreatureModel, 'scale' | 'hop'>> = {
+const MODELS: Record<string, () => Omit<CreatureModel, 'scale' | 'height' | 'hop'>> = {
   rabbit, chicken, sheep, cow, fish, gloomling, skitter,
 }
 const cache = new Map<string, CreatureModel>()
@@ -166,7 +168,8 @@ export function creatureModel(kind: string): CreatureModel {
   const all = [...parts.body, ...parts.head]
   const low = Math.min(...all.map((voxel) => voxel.y))
   const high = Math.max(...all.map((voxel) => voxel.y))
-  const model = { ...parts, scale: (SIZES[kind] ?? 0.6) / (high - low + 1), hop: HOPS[kind] ?? 0.05 }
+  const scale = (SIZES[kind] ?? 0.6) / (high - low + 1)
+  const model = { ...parts, scale, height: (high - low + 1) * scale, hop: HOPS[kind] ?? 0.05 }
   cache.set(kind, model)
   return model
 }

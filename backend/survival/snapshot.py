@@ -11,6 +11,7 @@ from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
+from backend.survival.creatures.harm import sheltered
 from backend.survival.creatures.view import creatures_view
 from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.registry import LifeRegistry
@@ -135,6 +136,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         ground = explored_view(db, state)
         landmarks = landmarks_view(db, state)
         creatures = creatures_view(db, state["position"], now)
+        indoors = sheltered(db, here_of(state))
     at = state["died_at"] if state["died_at"] is not None else now
     return {
         "clock": clock_at(state["born_at"], at, scale),
@@ -169,6 +171,10 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # L2: when a creature last hurt Mimo and its kind, for the viewer's flash and the HUD.
         "hurt_at": state.get("hurt_at"),
         "hurt_by": state.get("hurt_by"),
+        # L2 final fix wave: Mimo stands in a room or passage of a shelter it built, where no blow
+        # reaches (harm.sheltered), so the HUD's danger line keeps quiet (False for an archive
+        # from before M5, which has no structures).
+        "sheltered": indoors,
         **brain_view(state.get("brain")),
     }
 

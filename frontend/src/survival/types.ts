@@ -212,6 +212,8 @@ export interface SurvivalState {
   /** When a creature last hurt Mimo (server time) and its kind (L2); an older API sends neither. */
   hurt_at?: number | null
   hurt_by?: string | null
+  /** Mimo stands in a room or passage of the shelter it built, where no blow reaches (L2); an older API sends none. */
+  sheltered?: boolean
   /** The patches Mimo visited within 96 blocks of it, for the minimap's fog of war. */
   explored: ExploredPatch[]
   /** Its home and nearest farm, for the minimap. */
