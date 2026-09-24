@@ -153,6 +153,24 @@ class ShelterTests(unittest.TestCase):
         world.carry_out(steps)
         self.assertFalse(PURPOSES["build_shelter"].valid(world.situation()))
 
+    def test_a_blocked_craft_for_one_fitting_does_not_drop_another_fittings_place(self):
+        """Fix wave M5(h): crafting for every fitting used to sit ahead of every place step, so a
+        craft that fails partway through the real batch (execution stops there) also dropped a
+        later, unrelated fitting's place - even a bed Mimo already carries and needs no craft for.
+        Each fitting's craft now sits right before its own place, so the bed's place comes first."""
+        world = World({"cobblestone": 40})
+        for _ in range(4):
+            world.carry_out(world.plan())
+        filler = {f"item_{n}": 1 for n in range(13)}
+        world.state["inventory"] = {**filler, "bed": 1, "oak_log": 10, "sticks": 10}  # 16 stacks, full
+        steps = world.plan()
+        design = blueprint_of(structures(world.db)[0])
+        bed_place = {"kind": "place", "target": list(design.one("bed")), "block": "bed"}
+        campfire_craft = {"kind": "craft", "recipe": "campfire"}
+        self.assertIn(bed_place, steps)
+        self.assertIn(campfire_craft, steps)
+        self.assertLess(steps.index(bed_place), steps.index(campfire_craft))
+
     def test_a_plant_in_a_cell_it_builds_is_mined_first(self):
         """Fix wave I3: a mushroom or sapling in a wall or fitting cell cannot be built over (it is
         not replaceable), so the batch mines it first."""

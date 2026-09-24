@@ -72,6 +72,14 @@ class WhatGivesWayTests(unittest.TestCase):
             self.assertEqual(settle(inventory, self.carried), {"dirt": 8}, item)
             self.assertEqual(inventory[item], 1)
 
+    def test_poisonous_food_does_not_push_out_a_block(self):
+        """Fix wave M5(i): a red mushroom (steps.FOOD_HEALTH negative) is food Mimo will drop the
+        moment it learns better, so it should not cost a good dirt or cobblestone stack to keep."""
+        inventory = {**self.carried, "red_mushroom": 3}
+        self.assertEqual(settle(inventory, self.carried), {"red_mushroom": 3})
+        self.assertNotIn("red_mushroom", inventory)
+        self.assertEqual(inventory, self.carried)
+
     def test_cobblestone_goes_only_when_no_dirt_is_left(self):
         carried = {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 1)}, "cobblestone": 20}
         inventory = {**carried, "apple": 1}
@@ -90,6 +98,26 @@ class WhatGivesWayTests(unittest.TestCase):
         work(state, grid, [{"kind": "pick", "target": [1, 1, 0]}], until=2.0)
         self.assertEqual(state["inventory"], {**self.carried, "dirt": 32, "berries": 3})
         self.assertIn("full", state["last_thought"])
+
+
+class SettleCapTests(unittest.TestCase):
+    """Fix wave M5(j): push-out only relieves what a step's own growth needs, not an older
+    overflow already there before the step, so one berry never costs two stacks."""
+
+    def test_an_older_overflow_is_left_alone_so_one_berry_costs_one_stack(self):
+        before = {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 1)}, "dirt": 32, "cobblestone": 20}  # 17 stacks
+        inventory = {**before, "berries": 1}
+        self.assertEqual(settle(inventory, before), {"dirt": 32})
+        self.assertEqual(inventory, {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 1)}, "cobblestone": 20,
+                                     "berries": 1})
+
+    def test_cobblestone_is_kept_before_dirt_even_once_dirt_runs_out(self):
+        """Two valuable newcomers at once can need more than one stack pushed out in the same
+        settle call: dirt goes first, and only once it is gone entirely does cobblestone start."""
+        before = {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 2)}, "dirt": 32, "cobblestone": 20}  # 16 stacks
+        inventory = {**before, "sapling": 1, "seeds": 1}
+        self.assertEqual(settle(inventory, before), {"dirt": 32, "cobblestone": 20})
+        self.assertEqual(inventory, {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 2)}, "sapling": 1, "seeds": 1})
 
 
 class FullHandsInTheTickTests(unittest.TestCase):

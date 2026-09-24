@@ -103,6 +103,18 @@ describe('a shelter Mimo built', () => {
     expect(built(2, 2, 0)).toBe(false)  // air
   })
 
+  it('does not count a natural dirt or cobblestone hill the server never placed', () => {
+    // A hill made of building materials, right inside the shelter's own reach box, but never
+    // placed by the server: shelterBlocks must not count it, or a natural hill beside a shelter
+    // would cut the view open the same way a wall does.
+    const hill = {
+      getBlock: (x: number, y: number, z: number) =>
+        (x === 2 && y === 3 && z === 0) ? blockId('dirt') : (y <= 0 ? STONE : AIR),
+      placedAt: () => false,
+    }
+    expect(shelterBlocks(hill, HOME)(2, 3, 0)).toBe(false)
+  })
+
   it('cuts the walls away when they hide the pet from the camera, and not in the open', () => {
     expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 }, true)).toEqual({ x: 0.5, y: 2.5, z: 0.5, radius: CUTAWAY_RADIUS })
     expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 })).toBeNull()

@@ -241,17 +241,20 @@ def structural_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[di
 
 
 def furnishing_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[dict]:
-    """Make and place the bed and the campfire Mimo can."""
-    inventory, crafting, jobs = dict(s.inventory), [], []
+    """Make and place the bed and the campfire Mimo can, each fitting's craft steps right before
+    its own place step (not all bundled at the front): a craft that fails at "blocked" then only
+    costs that one fitting, not a later one's place too."""
+    inventory, jobs = dict(s.inventory), []
     for planned in fittings_due(s, blueprint):
+        crafting = []
         if inventory.get(planned.block, 0) < 1:
             steps = made(inventory, planned.block)
             if steps is None:
                 continue
-            crafting.extend(steps)
+            crafting = steps
         inventory[planned.block] -= 1
-        jobs.append((planned.cell, build_job(s.grid, planned.cell, planned.block)))
-    return crafting + reach_all(blueprint, stand, jobs) if jobs else []
+        jobs.append((planned.cell, crafting + build_job(s.grid, planned.cell, planned.block)))
+    return reach_all(blueprint, stand, jobs) if jobs else []
 
 
 def build_batch(s: Situation, blueprint: Blueprint) -> list[dict]:

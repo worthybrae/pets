@@ -94,10 +94,13 @@ def crafts_fit(inventory: dict[str, int], steps: list[dict]) -> bool:
 
 
 def valuable(item: str) -> bool:
-    """Food, seeds, saplings, wheat, ore, ingots, coal and tools: worth more than any LOW_VALUE block."""
-    from backend.survival.steps import AXES, FOOD, PICKAXE_SPEED  # imported here: steps imports this module
-    return (item in FOOD or item in VALUABLE or item in PICKAXE_SPEED or item in AXES
-            or item.endswith(("_ore", "_ingot")))
+    """Food that will not make Mimo sick, seeds, saplings, wheat, ore, ingots, coal and tools: worth
+    more than any LOW_VALUE block. Food that can make Mimo sick (steps.FOOD_HEALTH), like a red
+    mushroom, is not: it is thrown away by drop_items as soon as Mimo learns it is poisonous, so it
+    should never cost a good dirt or cobblestone stack in the meantime."""
+    from backend.survival.steps import AXES, FOOD, FOOD_HEALTH, PICKAXE_SPEED  # imported here: steps imports this module
+    return ((item in FOOD and FOOD_HEALTH.get(item, 0.0) >= 0) or item in VALUABLE or item in PICKAXE_SPEED
+            or item in AXES or item.endswith(("_ore", "_ingot")))
 
 
 def least_valuable(inventory: dict[str, int], newcomer: str) -> str | None:
@@ -111,10 +114,14 @@ def settle(inventory: dict[str, int], before: dict[str, int]) -> dict[str, int]:
     """Leave behind what a step brought in that Mimo cannot carry: while it carries more than
     CARRY_STACKS stacks, each item that grew goes back down (a stack at a time, never below what
     it was before the step), unless it is valuable and a LOW_VALUE block can go instead (its
-    part-filled stack first). Changes `inventory` in place and returns what was left behind."""
+    part-filled stack first). Push-out only relieves what this step's own growth needs: when
+    `before` was already over CARRY_STACKS (an older save, say), that earlier overflow is left
+    alone, so one berry never costs two stacks. Changes `inventory` in place and returns what was
+    left behind."""
     left: dict[str, int] = {}
+    floor = max(CARRY_STACKS, stacks(before))
     for item in sorted(item for item, count in inventory.items() if count > before.get(item, 0)):
-        while stacks(inventory) > CARRY_STACKS and inventory.get(item, 0) > before.get(item, 0):
+        while stacks(inventory) > floor and inventory.get(item, 0) > before.get(item, 0):
             spare = least_valuable(inventory, item)
             gone = spare or item
             count = inventory[gone]
