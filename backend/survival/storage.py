@@ -24,9 +24,9 @@ from typing import TYPE_CHECKING
 
 from backend.services.crafting import TOOL_RANK
 from backend.survival.blueprints import BUILDING
-from backend.survival.building import current_shelter, usable_supplies
+from backend.survival.building import current_shelter, structures_near, usable_supplies
 from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, full, room_for, stacks
-from backend.survival.cooking import made
+from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
 from backend.survival.purposes import Purpose, foods, register
@@ -81,9 +81,12 @@ def chest_contents(s: Situation, cell) -> dict[str, int]:
 
 
 def spare_food(s: Situation) -> list[tuple[str, int]]:
-    """Food beyond a day's worth (60 hunger), the least filling first."""
+    """Food beyond a day's worth (60 hunger), the least filling first. Raw food Mimo can cook
+    (cooking.RAW_FOODS) is neither: it waits for the fire, since cook only uses what Mimo carries."""
     kept, spare = 0.0, []
     for item in foods(s.inventory, s.poisons):
+        if item in RAW_FOODS:
+            continue
         count = s.inventory[item]
         keep = 0
         while keep < count and kept < FOOD_WANTED:
@@ -228,6 +231,15 @@ def loose_blocks(s: Situation) -> list[tuple[str, int]]:
     return []
 
 
+def spare_fences(s: Situation) -> list[tuple[str, int]]:
+    """L3: fences are made 3 at a time, so a pen leaves one or two over. Once the newest pen near
+    Mimo is done (backend.survival.pens), they are no use to carry."""
+    pens = structures_near(s, "pen")
+    if not s.count("fence") or not pens or pens[-1]["status"] != "done":
+        return []
+    return [("fence", s.count("fence"))]
+
+
 def junk(s: Situation) -> list[tuple[str, int]]:
     """(item, amount) that is no use to carry: known poison, replaced tools and swords, flowers; and, full with
     no chest to use, loose blocks (loose_blocks)."""
@@ -241,6 +253,7 @@ def junk(s: Situation) -> list[tuple[str, int]]:
     found += [(piece, s.count(piece)) for piece in ("leather_cap", "leather_tunic")
               if s.count(piece) and s.count(piece.replace("leather", "iron"))]  # L3: iron replaced it
     found += [(flower, s.count(flower)) for flower in FLOWERS if s.count(flower)]
+    found += spare_fences(s)
     if stacks(s.inventory) >= CARRY_STACKS and no_chest_to_use(s):
         found += loose_blocks(s)
     return found

@@ -56,6 +56,8 @@ def missing(grid: Grid, planned: Planned) -> bool:
         return material != "farmland"
     if planned.part == "door":  # L2: the gap's lower cell waits for its door; the one above stays open
         return planned.block == "door" and material != "door"
+    if planned.part == "fence":  # L3: a pen's ring
+        return material != "fence"
     return planned.part in FITTINGS and material not in STANDS_IN.get(planned.block, (planned.block,))
 
 

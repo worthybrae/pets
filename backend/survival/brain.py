@@ -38,7 +38,7 @@ import logging
 
 from backend.survival import cooking, farming, foraging, toolmaking, work  # noqa: F401  (they register their purposes)
 from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's building purposes)
-from backend.survival import flint  # noqa: F401  (L3's gather_flint)
+from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, build_pen and stock_pen)
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
