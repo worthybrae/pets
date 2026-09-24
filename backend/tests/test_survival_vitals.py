@@ -76,7 +76,7 @@ class VitalRateTests(unittest.TestCase):
     def test_health_recovers_only_when_fed_and_warm(self):
         after, _ = step_vitals(vitals(health=50.0, hunger=70.0, warmth=60.0), 60, night=False, activity="idle",
                                surroundings=OPEN)
-        self.assertAlmostEqual(after["health"], 53.0)
+        self.assertAlmostEqual(after["health"], 51.0)  # 1 a game minute (L2)
         after, _ = step_vitals(vitals(health=50.0, hunger=55.0), 60, night=False, activity="idle", surroundings=OPEN)
         self.assertEqual(after["health"], 50.0)
 

@@ -26,6 +26,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable
 
+from backend.survival.clock import is_night
 from backend.survival.creatures.kinds import Kind, huntable, kind_of
 from backend.survival.creatures.moves import move, roll, steps, where
 from backend.survival.creatures.table import Herd, dead
@@ -59,6 +60,16 @@ class Scene:
     pace: float = 1.0  # MIMO_ACTION_SCALE: moves and pauses are this many times shorter
     # The tick's event list, always passed (never a throwaway), so what happens here is logged.
     events: list = field(kw_only=True)
+    clock: dict = field(default_factory=dict, kw_only=True)  # L2: the game clock at `at`; {} reads as day at 1x
+
+    @property
+    def night(self) -> bool:
+        return is_night(self.clock.get("phase", "day"))
+
+    @property
+    def scale(self) -> float:
+        """Game seconds per server second (MIMO_TIME_SCALE)."""
+        return float(self.clock.get("time_scale", 1.0))
 
     @property
     def pet(self) -> Cell:
@@ -175,13 +186,19 @@ register_action(CreatureAction(
 
 # wander ----------------------------------------------------------------------------------------
 
+def height_of(creature: dict) -> int:
+    """L2: the cells of room a creature of this kind needs to pass."""
+    kind = kind_of(creature["kind"])
+    return 1 if kind is None else kind.height
+
+
 def wander_cells(creature: dict, scene: Scene) -> list[Cell]:
     """1 to 3 random steps, each to a standable neighbour within LEASH blocks of home, or the one
     nearest home when it has strayed beyond (a flee can take it past the leash)."""
     home = tuple(creature["state"].get("home") or where(creature, scene.at))
     cell, cells = where(creature, scene.at), []
     for number in range(1 + int(scene.roll(creature, LENGTH) * WANDER_MOST)):
-        options = [step for step in steps(scene.grid, cell, False) if step not in cells]
+        options = [step for step in steps(scene.grid, cell, False, height_of(creature)) if step not in cells]
         near = [step for step in options if flat_distance(step, home) <= LEASH]
         if not near and options:
             near = [min(options, key=lambda step: (flat_distance(step, home), step))]

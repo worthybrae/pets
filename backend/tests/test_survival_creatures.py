@@ -26,7 +26,7 @@ class KindTests(unittest.TestCase):
         self.assertEqual(KINDS["cow"].drops, {"raw_beef": (1, 3), "leather": (0, 2)})
         self.assertTrue(KINDS["fish"].water)
         self.assertEqual(KINDS["fish"].drops, {})
-        for kind in KINDS.values():
+        for kind in (KINDS[name] for name in ("rabbit", "chicken", "sheep", "cow", "fish")):
             self.assertFalse(kind.hostile)
             self.assertTrue(kind.flee_when_hurt)
             self.assertLessEqual(kind.herd[0], kind.herd[1])

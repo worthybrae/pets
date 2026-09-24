@@ -197,7 +197,7 @@ class ActTests(unittest.TestCase):
 
     def test_a_new_action_registers_in_priority_order_and_comes_first(self):
         grid, creatures = meadow(), herd()
-        sit = register_action(CreatureAction("test_sit", 5, lambda creature, kind, scene: True,
+        sit = register_action(CreatureAction("test_sit", 0, lambda creature, kind, scene: True,
                                              lambda creature, kind, scene: creature["state"].update(pose="sitting")))
         try:
             self.assertEqual(CREATURE_ACTIONS[0], sit)

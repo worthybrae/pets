@@ -89,6 +89,8 @@ def strike(scene: Scene, creature: dict, damage: float, source: Cell) -> dict[st
         return found
     if kind is not None and kind.flee_when_hurt:
         run_away(creature, kind, scene, source)
+    elif kind is not None and kind.hostile:
+        state["chasing"] = True  # L2: a hostile that is hit turns on Mimo
     scene.herd.save(creature)
     return None
 
@@ -127,8 +129,20 @@ def finish_attack(step: dict, state: dict, grid: Grid, at: float, events: list) 
     found = strike(scene, creature, damage, as_cell(state["position"]))
     if found is None:
         return None
+    return spoils(state, creature, found, at)
+
+
+def spoils(state: dict, creature: dict, found: dict[str, int], at: float) -> tuple[str, str]:
+    """A kill's drops go into Mimo's arms (the engine settles them after the step) and its event
+    comes back. A hostile creature (L2) is fought off: a "fight" event that is no hunt. Any other
+    kill is a hunt and sets `state["hunted_at"]`. The event is the step's return value, which the
+    engine logs."""
     for item, count in found.items():
         add_item(state["inventory"], item, count)
+    kind = kind_of(creature["kind"])
+    if kind is not None and kind.hostile:
+        state["last_thought"] = f"That {label(creature['kind'])} won't bother me again."
+        return "fight", f"{state['name']} fought off a {label(creature['kind'])}."
     state["last_thought"] = f"Got the {label(creature['kind'])}!"
     state["hunted_at"] = at
     return "hunt", f"{state['name']} hunted a {label(creature['kind'])}."

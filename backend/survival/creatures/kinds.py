@@ -30,6 +30,9 @@ class Kind:
     herd: tuple[int, int] = (1, 1)  # how many spawn together, least and most
     water: bool = False  # lives in water (fish), else on land and never in water
     flee_when_hurt: bool = True
+    cooldown: float = 1.0  # L2: seconds between two of its attacks
+    burns: bool = False  # L2: burns and fades under the open sky by day
+    height: int = 1  # L2: cells of room it needs to pass (a gloomling needs 2)
 
 
 KINDS: dict[str, Kind] = {}
