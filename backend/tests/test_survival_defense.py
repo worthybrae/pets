@@ -8,11 +8,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.worldgen import terrain_height
+from backend.survival import tick
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.brain import BRAIN, brain_plan
 from backend.survival.choosing import Chooser, InlineExecutor
-from backend.survival.creatures.defense import FIGHT_KEEP, FLEE_REACH, QUIET, armed, clear_line, fight_target, threats
+from backend.survival.creatures.defense import (
+    FIGHT_KEEP, FLEE_KEEP, FLEE_REACH, QUIET, armed, clear_line, fight_target, threats,
+)
 from backend.survival.creatures.harm import hurt_pet
+from backend.survival.creatures.hostiles import GIVE_UP
 from backend.survival.creatures.kinds import KINDS, hostile_kinds
 from backend.survival.creatures.simulate import simulate
 from backend.survival.creatures.table import Herd, create_creature_tables, dead
@@ -26,6 +30,7 @@ from backend.survival.tick import MAX_STEP_SECONDS, tick_life
 from backend.survival.triggers import new_brain
 from backend.survival.vitals import START_VITALS
 from backend.survival.world import SurvivalWorld, read_state, write_state
+from backend.tests.budget import best_mean
 
 NIGHT = {"phase": "night", "seconds_into_day": 3000.0, "time_scale": 1.0, "day_number": 1}
 BORN = 1_000_000.0
@@ -37,6 +42,21 @@ def meadow(blocks=None):
     grid = Grid(lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air")
     for cell, block in (blocks or {}).items():
         grid.put(*cell, block)
+    db = sqlite3.connect(":memory:")
+    create_memory_tables(db)
+    create_creature_tables(db)
+    grid.herd = Herd(db)
+    return grid
+
+
+def half_sea(x_threshold=10):
+    """Grass and dirt for x below `x_threshold`, open water beyond it, at every height: a flee run
+    straight into +x would land in the sea."""
+    def material(x, y, z):
+        if x >= x_threshold:
+            return "water"
+        return "grass" if y == 0 else "dirt" if y < 0 else "air"
+    grid = Grid(material)
     db = sqlite3.connect(":memory:")
     create_memory_tables(db)
     create_creature_tables(db)
@@ -177,18 +197,48 @@ class FleeTests(unittest.TestCase):
         self.assertGreater(math.hypot(target[0] + 12, target[2]), 4.0)
         self.assertGreater(math.hypot(target[0] - 5, target[2]), 12.0)  # still away from the threat
 
-    def test_a_flight_goes_on_while_the_threat_is_still_close(self):
+    def test_a_flee_target_never_lands_on_water(self):
+        # Followup fix: a flight used to be free to run Mimo out over open water and strand it
+        # there once the threat behind it gave up.
+        grid = half_sea()
+        hostile(grid, cell=(-12, 1, 0))  # straight away is +x, into the sea past x=10
+        target = FLEE.plan(situation(grid, pet()), context(grid))[0]["target"]
+        self.assertLess(target[0], 10)
+        self.assertFalse(grid.water(tuple(target)))
+
+    def test_a_flight_goes_on_while_the_threat_still_chases_up_to_its_give_up_distance(self):
+        # Followup fix: a flight used to stop at a fixed 8 blocks while a roused hostile kept
+        # coming to hostiles.GIVE_UP (24), so Mimo often "escaped" only to be walked down again.
         grid = meadow()
-        hostile(grid, cell=(7, 1, 0))
+        hostile(grid, cell=(7, 1, 0), chasing=True)
         state = pet()
         self.assertFalse(FLEE.trigger(situation(grid, state)))  # 7 blocks: too far to start running
         state["brain"]["reflex_ends"]["flee"] = 100.0 - 1.0  # it ran a moment ago
         self.assertTrue(FLEE.trigger(situation(grid, state)))
-        far = meadow()
-        hostile(far, cell=(9, 1, 0))
-        self.assertFalse(FLEE.trigger(situation(far, state)))  # past FLEE_CLEAR: the flight is over
+        near_give_up = meadow()
+        hostile(near_give_up, cell=(GIVE_UP - 1, 1, 0), chasing=True)  # past threats()'s CHASE_SIGHT
+        self.assertTrue(FLEE.trigger(situation(near_give_up, state)))  # still chasing: the flight goes on
+        past_give_up = meadow()
+        hostile(past_give_up, cell=(GIVE_UP + 1, 1, 0), chasing=True)
+        self.assertFalse(FLEE.trigger(situation(past_give_up, state)))  # past give-up: the flight is over
+        gave_up = meadow()
+        hostile(gave_up, cell=(7, 1, 0), chasing=False)
+        self.assertFalse(FLEE.trigger(situation(gave_up, state)))  # close but no longer chasing: it gave up
         state["brain"]["reflex_ends"]["flee"] = 100.0 - 60.0
         self.assertFalse(FLEE.trigger(situation(grid, state)))  # a flight long over does not count
+
+    def test_the_flight_memory_is_paced_like_the_cooldown_it_answers(self):
+        # Followup fix: `fleeing` used to multiply by the game clock's time_scale while the flee
+        # cooldown is paced by MIMO_ACTION_SCALE, so at time_scale 60 with action_scale 1 (a manual
+        # run) the flight "ended" 60 times faster than the running itself did.
+        grid = meadow()
+        hostile(grid, cell=(GIVE_UP - 1, 1, 0), chasing=True)
+        state = pet()
+        state["brain"]["reflex_ends"]["flee"] = 100.0 - (FLEE_KEEP - 0.5)  # just inside the window
+        fast_clock = Situation(state, grid, {**NIGHT, "time_scale": 60.0}, 100.0, grid.herd.db, 1.0)
+        self.assertTrue(FLEE.trigger(fast_clock))  # action_scale 1: still well within FLEE_KEEP
+        paced = Situation(state, grid, NIGHT, 100.0, grid.herd.db, 60.0)
+        self.assertFalse(FLEE.trigger(paced))  # action_scale 60: FLEE_KEEP/60 has long passed
 
     def test_a_flight_is_short_to_restart_and_ends_the_purpose(self):
         self.assertLessEqual(FLEE_REACH, 2.0)
@@ -509,6 +559,47 @@ class HatchedWorldTests(unittest.TestCase):
         state, kinds = self.night_with({"stone_sword": 1}, "skitter", health=45.0, seconds=600, seed=7)
         self.assertIsNone(state["died_at"], state["cause"])
         self.assertIn("fight", kinds)
+
+    def test_creatures_cost_well_under_twenty_milliseconds_a_slice_while_fleeing_two_hostiles(self):
+        """Followup fix: an unarmed pet flanked by a gloomling and a skitter (among_two_hostiles),
+        caught up a 60-game-second transaction at a time -- occasional blows land, so a hostile
+        stays close by for real across the run, not left behind after one dash. `populate` used to
+        cost about 5.7 ms of the slice's budget on new chunks a flight ran into while a hostile was
+        still near. A slice is one such transaction; best of up to 3 runs (backend.tests.budget)."""
+        def run() -> list[float]:
+            spent = [0.0] * 5
+
+            def timed(*args, **kwargs):
+                start = time.perf_counter()
+                real(*args, **kwargs)
+                spent[call - 1] += time.perf_counter() - start
+
+            with tempfile.TemporaryDirectory() as root:
+                registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+                life = hatch(registry, random.Random(3), timestamp=BORN)
+                world = SurvivalWorld(registry.world_path(life))
+                with world.transaction() as db:
+                    state = read_state(db)
+                    state["born_at"] = BORN - 2450.0  # early in the first night
+                    for sword in ("wooden_sword", "stone_sword", "iron_sword", "bow", "arrow"):
+                        state["inventory"].pop(sword, None)
+                    write_state(db, state)
+                    x, _, z = (round(state["position"][axis]) for axis in "xyz")
+                    for kind, cx in (("gloomling", x + 3), ("skitter", x - 3)):
+                        cell = (cx, terrain_height(cx, z, state["world_seed"]) + 1, z)
+                        Herd(db).add(kind, cell, KINDS[kind].health, BORN, BORN, {"home": list(cell), "turn": 0})
+                chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(3), scale=1.0)
+                with patch("backend.survival.tick.simulate", timed), \
+                        patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):
+                    for call in range(1, 6):
+                        at = BORN + call * MAX_STEP_SECONDS
+                        state = tick_life(registry, at, scale=1.0, mind=BRAIN, action_scale=1.0)
+                        self.assertIsNone(state["died_at"], state["cause"])
+                        chooser.poll(registry, at)
+            return spent
+
+        real = tick.simulate
+        self.assertLess(best_mean(run, 0.020), 0.020)
 
 
 if __name__ == "__main__":

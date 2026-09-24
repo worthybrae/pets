@@ -34,6 +34,12 @@ class Situation:
     clock: dict
     at: float
     db: sqlite3.Connection | None = None
+    # L2 followup fix: how many times shorter Mimo's steps are (MIMO_ACTION_SCALE), the same pacing
+    # a reflex's cooldown uses (reflexes.reflex_hook), so a trigger that measures its own hysteresis
+    # in action time (defense.fleeing) agrees with the cooldown instead of drifting from it when
+    # time_scale and action_scale differ. from_db has no ActionContext to read it from, so it keeps
+    # the default of 1 (nothing there is paced).
+    action_scale: float = 1.0
     # What Mimo sensed, kept for this Situation: a purpose's check, facts, score and plan look once.
     memo: dict = field(default_factory=dict)
 
@@ -104,7 +110,7 @@ class Situation:
 
 
 def in_tick(state: dict, context: ActionContext, at: float) -> Situation:
-    return Situation(state, context.grid, context.clock_at(at), at, context.db)
+    return Situation(state, context.grid, context.clock_at(at), at, context.db, context.action_scale)
 
 
 def from_db(db: sqlite3.Connection, state: dict, at: float, scale: float) -> Situation:

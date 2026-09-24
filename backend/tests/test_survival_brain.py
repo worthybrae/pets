@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.brain import BRAIN, brain_plan, notice_step, observe_step
@@ -72,6 +73,26 @@ class BrainPlanTests(unittest.TestCase):
         plan = brain_plan(state, brainy(clock=lambda at: NIGHT), 0.0)
         self.assertEqual([step["kind"] for step in plan], ["sleep"])
         self.assertEqual(state["brain"]["pending"]["reasons"], ["born"])
+
+    def test_waiting_for_a_choice_afloat_swims_for_land_instead_of_sleeping(self):
+        # Followup fix: never asleep afloat either (senses.afloat), the same guard as never asleep
+        # near a threat (test_after_a_flight_it_does_not_lie_down_again_while_a_threat_is_near,
+        # backend/tests/test_survival_defense.py) -- it swims for land or a known home first
+        # (purposes.land_refuge).
+        state = pet()
+        afloat = flat(cells={(0, 0, 0): "water"})  # Mimo's cell (0,1,0) floats on the water below
+        refuge = {"kind": "walk", "target": [5, 1, 0], "reach": 0.0}
+        with patch("backend.survival.brain.land_refuge", lambda s: refuge):
+            plan = brain_plan(state, brainy(grid=afloat, clock=lambda at: NIGHT), 0.0)
+        self.assertEqual(plan, [refuge])
+        # once land_refuge finds nothing (open water, nothing dry nearby), it waits rather than
+        # sleeps where it floats.
+        with patch("backend.survival.brain.land_refuge", lambda s: None):
+            still_afloat = brain_plan(pet(), brainy(grid=afloat, clock=lambda at: NIGHT), 0.0)
+        self.assertEqual(still_afloat, WAIT)
+        # on dry ground a purpose-less night is slept as before.
+        dry_plan = brain_plan(pet(), brainy(clock=lambda at: NIGHT), 0.0)
+        self.assertEqual([step["kind"] for step in dry_plan], ["sleep"])
 
     def test_a_purpose_plans_tagged_batches_until_it_is_done(self):
         state = pet()

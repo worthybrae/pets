@@ -36,8 +36,13 @@ const CAUSES: Record<string, string> = {
 const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature'])
 /** How close (blocks, across) a hostile creature is for the HUD to warn of it. */
 export const DANGER_REACH = 12
-/** How far above or below Mimo it may be (the server's CHASE_RISE): deeper is a cave under its feet. */
-export const DANGER_RISE = 4
+/**
+ * How far above or below Mimo it may be, matching the server's THREAT_RISE
+ * (backend/survival/creatures/defense.py): the same rule that decides whether a hostile can raise
+ * an alarm or turn Mimo to flee or fight, so the HUD's warning means the same "dangerous" the game
+ * does. Deeper is a cave under Mimo's feet.
+ */
+export const DANGER_RISE = 2
 /** How long after a blow (server seconds) its flash may still start. */
 const FLASH_WINDOW = 3
 

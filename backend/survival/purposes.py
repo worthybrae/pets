@@ -53,7 +53,7 @@ from backend.survival.beds import to_bed
 from backend.survival.exploring import explore_target, survey, survey_text
 from backend.survival.memory import BUILT, SHELTER_KINDS, cell_of, nearest
 from backend.survival.once import log_once
-from backend.survival.senses import TREE_SEARCH, trees_near
+from backend.survival.senses import TREE_SEARCH, WATER_SIGHT, afloat, shores_near, trees_near
 from backend.survival.situation import DUSK, NIGHTFALL, Situation
 from backend.survival.steps import FOOD, FOOD_HEALTH
 
@@ -136,6 +136,22 @@ def at_home(s: Situation, reach: float = AT_HOME) -> bool:
     return home is not None and s.distance(cell_of(home)) <= reach
 
 
+def land_refuge(s: Situation) -> dict | None:
+    """A walk out of the water Mimo stands in (senses.afloat), to a known home or shelter first,
+    else the nearest natural shore (senses.shores_near); None once Mimo is on dry ground already,
+    or none is found nearby. L2 followup fix: sleep and rest never lie Mimo down afloat (plan_sleep,
+    plan_rest, backend.survival.brain.waiting) -- a flee run never picks a target on water either
+    (creatures.defense.run_away), but Mimo can still wander into it on its own, and asleep there it
+    is an easy catch."""
+    if not afloat(s.grid, s.here):
+        return None
+    home = home_of(s)
+    if home is not None:
+        return walk_to(cell_of(home))
+    shores = shores_near(s.grid, s.seed, s.here, WATER_SIGHT)
+    return walk_to(shores[0][0]) if shores else None
+
+
 def late_day(s: Situation) -> bool:
     """Dusk, or the last 5 game minutes of the day before it."""
     return s.phase == "dusk" or (s.phase == "day" and s.clock["seconds_into_day"] >= LATE_DAY)
@@ -190,7 +206,11 @@ def rest_score(s: Situation) -> float:
 
 
 def plan_rest(s: Situation, context: ActionContext) -> list[dict]:
-    """Wait in short steps until a trigger other than idle is pending, at most 10 game minutes."""
+    """Wait in short steps until a trigger other than idle is pending, at most 10 game minutes.
+    Followup fix: swims for land first when Mimo is afloat (land_refuge), instead of waiting there."""
+    refuge = land_refuge(s)
+    if refuge is not None:
+        return [refuge]
     pending = s.brain["pending"]
     if pending is not None and set(pending["reasons"]) - {"idle"}:
         return []
@@ -231,7 +251,13 @@ def sleep_score(s: Situation) -> float:
 
 def plan_sleep(s: Situation, context: ActionContext) -> list[dict]:
     """Walk onto a bed within 8 blocks (M5), else to a shelter within 8 blocks, then sleep; at
-    dusk, wait there for nightfall. After a walk there failed, sleep where Mimo stands."""
+    dusk, wait there for nightfall. After a walk there failed, sleep where Mimo stands. Followup
+    fix: never lies down afloat (land_refuge) -- it swims for a known home or the nearest shore
+    first, even after a failed attempt (`tried`), since that failure was land_refuge's own walk,
+    not a walk to bed."""
+    refuge = land_refuge(s)
+    if refuge is not None:
+        return [refuge]
     steps = []
     home = nearest(s.places, s.here, SHELTER_KINDS, SLEEP_HOME_REACH)
     tried = (s.state.get("last_failure") or {}).get("purpose") == "sleep"

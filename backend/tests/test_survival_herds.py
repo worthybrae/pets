@@ -193,6 +193,27 @@ class SimulateTests(unittest.TestCase):
     def test_without_a_database_nothing_happens(self):
         simulate(pet(), context(flat(), None), 5.0)
 
+    def test_herd_spawning_waits_while_a_hostile_is_near_mimo(self):
+        """Followup fix: `populate` used to run on the slice's one ordinary call even while a
+        hostile chased Mimo through new chunks -- about 5.7 ms of a slice's budget for herds
+        beside the point while Mimo was busy running or fighting (hostiles.hostile_near)."""
+        near_grid, near_creatures = flat(), herd()
+        near_grid.herd = near_creatures
+        near_creatures.add("gloomling", (2, 1, 0), 20.0, 0.0, 0.0, {"home": [2, 1, 0]})
+        spawned = []
+        with patch("backend.survival.creatures.simulate.populate", lambda scene, loaded, scale: spawned.append(1) or []):
+            simulate(pet(0, 0), context(near_grid, near_creatures.db), 5.0)
+        self.assertEqual(spawned, [])  # a hostile is close: herd spawning waits
+
+        far_grid, far_creatures = flat(), herd()
+        far_grid.herd = far_creatures
+        far_creatures.add("gloomling", (200, 1, 0), 20.0, 0.0, 0.0, {"home": [200, 1, 0]})
+        spawned_far = []
+        with patch("backend.survival.creatures.simulate.populate",
+                  lambda scene, loaded, scale: spawned_far.append(1) or []):
+            simulate(pet(0, 0), context(far_grid, far_creatures.db), 5.0)
+        self.assertEqual(spawned_far, [1])  # nothing hostile close: herd spawning runs as usual
+
 
 class TickTests(unittest.TestCase):
     def hatched(self, root):

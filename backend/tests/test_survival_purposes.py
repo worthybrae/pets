@@ -7,7 +7,7 @@ from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, know, mark_explored, patch_of, remember
 from backend.survival.once import forget_logged
-from backend.survival.purposes import PURPOSES, Purpose, meal, offered, register
+from backend.survival.purposes import PURPOSES, Purpose, land_refuge, meal, offered, register
 from backend.survival.situation import Situation
 from backend.survival.vitals import START_VITALS
 
@@ -106,6 +106,34 @@ class SimplePurposeTests(unittest.TestCase):
         self.assertNotIn("sleep", names(situation(clock={**DAY, "seconds_into_day": 2030.0},
                                                   places=[("home", (1, 1, 0))])))
         self.assertNotIn("sleep", names(situation(clock=window, places=[("home", (30, 1, 0))])))
+
+    def test_sleep_and_rest_never_start_afloat_they_swim_for_a_known_home_first(self):
+        # Followup fix: a flee run never picks a target on water (creatures.defense.run_away), but
+        # Mimo can still wander into it on its own; asleep there it was an easy catch.
+        afloat = flat(cells={(0, 0, 0): "water"})  # Mimo's cell (0,1,0) floats on water below
+        s = situation(clock=NIGHT, grid=afloat, places=[("home", (5, 1, 0))])
+        self.assertEqual(PURPOSES["sleep"].plan(s, context()), [{"kind": "walk", "target": [5, 1, 0], "reach": 0.0}])
+        self.assertEqual(PURPOSES["rest"].plan(s, context()), [{"kind": "walk", "target": [5, 1, 0], "reach": 0.0}])
+        # Even after a failed attempt to reach a bed, land comes first, not sleeping where it floats.
+        s.state["last_failure"] = {"code": "no_path", "reason": "no way there", "kind": "walk",
+                                   "cell": {"x": 5, "y": 1, "z": 0}, "purpose": "sleep", "at": 0.0, "seq": 1}
+        self.assertEqual(PURPOSES["sleep"].plan(s, context()), [{"kind": "walk", "target": [5, 1, 0], "reach": 0.0}])
+        # Once Mimo is on dry ground, sleep and rest behave as before.
+        dry = situation(clock=NIGHT, places=[("home", (5, 1, 0))])
+        self.assertEqual(PURPOSES["sleep"].plan(dry, context()),
+                         [{"kind": "walk", "target": [5, 1, 0], "reach": 0.0}, {"kind": "sleep"}])
+
+    def test_land_refuge_prefers_a_known_home_then_the_nearest_shore(self):
+        dry = situation()
+        self.assertIsNone(land_refuge(dry))  # on dry ground already: nothing to do
+        afloat = flat(cells={(0, 0, 0): "water"})
+        homeless = situation(grid=afloat)
+        with patch("backend.survival.purposes.shores_near", lambda grid, seed, here, radius: [((9, 1, 0), (10, 1, 0))]):
+            self.assertEqual(land_refuge(homeless), {"kind": "walk", "target": [9, 1, 0], "reach": 0.0})
+        with patch("backend.survival.purposes.shores_near", lambda grid, seed, here, radius: []):
+            self.assertIsNone(land_refuge(homeless))  # nowhere dry found nearby either
+        homed = situation(grid=afloat, places=[("home", (5, 1, 0))])
+        self.assertEqual(land_refuge(homed), {"kind": "walk", "target": [5, 1, 0], "reach": 0.0})  # home first
 
     def test_rest_lasts_until_a_trigger_for_at_most_ten_game_minutes(self):
         s = situation()

@@ -23,6 +23,11 @@ which knows whether a call is one of those short steps or the slice's one final 
 so only hostiles act on a fight step; herd spawning and every animal's turn still run once a slice,
 at the final call, the ordinary L1 cadence.
 
+Followup fix: that final call still spent about 5.7 ms of the slice's budget on `populate` even
+while a hostile chased Mimo through new chunks, animals it had no time to look at. `simulate` now
+skips `populate` there too whenever a hostile is near (hostiles.hostile_near, the same reach
+tick.py slices short steps for); the chunk spawns as soon as nothing hostile is close by.
+
 The budget (spec L2: creatures and light checks at most 20 ms a slice on average) is per slice, one
 60-game-second transaction, the catch-up cadence (backend.survival.tick.MAX_STEP_SECONDS). At the
 worker's live 1x cadence, a transaction a real second, the same creatures cost about 1.3 ms a real
@@ -38,6 +43,7 @@ from typing import TYPE_CHECKING
 
 from backend.survival.creatures.acts import Scene, act
 from backend.survival.creatures.darkness import spawn_hostiles
+from backend.survival.creatures.hostiles import hostile_near
 from backend.survival.creatures.kinds import hostile_kinds, kind_of
 from backend.survival.creatures.spawning import SIM_REACH, populate
 from backend.survival.creatures.table import dead
@@ -61,7 +67,9 @@ def simulate(state: dict, context: ActionContext, at: float, fight_step: bool = 
 
     `fight_step` (fix round 2): a short 1-second step (backend.survival.tick, FIGHT_SLICE) taken
     only to see where a hostile near Mimo is now, not the slice's one ordinary call -- so herd
-    spawning and every animal's turn are skipped, and only hostile rows are even loaded."""
+    spawning and every animal's turn are skipped, and only hostile rows are even loaded. Followup
+    fix: even the slice's one ordinary call skips herd spawning (not the rest) while a hostile is
+    near (hostile_near)."""
     grid = context.grid
     if context.db is None or grid.herd is None:
         return
@@ -74,7 +82,12 @@ def simulate(state: dict, context: ActionContext, at: float, fight_step: bool = 
         loaded = grid.herd.near(x, z, SIM_REACH, kinds=hostile_kinds())
     else:
         loaded = grid.herd.near(x, z, SIM_REACH)
-        loaded += populate(scene, loaded, scale)
+        # Followup fix: while a hostile is near enough to reach Mimo (hostile_near, the same reach
+        # tick.py slices short steps for), skip herd spawning too -- new chunks a flight runs into
+        # cost about 5.7 ms of populate() a slice for herds that are beside the point while Mimo is
+        # busy running or fighting. The chunk still spawns once nothing hostile is close by.
+        if not hostile_near(grid, context.db, state):
+            loaded += populate(scene, loaded, scale)
     loaded += spawn_hostiles(scene)
     for creature in loaded:
         if dead(creature) and at - creature["state"].get("dead_at", at) > DEAD_KEEP:

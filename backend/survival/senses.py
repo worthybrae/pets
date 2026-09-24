@@ -150,6 +150,14 @@ def shores_near(grid: Grid, seed: str, here: Cell, radius: float = WATER_SIGHT) 
     return [(stand, found[stand]) for stand in by_distance(found, here)]
 
 
+def afloat(grid: Grid, cell: Cell) -> bool:
+    """Mimo's body is in or on water at `cell`: submerged (grid.water) or floating on the surface
+    (grid.swimming). L2 followup fix: a flee target is never chosen here (creatures.defense.run_away)
+    and sleep or rest never starts here (backend.survival.purposes, backend.survival.brain) --
+    Mimo swims for land instead (purposes.land_refuge)."""
+    return grid.water(cell) or grid.swimming(cell)
+
+
 def near_failure(state: dict, cell: Cell, radius: float = FAILED_REACH) -> bool:
     """A step failed lately within `radius` blocks (horizontally) of `cell`: somewhere Mimo could
     not get to, so the cells around it are left alone for a while too."""

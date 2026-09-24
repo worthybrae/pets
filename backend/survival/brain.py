@@ -46,10 +46,10 @@ from backend.survival.exploring import note_ground
 from backend.survival.learning import learn_from_step
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
-from backend.survival.purposes import PURPOSES, Purpose, is_valid
+from backend.survival.purposes import PURPOSES, Purpose, is_valid, land_refuge
 from backend.survival.reflexes import by_name, end_reflex, reflex_hook
 from backend.survival.script import rest_plan
-from backend.survival.senses import ORES, ores_around
+from backend.survival.senses import ORES, afloat, ores_around
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell, label
 from backend.survival.tick import Mind
@@ -66,12 +66,19 @@ def waiting(state: dict, context: ActionContext, at: float) -> list[dict]:
     """Wait for a choice, asking for one if nothing is pending: asleep at night (rest_plan's
     rule), else a second at a time so a choice starts promptly. L2 final fix wave: never asleep
     while a hostile could come after Mimo (defense.threats), such as just after a flight (flee
-    ends the purpose): it stays awake, a second at a time, until the next choice."""
+    ends the purpose): it stays awake, a second at a time, until the next choice. Followup fix:
+    never asleep afloat either (senses.afloat) -- it swims for land or a known home first
+    (purposes.land_refuge), the same guard plan_sleep and plan_rest use once a purpose is chosen."""
     if ensure_brain(state)["pending"] is None:
         mark_trigger(state, "idle", at)
+    s = in_tick(state, context, at)
     plan = rest_plan(state, context, at)
-    if plan and plan[0]["kind"] == "sleep" and not defense.threats(in_tick(state, context, at)):
-        return plan
+    if plan and plan[0]["kind"] == "sleep":
+        if not defense.threats(s) and not afloat(s.grid, s.here):
+            return plan
+        refuge = land_refuge(s)
+        if refuge is not None:
+            return [refuge]
     return [{"kind": "wait", "seconds": PENDING_WAIT}]
 
 
