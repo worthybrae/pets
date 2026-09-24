@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 
+from backend.services.blocks import CANOPY
 from backend.services.worldgen import hash32
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell
@@ -35,9 +36,11 @@ CHANCE_DROPS = {"tall_grass": (("seeds", 0.2, 30), ("carrot", 0.05, 31)),
                 "gravel": (("flint", 1 / 8, 38),)}  # L2: flint for arrows
 
 
-# L3: birch and spruce leaves decay like oak's and drop saplings too, but no apples.
-LEAVES = ("leaves", "birch_leaves", "spruce_leaves")
-CHANCE_DROPS.update({leaf: (("sapling", 1 / 12, 32),) for leaf in LEAVES[1:]})
+# L3: birch and spruce leaves decay like oak's and drop saplings too, but no apples. Fix round 1
+# minor 5: this is exactly blocks.CANOPY's semantics (leaves that decay and drop a sapling), so it
+# is named once there and only used here, instead of naming the three blocks again by hand.
+LEAVES = tuple(sorted(CANOPY))
+CHANCE_DROPS.update({leaf: (("sapling", 1 / 12, 32),) for leaf in LEAVES if leaf != "leaves"})
 # L3: a creature seed, 1 in 60, from tall grass and every kind of leaves; planted on grass it is a
 # sprout that grows into an animal (backend.survival.creatures.seeds).
 for _block in ("tall_grass", *LEAVES):

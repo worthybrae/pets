@@ -44,7 +44,8 @@ def context(grid=None):
 
 
 def names(s):
-    """The simple purposes on offer (other test modules may have registered more)."""
+    """The simple purposes on offer, in name order (fix round 1: offered() no longer follows
+    registration order; other test modules may have registered more)."""
     return [purpose.name for purpose in offered(s) if purpose.name in SIMPLE]
 
 
@@ -76,11 +77,11 @@ class RegistryTests(unittest.TestCase):
 
 class SimplePurposeTests(unittest.TestCase):
     def test_by_day_rest_and_explore_are_offered(self):
-        self.assertEqual(names(situation()), ["rest", "explore"])
+        self.assertEqual(names(situation()), ["explore", "rest"])
 
     def test_at_night_mimo_goes_home_then_sleeps(self):
         away = situation(clock=NIGHT, places=[("home", (20, 1, 0))])
-        self.assertEqual(names(away), ["rest", "sleep", "go_home"])
+        self.assertEqual(names(away), ["go_home", "rest", "sleep"])
         self.assertEqual(PURPOSES["go_home"].plan(away, context()), [{"kind": "walk", "target": [20, 1, 0], "reach": 0.0}])
         self.assertGreater(PURPOSES["go_home"].score(away), PURPOSES["sleep"].score(away))
         near = situation(clock=NIGHT, places=[("home", (5, 1, 0))])

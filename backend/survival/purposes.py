@@ -114,8 +114,12 @@ def is_valid(purpose: Purpose, situation: Situation) -> bool:
 
 
 def offered(situation: Situation) -> list[Purpose]:
-    """The purposes on offer right now, in registration order."""
-    return [purpose for purpose in PURPOSES.values() if is_valid(purpose, situation)]
+    """The purposes on offer right now, in name order. Fix round 1: registration order (the order
+    the purpose modules happen to import in) used to leak into `pickers.utility_pick`'s jitter, one
+    `rng.uniform` call per option in list order, so a seeded run gave different picks under
+    `unittest discover` (every test module imported first) than run alone. Name order is the same
+    however the modules import."""
+    return [purpose for _, purpose in sorted(PURPOSES.items()) if is_valid(purpose, situation)]
 
 
 def walk_to(cell, reach: float = 0.0) -> dict:

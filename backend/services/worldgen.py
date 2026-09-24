@@ -57,6 +57,11 @@ CAVE_OPEN = 0.22  # the network is open above this (it was 0.27)
 CAVE_ROOM = -0.15  # and its rooms are carved where the finer noise is above this (it was -0.12)
 LAKE_LEVEL = -2  # in a lake region, cave cells this low are water
 LAVA_LEVEL = -4  # in a lava region, the lowest cave cells (just above bedrock) are lava
+# Fix round 1 (Task 4 review minor 5): the lava/lake region's own noise2 parameters, named once and
+# shared by cave_fill and lava_in_chunk (and worldgen.ts's caveFill) so the two can never drift apart.
+LAVA_SCALE = 32  # blocks across the lava region's noise
+LAVA_CHANNEL = 28
+LAVA_REGION = 0.25  # a lava region is where that noise is above this
 GOLD_RARITY = 181  # stone cells per gold ore, at y 0 and below
 GOLD_DEPTH = 0
 DIAMOND_RARITY = 331  # stone cells per diamond ore, at y -3 and below
@@ -70,7 +75,8 @@ MOUTH_TRIES = 6  # spots a region tries for a hillside mouth
 OUTCROP_GROUND = 8  # outcrops crown ground at least this high
 BOULDERS = {"desert": "sandstone", "meadow": "andesite", "alpine": "stone"}  # else mossy cobblestone
 OUTCROPS = {"desert": "sandstone", "taiga": "andesite", "birch_forest": "diorite", "alpine": "granite"}  # else stone
-ROCK_TOP = 3  # the highest an outcrop's pillar stands over its ground (a boulder is lower)
+PILLAR_LAYERS = 3  # fix round 1: an outcrop's pillar rises 1 to this many layers over its ground (rock_column)
+ROCK_TOP = PILLAR_LAYERS  # the highest an outcrop's pillar stands over its ground (a boulder is lower)
 FEATURE_TOP = max(CANOPY_TOP, ROCK_TOP)  # the highest anything generated stands over a column's ground
 EMPTY_SPANS: Mapping[tuple[int, int], tuple[int, int]] = types.MappingProxyType({})
 
@@ -226,7 +232,7 @@ def cave_fill(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     lava region, else air."""
     if y <= LAKE_LEVEL and noise2(x, z, 40, seed, 27) > 0.3:
         return "water"
-    if y == LAVA_LEVEL and noise2(x, z, 32, seed, 28) > 0.25:
+    if y == LAVA_LEVEL and noise2(x, z, LAVA_SCALE, seed, LAVA_CHANNEL) > LAVA_REGION:
         return "lava"
     return "air"
 
@@ -234,9 +240,15 @@ def cave_fill(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
 @lru_cache(maxsize=4096)
 def lava_in_chunk(cx: int, cz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[tuple[int, int, int], ...]:
     """The lava cells the generator makes in a 16x16 chunk (all at LAVA_LEVEL), for the light they give
-    (backend.survival.light). Python only: the viewer draws lava glowing without it."""
+    (backend.survival.light). Python only: the viewer draws lava glowing without it. Fix round 1: this
+    tested the whole terrain_block (biome, home ground, cave entrances and all), costing about 4 ms a
+    chunk; it now tests cave_at and cave_fill directly, the same pair terrain_block itself would reach
+    for a cell this deep outside the legacy clearing and clear of any cave entrance, for the same
+    result at a fraction of the cost. The noise2 check is still first, so most cells (no lava region)
+    never reach cave_at's pair of 3D noise calls at all."""
     return tuple((x, LAVA_LEVEL, z) for x in range(cx * 16, cx * 16 + 16) for z in range(cz * 16, cz * 16 + 16)
-                 if noise2(x, z, 32, seed, 28) > 0.25 and terrain_block(x, LAVA_LEVEL, z, seed) == "lava")
+                 if noise2(x, z, LAVA_SCALE, seed, LAVA_CHANNEL) > LAVA_REGION
+                 and cave_at(x, LAVA_LEVEL, z, seed) and cave_fill(x, LAVA_LEVEL, z, seed) == "lava")
 
 
 def gravel_floor(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
@@ -428,7 +440,7 @@ def rock_column(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int
             layers = sum(1 for dy in range(1, size + 1)
                          if dx * dx + dz * dz + (dy - 0.5) * (dy - 0.5) * 1.6 <= (size + 0.5) * (size + 0.5))
         elif dx * dx + dz * dz <= size * size and ((dx, dz) == (0, 0) or hash32(x, 3, z, seed, 85) % 3 != 0):
-            layers = 1 + hash32(x, 2, z, seed, 85) % 3
+            layers = 1 + hash32(x, 2, z, seed, 85) % PILLAR_LAYERS
         else:
             layers = 0
         ground = terrain_height(x, z, seed)

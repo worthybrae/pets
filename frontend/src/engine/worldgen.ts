@@ -46,6 +46,11 @@ const CAVE_OPEN = 0.22
 const CAVE_ROOM = -0.15
 const LAKE_LEVEL = -2
 const LAVA_LEVEL = -4
+// Fix round 1 (Task 4 review minor 5): named to match backend/services/worldgen.py's cave_fill and
+// lava_in_chunk exactly, so the two can never drift apart.
+const LAVA_SCALE = 32
+const LAVA_CHANNEL = 28
+const LAVA_REGION = 0.25
 const GOLD_RARITY = 181
 const GOLD_DEPTH = 0
 const DIAMOND_RARITY = 331
@@ -206,7 +211,7 @@ export function caveAt(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEE
  * region, else air. */
 export function caveFill(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string {
   if (y <= LAKE_LEVEL && noise2(x, z, 40, seed, 27) > 0.3) return 'water'
-  if (y === LAVA_LEVEL && noise2(x, z, 32, seed, 28) > 0.25) return 'lava'
+  if (y === LAVA_LEVEL && noise2(x, z, LAVA_SCALE, seed, LAVA_CHANNEL) > LAVA_REGION) return 'lava'
   return 'air'
 }
 

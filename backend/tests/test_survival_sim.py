@@ -44,7 +44,14 @@ SAMPLE = 30.0  # game seconds between reachability checks
 # hours reached 46, and 54 to 58 in slow mode as L2's last fixes landed, where seed 11's Jev pet
 # goes two days without a chest: its arms stay full, and it swings between digging stone and
 # dropping the loose blocks.
-PURPOSE_EVENTS_PER_HOUR = 60 if SLOW else 52
+# Fix round 1: that 54-58 spread was partly `utility_pick`'s jitter following the purpose
+# registry's import order (defect 4), not a real change of behaviour -- offered() now returns
+# purposes in name order, the same however the test modules happen to import, and test_survival_sim
+# gives the same numbers run alone and under discover. With the order pinned down, the busiest
+# hours are 44-50 by default (the reviewer's probe also saw at most 50) and 38-51 in slow mode
+# (seed 21, Jev, at 51), so the default budget holds with margin at 52 and the slow one comes down
+# from 60 to 55.
+PURPOSE_EVENTS_PER_HOUR = 55 if SLOW else 52
 TRAPPED_AT_MOST = 180.0  # game seconds
 
 

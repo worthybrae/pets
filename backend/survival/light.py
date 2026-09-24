@@ -59,10 +59,19 @@ class Lights:
                         for cell, material in grid.placed_cells(x, z, reach + LIGHT_REACH, tuple(BLOCK_LIGHT))]
 
     def at(self, cell: Cell) -> int:
-        """The block light at `cell`: the brightest source less its Manhattan distance, at least 0."""
+        """The block light at `cell`: the brightest source less its Manhattan distance, at least 0.
+        Fix round 1: `lava_light` (a chunk scan) is skipped when it cannot change the answer -- when
+        `y` alone already puts lava's best possible gift at or under DARK (only a cell within
+        LAVA_LIGHT - DARK of LAVA_LEVEL can ever be lit past DARK by lava), or when a placed light
+        here already outshines that best case."""
         x, y, z = cell
         level = max([level - abs(x - sx) - abs(y - sy) - abs(z - sz) for (sx, sy, sz), level in self.sources] + [0])
-        return max(level, lava_light(self.grid, self.seed, cell)) if self.seed is not None else level
+        if self.seed is None:
+            return level
+        cap = LAVA_LIGHT - abs(y - LAVA_LEVEL)
+        if cap <= DARK or level >= cap:
+            return level
+        return max(level, lava_light(self.grid, self.seed, cell))
 
 
 def lava_light(grid: Grid, seed: str, cell: Cell) -> int:

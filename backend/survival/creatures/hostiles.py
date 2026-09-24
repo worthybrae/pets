@@ -13,7 +13,8 @@ in the registry and act through the creature-action registry, ahead of the anima
 - strike (4): within its reach of a living Mimo, with nothing solid between them (`can_hit`: a
   blow does not go through a wall or round a roof's edge), once its cooldown has passed, it hits
   Mimo (backend.survival.creatures.harm) and waits out the cooldown; never while Mimo is inside
-  its shelter (harm.sheltered).
+  its shelter (harm.sheltered), and (fix round 1) never while it is resting after losing interest
+  in an earlier chase (`resting`).
 - chase (6): within 16 blocks of Mimo (and no more than 4 above or below it, so what lives in a
   cave under Mimo's feet leaves it be), or 24 once it is after Mimo or was just hurt by it, it
   moves up to 2 blocks toward Mimo, each step to the neighbour nearest Mimo, never through a
@@ -27,7 +28,12 @@ in the registry and act through the creature-action registry, ahead of the anima
 - L3 (L2's review): a chaser loses interest once the chase has gone BORED game seconds since it
   began, its last blow or Mimo's last blow on it, or once Mimo has been out of its sight
   (`in_sight`) for SIGHT_LOST game seconds; it then leaves Mimo be for BORED_REST game seconds
-  unless Mimo hurts it (`lost_interest`), so a flight from it ends as well.
+  unless Mimo hurts it (`lost_interest`), so a flight from it ends as well. Fix round 1: `in_sight`
+  draws its line eye to eye, not foot to foot, so a 1-block rise never hides Mimo; a chase's clock
+  (`begin_chase`) starts the moment it opens, whether by `chase` or by a strike that catches a
+  hostile not yet chasing, so a stale `seen_at` from an earlier chase never counts; and a resting
+  hostile (`resting`) neither strikes nor loses the SIGHT_LOST race against its own stale sight of
+  a chase it never resumed.
 - prowl (25): otherwise it gives up the chase and wanders near where it spawned, or stands. One
   that has not come after Mimo for LOITER game seconds fades away, so the few hostiles about are
   the ones Mimo has to deal with, and new ones can come out where it is.
@@ -119,12 +125,14 @@ def cooled(creature: dict, kind: Kind, scene: Scene) -> bool:
 
 def strikes(creature: dict, kind: Kind, scene: Scene) -> bool:
     return (kind.hostile and kind.damage > 0 and pet_alive(scene.state) and in_reach(creature, kind, scene)
-            and cooled(creature, kind, scene) and not sheltered(scene.herd.db, scene.pet))
+            and cooled(creature, kind, scene) and not sheltered(scene.herd.db, scene.pet)
+            and not resting(creature["state"], scene))
 
 
 def strike_pet(creature: dict, kind: Kind, scene: Scene) -> None:
     creature["heading"] = heading(where(creature, scene.at), scene.pet, creature["heading"])
-    creature["state"].update(pose="attacking", struck_at=scene.at, chasing=True)
+    begin_chase(creature["state"], scene.at)  # fix round 1: a strike that opens a chase starts its clock
+    creature["state"].update(pose="attacking", struck_at=scene.at)
     hurt_pet(scene, kind.damage, kind.name)
     creature["next_at"] = scene.at + kind.cooldown / scene.pace
 
@@ -135,29 +143,57 @@ register_action(CreatureAction("strike", 4, strikes, strike_pet))
 # chase -----------------------------------------------------------------------------------------
 
 def in_sight(grid: Grid, cell: Cell, target: Cell) -> bool:
-    """L3: nothing solid on the line from a hostile to Mimo, checked every half block (as
-    creatures.defense.clear_line checks a fight's line)."""
-    samples = max(1, int(math.dist(cell, target) * 2))
+    """L3: nothing solid on the line from a hostile's eyes to Mimo's (fix round 1: both a block up
+    from their feet, so a 1-block rise -- the block Mimo or the hostile stands on -- never reads as
+    hiding it), checked every half block (as creatures.defense.clear_line checks a fight's line)."""
+    eyes = (cell[0], cell[1] + 1, cell[2]), (target[0], target[1] + 1, target[2])
+    start, end = eyes
+    samples = max(1, int(math.dist(start, end) * 2))
     for index in range(1, samples):
-        point = tuple(round(a + (b - a) * index / samples) for a, b in zip(cell, target))
-        if point not in (cell, target) and grid.solid(point):
+        point = tuple(round(a + (b - a) * index / samples) for a, b in zip(start, end))
+        if point not in eyes and grid.solid(point):
             return False
     return True
 
 
-def lost_interest(state: dict, scene: Scene) -> bool:
-    """L3: the hostile is leaving Mimo be after a chase it gave up (BORED_REST game seconds, unless
-    Mimo hurt it since), or its chase has run BORED game seconds since it began, its last blow or
-    Mimo's last blow on it, or Mimo has been out of its sight for SIGHT_LOST game seconds."""
-    at, hurt = scene.at, state.get("hurt_at", -math.inf)
+def begin_chase(state: dict, at: float) -> None:
+    """L3, fix round 1: start (or continue) a chase with a fresh clock -- `chasing`, `chase_since`
+    and `seen_at` all set together the moment a chase opens, whether that is `chase` or a strike
+    that catches a hostile not yet chasing (`strike_pet`) -- so a stale `seen_at` left over from an
+    earlier, separate chase never counts against this one."""
+    if not state.get("chasing"):
+        state.update(chasing=True, chase_since=at, seen_at=at)
+
+
+def resting(state: dict, scene: Scene) -> bool:
+    """L3, fix round 1: true while a hostile that lost interest is leaving Mimo be (BORED_REST game
+    seconds since it gave up), unless Mimo has hurt it since. Split out of `lost_interest` so
+    `strikes` can skip a blow during the rest too (a resting hostile no longer restarts Mimo's
+    flee by striking it)."""
     bored_at = state.get("bored_at")
-    if bored_at is not None and hurt < bored_at and (at - bored_at) * scene.scale <= BORED_REST:
+    hurt = state.get("hurt_at", -math.inf)
+    return bored_at is not None and hurt < bored_at and (scene.at - bored_at) * scene.scale <= BORED_REST
+
+
+def lost_interest(state: dict, scene: Scene, cell: Cell) -> bool:
+    """L3: the hostile is resting after a chase it gave up, or its chase has run BORED game seconds
+    since it began, its last blow or Mimo's last blow on it, or Mimo has been out of its sight for
+    SIGHT_LOST game seconds. Fix round 1: `cell` is the hostile's cell right now, so a chase Mimo is
+    plainly standing in view of is never dropped on a `seen_at` that only `chase()` -- called after
+    this check -- would otherwise have refreshed; and a hostile loaded from a save mid-chase, from
+    before this field existed, gets `chase_since` pinned to now (`setdefault` in `chases`) rather
+    than recomputing a fresh, ever-renewing "since" every tick."""
+    if resting(state, scene):
         return True
     if not state.get("chasing"):
         return False
+    at, hurt = scene.at, state.get("hurt_at", -math.inf)
     since = max(state.get("chase_since", -math.inf), state.get("struck_at", -math.inf), hurt)
     since = at if since == -math.inf else since
-    return (at - since) * scene.scale > BORED or (at - state.get("seen_at", at)) * scene.scale > SIGHT_LOST
+    if (at - since) * scene.scale > BORED:
+        return True
+    seen_at = at if in_sight(scene.grid, cell, scene.pet) else state.get("seen_at", at)
+    return (at - seen_at) * scene.scale > SIGHT_LOST
 
 
 def chases(creature: dict, kind: Kind, scene: Scene) -> bool:
@@ -168,7 +204,9 @@ def chases(creature: dict, kind: Kind, scene: Scene) -> bool:
     if abs(here[1] - scene.pet[1]) > CHASE_RISE:
         return False
     state = creature["state"]
-    if lost_interest(state, scene):
+    if state.get("chasing"):
+        state.setdefault("chase_since", scene.at)  # fix round 1: a hostile saved mid-chase before this
+    if lost_interest(state, scene, here):
         return False
     roused = state.get("chasing") or scene.at - state.get("hurt_at", -math.inf) <= ROUSED / scene.pace
     return distance <= CHASE_SIGHT or (bool(roused) and distance <= GIVE_UP)
@@ -207,8 +245,9 @@ def chase(creature: dict, kind: Kind, scene: Scene) -> None:
     no step gets closer; with none, it waits (and keeps its stance when it is in reach)."""
     state = creature["state"]
     state["active_at"] = scene.at
-    if not state.get("chasing"):
-        state.update(chasing=True, chase_since=scene.at)  # L3: when this chase began
+    was_chasing = state.get("chasing")
+    begin_chase(state, scene.at)  # L3: when this chase began; fix round 1: also its seen_at
+    if not was_chasing:
         alarm(scene, kind)
     if in_sight(scene.grid, where(creature, scene.at), scene.pet):
         state["seen_at"] = scene.at  # L3
@@ -240,7 +279,7 @@ register_action(CreatureAction("chase", 6, chases, chase))
 # prowl -----------------------------------------------------------------------------------------
 
 def prowl(creature: dict, kind: Kind, scene: Scene) -> None:
-    if creature["state"].get("chasing") and lost_interest(creature["state"], scene):
+    if creature["state"].get("chasing") and lost_interest(creature["state"], scene, where(creature, scene.at)):
         creature["state"]["bored_at"] = scene.at  # L3: it lost interest, and leaves Mimo be a while
     creature["state"]["chasing"] = False
     if (scene.at - creature["state"].get("active_at", creature["spawned_at"])) * scene.scale > LOITER:

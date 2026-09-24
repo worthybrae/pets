@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from backend.services.blocks import CANOPY, is_canopy
 from backend.services.worldgen import (
-    FEATURE_TOP, LAVA_LEVEL, block_at, lava_in_chunk, region_openings, surface_opened, terrain_height,
+    CANOPY_TOP, LAVA_LEVEL, block_at, lava_in_chunk, region_openings, rock_column, rocks_in_chunk,
+    surface_opened, terrain_height, trees_in_chunk,
 )
 from backend.survival.creatures.acts import act
 from backend.survival.creatures.darkness import spots
@@ -61,8 +62,29 @@ class CanopyTests(unittest.TestCase):
 
 
 class SkyScanTests(unittest.TestCase):
-    def test_the_scan_reaches_over_the_highest_tree_and_rock(self):
-        self.assertGreater(SKY_SCAN, FEATURE_TOP)
+    def test_the_scan_reaches_over_the_highest_generated_tree_and_rock(self):
+        # Fix round 1, defect 5: SKY_SCAN = max(8, FEATURE_TOP + 1) is always greater than FEATURE_TOP
+        # by construction, so comparing it to FEATURE_TOP (or to the hand-set ROCK_TOP it is built
+        # from) can never fail even if a tree or rock grew taller than either. This instead samples
+        # real generated tree and rock columns (as the generator places them) and checks their
+        # actual tops against SKY_SCAN.
+        highest = 0
+        for cx in range(-5, 25):
+            for cz in range(-10, 10):
+                for tx, tz, base in trees_in_chunk(cx, cz, SEED):
+                    top = base
+                    for dy in range(3, CANOPY_TOP + 2):
+                        if is_canopy(block_at(tx, base + dy, tz, SEED)):
+                            top = base + dy
+                    self.assertGreater(top, base, (tx, tz))  # every tree found does have leaves
+                    highest = max(highest, top - base)
+                for rx, rz, kind, size, block in rocks_in_chunk(cx, cz, SEED):
+                    found = rock_column(rx, rz, SEED)
+                    if found is not None:
+                        _, top_y = found
+                        highest = max(highest, top_y - terrain_height(rx, rz, SEED))
+        self.assertGreater(highest, 0)
+        self.assertLess(highest, SKY_SCAN)
 
     def test_a_sinkhole_is_open_to_its_floor_and_a_mouth_until_its_roof(self):
         grid = generated()
@@ -138,8 +160,61 @@ class LoseInterestTests(unittest.TestCase):
         grid, state = hunting_ground(), pet()
         striking = hostile(grid, cell=(10, 1, 0), chasing=True, chase_since=0.0, struck_at=40.0, seen_at=50.0)
         self.assertEqual(act(striking, scene(grid, state, at=50.0)), "chase")
+        # Fix round 1: a real wall, not a stale seen_at with an open line -- lost_interest now counts
+        # Mimo as seen whenever the line to it is clear right now, so nothing but an actual
+        # obstruction can end a chase on the sight rule (defect 1).
+        for z in range(1, 5):  # this side of x=5 only, so the striking hostile's clear line (z=0) stands
+            grid.put(5, 1, z, "stone")
+            grid.put(5, 2, z, "stone")
         lost = hostile(grid, cell=(10, 1, 3), chasing=True, chase_since=0.0, seen_at=0.0)
         self.assertEqual(act(lost, scene(grid, state, at=SIGHT_LOST + 1.0)), "prowl")
+
+
+class SightTests(unittest.TestCase):
+    # Fix round 1, defect 1: 31 of 34 chases the reviewer's probe saw dropped fell to the 5 s sight
+    # rule rather than the 45 s one, most while Mimo was still genuinely in view.
+    def test_a_wall_between_them_ends_the_chase_after_five_seconds(self):
+        grid, state = hunting_ground(), pet()
+        for z in range(-2, 3):
+            grid.put(5, 1, z, "stone")
+            grid.put(5, 2, z, "stone")
+        walled = hostile(grid, cell=(10, 1, 0), chasing=True, chase_since=0.0, seen_at=0.0)
+        self.assertEqual(act(walled, scene(grid, state, at=SIGHT_LOST + 1.0)), "prowl")
+        self.assertFalse(walled["state"]["chasing"])
+
+    def test_the_same_hostile_with_mimo_past_a_one_block_rise_keeps_chasing(self):
+        # A single block along the ground between them -- the top of any ordinary 1-high bump or
+        # rock -- used to hide Mimo from a foot-to-foot line even though its eyes clear it easily.
+        grid, state = hunting_ground(), pet()
+        grid.put(5, 1, 0, "stone")
+        risen = hostile(grid, cell=(10, 1, 0), chasing=True, chase_since=0.0, seen_at=0.0)
+        self.assertEqual(act(risen, scene(grid, state, at=SIGHT_LOST + 1.0)), "chase")
+        self.assertEqual(risen["state"]["seen_at"], SIGHT_LOST + 1.0)
+
+    def test_a_chase_a_strike_opens_still_gives_up_after_45_game_seconds_without_a_blow(self):
+        grid, state = hunting_ground(), pet()
+        opener = hostile(grid, cell=(1, 1, 0))  # adjacent to Mimo: strikes before it ever chases
+        self.assertEqual(act(opener, scene(grid, state, at=0.0)), "strike")
+        self.assertEqual((opener["state"]["chasing"], opener["state"]["chase_since"], opener["state"]["seen_at"]),
+                          (True, 0.0, 0.0))
+        opener["x"], opener["z"] = 30.0, 0.0  # out of strike's reach: no second blow lands
+        self.assertEqual(act(opener, scene(grid, state, at=BORED + 1.0)), "prowl")
+        self.assertFalse(opener["state"]["chasing"])
+
+
+class RestTests(unittest.TestCase):
+    def test_a_resting_hostile_lands_no_blow_until_mimo_hurts_it(self):
+        # Fix round 1, defect 2: `strikes` never checked the minute of rest, and `strike_pet` always
+        # set chasing=True, restarting Mimo's flee even from a hostile that had just given up on it.
+        grid, state = hunting_ground(), pet()
+        bored = hostile(grid, cell=(10, 1, 0), chasing=True, chase_since=0.0, seen_at=BORED + 1.0)
+        self.assertEqual(act(bored, scene(grid, state, at=BORED + 1.0)), "prowl")
+        self.assertEqual((bored["state"]["chasing"], bored["state"]["bored_at"]), (False, BORED + 1.0))
+        bored["x"], bored["z"], bored["state"]["path"] = 1.0, 0.0, None  # it wanders next to Mimo while resting
+        self.assertEqual(act(bored, scene(grid, state, at=BORED + BORED_REST)), "prowl")  # no strike
+        self.assertEqual(state["vitals"]["health"], 100.0)  # in reach, but landed no blow
+        bored["state"]["hurt_at"] = BORED + BORED_REST  # Mimo hurts it: the rest ends
+        self.assertEqual(act(bored, scene(grid, state, at=BORED + BORED_REST)), "strike")
 
 
 class CollapseTests(unittest.TestCase):
