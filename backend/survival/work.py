@@ -41,6 +41,7 @@ from backend.survival.grid import Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
 from backend.survival.building import building_need
+from backend.survival.creatures.harm import armor_iron, armor_wanted
 from backend.survival.carrying import CARRY_STACKS, room_for
 from backend.survival.farming import plant
 from backend.survival.nature import SOIL
@@ -333,13 +334,15 @@ def enough_known(s: Situation, ore: str, have: int, need: int = 3) -> bool:
 
 
 def wanted_ores(s: Situation) -> tuple[str, ...]:
-    """Coal until Mimo carries 8; iron until it has 3 ore or ingots (or an iron pickaxe or better);
-    with an iron pickaxe (L3), gold (until a gold pickaxe or better) and diamonds (until a diamond
-    pickaxe), but only once it knows where enough lie for a pickaxe (`enough_known`)."""
+    """Coal until Mimo carries 8; iron until it has 3 ore or ingots (or an iron pickaxe or better),
+    and then, once a creature has hurt it, as much as the iron armor it lacks takes; with an iron
+    pickaxe (L3), gold (until a gold pickaxe or better) and diamonds (until a diamond pickaxe), but
+    only once it knows where enough lie for a pickaxe (`enough_known`)."""
     wanted, rank = [], pickaxe_rank(s.inventory)
     if s.count("coal") < 8:
         wanted.append("coal_ore")
-    if s.count("iron_ore", "iron_ingot") < 3 and rank < TOOL_RANK["iron_pickaxe"]:
+    iron = 3 if rank < TOOL_RANK["iron_pickaxe"] else armor_iron(s.inventory) if armor_wanted(s.state) else 0
+    if s.count("iron_ore", "iron_ingot") < iron:
         wanted.append("iron_ore")
     if (TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["gold_pickaxe"]
             and enough_known(s, "gold_ore", s.count("gold_ore", "gold_ingot"))):

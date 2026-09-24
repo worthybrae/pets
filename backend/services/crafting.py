@@ -46,6 +46,10 @@ RECIPES.update({
     "diamond_pickaxe": {"ingredients": {"diamond": 3, "sticks": 2}, "output": {"diamond_pickaxe": 1}, "station": "crafting_table"},
     "gold_sword": {"ingredients": {"gold_ingot": 2, "sticks": 1}, "output": {"gold_sword": 1}, "station": "crafting_table"},
     "diamond_sword": {"ingredients": {"diamond": 2, "sticks": 1}, "output": {"diamond_sword": 1}, "station": "crafting_table"},
+    # Iron armor at a crafting table; a lantern (L2's light 15) from an iron ingot and a torch, anywhere.
+    "iron_cap": {"ingredients": {"iron_ingot": 5}, "output": {"iron_cap": 1}, "station": "crafting_table"},
+    "iron_tunic": {"ingredients": {"iron_ingot": 8}, "output": {"iron_tunic": 1}, "station": "crafting_table"},
+    "lantern": {"ingredients": {"iron_ingot": 1, "torch": 1}, "output": {"lantern": 1}},
 })
 # Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
 # their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.

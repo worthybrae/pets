@@ -28,16 +28,30 @@ if TYPE_CHECKING:
 HOME_REACH = 16.0  # light_up is offered this close to the shelter
 
 
-def dark_corners(s: Situation) -> list[Cell]:
-    """The shelter's torch cells without a torch that one can stand in now (open, on solid ground)."""
+def home_blueprint(s: Situation):
+    """The design of the finished shelter Mimo stands near, or None."""
     structure = current_shelter(s)
     if structure is None or structure["status"] != "done":
-        return []
+        return None
     blueprint = blueprint_of(structure)
-    if s.distance(blueprint.anchor) > HOME_REACH:
+    return None if s.distance(blueprint.anchor) > HOME_REACH else blueprint
+
+
+def dark_corners(s: Situation) -> list[Cell]:
+    """The shelter's torch cells without a torch or lantern that one can stand in now (open, on solid ground)."""
+    blueprint = home_blueprint(s)
+    if blueprint is None:
         return []
     return [planned.cell for planned in todo(s.grid, blueprint, ("torch",))
             if s.grid.standable(planned.cell)]
+
+
+def torch_corners(s: Situation) -> list[Cell]:
+    """The shelter's corners that hold a torch: a carried lantern lights them better (L3)."""
+    blueprint = home_blueprint(s)
+    if blueprint is None:
+        return []
+    return [planned.cell for planned in blueprint.parts("torch") if s.grid.material(*planned.cell) == "torch"]
 
 
 def evening(s: Situation) -> bool:
@@ -61,16 +75,24 @@ def torch_supply(s: Situation, wanted: int) -> tuple[list[dict], int]:
 
 
 def light_valid(s: Situation) -> bool:
-    return evening(s) and bool(dark_corners(s)) and torch_supply(s, 1)[1] > 0
+    if not evening(s):
+        return False
+    lanterns = s.count("lantern")
+    return (bool(dark_corners(s)) and (lanterns > 0 or torch_supply(s, 1)[1] > 0)) or (lanterns > 0 and bool(torch_corners(s)))
 
 
 def plan_light(s: Situation, context: ActionContext) -> list[dict]:
     if not evening(s) or s.brain["batches"] > 0:
         return []
-    corners = dark_corners(s)
-    crafting, have = torch_supply(s, len(corners))
-    jobs = [(cell, [*clearing(s.grid, cell), {"kind": "place", "target": list(cell), "block": "torch"}])
-            for cell in corners[:have]]
+    corners, lanterns = dark_corners(s), s.count("lantern")
+    crafting, have = torch_supply(s, max(0, len(corners) - lanterns))
+    lights = ["lantern"] * min(lanterns, len(corners)) + ["torch"] * have
+    jobs = [(cell, [*clearing(s.grid, cell), {"kind": "place", "target": list(cell), "block": block}])
+            for cell, block in zip(corners, lights)]
+    # L3: carried lanterns left over take the place of torches (the torch goes back in Mimo's arms).
+    spare = lanterns - lights.count("lantern")
+    jobs += [(cell, [{"kind": "mine", "target": list(cell)}, {"kind": "place", "target": list(cell), "block": "lantern"}])
+             for cell in torch_corners(s)[:spare]]
     if not jobs:
         return []
     home = blueprint_of(current_shelter(s)).anchor

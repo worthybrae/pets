@@ -25,6 +25,7 @@ from backend.survival.grid import Cell, Grid
 from backend.survival.memory import add_structure
 
 TENDED = ("farmland", "sapling")  # Mimo's own plots and plantings
+STANDS_IN = {"torch": ("torch", "lantern")}  # L3: a lantern lights a torch corner as well as a torch does
 
 
 def reserved(grid: Grid, cell: Cell) -> bool:
@@ -55,7 +56,7 @@ def missing(grid: Grid, planned: Planned) -> bool:
         return material != "farmland"
     if planned.part == "door":  # L2: the gap's lower cell waits for its door; the one above stays open
         return planned.block == "door" and material != "door"
-    return planned.part in FITTINGS and material != planned.block
+    return planned.part in FITTINGS and material not in STANDS_IN.get(planned.block, (planned.block,))
 
 
 def todo(grid: Grid, blueprint: Blueprint, parts: tuple[str, ...] = STRUCTURAL) -> list[Planned]:

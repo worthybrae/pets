@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest, fuel_of, have, paid, planks_recipe
 from backend.survival.carrying import crafts_fit
+from backend.survival.creatures.harm import IRON_ARMOR, armor_wanted
 from backend.survival.grid import Cell
 from backend.survival.purposes import Purpose, register, underground
 from backend.survival.situation import Situation
@@ -47,7 +48,9 @@ STATIONS = {"wooden_pickaxe": ("crafting_table",), "stone_pickaxe": ("crafting_t
             "iron_pickaxe": ("crafting_table", "furnace"), "wooden_sword": ("crafting_table",),
             "stone_sword": ("crafting_table",), "iron_sword": ("crafting_table", "furnace"),
             "gold_pickaxe": ("crafting_table", "furnace"), "gold_sword": ("crafting_table", "furnace"),
-            "diamond_pickaxe": ("crafting_table",), "diamond_sword": ("crafting_table",)}
+            "diamond_pickaxe": ("crafting_table",), "diamond_sword": ("crafting_table",),
+            "iron_cap": ("crafting_table", "furnace"), "iron_tunic": ("crafting_table", "furnace"), "lantern": ()}
+LANTERNS_WANTED = 4  # lanterns Mimo makes to carry home (light_up hangs them), from spare iron
 SMELTED = {output: ore for ore, output in SMELTING.items()}
 # Cells beside Mimo at its level, then the one above it.
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
@@ -83,15 +86,37 @@ def upgrades(inventory: dict) -> list[str]:
     return [] if pickaxe is None else [pickaxe]
 
 
-def tool_orders(inventory: dict) -> list[tuple[str, ...]]:
+def tool_orders(inventory: dict, armor: bool = False) -> list[tuple[str, ...]]:
     """What craft_tools may make, first choice first: the next pickaxe with the best sword it opens
-    up, the pickaxe alone, then a sword alone."""
+    up, the pickaxe alone, then a sword alone; then (L3) with `armor` (a creature has hurt Mimo) the
+    iron armor it lacks, and lanterns from spare iron once it wears both pieces."""
     orders: list[tuple[str, ...]] = []
     for pickaxe in upgrades(inventory):
         orders += [(pickaxe, sword) for sword in open_swords({**inventory, pickaxe: 1})]
         orders.append((pickaxe,))
     orders += [(sword,) for sword in open_swords(inventory)]
-    return orders
+    return orders + (armor_orders(inventory) if armor else []) + lantern_orders(inventory)
+
+
+def armor_orders(inventory: dict) -> list[tuple[str, ...]]:
+    """Iron armor once Mimo has an iron pickaxe or better (L3): the pieces it lacks together, then each
+    alone. The ingots are smelted at a furnace placed for it, like the iron pickaxe's."""
+    if max((TOOL_RANK[tool] for tool in TOOL_RANK if inventory.get(tool, 0) > 0), default=0) < TOOL_RANK["iron_pickaxe"]:
+        return []
+    missing = tuple(piece for piece in IRON_ARMOR if inventory.get(piece, 0) < 1)
+    return ([missing] if len(missing) > 1 else []) + [(piece,) for piece in missing]
+
+
+def lantern_orders(inventory: dict) -> list[tuple[str, ...]]:
+    """A lantern from a carried iron ingot and a torch, once Mimo wears both iron pieces, while it
+    carries fewer than LANTERNS_WANTED (L3)."""
+    done = all(inventory.get(piece, 0) > 0 for piece in IRON_ARMOR)
+    return [("lantern",)] if done and inventory.get("iron_ingot", 0) > 0 and inventory.get("lantern", 0) < LANTERNS_WANTED else []
+
+
+def tool_words(tools: tuple[str, ...]) -> str:
+    """ "a stone pickaxe and an iron cap" """
+    return " and ".join(f"{'an' if tool[0] in 'aeiou' else 'a'} {tool.replace('_', ' ')}" for tool in tools)
 
 
 def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int = 0) -> None:
@@ -214,7 +239,7 @@ def tool_steps(s: Situation, tools: tuple[str, ...]) -> list[dict] | None:
 def tool_choice(s: Situation) -> tuple[tuple[str, ...], list[dict]] | None:
     """The first of tool_orders that can be made now, with its steps; or None."""
     def look() -> tuple[tuple[str, ...], list[dict]] | None:
-        for tools in tool_orders(s.inventory):
+        for tools in tool_orders(s.inventory, armor_wanted(s.state)):
             steps = tool_steps(s, tools)
             if steps is not None:
                 return tools, steps
@@ -238,7 +263,7 @@ register(Purpose(
     "craft_tools", "craft tools",
     "Make the next pickaxe, and a sword, from carried materials with a portable crafting table.",
     valid=lambda s: tool_plan(s) is not None,
-    facts=lambda s: "can make " + " and ".join(f"a {tool.replace('_', ' ')}" for tool in tool_choice(s)[0]) + " now",
+    facts=lambda s: f"can make {tool_words(tool_choice(s)[0])} now",
     score=lambda s: 70.0 + s.trait("diligence") / 10,
     plan=plan_tools,
     thoughts=("I can make a better pickaxe now.", "Time to make a proper tool.")))

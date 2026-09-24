@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.survival.carrying import crafts_fit
+from backend.survival.creatures.harm import covered
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
@@ -41,7 +42,7 @@ def gear_orders(inventory: dict, flint_seen: bool = False) -> list[tuple[str, ..
     """What make_gear may make, first choice first (see the module docstring). `flint_seen`: Mimo's
     chests hold flint (carried flint or arrows count without it)."""
     orders: list[tuple[str, ...]] = []
-    armor = tuple(piece for piece in ARMOR_PIECES if inventory.get(piece, 0) < 1)
+    armor = tuple(piece for piece in ARMOR_PIECES if not covered(inventory, piece))  # L3: iron covers a slot too
     if armor:
         orders.append(armor)
         if len(armor) > 1:

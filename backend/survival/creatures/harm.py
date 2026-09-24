@@ -20,6 +20,7 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import RECIPES
 from backend.survival.creatures.table import missing_table
 from backend.survival.memory import remember
 from backend.survival.triggers import crossings, mark_trigger
@@ -28,13 +29,39 @@ if TYPE_CHECKING:
     from backend.survival.creatures.acts import Scene
 
 ARMOR = {"leather_cap": 0.08, "leather_tunic": 0.12}  # the share of a blow each piece takes off
+# L3: iron armor, 45 % together; a piece covers a slot, and only the best piece on each slot counts.
+ARMOR.update({"iron_cap": 0.18, "iron_tunic": 0.27})
+SLOTS = {"leather_cap": "head", "iron_cap": "head", "leather_tunic": "body", "iron_tunic": "body"}
+IRON_ARMOR = ("iron_tunic", "iron_cap")
 INDOORS = ("room", "passage")  # the parts of a shelter Mimo is safe in
 HURT_QUIET = 10.0  # server seconds (at the normal pace) between two "hurt" events
 
 
 def armor_cut(inventory: dict) -> float:
-    """The share of a blow the armor Mimo carries takes off."""
-    return sum(cut for piece, cut in ARMOR.items() if inventory.get(piece, 0) > 0)
+    """The share of a blow the armor Mimo carries takes off: the best piece on each slot (head and
+    body), so an iron cap over a leather one counts once (L3)."""
+    best: dict[str, float] = {}
+    for piece, cut in ARMOR.items():
+        if inventory.get(piece, 0) > 0:
+            slot = SLOTS.get(piece, piece)
+            best[slot] = max(best.get(slot, 0.0), cut)
+    return sum(best.values())
+
+
+def covered(inventory: dict, piece: str) -> bool:
+    """Mimo carries some armor for the slot `piece` goes on (L3)."""
+    slot = SLOTS.get(piece, piece)
+    return any(inventory.get(other, 0) > 0 for other in ARMOR if SLOTS.get(other, other) == slot)
+
+
+def armor_wanted(state: dict) -> bool:
+    """Iron armor is worth its 13 ingots once a creature has hurt Mimo (L3)."""
+    return state.get("hurt_at") is not None
+
+
+def armor_iron(inventory: dict) -> int:
+    """Iron ingots the iron armor Mimo still lacks takes (L3)."""
+    return sum(RECIPES[piece]["ingredients"]["iron_ingot"] for piece in IRON_ARMOR if inventory.get(piece, 0) < 1)
 
 
 def sheltered(db: sqlite3.Connection, cell: tuple[int, int, int]) -> bool:
