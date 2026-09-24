@@ -31,6 +31,17 @@ FLUIDS = ("water", "lava")
 LADDER = "ladder"
 
 
+def supports(below: str, here: str) -> bool:
+    """Whether a cell with `below` beneath it and `here` in it holds up whoever stands there: water
+    or a ladder below holds, so does a solid block below that is not tall (a fence, L3), and so does
+    a ladder in the cell itself. The one rule `Grid.supported` and `reflexes.fall_depth` share."""
+    if below in ("water", LADDER):
+        return True
+    if is_solid(below):
+        return not is_tall(below)
+    return here == LADDER
+
+
 class Grid:
     """Materials by cell, with the rules Mimo's one-cell body needs.
 
@@ -118,12 +129,7 @@ class Grid:
         """Something holds Mimo up in this cell: the cell below is solid or water. L3: a fence below
         is too tall to stand on, and a ladder holds whoever is on it or on top of it."""
         x, y, z = cell
-        below = self.material(x, y - 1, z)
-        if below in ("water", LADDER):
-            return True
-        if is_solid(below):
-            return not is_tall(below)
-        return self.material(x, y, z) == LADDER
+        return supports(self.material(x, y - 1, z), self.material(x, y, z))
 
     def standable(self, cell: Cell) -> bool:
         return self.passable(cell) and self.supported(cell)

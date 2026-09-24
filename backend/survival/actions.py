@@ -243,9 +243,11 @@ def as_started(spec: dict, at: float) -> dict:
 
 
 def landing(grid: Grid, cell: Cell) -> Cell:
-    """The first cell at or below `cell` where something holds Mimo up."""
+    """The first cell at or below `cell` where something holds Mimo up, stopping at the first solid
+    block in the way even when nothing holds Mimo up there (L3: a fence blocks a fall like any
+    other solid, though nothing stands on it): the fall never ends inside a solid block."""
     x, y, z = cell
-    while not grid.supported((x, y, z)) and y > WORLD_MIN_Y:
+    while not grid.supported((x, y, z)) and y > WORLD_MIN_Y and grid.passable((x, y - 1, z)):
         y -= 1
     return x, y, z
 

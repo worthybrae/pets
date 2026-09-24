@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, TOOL_RANK, can_harvest, have
 from backend.services.worldgen import terrain_height
-from backend.survival.grid import Cell, Grid
+from backend.survival.grid import Cell, Grid, supports
 from backend.survival.memory import SHELTER_KINDS, cell_of, forget
 from backend.survival.purposes import Purpose, late_penalty, register, underground, walk_to
 from backend.survival.building import building_need
@@ -214,8 +214,8 @@ def stair(grid: Grid, changed: dict[Cell, str], at: Cell, heading: tuple[int, in
     surface = terrain_height(nx, nz, seed)
     down = y - 1 >= max(LOWEST_FLOOR, surface - TUNNEL_DEPTH)
     to = (nx, y - 1, nz) if down else (nx, y, nz)
-    if not is_solid(look(grid, changed, (nx, to[1] - 1, nz))):
-        return None  # a hole or a cave below: never dig into it
+    if not supports(look(grid, changed, (nx, to[1] - 1, nz)), look(grid, changed, to)):
+        return None  # a hole or a cave below, or a fence that would not hold Mimo: never dig into it
     columns = [(nx, nz, surface, 2 if down else 1)]  # (x, z, its surface, how many lowest cells it needs)
     sx, sz = nx + side_of(heading)[0], nz + side_of(heading)[1]
     if is_solid(look(grid, changed, (sx, to[1] - 1, sz))):

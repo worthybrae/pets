@@ -41,7 +41,7 @@ from backend.services.worldgen import WORLD_MIN_Y
 from backend.survival.actions import SAFE_FALL, ActionContext, as_started, fail, take_search
 from backend.survival.beds import to_bed
 from backend.survival.foraging import whole_walk
-from backend.survival.grid import Cell, Grid
+from backend.survival.grid import Cell, Grid, supports
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
@@ -197,17 +197,23 @@ register(Reflex("surface", 10, trigger=lambda s: s.vitals["air"] < SURFACE_BELOW
 # avoid_drop ------------------------------------------------------------------------------------
 
 def fall_depth(grid: Grid, cell: Cell, removed: Cell | None = None) -> tuple[int, bool]:
-    """How far Mimo would fall from `cell` (with `removed` gone), and whether it passes lava."""
+    """How far Mimo would fall from `cell` (with `removed` gone), and whether it passes lava. Agrees
+    with Grid.supported (L3): a ladder holds, a fence does not, and the fall never tunnels through
+    a solid block that does not hold (it stops there, held or not, the way `actions.landing` does)."""
 
-    def holds(below: Cell) -> bool:
-        if below == removed:
-            return False
-        material = grid.material(*below)
-        return material == "water" or is_solid(material)
+    def material_at(at: Cell) -> str:
+        return "air" if at == removed else grid.material(*at)
+
+    def held(at: Cell) -> bool:
+        x, y, z = at
+        return supports(material_at((x, y - 1, z)), material_at(at))
+
+    def passable_at(at: Cell) -> bool:
+        return at == removed or grid.passable(at)
 
     x, y, z = cell
     lava = False
-    while not holds((x, y - 1, z)) and y > WORLD_MIN_Y:
+    while not held((x, y, z)) and y > WORLD_MIN_Y and passable_at((x, y - 1, z)):
         y -= 1
         lava = lava or ((x, y, z) != removed and grid.material(x, y, z) == "lava")
     return cell[1] - y, lava

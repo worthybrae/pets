@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.brain import brain_plan
-from backend.survival.escape import escape_plan, reachable_count
+from backend.survival.escape import escape_plan, reachable_count, staircase
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables
 from backend.survival.triggers import ensure_brain
@@ -27,6 +27,22 @@ def pit(wall="dirt", width=1):
 
 def flat():
     return Grid(lambda x, y, z: "stone" if y <= 0 else "air")
+
+
+def fenced_pit(width=5):
+    """Like `pit("stone", width)`, but a fence already fills the first stair's support cell (1, 1,
+    0): solid, but nothing stands on it (Grid.supported), and not open ground a placed support
+    block could go in either."""
+    def rule(x, y, z):
+        if (x, y, z) == (1, 1, 0):
+            return "fence"
+        if y <= 0:
+            return "stone"
+        if y >= 5:
+            return "air"
+        return "air" if z == 0 and 0 <= x < width else "stone"
+
+    return Grid(rule)
 
 
 def pet(**changes):
@@ -97,6 +113,13 @@ class EscapeTests(unittest.TestCase):
                          [place(1, 1, 0), walk(1, 2, 0), place(2, 2, 0), walk(2, 3, 0),
                           place(3, 3, 0), walk(3, 4, 0), place(4, 4, 0), walk(4, 5, 0)])
         self.assertEqual(escape_plan(pit("stone", width=5), (0, 1, 0), {"dirt": 3}, "1"), [])
+
+    def test_a_fence_already_filling_the_support_cell_blocks_this_heading(self):
+        """L3 fix round 1: `support`'s old is_solid check treated a fence the same as real ground,
+        so Mimo's plan would have walked onto a cell nothing actually held it up in
+        (Grid.supported). Fixed, the fence is read as no support, but it already fills the cell a
+        placed support block would go in, so this heading is abandoned instead of built on a lie."""
+        self.assertIsNone(staircase(fenced_pit(), (0, 1, 0), (1, 0), {"dirt": 5}, "1"))
 
     def test_the_brain_digs_out_after_two_failed_walks(self):
         state = stuck()

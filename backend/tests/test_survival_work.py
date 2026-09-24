@@ -193,6 +193,14 @@ class StoneTests(unittest.TestCase):
         self.assertEqual(stair(ground(), {}, (1, 0, 0), (1, 0), inventory, "1")[0],
                          [mine(2, 0, 0), mine(2, -1, 0), rubble(2, 0, 1), rubble(2, -1, 1), walk(2, -1, 0)])
 
+    def test_a_fence_below_the_next_stair_is_never_read_as_solid_ground(self):
+        """L3 fix round 1: the floor check before digging a new stair used is_solid alone, so a
+        fence there (solid, but nothing stands on it, Grid.supported) was wrongly read the same as
+        real rock and the dig would have gone ahead over what amounts to a hole."""
+        inventory = {"wooden_pickaxe": 1}
+        self.assertIsNone(stair(ground({(4, -3, 0): "air", (5, -4, 0): "fence"}), {}, (4, -3, 0), (1, 0),
+                                inventory, "1"))
+
     def test_a_stair_never_digs_up_farmland_or_a_sapling(self):
         inventory = {"wooden_pickaxe": 1}
         self.assertIsNone(stair(ground({(1, 0, 0): "farmland"}), {}, (0, 1, 0), (1, 0), inventory, "1"))

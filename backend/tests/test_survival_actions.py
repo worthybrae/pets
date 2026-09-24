@@ -7,7 +7,7 @@ import logging
 from backend.survival import steps as steps_module
 from backend.survival.actions import (
     FIGHT_STEP_NODES, ActionContext, activity_of, advance_actions, ensure_actions, is_interruptible, is_working,
-    status_of, take_search,
+    landing, status_of, take_search,
 )
 from backend.survival.grid import Grid
 from backend.survival.once import forget_logged, log_once
@@ -156,6 +156,24 @@ class ActionEngineTests(unittest.TestCase):
         died_at = advance_actions(state, context(small_world()), 5.0)
         self.assertEqual(died_at, round(math.sqrt(2 * 11 / 32), 3))
         self.assertEqual(state["vitals"]["health"], 0.0)
+
+    def test_landing_never_lands_inside_a_fence(self):
+        """L3 fix round 1: Grid.supported no longer treats a fence as standing ground, but the old
+        `landing` loop only checked `supported`, not passability, so it walked past a fence in the
+        column and stopped inside its own (solid, impassable) cell."""
+        grid = small_world({(0, 4, 0): "fence"})
+        self.assertEqual(landing(grid, (0, 10, 0)), (0, 5, 0))
+        self.assertTrue(grid.passable((0, 5, 0)))
+
+    def test_mimo_stepping_off_beside_or_onto_a_fence_column_never_lands_inside_it(self):
+        grid = small_world({(2, 1, 0): "fence"})
+        beside = pet(position=(0, 9, 0))
+        advance_actions(beside, context(grid), 3.0)
+        self.assertEqual(beside["position"], {"x": 0.0, "y": 1.0, "z": 0.0})
+        onto = pet(position=(2, 9, 0))
+        advance_actions(onto, context(grid), 3.0)
+        self.assertEqual(onto["position"], {"x": 2.0, "y": 2.0, "z": 0.0})
+        self.assertTrue(grid.passable((2, 2, 0)) and grid.material(2, 2, 0) != "fence")
 
     def test_mimo_swims_up_when_its_cell_is_water(self):
         column = {(0, 1, 0): "water", (0, 2, 0): "water", (0, 3, 0): "water"}

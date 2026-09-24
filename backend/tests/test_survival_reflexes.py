@@ -5,7 +5,7 @@ from backend.survival.actions import ActionContext, advance_actions, ensure_acti
 from backend.survival.brain import brain_plan
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, know, places, remember
-from backend.survival.reflexes import REFLEXES, reflex_hook
+from backend.survival.reflexes import REFLEXES, fall_depth, reflex_hook
 from backend.survival.triggers import ensure_brain
 from backend.survival.vitals import START_VITALS
 
@@ -266,6 +266,25 @@ class ReflexTests(unittest.TestCase):
                          ((5, 1, 0), "explore", True))
 
 
+class FallDepthTests(unittest.TestCase):
+    """L3 fix round 1: fall_depth re-implemented "what holds Mimo up" with is_solid alone, so it
+    disagreed with Grid.supported once fences and ladders existed (Task 12 made build_pen place
+    fences)."""
+
+    def test_fall_depth_down_a_ladder_shaft_is_zero(self):
+        grid = flat()
+        for y in range(-2, 2):
+            grid.put(0, y, 0, "ladder")
+        self.assertEqual(fall_depth(grid, (0, 1, 0)), (0, False))
+
+    def test_a_drop_onto_a_fence_top_counts_as_a_fall_past_it(self):
+        """A fence is solid ground to the old is_solid check, so it used to be read as an instant,
+        zero-depth landing the moment Mimo was even a little above it. It must count as a real fall
+        that comes to rest just above the fence (never inside it) instead."""
+        grid = flat()
+        grid.put(0, 1, 0, "fence")
+        self.assertFalse(grid.supported((0, 2, 0)))
+        self.assertEqual(fall_depth(grid, (0, 5, 0)), (3, False))
 
 
 if __name__ == "__main__":

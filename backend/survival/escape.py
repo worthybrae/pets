@@ -22,7 +22,7 @@ from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext, take_search
-from backend.survival.grid import Cell, Grid
+from backend.survival.grid import Cell, Grid, supports
 from backend.survival.pathing import moves
 from backend.survival.purposes import walk_to
 from backend.survival.steps import as_cell
@@ -101,7 +101,7 @@ def staircase(grid: Grid, here: Cell, heading: tuple[int, int], inventory: dict,
             for dy in (0, 1, 2):
                 open_up(grid, changed, (side[0], side[1] + dy, side[2]), stock, steps, rubble=True)
         support = (stair[0], stair[1] - 1, stair[2])
-        if not is_solid(look(grid, changed, support)):
+        if not supports(look(grid, changed, support), look(grid, changed, stair)):
             block = next((item for item in PLACEABLE if stock.get(item, 0) > 0), None)
             if block is None or not is_replaceable(look(grid, changed, support)):
                 return None
