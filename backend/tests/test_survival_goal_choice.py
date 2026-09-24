@@ -223,6 +223,28 @@ class GoalChoiceTests(unittest.TestCase):
         self.assertEqual(self.world.events(1)[0]["text"],
                          f'{self.name} decided to gather wood, toward a woodpile. "Wood."')
 
+    def test_a_purpose_answer_in_flight_when_the_goal_is_reached_is_dropped(self):
+        forget_logged()
+        with only_goals(WOOD):
+            self.edit(lambda state: adopt_goal(state, "woodpile", "utility", "", BORN))
+            self.edit(lambda state: mark_trigger(state, "plan_done", BORN + 1))
+            ask = prepare(SurvivalWorld(self.path, read_only=True), BORN + 2, 1.0, {})
+            purpose = next((option.name for option in ask.options if option.goal), None)
+            self.assertIsNotNone(purpose)  # something on offer works toward the goal
+            # the woodpile is reached while this purpose answer is still being worked out
+            with self.world.transaction() as db:
+                state = read_state(db)
+                reach_goal(state, SimpleNamespace(db=db, events=[]), WOOD, BORN + 3)
+                write_state(db, state)
+            stored = store_choice(SurvivalWorld(self.path), ask, Choice(purpose, "utility", "Chop away.", NO_CALLS),
+                                  BORN + 6)
+        # reach_goal gave the pending purpose ask a fresh id, so this stale answer is thrown away
+        # (per the fix, a stale answer is either dropped or, if the id somehow still matched, stored
+        # without the stale "toward": see test_a_purpose_toward_a_goal_that_has_since_moved_on_drops_
+        # the_stale_toward for that guard in isolation).
+        self.assertIsNone(stored)
+        self.assertFalse(any("toward" in event["text"] for event in self.world.events(5)))
+
     def test_a_purpose_toward_a_goal_that_has_since_moved_on_drops_the_stale_toward(self):
         forget_logged()
         with only_goals(WOOD, LATER):
