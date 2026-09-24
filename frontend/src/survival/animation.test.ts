@@ -17,6 +17,7 @@ describe('moveFor', () => {
     expect(moveFor({ kind: 'cook', started_at: 0, ends_at: 5 }, 1)).toBe('work')
     expect(moveFor({ kind: 'store', started_at: 0, ends_at: 0.3 }, 0.1)).toBe('place')
     expect(moveFor({ kind: 'drop', started_at: 0, ends_at: 0.3 }, 0.1)).toBe('place')
+    expect(moveFor({ kind: 'attack', started_at: 0, ends_at: 0.6, target: { x: 2, y: 1, z: 0 } }, 0.3)).toBe('swing')
   })
 
   it('leans over the water while fishing', () => {
@@ -32,6 +33,13 @@ describe('moveFor', () => {
 })
 
 describe('bodyPose', () => {
+  it('lunges at its target once when it attacks', () => {
+    expect(bodyPose('swing', 0, 0, 0).pitch).toBeCloseTo(0)
+    expect(bodyPose('swing', 0.25, 0, 0)).toMatchObject({ pitch: 0.55, lift: 0.08 })
+    expect(bodyPose('swing', 0.5, 0, 0).pitch).toBeCloseTo(0)
+    expect(bodyPose('swing', 0.6, 0, 0).pitch).toBeCloseTo(0)
+  })
+
   it('hops once per block while walking', () => {
     expect(bodyPose('walk', 0, 2, 0).lift).toBeCloseTo(0)
     expect(bodyPose('walk', 0, 2.5, 0).lift).toBeCloseTo(0.22)

@@ -1,6 +1,6 @@
 import type { ActionKind, MimoAction, Point } from './types'
 
-export type PetMove = 'idle' | 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'sleep' | 'work' | 'fish'
+export type PetMove = 'idle' | 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'sleep' | 'work' | 'fish' | 'swing'
 
 /** How the body moves on top of its position. */
 export interface BodyPose {
@@ -25,10 +25,12 @@ export const LIE_DOWN_SECONDS = 0.6
 const MOVES: Record<ActionKind, PetMove> = {
   walk: 'walk', swim: 'swim', fall: 'fall', mine: 'mine', place: 'place', eat: 'eat', sleep: 'sleep',
   craft: 'work', smelt: 'work', wait: 'idle', pick: 'place', harvest: 'mine', till: 'mine', plant: 'place',
-  fish: 'fish', cook: 'work', store: 'place', take: 'place', drop: 'place',
+  fish: 'fish', cook: 'work', store: 'place', take: 'place', drop: 'place', attack: 'swing',
 }
 const HOP_HEIGHT = 0.22
 const SWING_SECONDS = 0.45
+/** An attack lunges forward and back once: a sword swing lasts 0.5 s, a bare hand 0.6 s. */
+const LUNGE_SECONDS = 0.5
 const NIBBLES_PER_SECOND = 3
 const Z_PERIOD = 2.4
 const Z_COUNT = 3
@@ -77,6 +79,13 @@ export function bodyPose(move: PetMove, stepTime: number, travelled: number, clo
     case 'work':
       pose.pitch = 0.06 * Math.sin(stepTime * 8)
       break
+    case 'swing': {
+      // A lunge at the target (the pet already faces it): forward and a little up, then back.
+      const lunge = Math.sin(Math.PI * Math.min(1, stepTime / LUNGE_SECONDS))
+      pose.pitch = 0.55 * lunge
+      pose.lift = 0.08 * lunge
+      break
+    }
     case 'fish':
       // Leaning over the water, with a slow bob now and then as if something nibbles.
       pose.pitch = 0.28 + 0.04 * Math.max(0, Math.sin(stepTime * 1.3)) ** 8

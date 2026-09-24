@@ -17,7 +17,7 @@ export interface Point {
 }
 
 export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
-  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop'
+  | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop' | 'attack'
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -84,6 +84,39 @@ export type ExploredPatch = [number, number, number]
 /** Home, or the nearest farm Mimo remembers (backend/survival/snapshot.py landmarks_view). */
 export interface Landmark extends Point {
   kind: 'home' | 'farm'
+}
+
+/** What a creature is doing (backend/survival/creatures/view.py); a finished walk reads idle. */
+export type CreatureState = 'idle' | 'walking' | 'grazing' | 'fleeing' | 'swimming' | 'dead'
+
+/** A creature within 48 blocks of Mimo, standing in the cell its last move ends in. */
+export interface Creature extends Point {
+  id: number
+  /** rabbit, chicken, sheep, cow or fish in L1; other kinds come later. */
+  kind: string
+  /** Radians around +y; 0 faces +z. */
+  heading: number
+  /** Health left, 0..1. */
+  health: number
+  state: CreatureState
+  /** Server time it was last hit: a flash, a knock back and its health bar. */
+  hurt_at?: number
+  /** Server time it died, and what it dropped: a puff with the drops popping out. */
+  dead_at?: number
+  drops?: string[]
+  /** Server time a fish leapt at Mimo's hook. */
+  caught_at?: number
+}
+
+/** A creature's last move, for replay: one block from `from` to `to`, or through every cell of `cells`. */
+export interface CreatureMove {
+  id: number
+  from: Point
+  to: Point
+  started: number
+  ends: number
+  /** [x, y, z] of every cell from `from` to `to` when the move is longer than one block; each takes as long. */
+  cells?: [number, number, number][]
 }
 
 export type PickerName = 'jev' | 'luna' | 'utility'
@@ -162,6 +195,9 @@ export interface SurvivalState {
   structures: Built[]
   /** What its chests hold (M5). */
   chests: Chests
+  /** The creatures within 48 blocks, nearest first, and their last moves (L1). */
+  creatures: Creature[]
+  creature_moves: CreatureMove[]
   /** The patches Mimo visited within 96 blocks of it, for the minimap's fog of war. */
   explored: ExploredPatch[]
   /** Its home and nearest farm, for the minimap. */
