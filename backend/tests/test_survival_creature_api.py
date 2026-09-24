@@ -15,7 +15,9 @@ from backend.survival.creatures.moves import timed
 from backend.survival.creatures.table import Herd
 from backend.survival.creatures.view import creatures_view, MOST_SHOWN
 from backend.survival.registry import LifeRegistry
-from backend.survival.world import SurvivalWorld, new_survival_state
+from backend.survival.world import SurvivalWorld, new_survival_state, read_state, write_state
+
+WORST_COORD = -5999.5  # farthest a spawn can land from the origin: a four-digit negative decimal
 
 
 class CreatureApiTests(unittest.TestCase):
@@ -34,6 +36,13 @@ class CreatureApiTests(unittest.TestCase):
     def active_world(self):
         registry = LifeRegistry()
         return SurvivalWorld(registry.world_path(registry.active_life()))
+
+    def pin_mimo(self, world, x, y, z):
+        """Set Mimo's position directly, bypassing hatch_egg's random spawn point."""
+        with world.transaction() as db:
+            state = read_state(db)
+            state["position"] = {"x": x, "y": y, "z": z}
+            write_state(db, state)
 
     def around_mimo(self, world, *creatures):
         """Add (kind, dx, dz, health, state) creatures around Mimo; returns Mimo's cell."""
@@ -84,6 +93,7 @@ class CreatureApiTests(unittest.TestCase):
     def test_the_stream_stays_small_with_every_animal_moving(self):
         hatch_egg()
         world = self.active_world()
+        self.pin_mimo(world, WORST_COORD, 5.0, WORST_COORD)  # worst case: wide negative coordinates, not luck
         now = time.time()
         x, y, z = (round(world.state()["position"][axis]) for axis in "xyz")
         flee = timed((x, y, z), [(x + step, y, z) for step in range(1, 9)], now - 1.0, 0.2)
@@ -98,7 +108,11 @@ class CreatureApiTests(unittest.TestCase):
         flight = next(move for move in state["creature_moves"] if len(move.get("cells", [])) == 9)
         self.assertEqual((flight["cells"][0], flight["cells"][-1]), ([x, y, z], [x + 8, y, z]))
         size = len(json.dumps({"creatures": state["creatures"], "creature_moves": state["creature_moves"]}))
-        self.assertLess(size, 14_400)  # the worst case: all MOST_SHOWN on the move at once with hurt_at
+        # The worst case: all MOST_SHOWN sheep on the move at once with hurt_at, pinned to WORST_COORD so
+        # every x and z is a four-digit negative number (creature x/y/z are already whole numbers in the
+        # view, as compact as they get). That comes to 14,737 bytes every run -- stable, since it no longer
+        # depends on the luck of a random spawn point; keep a safety margin above the measured worst case.
+        self.assertLess(size, 15_000)
 
     def test_reading_creatures_never_writes(self):
         hatch_egg()

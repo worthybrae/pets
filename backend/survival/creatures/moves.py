@@ -30,12 +30,15 @@ def roll(seed: str, number: int, turn: int, channel: int) -> float:
 
 def steps(grid: Grid, cell: Cell, water: bool) -> list[Cell]:
     """The cells a creature can step to from `cell`: water cells around a fish, else the cells Mimo
-    could walk to in one move that are not on the water; never a cell something Mimo built claims."""
+    could walk to in one move that are not on the water; never a cell something Mimo built claims,
+    unless the creature already stands on claimed ground (a shelter blueprint started under it) --
+    then claimed ground no longer holds it back, so it can still step somewhere and get out."""
+    trapped = grid.claimed(cell)
     if water:
         x, y, z = cell
         near = [(x + dx, y + dy, z + dz) for dx, dy, dz in WATER_SIDES]
-        return [step for step in near if grid.water(step) and not grid.claimed(step)]
-    return [step for step in moves(grid, cell) if not grid.swimming(step) and not grid.claimed(step)]
+        return [step for step in near if grid.water(step) and (trapped or not grid.claimed(step))]
+    return [step for step in moves(grid, cell) if not grid.swimming(step) and (trapped or not grid.claimed(step))]
 
 
 def timed(start: Cell, cells: list[Cell], at: float, seconds: float) -> list[dict]:

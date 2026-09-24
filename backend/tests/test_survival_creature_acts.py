@@ -57,6 +57,14 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(sorted(steps(grid, (0, 1, 0), False)), [(-1, 1, 0), (0, 1, -1)])
         self.assertEqual(sorted(steps(grid, (5, 0, 0), True)), [(4, 0, 0), (5, 0, -1), (6, 0, 0)])
 
+    def test_steps_still_leave_ground_a_creature_already_stands_on_that_became_claimed(self):
+        grid = meadow()
+        # a shelter blueprint starts under the cow: its cell and every neighbour are claimed
+        grid.claims.update({(0, 1, 0), (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1)})
+        self.assertEqual(sorted(steps(grid, (0, 1, 0), False)), [(-1, 1, 0), (0, 1, -1), (0, 1, 1), (1, 1, 0)])
+        grid.claims.update({(5, 0, 0), (5, 0, -1), (5, 0, 1), (4, 0, 0), (6, 0, 0)})  # same, for a fish in the pond
+        self.assertEqual(sorted(steps(grid, (5, 0, 0), True)), [(4, 0, 0), (5, 0, -1), (5, 0, 1), (6, 0, 0)])
+
     def test_a_move_is_a_timed_path_and_where_follows_it(self):
         path = timed((0, 1, 0), [(1, 1, 0), (2, 1, 0)], 10.0, 0.5)
         self.assertEqual([entry["at"] for entry in path], [10.0, 10.5, 11.0])
@@ -98,6 +106,23 @@ class ActTests(unittest.TestCase):
             act(cow, scene(grid, creatures, at, state=pet(0 if hunted else 30, "hunt" if hunted else None)))
             for entry in cow["state"].get("path") or []:
                 self.assertNotIn((entry["x"], entry["y"], entry["z"]), room)
+
+    def test_a_creature_inside_a_claimed_room_still_wanders_or_flees_out(self):
+        grid, creatures = meadow(), herd()
+        room = {(x, 1, z) for x in range(-2, 3) for z in range(-2, 3)}  # a shelter blueprint starts under the cow
+        grid.claims.update(room)
+        cow = animal(creatures, cell=(0, 1, 0))
+        at, moved = 0.0, False
+        for turn in range(300):
+            at = max(at, cow["next_at"])
+            hunted = turn % 7 == 0
+            act(cow, scene(grid, creatures, at, state=pet(0 if hunted else 30, "hunt" if hunted else None)))
+            if cow["state"].get("path"):
+                moved = True
+            if cell_of(cow) not in room:
+                break
+        self.assertTrue(moved)  # it was never stuck with no neighbours to step to
+        self.assertNotIn(cell_of(cow), room)  # and it made it out
 
     def test_an_animal_that_strayed_past_its_leash_heads_home(self):
         grid, creatures = meadow(), herd()
