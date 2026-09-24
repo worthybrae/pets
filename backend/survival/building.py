@@ -7,7 +7,8 @@ remembered (backend.survival.structures), so every later batch goes on with the 
 walk inside, then place up to 12 blocks a batch in the design's order, floor, walls, roof, making
 planks from logs when the planks run short and letting any building block stand in for another.
 With arms too full to carry the planks a log makes, logs do not count as blocks and the batch
-places only what Mimo carries.
+places only what Mimo carries. A plant a block cannot replace (a mushroom, a sapling) is mined
+out of a cell before the batch builds there (structures.clearing).
 When the blocks run out the purpose pauses (its plan is done) and the gathering purposes aim for
 what is still missing (`building_need`); it goes on once Mimo carries 8 blocks again, or what is
 left. When the last floor, wall or roof block is down the shelter is done: home moves into it
@@ -43,7 +44,7 @@ from backend.survival.memory import cell_of, finish_structure, nearest, remember
 from backend.survival.purposes import HOME_RANGE, Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH, as_cell
-from backend.survival.structures import blocked, blueprint_of, start, structure_at, todo
+from backend.survival.structures import blocked, blueprint_of, clearing, start, structure_at, todo
 from backend.survival.triggers import mark_trigger
 
 if TYPE_CHECKING:
@@ -192,25 +193,31 @@ def planks_first(inventory: dict, blocks: list[str]) -> list[dict]:
     return [{"kind": "craft", "recipe": "planks"} for _ in range(crafts)]
 
 
-def reach_all(blueprint: Blueprint, stand: Cell, jobs: list[tuple[Cell, dict]]) -> list[dict]:
-    """Each job's step, walking to another stand inside first when its cell is out of reach."""
+def reach_all(blueprint: Blueprint, stand: Cell, jobs: list[tuple[Cell, list[dict]]]) -> list[dict]:
+    """Each job's steps, walking to another stand inside first when its cell is out of reach."""
     steps, at = [], stand
-    for cell, step in jobs:
+    for cell, job in jobs:
         spot = stand_for(blueprint, at, cell)
         if spot is None:
             continue
         if spot != at:
             steps.append(whole_walk(spot))
             at = spot
-        steps.append(step)
+        steps.extend(job)
     return steps
 
 
-def next_blocks(s: Situation, blueprint: Blueprint, inventory: dict) -> tuple[list[str], list[tuple[Cell, dict]]]:
+def build_job(grid, cell: Cell, block: str) -> list[dict]:
+    """Place `block` in `cell`, mining a plant it cannot replace out of the cell first."""
+    return [*clearing(grid, cell), {"kind": "place", "target": list(cell), "block": block}]
+
+
+def next_blocks(s: Situation, blueprint: Blueprint,
+                inventory: dict) -> tuple[list[str], list[tuple[Cell, list[dict]]]]:
     """The blocks the next cells in the design's order take from `inventory`'s supplies, and their
     place jobs."""
     have = supplies(inventory)
-    jobs: list[tuple[Cell, dict]] = []
+    jobs: list[tuple[Cell, list[dict]]] = []
     blocks = []
     for planned in todo(s.grid, blueprint):
         block = pick_block(planned.block, have)
@@ -218,7 +225,7 @@ def next_blocks(s: Situation, blueprint: Blueprint, inventory: dict) -> tuple[li
             break
         have[block] -= 1
         blocks.append(block)
-        jobs.append((planned.cell, {"kind": "place", "target": list(planned.cell), "block": block}))
+        jobs.append((planned.cell, build_job(s.grid, planned.cell, block)))
     return blocks, jobs
 
 
@@ -243,7 +250,7 @@ def furnishing_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[di
                 continue
             crafting.extend(steps)
         inventory[planned.block] -= 1
-        jobs.append((planned.cell, {"kind": "place", "target": list(planned.cell), "block": planned.block}))
+        jobs.append((planned.cell, build_job(s.grid, planned.cell, planned.block)))
     return crafting + reach_all(blueprint, stand, jobs) if jobs else []
 
 

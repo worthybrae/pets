@@ -153,6 +153,25 @@ class ShelterTests(unittest.TestCase):
         world.carry_out(steps)
         self.assertFalse(PURPOSES["build_shelter"].valid(world.situation()))
 
+    def test_a_plant_in_a_cell_it_builds_is_mined_first(self):
+        """Fix wave I3: a mushroom or sapling in a wall or fitting cell cannot be built over (it is
+        not replaceable), so the batch mines it first."""
+        world = World({"cobblestone": 60})
+        world.plan()
+        design = blueprint_of(structures(world.db)[0])
+        first = todo(world.grid, design)[0].cell
+        world.grid.put(*first, "red_mushroom")
+        steps = world.plan()
+        at = steps.index({"kind": "place", "target": list(first), "block": "cobblestone"})
+        self.assertEqual(steps[at - 1], {"kind": "mine", "target": list(first)})
+        self.assertEqual(len([step for step in steps if step["kind"] == "mine"]), 1)
+        for _ in range(4):
+            world.carry_out(world.plan())
+        world.grid.put(*design.one("bed"), "sapling")
+        world.state["inventory"] = {"bed": 1}
+        self.assertEqual(world.plan(), [{"kind": "mine", "target": list(design.one("bed"))},
+                                        {"kind": "place", "target": list(design.one("bed")), "block": "bed"}])
+
     def test_a_damaged_shelter_is_repaired_and_a_blocked_door_cleared(self):
         world = World({"cobblestone": 40})
         for _ in range(4):

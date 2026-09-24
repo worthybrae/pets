@@ -64,6 +64,13 @@ class LightTests(unittest.TestCase):
         self.assertEqual(self.plan(s), [])
         self.assertTrue(PURPOSES["light_up"].valid(self.situation({**filler, "coal": 1, "sticks": 1})))
 
+    def test_a_mushroom_on_a_corner_is_mined_before_the_torch_goes_there(self):
+        """Fix wave I3: a torch cannot go where a mushroom stands."""
+        self.grid.put(-2, 1, -2, "brown_mushroom")
+        steps = self.plan(self.situation({"torch": 4}))
+        at = steps.index({"kind": "place", "target": [-2, 1, -2], "block": "torch"})
+        self.assertEqual(steps[at - 1], {"kind": "mine", "target": [-2, 1, -2]})
+
     def test_lit_corners_are_left_and_one_torch_lights_one_corner(self):
         self.grid.put(-2, 1, -2, "torch")
         steps = self.plan(self.situation({"torch": 1}))

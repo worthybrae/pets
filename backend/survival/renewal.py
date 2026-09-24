@@ -12,14 +12,15 @@ long gap regrows the world in time order. Each call:
    - farmland turns back into dirt after 2 game days without a crop (tilled, or a crop taken
      from it), unless a crop grows on it by then;
    - a planted sapling grows into a tree after 1 game day if there is room for the trunk and
-     canopy (worldgen's tree shape) clear of Mimo, the cell above its head and any home or
-     shelter (and the cell above it), and tries again every 10 game minutes until there is;
+     canopy (worldgen's tree shape) clear of Mimo, the cell above its head, any home or shelter
+     (and the cell above it) and every cell something Mimo built claims (Grid.claimed: its
+     walls, roof, room, door and torch cells), and tries again every 10 game minutes until there is;
    - a log that goes (chopped, or any other way) leaves the leaves that no longer reach a log
      within 4 steps (through leaves and logs) to decay 1 to 6 game minutes later. A decaying
      leaf may drop a sapling (1 in 12) or an apple (1 in 20), which Mimo gathers when it is
      within 16 blocks, and it is kept in state["decays"] so the viewer can show a puff;
    - a picked mushroom comes back on forest floor in its chunk after a game day, one per chunk
-     per game day and at most 3 in the chunk.
+     per game day and at most 3 in the chunk, never in a claimed cell.
 2. Applies every entry due by then, oldest first. An entry only happens while its cell still
    holds what it grows from (the unripe bush, the crop one stage earlier, the bare farmland);
    otherwise it is dropped. A crop stage that happens schedules the next one from its own due
@@ -178,8 +179,11 @@ def open_cell(material: str) -> bool:
 
 
 def tree_fits(grid: Grid, sapling: Cell) -> bool:
+    """Room for the tree: its trunk above the sapling open, its canopy open or leaves already, and
+    none of it (the sapling's own cell included) in a cell something Mimo built claims."""
     trunk, canopy = tree_cells(sapling)
-    return (all(open_cell(grid.material(*cell)) for cell in trunk[1:])
+    return (not any(grid.claimed(cell) for cell in trunk + canopy)
+            and all(open_cell(grid.material(*cell)) for cell in trunk[1:])
             and all(open_cell(grid.material(*cell)) or grid.material(*cell) == "leaves" for cell in canopy))
 
 
@@ -196,7 +200,8 @@ def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float,
                  avoid: frozenset[Cell] = frozenset()) -> Cell | None:
     """An open cell on forest grass or moss in the chunk, picked by the roll; None if 8 tries miss.
     A cell in `avoid` (already scheduled there, or already chosen earlier in this batch) is
-    skipped in favour of the next attempt, so two picks in one chunk in one call land apart."""
+    skipped in favour of the next attempt, so two picks in one chunk in one call land apart, and
+    so is a cell something Mimo built claims."""
     cx, cz = chunk
     for attempt in range(8):
         pick = nature.roll(seed, (cx, attempt, cz), MUSHROOM_SPOT_CHANNEL, int(at))
@@ -205,7 +210,7 @@ def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float,
             continue
         y = terrain_height(x, z, seed) + 1
         cell = (x, y, z)
-        if cell in avoid:
+        if cell in avoid or grid.claimed(cell):
             continue
         if grid.material(x, y, z) == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR:
             return cell
@@ -299,7 +304,7 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
             decay(state, cell, ready_at)
     elif block in nature.MUSHROOMS:
         seed = state.get("world_seed", "0")
-        if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR
+        if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR and not grid.claimed(cell)
                 and mushrooms_in_chunk(grid, seed, (x // CHUNK, z // CHUNK)) < MUSHROOM_CAP):
             grid.put(*cell, block)
 

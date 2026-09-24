@@ -65,6 +65,13 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(steps[2:6], [store("dirt", 40), store("gravel", 5), store("sand", 5), store("cobblestone", 4)])
         self.assertEqual(len(steps), 2 + 8)
 
+    def test_a_mushroom_in_the_chest_corner_is_mined_first(self):
+        home = Home({**LOOSE, "chest": 1})
+        home.grid.put(2, 1, 2, "brown_mushroom")
+        steps = home.plan("build_storage")
+        self.assertEqual(steps[:2], [{"kind": "mine", "target": [2, 1, 2]},
+                                     {"kind": "place", "target": [2, 1, 2], "block": "chest"}])
+
     def test_not_offered_with_room_to_spare_or_without_a_built_shelter(self):
         self.assertFalse(PURPOSES["build_storage"].valid(Home({"dirt": 40, "planks": 8}).situation()))
         self.assertFalse(PURPOSES["build_storage"].valid(Home({**LOOSE, "planks": 8}).situation(NIGHT)))

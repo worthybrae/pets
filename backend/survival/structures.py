@@ -10,13 +10,16 @@ gap and the passage from the door to the home cell. From then on:
 - `reserved` is the one rule every planner that digs, tills, plants or puts a station down
   follows: it keeps off whatever something Mimo built claims (walls, roof, floor, fittings, the
   door gap, the passage and the home cell) and off Mimo's farm plots and saplings (TENDED).
+  Regrowth keeps off claimed cells too (backend.survival.renewal).
+- `clearing` gives the mine step that takes a plant a block cannot replace (a mushroom, a
+  sapling, a berry bush, a crop) out of a cell before a batch builds there.
 """
 
 from __future__ import annotations
 
 import sqlite3
 
-from backend.services.blocks import is_solid
+from backend.services.blocks import hardness, is_plant, is_replaceable, is_solid
 from backend.survival.blueprints import FITTINGS, KEEP_OPEN, STRUCTURAL, Blueprint, Planned, from_data
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import add_structure
@@ -65,6 +68,15 @@ def blocked(grid: Grid, blueprint: Blueprint) -> list[Cell]:
 
 def damaged(grid: Grid, blueprint: Blueprint) -> bool:
     return bool(todo(grid, blueprint)) or bool(blocked(grid, blueprint))
+
+
+def clearing(grid: Grid, cell: Cell) -> list[dict]:
+    """A mine step for a plant that stands in `cell` and that a placed block cannot replace, so
+    it can be built on (nothing for air, grass, flowers or anything solid)."""
+    material = grid.material(*cell)
+    if is_plant(material) and not is_replaceable(material) and hardness(material) is not None:
+        return [{"kind": "mine", "target": list(cell)}]
+    return []
 
 
 def structure_at(db: sqlite3.Connection, cell: Cell) -> int | None:

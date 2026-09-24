@@ -4,7 +4,7 @@ From 5 game minutes before dusk until nightfall, at the shelter it built, Mimo p
 each outside corner the design marked (up to four) that is still dark, making torches from coal
 and sticks (1 coal and 1 stick make 4) when it carries none. Torches glow at night in the viewer
 and each one lifts Mimo's mood a little (building.note_building); in sub-project 3 they will keep
-creatures away. The walks to the corners go all the way or not at all, and head_home leaves
+creatures away. A mushroom or sapling on a corner is mined first (structures.clearing). The walks to the corners go all the way or not at all, and head_home leaves
 light_up alone, since it keeps Mimo at home.
 """
 
@@ -18,7 +18,7 @@ from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.purposes import LATE_DAY, Purpose, register
 from backend.survival.situation import NIGHTFALL, Situation
-from backend.survival.structures import blueprint_of, todo
+from backend.survival.structures import blueprint_of, clearing, todo
 from backend.survival.toolmaking import Short, make
 
 if TYPE_CHECKING:
@@ -68,7 +68,8 @@ def plan_light(s: Situation, context: ActionContext) -> list[dict]:
         return []
     corners = dark_corners(s)
     crafting, have = torch_supply(s, len(corners))
-    jobs = [(cell, [{"kind": "place", "target": list(cell), "block": "torch"}]) for cell in corners[:have]]
+    jobs = [(cell, [*clearing(s.grid, cell), {"kind": "place", "target": list(cell), "block": "torch"}])
+            for cell in corners[:have]]
     if not jobs:
         return []
     home = blueprint_of(current_shelter(s)).anchor

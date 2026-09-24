@@ -293,6 +293,18 @@ class TreeTests(unittest.TestCase):
         renew(pet(), ctx, 3600.0)
         self.assertEqual(ctx.grid.material(0, 1, 0), "oak_log")
 
+    def test_a_tree_never_grows_into_cells_something_mimo_built_claims(self):
+        """Fix wave I3: claimed air (a shelter's room or torch cells) is not open room for a tree."""
+        for claimed in ((2, 5, 1), (0, 3, 0)):  # a canopy cell, a trunk cell
+            ctx = world()
+            ctx.grid.claims.add(claimed)
+            ctx.grid.put(0, 1, 0, "sapling")
+            renew(pet(), ctx, 0.0)
+            renew(pet(), ctx, 3600.0)
+            self.assertEqual(ctx.grid.material(0, 1, 0), "sapling", claimed)
+            self.assertEqual(ctx.grid.material(*claimed), "air", claimed)
+            self.assertEqual(scheduled(ctx.db), [((0, 1, 0), "oak_log", 4200.0)])
+
     def test_a_sapling_without_room_tries_again_later(self):
         ctx = world(field({(0, 3, 0): "stone"}))
         ctx.grid.put(0, 1, 0, "sapling")
@@ -328,6 +340,23 @@ class MushroomTests(unittest.TestCase):
         schedule(ctx.db, (9, 1, 9), "brown_mushroom", 5.0)
         renew(pet(), ctx, 10.0)
         self.assertEqual(ctx.grid.material(9, 1, 9), "air")
+
+    def test_a_mushroom_never_comes_back_in_a_claimed_cell(self):
+        """Fix wave I3: a mushroom respawning in a wall or fitting cell Mimo claimed would keep the
+        shelter from ever being finished."""
+        ctx = world(field({(3, 1, 3): "brown_mushroom"}))
+        ctx.grid.put(3, 1, 3, "air")
+        renew(pet(), ctx, 0.0)
+        [(spot, _, _)] = scheduled(ctx.db)
+        claimed = world(field({(3, 1, 3): "brown_mushroom"}))
+        claimed.grid.claims.add(spot)
+        claimed.grid.put(3, 1, 3, "air")
+        renew(pet(), claimed, 0.0)
+        self.assertNotIn(spot, [cell for cell, _, _ in scheduled(claimed.db)])
+        # One scheduled before its cell was claimed does not grow there either.
+        ctx.grid.claims.add(spot)
+        renew(pet(), ctx, 3600.0)
+        self.assertEqual(ctx.grid.material(*spot), "air")
 
     def test_two_same_chunk_picks_in_one_batch_get_different_respawn_cells(self):
         ctx = world(field({(3, 1, 3): "brown_mushroom", (5, 1, 5): "red_mushroom"}))

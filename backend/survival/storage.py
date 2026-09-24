@@ -31,7 +31,7 @@ from backend.survival.housework import chest_key
 from backend.survival.purposes import Purpose, foods, register
 from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
-from backend.survival.structures import blueprint_of, todo
+from backend.survival.structures import blueprint_of, clearing, todo
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -159,6 +159,7 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
             if crafting is None:
                 return []
             steps.extend(crafting)
+        steps.extend(clearing(s.grid, cell))
         steps.append({"kind": "place", "target": list(cell), "block": "chest"})
     for kind, moves in (("store", to_store(s, cell)), ("take", to_take(s, cell))):
         steps.extend({"kind": kind, "target": list(cell), "item": item, "amount": amount} for item, amount in moves)
