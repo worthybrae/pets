@@ -28,6 +28,8 @@ in, places visited, the ground walked (backend.survival.exploring), M4's lessons
 (building.note_building: finished structures, planted trees, full arms, torches). `notice_step`
 runs after each vitals step: vital crossings (urgent), dawn and dusk, a game hour since the last
 choice, and shelter (the first sheltered spot becomes home).
+L4: `notice_step` also tends Mimo's goal (backend.survival.goals.tend_goal): its progress, the day
+plan at dawn, a goal reached or given up.
 First sightings (home, each ore material, water) are discoveries and ask for a new choice, and so
 is food or water found on new ground far from home on an explore trip (logged as an explore
 event, one a step; it asks for a choice at most once a game hour).
@@ -45,6 +47,7 @@ from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
 from backend.survival.exploring import note_ground
+from backend.survival.goals import tend_goal
 from backend.survival.learning import learn_from_step
 from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visit
 from backend.survival.once import log_once
@@ -242,6 +245,7 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
     phase = phase_trigger(context.clock_at(since)["phase"], clock["phase"])
     if phase:
         mark_trigger(state, phase, at)
+    tend_goal(state, context, at, phase)
     asleep = (state.get("action") or {}).get("kind") == "sleep"
     if brain["pending"] is None and not asleep and hour_passed(brain, at, clock["time_scale"]):
         mark_trigger(state, "hour", at)

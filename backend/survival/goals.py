@@ -331,3 +331,142 @@ def meets_need(s: Situation, name: str, score: float) -> bool:
     except Exception as error:
         log_once(logger, f"{name} urge", error)
         return False
+
+
+# The goal in the tick --------------------------------------------------------------------------
+
+def stalled(s: Situation) -> bool:
+    """The goal's progress has not risen for STALL game seconds."""
+    goal = s.brain.get("goal")
+    return goal is not None and (s.at - goal["best_at"]) * s.scale >= STALL
+
+
+def as_goal(s: Situation, goal: Goal) -> Situation:
+    """`s` as if `goal` were Mimo's goal, on a copy of the state: some purposes are offered only for
+    a goal of their own (improve_home, stock_larder, a hunt for hides)."""
+    current = s.brain.get("goal")
+    if current is not None and current["name"] == goal.name:
+        return s
+    return replace(s, state={**s.state, "brain": {**s.brain, "goal": {"name": goal.name}}}, memo={})
+
+
+def workable(s: Situation, goal: Goal) -> bool:
+    """Something that advances the goal would be on offer now, were it Mimo's goal."""
+    t = as_goal(s, goal)
+    return any(is_valid(PURPOSES[name], t) for name in advancing(t, goal))
+
+
+def idle(s: Situation, goal: Goal) -> bool:
+    """By day, the goal's progress has not risen for IDLE game seconds and nothing that advances it
+    is on offer: there is nothing to do for it."""
+    since = s.brain["goal"]["best_at"]
+    return (not s.night and not late_day(s) and (s.at - since) * s.scale >= IDLE and not workable(s, goal))
+
+
+# Functions of (Situation, Goal) giving a step the day plan also sets time aside for, or None (L4's
+# curiosity adds time to wander once needs are met). Such a step has no milestone ("step": None).
+PLAN_EXTRAS: list = []
+
+
+def day_plan(s: Situation, goal: Goal) -> list[dict]:
+    """The next PLAN_STEPS milestones toward the goal, then whatever else the day sets time aside for
+    (PLAN_EXTRAS; one that crashes is left out, logged once)."""
+    plan = [{"text": milestone.text, "done": False, "step": index} for index, milestone in ahead(s, goal)[:PLAN_STEPS]]
+    for extra in PLAN_EXTRAS:
+        try:
+            entry = extra(s, goal)
+        except Exception as error:
+            log_once(logger, "day plan extra", error)
+            continue
+        if entry is not None:
+            plan.append({"done": False, "step": None, **entry})
+    return plan
+
+
+def plan_sentence(name: str, plan: list[dict]) -> str:
+    words = [lower(entry["text"]) for entry in plan]
+    listed = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+    return f"{name}'s plan for today: {listed}."
+
+
+def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float) -> None:
+    """A notable "goal" event, the goal's mood reward, the goal remembered, and new choices."""
+    goal_state(state)["goal"] = None
+    know(context.db, goal.name, REACHED, at)
+    context.events.append((at, "goal", f"{state['name']} reached a goal: {lower(goal.title)}."))
+    state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + goal.reward)
+    state["last_thought"] = f"I did it: {lower(goal.title)}!"
+    ask_for_goal(state, "reached", at)
+    mark_trigger(state, "goal", at)
+
+
+def give_up_goal(state: dict, context: ActionContext, name: str, at: float, why: str, scale: float) -> None:
+    """A routine "plan" event, the goal set aside for SET_ASIDE game seconds, and new choices."""
+    brain = goal_state(state)
+    brain["goal"] = None
+    brain["goal_penalties"][name] = at + SET_ASIDE / scale
+    title = lower(GOALS[name].title) if name in GOALS else name.replace("_", " ")
+    context.events.append((at, "plan", f"{state['name']} set a goal aside for now: {title} ({why})."))
+    ask_for_goal(state, "given_up", at)
+    mark_trigger(state, "goal", at)
+
+
+def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> None:
+    brain = goal_state(state)
+    current = brain["goal"]
+    s = in_tick(state, context, at)
+    goal = GOALS.get(current["name"])
+    if goal is None or not counted(goal):
+        give_up_goal(state, context, current["name"], at, "it is not known any more", s.scale)
+        return
+    current["checked_at"] = at
+    if complete(s, goal):
+        reach_goal(state, context, goal, at)
+        return
+    if not is_open(s, goal):
+        give_up_goal(state, context, goal.name, at, "it cannot be done now", s.scale)
+        return
+    progress = progress_of(s, goal)
+    current["progress"] = round(progress, 3)
+    if progress > current["best"] + 1e-6:
+        current.update(best=progress, best_at=at)
+    if dawn and stalled(s):
+        give_up_goal(state, context, goal.name, at, "no progress for a day", s.scale)
+        return
+    if not dawn and idle(s, goal):
+        give_up_goal(state, context, goal.name, at, "nothing to do for it now", s.scale)
+        return
+    if dawn or current["plan"] is None:
+        current["plan"] = day_plan(s, goal)
+        current["plan_day"] = s.clock["day_number"]
+        if current["plan"]:
+            context.events.append((at, "plan", plan_sentence(state["name"], current["plan"])))
+    else:
+        for entry in current["plan"]:
+            step = entry.get("step")
+            if isinstance(step, int) and 0 <= step < len(goal.milestones):
+                entry["done"] = share_of(s, goal.milestones[step]) >= 1.0
+    if dawn:
+        ask_for_goal(state, "dawn", at)
+
+
+def tend_goal(state: dict, context: ActionContext, at: float, phase: str | None) -> None:
+    """The goal after a vitals step (brain.notice_step): see the module docstring. A crash is
+    logged once and the tick goes on."""
+    if context.db is None or state.get("died_at") is not None:
+        return
+    try:
+        brain = goal_state(state)
+        scale = context.clock_at(at)["time_scale"]
+        dawn = phase == "dawn"
+        current = brain["goal"]
+        if current is None:
+            idle = brain["goal_idle_at"]
+            if brain["goal_due"] is None and (dawn or idle is None or (at - idle) * scale >= IDLE_RETRY):
+                ask_for_goal(state, "dawn" if dawn else "no_goal", at)
+            return
+        checked = current.get("checked_at")
+        if dawn or current["plan"] is None or checked is None or (at - checked) * scale >= CHECK_EVERY:
+            check_goal(state, context, at, dawn)
+    except Exception as error:
+        log_once(logger, "goals", error)
