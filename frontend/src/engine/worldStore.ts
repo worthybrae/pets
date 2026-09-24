@@ -188,6 +188,20 @@ export class WorldStore {
     return tops
   }
 
+  /** The cells within `radius` blocks (across) of (x, z) where the server placed `name` (L2: doors). */
+  placedCells(name: string, x: number, z: number, radius: number): { x: number; y: number; z: number }[] {
+    const id = blockId(name)
+    const found: { x: number; y: number; z: number }[] = []
+    for (const cells of this.server.values()) {
+      for (const [cell, value] of cells) {
+        if (value !== id) continue
+        const [bx, by, bz] = cell.split(',').map(Number)
+        if (Math.hypot(bx - x, bz - z) <= radius) found.push({ x: bx, y: by, z: bz })
+      }
+    }
+    return found
+  }
+
   /** Names of server-placed blocks within `radius` of (x, z), for workstation checks. */
   materialsNear(x: number, z: number, radius: number): Set<string> {
     const found = new Set<string>()

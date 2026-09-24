@@ -14,6 +14,7 @@ import LeafPuffs from './LeafPuffs'
 import { CLOSE_DISTANCE, cutawayFor, type AutoPick, type CameraMode, type ViewMode } from './cameraModes'
 import { hidden, holdWallCut, shelterBlocks } from './cutaway'
 import SurvivalCreatures from './SurvivalCreatures'
+import SurvivalDoors from './SurvivalDoors'
 import SurvivalPet from './SurvivalPet'
 import type { Built, Creature, CreatureMove, FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
@@ -37,10 +38,11 @@ function pickViewDistance(): number {
  * When the pet is underground, or a wall or roof of a shelter it built (`structures`) hides it, the
  * terrain over it is cut away (cutaway.ts) as the camera mode says (cameraModes.ts). `cameraMode`
  * defaults to the overview camera (archives). `creatures` and `creatureMoves` (L1) are drawn
- * replaying their moves the same REPLAY_DELAY behind the server as the pet. L2: arrows fly and
- * hostiles burn (CombatEffects).
+ * replaying their moves the same REPLAY_DELAY behind the server as the pet. L2: the doors Mimo
+ * built swing open as the drawn pet passes, arrows fly and hostiles burn (CombatEffects), and the
+ * pet wears the armor in `inventory` and glows red when a creature hits it (`hurtAt`).
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, serverTime, cameraMode = 'overview', onAutoPick }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, serverTime, cameraMode = 'overview', onAutoPick }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -57,6 +59,9 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   /** The creatures near Mimo and their last moves (the snapshot's lists). */
   creatures?: Creature[]
   creatureMoves?: CreatureMove[]
+  /** What Mimo carries (L2: the armor it wears) and when a creature last hurt it. */
+  inventory?: Record<string, number>
+  hurtAt?: number | null
   serverTime?: () => number
   cameraMode?: CameraMode
   /** Called when the auto camera picks overview or close. */
@@ -103,6 +108,11 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
     return cutawayFor(view.current.cut, store, at, held.on, view.current.closeDistance)
   }, [store, serverTime, stepAt, position, walls])
   const petHidden = useCallback(() => view.current.petHidden, [])
+  // Where the drawn pet is, for the doors it opens (L2).
+  const petAt = useCallback(() => {
+    const pose = stepAt()
+    return focusPoint(pose.step, pose.rest, pose.t)
+  }, [stepAt])
 
   return (
     <>
@@ -123,7 +133,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             cutaway={cutawayAt}
             onStats={debug ? setStats : undefined} onError={setEngineError} />
           <SurvivalPet action={action} recent={recentActions} position={position} now={replayTime} onPetClick={onPetClick}
-            hopSignal={hopSignal} hidden={petHidden}>
+            hopSignal={hopSignal} hidden={petHidden} tunic={(inventory?.leather_tunic ?? 0) > 0}
+            cap={(inventory?.leather_cap ?? 0) > 0} hurtAt={hurtAt}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />
@@ -141,6 +152,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           {serverTime && <SurvivalCreatures creatures={creatures} moves={creatureMoves} now={replayTime} />}
           {serverTime && <CombatEffects action={action} recent={recentActions} position={position} creatures={creatures}
             now={replayTime} />}
+          <SurvivalDoors store={store} focus={position} pet={serverTime ? petAt : undefined} />
           <FollowCamera focus={position} focusY={position.y} stepAt={serverTime ? stepAt : undefined}
             initialFocus={initial} initialFocusY={initial.y} mode={cameraMode} store={store} onView={onView} onAutoPick={onAutoPick}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}

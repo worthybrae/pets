@@ -28,6 +28,15 @@ describe('WorldStore', () => {
     expect(store.getBlock(3, 30, 3)).toBe(blockId('stone'))
   })
 
+  it('finds the cells where the server placed a block near a spot', () => {
+    const store = new WorldStore()
+    store.applyServerChanges([
+      { x: 3, y: 1, z: 4, material: 'door' }, { x: 40, y: 1, z: 0, material: 'door' }, { x: 3, y: 2, z: 4, material: 'air' },
+    ])
+    expect(store.placedCells('door', 0, 0, 32)).toEqual([{ x: 3, y: 1, z: 4 }])
+    expect(store.placedCells('bed', 0, 0, 32)).toEqual([])
+  })
+
   it('lists the highest server edit of each edited column in a chunk, dug cells too', () => {
     const store = new WorldStore()
     store.applyServerChanges([
