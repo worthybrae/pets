@@ -15,8 +15,10 @@ covered places spawn them; torches, lanterns and fires keep their surroundings l
 
 Hostiles go too, in one cheap delete by kind and distance each call: any farther than
 DESPAWN_REACH blocks from Mimo at night, and by day any beyond the 48 blocks the creature hook
-simulates, since out there it would never burn, fade or come back. Daylight burns or fades those
-near Mimo caught under the open sky (backend.survival.creatures.hostiles, sunlit).
+simulates, since out there it would never burn, fade or come back. At night one beyond those 48
+blocks whose turn has been due for LOITER game seconds fades as well, as a loiterer near Mimo
+does, so frozen ones out of reach cannot hold the cap (final fix wave). Daylight burns or fades
+those near Mimo caught under the open sky (backend.survival.creatures.hostiles, sunlit).
 """
 
 from __future__ import annotations
@@ -29,7 +31,8 @@ from backend.services.blocks import is_replaceable
 from backend.services.worldgen import terrain_height
 from backend.survival.creatures import hostiles  # noqa: F401  (registers the hostile kinds and their actions)
 from backend.survival.creatures.acts import Scene
-from backend.survival.creatures.kinds import KINDS, Kind
+from backend.survival.creatures.hostiles import LOITER
+from backend.survival.creatures.kinds import KINDS, Kind, hostile_kinds
 from backend.survival.creatures.moves import roll
 from backend.survival.creatures.spawning import SIM_REACH
 from backend.survival.creatures.table import missing_table
@@ -51,19 +54,23 @@ UNDERFOOT = ("leaves",)
 ANGLE, DISTANCE, KIND = 110, 111, 112
 
 
-def hostile_kinds() -> list[str]:
-    return sorted(kind.name for kind in KINDS.values() if kind.hostile)
-
-
 def despawn_far(scene: Scene) -> None:
     """Remove every hostile farther (horizontally) from Mimo than DESPAWN_REACH blocks at night, or
-    than SIM_REACH by day."""
+    than SIM_REACH by day. Final fix wave: at night one beyond SIM_REACH whose turn has been due
+    for LOITER game seconds goes too. Out there nothing runs its turns, so it never loiters and
+    fades as it would near Mimo (hostiles.prowl), and frozen ones could hold HOSTILE_CAP all night;
+    one that walked out of reach a moment ago, still due only lately, stays in case Mimo comes back."""
     kinds = hostile_kinds()
     reach = DESPAWN_REACH if scene.night else SIM_REACH
     x, _, z = scene.pet
+    marks = ','.join('?' * len(kinds))
+    distance = "(x - ?) * (x - ?) + (z - ?) * (z - ?)"
     try:
-        scene.herd.db.execute(f"DELETE FROM creatures WHERE kind IN ({','.join('?' * len(kinds))}) "
-                              "AND (x - ?) * (x - ?) + (z - ?) * (z - ?) > ?", (*kinds, x, x, z, z, reach * reach))
+        scene.herd.db.execute(f"DELETE FROM creatures WHERE kind IN ({marks}) AND {distance} > ?",
+                              (*kinds, x, x, z, z, reach * reach))
+        if scene.night:
+            scene.herd.db.execute(f"DELETE FROM creatures WHERE kind IN ({marks}) AND {distance} > ? AND next_at < ?",
+                                  (*kinds, x, x, z, z, SIM_REACH * SIM_REACH, scene.at - LOITER / scene.scale))
     except sqlite3.OperationalError as error:
         if not missing_table(error):
             raise

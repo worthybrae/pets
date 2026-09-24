@@ -34,15 +34,27 @@ def steps(grid: Grid, cell: Cell, water: bool, height: int = 1) -> list[Cell]:
     unless the creature already stands on claimed ground (a shelter blueprint started under it) --
     then claimed ground no longer holds it back, so it can still step somewhere and get out. L2: no
     land creature steps into or through a door (`past_doors`), and one `height` cells tall only
-    where it has the room."""
+    where it has the room (`has_room`)."""
     trapped = grid.claimed(cell)
     if water:
         x, y, z = cell
         near = [(x + dx, y + dy, z + dz) for dx, dy, dz in WATER_SIDES]
         return [step for step in near if grid.water(step) and (trapped or not grid.claimed(step))]
     return [step for step in moves(grid, cell) if not grid.swimming(step) and (trapped or not grid.claimed(step))
-            and past_doors(grid, cell, step)
-            and all(grid.passable((step[0], step[1] + up, step[2])) for up in range(1, height))]
+            and past_doors(grid, cell, step) and has_room(grid, cell, step, height)]
+
+
+def has_room(grid: Grid, start: Cell, step: Cell, height: int) -> bool:
+    """A creature `height` cells tall has the room to move from `start` to `step`: both columns are
+    clear up to `height` cells over the higher of the two (final fix wave; only the cells over the
+    end of the move were checked). A step up lifts its head into the start column one higher; a
+    drop leaves at the start's level, through the lower cell's column. pathing.moves already checks
+    what a one-cell body needs."""
+    if height <= 1:
+        return True
+    top = max(start[1], step[1]) + height - 1
+    return (all(grid.passable((step[0], y, step[2])) for y in range(step[1] + 1, top + 1))
+            and all(grid.passable((start[0], y, start[2])) for y in range(start[1] + height, top + 1)))
 
 
 def past_doors(grid: Grid, start: Cell, step: Cell) -> bool:

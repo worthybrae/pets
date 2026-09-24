@@ -53,10 +53,22 @@ class GearTests(unittest.TestCase):
         self.assertTrue(valuable("leather_cap") and valuable("leather_tunic"))
 
     def test_armor_first_then_a_bow_with_arrows_then_arrows_up_to_eight(self):
-        self.assertEqual(gear_orders({}), [("leather_tunic", "leather_cap"), ("leather_tunic",), ("leather_cap",),
-                                           ("bow", "arrow"), ("bow",)])
+        self.assertEqual(gear_orders({"flint": 1}), [("leather_tunic", "leather_cap"), ("leather_tunic",),
+                                                     ("leather_cap",), ("bow", "arrow"), ("bow",)])
         self.assertEqual(gear_orders({**ARMOR, "bow": 1, "arrow": 7}), [("arrow",)])
         self.assertEqual(gear_orders({**ARMOR, "bow": 1, "arrow": 8}), [])
+
+    def test_no_bow_before_mimo_has_had_flint_for_its_arrows(self):
+        # Final fix wave: before L3 nothing gathers gravel on purpose (flint is 1 in 8 from it), so
+        # a bow made first stood unused. It is made once Mimo has flint, has put some away or
+        # already carries arrows.
+        self.assertEqual(gear_orders({}), [("leather_tunic", "leather_cap"), ("leather_tunic",), ("leather_cap",)])
+        self.assertEqual(gear_orders(ARMOR), [])
+        self.assertEqual(gear_orders(ARMOR, flint_seen=True), [("bow", "arrow"), ("bow",)])
+        self.assertEqual(gear_orders({**ARMOR, "arrow": 2}), [("bow", "arrow"), ("bow",)])
+        self.assertFalse(GEAR.valid(situation({**ARMOR, "sticks": 4, "string": 3, "planks": 4})))
+        stored = situation({**ARMOR, "sticks": 4, "string": 3, "planks": 4}, chests={"2,1,2": {"flint": 1}})
+        self.assertEqual(crafts(plan(stored)), ["crafting_table", "bow"])
 
     def test_both_pieces_of_armor_from_five_leather_at_a_table_it_places_and_takes_back(self):
         s = situation({"leather": 5, "planks": 4})
@@ -93,6 +105,16 @@ class GearTests(unittest.TestCase):
         home = Home({"leather": 9, "string": 5, "flint": 4, "feather": 4, "rabbit_hide": 8, "gloom_dust": 2}, chest={})
         self.assertEqual(storage.to_store(home.situation(), home.chest),
                          [("leather", 4), ("gloom_dust", 2), ("string", 2)])
+
+    def test_once_the_gear_is_made_what_it_took_is_put_away_too(self):
+        # Final fix wave: the gear materials were kept on hand for good, up to 5 stacks in Mimo's
+        # arms after the armor, the bow and the arrows were made.
+        made = {**ARMOR, "bow": 1, "arrow": 8}
+        home = Home({**made, "leather": 5, "string": 3, "flint": 4, "feather": 4, "rabbit_hide": 8}, chest={})
+        self.assertEqual(dict(storage.to_store(home.situation(), home.chest)),
+                         {"leather": 5, "string": 3, "flint": 4, "feather": 4, "rabbit_hide": 8})
+        short = Home({**ARMOR, "bow": 1, "arrow": 4, "leather": 5, "string": 3, "flint": 4, "feather": 4}, chest={})
+        self.assertEqual(dict(storage.to_store(short.situation(), short.chest)), {"leather": 5, "string": 3})
 
 
 if __name__ == "__main__":

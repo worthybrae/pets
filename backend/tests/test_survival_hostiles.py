@@ -1,11 +1,13 @@
 import sqlite3
 import unittest
+from unittest.mock import patch
 
 from backend.survival.creatures.acts import Scene, act
 from backend.survival.creatures.combat import drops_of, strike
 from backend.survival.creatures.harm import armor_cut, hurt_pet
 from backend.survival.creatures.hostiles import BURN_SECONDS, CHASE_STEPS, LOITER, hostile_near
-from backend.survival.creatures.kinds import KINDS, huntable, land_kinds
+from backend.survival.creatures.kinds import KINDS, hostile_kinds, huntable, land_kinds
+from backend.survival.creatures.moves import steps
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, places
@@ -123,6 +125,27 @@ class ChaseTests(unittest.TestCase):
         self.assertEqual((cell_of(gloom), gloom["state"]["pose"]), ((4, 1, 0), "idle"))
         self.assertEqual(act(skitter, scene(grid, state)), "chase")
         self.assertEqual(cell_of(skitter)[0], 2)
+
+    def test_a_gloomling_steps_up_or_down_only_with_room_over_the_higher_cell(self):
+        # Final fix wave: a two-cell gloomling's headroom was checked only over the cell a move
+        # ends in; a step up also lifts its head into the start column one higher, and a drop
+        # leaves at the start's level through the lower cell's column.
+        up = meadow({(1, 1, 0): "dirt", (0, 3, 0): "planks"})  # a ledge east, a ceiling over the start
+        self.assertNotIn((1, 2, 0), steps(up, (0, 1, 0), False, KINDS["gloomling"].height))
+        self.assertIn((1, 2, 0), steps(up, (0, 1, 0), False, KINDS["skitter"].height))
+        down = meadow({(0, 1, 0): "dirt", (1, 3, 0): "planks"})  # on a ledge, a low beam over the drop
+        self.assertNotIn((1, 1, 0), steps(down, (0, 2, 0), False, KINDS["gloomling"].height))
+        self.assertIn((1, 1, 0), steps(down, (0, 2, 0), False, KINDS["skitter"].height))
+        self.assertIn((-1, 1, 0), steps(down, (0, 2, 0), False, KINDS["gloomling"].height))  # room that way
+
+    def test_only_hostile_rows_are_read_to_look_for_one_near_mimo(self):
+        grid, state = meadow(), pet()
+        for n in range(5):
+            grid.herd.add("cow", (n + 2, 1, 2), 10.0, 0.0, 0.0, {})
+        hostile(grid, cell=(5, 1, 0))
+        with patch.object(Herd, "near", autospec=True, side_effect=Herd.near) as spy:
+            self.assertTrue(hostile_near(grid, grid.herd.db, state))
+        self.assertEqual(spy.call_args.kwargs.get("kinds"), hostile_kinds())
 
     def test_it_waits_at_a_door_it_cannot_pass(self):
         wall = {(2, y, z): "cobblestone" for y in (1, 2) for z in range(-4, 5)}

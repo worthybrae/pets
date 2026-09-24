@@ -48,7 +48,8 @@ KEEP = {"cobblestone": 16, "planks": 16, "oak_log": 8, "sticks": 8, "coal": 8, "
         "seeds": 8, "sapling": 4, "wheat": 6, "torch": 4, "dirt": 0, "gravel": 0, "sand": 0, "clay": 0, "moss": 0,
         "basalt": 0, "limestone": 0, "sandstone": 0, "brick": 0, "glass": 0, "copper_ore": 0, "copper_ingot": 0,
         # L1: what animals drop besides meat is put away, but for what L2's armor, bow and arrows
-        # take (backend.survival.creatures.gear); gloom dust waits for L3.
+        # take (backend.survival.creatures.gear), and that only while the gear is still missing
+        # (final fix wave, `kept`); gloom dust waits for L3.
         "leather": 5, "wool": 0, "feather": 4, "rabbit_hide": 8, "string": 3, "flint": 4, "gloom_dust": 0}
 FLOWERS = ("flower_orange", "flower_pink", "flower_yellow")
 LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
@@ -88,8 +89,15 @@ def spare_food(s: Situation) -> list[tuple[str, int]]:
 
 
 def kept(s: Situation, item: str) -> int:
-    """How many of `item` Mimo keeps on it: KEEP, or none of a building block when its arms are full."""
-    return 0 if item in BUILDING and full(s.inventory) else KEEP[item]
+    """How many of `item` Mimo keeps on it: KEEP, or none of a building block when its arms are
+    full, or (final fix wave) of a gear material once the gear it is for is made."""
+    from backend.survival.creatures.gear import GEAR_MATERIALS, materials_wanted  # here: keeps purpose order
+
+    if item in BUILDING and full(s.inventory):
+        return 0
+    if item in GEAR_MATERIALS and item not in materials_wanted(s.inventory):
+        return 0
+    return KEEP[item]
 
 
 def to_store(s: Situation, cell) -> list[tuple[str, int]]:

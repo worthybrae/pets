@@ -1,9 +1,10 @@
 """Fight or flee: the reflexes that meet hostile creatures (spec L2, "Fight and flee reflexes").
 
 A threat is a living hostile creature that could come after Mimo: within 16 blocks and no more
-than 4 above or below it, nearest first (`threats`). Inside its own shelter (a room or passage
-cell of a shelter it built) Mimo has none, since nothing gets in there
-(creatures.moves.steps). A weapon is a sword, or a bow with arrows.
+than THREAT_RISE (2) above or below it, nearest first (`threats`; final fix wave: what lives in a
+cave 3 or more blocks under Mimo's feet cannot get at it, so it is no reason to run). Inside its
+own shelter (a room or passage cell of a shelter it built) Mimo has none, since nothing gets in
+there (creatures.moves.steps). A weapon is a sword, or a bow with arrows.
 
 - flee (30): a threat, and health below 35, or the nearest threat within 6 blocks and no weapon
   (within FLEE_CLEAR, 8, while a flight is on: it ended a run in the last FLEE_KEEP game
@@ -35,8 +36,8 @@ from backend.survival.actions import ActionContext
 from backend.survival.creatures.archery import SHOOT_RANGE
 from backend.survival.creatures.combat import ATTACK_REACH, weapon
 from backend.survival.creatures.harm import ARMOR, sheltered
-from backend.survival.creatures.hostiles import CHASE_RISE, CHASE_SIGHT
-from backend.survival.creatures.kinds import kind_of
+from backend.survival.creatures.hostiles import CHASE_SIGHT
+from backend.survival.creatures.kinds import hostile_kinds, kind_of
 from backend.survival.creatures.moves import where
 from backend.survival.creatures.table import dead
 from backend.survival.grid import Cell, Grid
@@ -75,6 +76,10 @@ STEP_UP_NODES = 256
 FIGHT_KEEP = 3.0  # server seconds after a round in which the fight is still on
 QUIET = 30.0  # server seconds after the reflex ended during which a new round logs no event
 THREATS_SHOWN = 4
+# Final fix wave: blocks above or below Mimo a threat may be. A hostile chases from up to 4
+# (hostiles.CHASE_RISE) and the tick keeps its short steps for one that close, but one 3 or more
+# below is in a cave under Mimo's feet, not on its way; it counts once it has climbed to 2.
+THREAT_RISE = 2
 
 
 def indoors(s: Situation) -> bool:
@@ -90,10 +95,10 @@ def threats(s: Situation) -> list[dict]:
             return []
         x, y, z = s.here
         found = []
-        for creature in herd.near(x, z, CHASE_SIGHT):
+        for creature in herd.near(x, z, CHASE_SIGHT, kinds=hostile_kinds()):
             kind = kind_of(creature["kind"])
             if kind is not None and kind.hostile and not dead(creature) \
-                    and abs(where(creature, s.at)[1] - y) <= CHASE_RISE:
+                    and abs(where(creature, s.at)[1] - y) <= THREAT_RISE:
                 found.append(creature)
         return sorted(found, key=lambda creature: (s.distance(where(creature, s.at)), creature["id"]))
     return s.sensed("threats", look)

@@ -58,6 +58,12 @@ def water_kinds() -> list[Kind]:
     return [kind for kind in KINDS.values() if kind.water and not kind.hostile]
 
 
+def hostile_kinds() -> list[str]:
+    """The names of the hostile kinds, sorted: a query that needs only them can say so
+    (`Herd.near(..., kinds=...)`) instead of reading and decoding every creature near Mimo."""
+    return sorted(kind.name for kind in KINDS.values() if kind.hostile)
+
+
 def huntable(kind: Kind | None) -> bool:
     """Mimo hunts passive land animals: not fish, and (from L2) not the hostile kinds it fights."""
     return kind is not None and not kind.water and not kind.hostile

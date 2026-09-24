@@ -39,7 +39,7 @@ from backend.survival.creatures.acts import (
     IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, flat_distance, pause, register_action, wander,
 )
 from backend.survival.creatures.harm import hurt_pet, pet_alive, sheltered
-from backend.survival.creatures.kinds import Kind, kind_of, register_kind
+from backend.survival.creatures.kinds import Kind, hostile_kinds, kind_of, register_kind
 from backend.survival.creatures.moves import heading, move, steps, where
 from backend.survival.creatures.table import dead
 from backend.survival.grid import Cell, Grid
@@ -148,7 +148,7 @@ def hostile_near(grid: Grid, db: sqlite3.Connection | None, state: dict) -> bool
     x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
     if grid.herd is None or (db is not None and sheltered(db, (x, y, z))):
         return False
-    for creature in grid.herd.near(x, z, CHASE_SIGHT):
+    for creature in grid.herd.near(x, z, CHASE_SIGHT, kinds=hostile_kinds()):  # final fix wave: hostile rows only
         kind = kind_of(creature["kind"])
         if kind is not None and kind.hostile and not dead(creature) and abs(creature["y"] - y) <= CHASE_RISE:
             return True

@@ -7,10 +7,14 @@ tunic (3 leather), worn by carrying them (backend.survival.creatures.harm: a blo
 Leather that runs short is made from rabbit hides, 4 to 1, on the way. The order: the missing
 armor first (both pieces in one batch when the leather stretches that far), then the bow with a
 first bundle of arrows, or the bow alone, then another bundle of arrows while Mimo carries a bow
-and fewer than ARROWS_WANTED. One batch per choice, and none while something it makes would not
-fit in Mimo's arms (carrying.crafts_fit) or where no table can stand (inside its shelter). Day
-work in the work band: 55 plus a tenth of caution, 10 more when a creature hurt Mimo in the last
-game day.
+and fewer than ARROWS_WANTED. Final fix wave: the bow waits until Mimo has had flint for its
+arrows (it carries flint or arrows, or its chests hold flint): flint only comes from gravel, 1 in
+8, and nothing gathers gravel on purpose before L3, so a bow made first stood unused. What the
+gear takes (`GEAR_MATERIALS`) is kept on hand only while the gear it is for is still missing
+(`materials_wanted`, backend.survival.storage). One batch per choice, and none while something it
+makes would not fit in Mimo's arms (carrying.crafts_fit) or where no table can stand (inside its
+shelter). Day work in the work band: 55 plus a tenth of caution, 10 more when a creature hurt
+Mimo in the last game day.
 """
 
 from __future__ import annotations
@@ -30,10 +34,12 @@ if TYPE_CHECKING:
 ARMOR_PIECES = ("leather_tunic", "leather_cap")
 ARROWS_WANTED = 8
 WORDS = {"leather_tunic": "a leather tunic", "leather_cap": "a leather cap", "bow": "a bow", "arrow": "4 arrows"}
+GEAR_MATERIALS = ("leather", "rabbit_hide", "string", "flint", "feather")  # what nothing but gear takes
 
 
-def gear_orders(inventory: dict) -> list[tuple[str, ...]]:
-    """What make_gear may make, first choice first (see the module docstring)."""
+def gear_orders(inventory: dict, flint_seen: bool = False) -> list[tuple[str, ...]]:
+    """What make_gear may make, first choice first (see the module docstring). `flint_seen`: Mimo's
+    chests hold flint (carried flint or arrows count without it)."""
     orders: list[tuple[str, ...]] = []
     armor = tuple(piece for piece in ARMOR_PIECES if inventory.get(piece, 0) < 1)
     if armor:
@@ -41,10 +47,28 @@ def gear_orders(inventory: dict) -> list[tuple[str, ...]]:
         if len(armor) > 1:
             orders += [(piece,) for piece in armor]
     if inventory.get("bow", 0) < 1:
-        orders += [("bow", "arrow"), ("bow",)]
+        if flint_seen or inventory.get("flint", 0) > 0 or inventory.get("arrow", 0) > 0:
+            orders += [("bow", "arrow"), ("bow",)]
     elif inventory.get("arrow", 0) < ARROWS_WANTED:
         orders.append(("arrow",))
     return orders
+
+
+def materials_wanted(inventory: dict) -> set[str]:
+    """The GEAR_MATERIALS still wanted for gear Mimo lacks: leather and hides for missing armor,
+    string for a missing bow, flint and feathers while arrows are still wanted."""
+    wanted = set()
+    if any(inventory.get(piece, 0) < 1 for piece in ARMOR_PIECES):
+        wanted |= {"leather", "rabbit_hide"}
+    if inventory.get("bow", 0) < 1:
+        wanted.add("string")
+    if inventory.get("bow", 0) < 1 or inventory.get("arrow", 0) < ARROWS_WANTED:
+        wanted |= {"flint", "feather"}
+    return wanted
+
+
+def flint_stored(s: Situation) -> bool:
+    return any(chest.get("flint", 0) > 0 for chest in s.state.get("chests", {}).values())
 
 
 def gear_steps(s: Situation, items: tuple[str, ...]) -> list[dict] | None:
@@ -73,7 +97,7 @@ def gear_steps(s: Situation, items: tuple[str, ...]) -> list[dict] | None:
 def gear_choice(s: Situation) -> tuple[tuple[str, ...], list[dict]] | None:
     """The first of gear_orders that can be made now, with its steps; or None."""
     def look() -> tuple[tuple[str, ...], list[dict]] | None:
-        for items in gear_orders(s.inventory):
+        for items in gear_orders(s.inventory, flint_stored(s)):
             steps = gear_steps(s, items)
             if steps is not None:
                 return items, steps

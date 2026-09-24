@@ -22,6 +22,11 @@ which knows whether a call is one of those short steps or the slice's one final 
 `populate` and loads only hostile rows (`Herd.near(..., kinds=...)`, fewer rows read and decoded),
 so only hostiles act on a fight step; herd spawning and every animal's turn still run once a slice,
 at the final call, the ordinary L1 cadence.
+
+The budget (spec L2: creatures and light checks at most 20 ms a slice on average) is per slice, one
+60-game-second transaction, the catch-up cadence (backend.survival.tick.MAX_STEP_SECONDS). At the
+worker's live 1x cadence, a transaction a real second, the same creatures cost about 1.3 ms a real
+second.
 """
 
 from __future__ import annotations
@@ -32,8 +37,8 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.survival.creatures.acts import Scene, act
-from backend.survival.creatures.darkness import hostile_kinds, spawn_hostiles
-from backend.survival.creatures.kinds import kind_of
+from backend.survival.creatures.darkness import spawn_hostiles
+from backend.survival.creatures.kinds import hostile_kinds, kind_of
 from backend.survival.creatures.spawning import SIM_REACH, populate
 from backend.survival.creatures.table import dead
 from backend.survival.once import log_once

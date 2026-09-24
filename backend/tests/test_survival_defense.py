@@ -13,7 +13,7 @@ from backend.survival.brain import BRAIN, brain_plan
 from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.creatures.defense import FIGHT_KEEP, FLEE_REACH, QUIET, armed, clear_line, fight_target, threats
 from backend.survival.creatures.harm import hurt_pet
-from backend.survival.creatures.kinds import KINDS
+from backend.survival.creatures.kinds import KINDS, hostile_kinds
 from backend.survival.creatures.simulate import simulate
 from backend.survival.creatures.table import Herd, create_creature_tables, dead
 from backend.survival.grid import Grid
@@ -77,6 +77,25 @@ class ThreatTests(unittest.TestCase):
         hostile(grid, cell=(3, -6, 0))  # in the rock far below
         grid.herd.add("cow", (1, 1, 0), 10.0, 0.0, 1e9, {})
         self.assertEqual([creature["id"] for creature in threats(situation(grid, pet()))], [near["id"], far["id"]])
+
+    def test_what_lives_in_a_cave_under_mimo_is_no_threat(self):
+        # Final fix wave: a skitter in a cave 3 blocks under Mimo cannot get at it, yet an unarmed
+        # pet ran from it. A threat is at most THREAT_RISE (2) above or below.
+        grid = meadow()
+        hostile(grid, "skitter", cell=(3, -2, 0))  # 3 below Mimo's feet
+        self.assertEqual(threats(situation(grid, pet())), [])
+        self.assertFalse(FLEE.trigger(situation(grid, pet())))
+        near = meadow()
+        below = hostile(near, "skitter", cell=(3, -1, 0))  # 2 below: a step or two away
+        self.assertEqual([creature["id"] for creature in threats(situation(near, pet()))], [below["id"]])
+
+    def test_only_hostile_rows_are_read_for_threats(self):
+        grid = meadow()
+        grid.herd.add("cow", (1, 1, 0), 10.0, 0.0, 1e9, {})
+        gloom = hostile(grid)
+        with patch.object(Herd, "near", autospec=True, side_effect=Herd.near) as spy:
+            self.assertEqual([creature["id"] for creature in threats(situation(grid, pet()))], [gloom["id"]])
+        self.assertEqual(spy.call_args.kwargs.get("kinds"), hostile_kinds())
 
     def test_inside_its_own_shelter_mimo_has_nothing_to_fear(self):
         grid = meadow()
