@@ -36,6 +36,14 @@ def is_plant(material: str) -> bool:
     return index is not None and BLOCK_LIST[index].get("layer") == "cutout"
 
 
+TALL = frozenset(block["name"] for block in BLOCK_LIST if block.get("tall"))
+
+
+def is_tall(material: str) -> bool:
+    """True for blocks too tall to stand on or step over (the registry's `tall`: fences, L3)."""
+    return material in TALL
+
+
 def is_solid(material: str) -> bool:
     """True for blocks Mimo can stand on or shelter under (the registry's `solid`)."""
     index = BLOCK_IDS.get(material)

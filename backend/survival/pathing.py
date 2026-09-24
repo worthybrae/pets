@@ -1,7 +1,8 @@
 """Paths for a one-cell Mimo: 3D A* over cells.
 
 Mimo moves to one of its 4 horizontal neighbors at a time: on the same level, one step up
-when the cell above its head is free, or off a ledge down at most 3 cells. Swimming happens
+when the cell above its head is free, or off a ledge down at most 3 cells; and (L3) straight up
+or down a ladder. Nothing steps onto a fence (Grid.supported). Swimming happens
 on the water surface (the cell below Mimo is water) and costs 3 times as much as walking.
 A route never enters a cell that is itself water, so Mimo never plans to put its head under.
 A search expands at most 20,000 cells and stays within 96 blocks of the start on each
@@ -15,7 +16,7 @@ import math
 from itertools import count
 from typing import Callable, Iterator
 
-from backend.survival.grid import Cell, Grid
+from backend.survival.grid import LADDER, Cell, Grid
 
 MAX_NODES = 20_000
 MAX_RANGE = 96
@@ -53,6 +54,10 @@ def moves(grid: Grid, cell: Cell) -> Iterator[Cell]:
         up = (level[0], y + 1, level[2])
         if headroom and grid.standable(up):
             yield up
+    if grid.material(x, y, z) == LADDER and grid.material(x, y + 1, z) == LADDER:
+        yield x, y + 1, z  # L3: climb the ladder
+    if grid.material(x, y - 1, z) == LADDER:
+        yield x, y - 1, z  # and down it
 
 
 def move_cost(grid: Grid, cell: Cell) -> float:

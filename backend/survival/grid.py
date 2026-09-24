@@ -17,7 +17,7 @@ import sqlite3
 from typing import Callable
 
 from backend.services.block_table import write_block
-from backend.services.blocks import is_plant, is_solid
+from backend.services.blocks import is_plant, is_solid, is_tall
 from backend.services.worldgen import block_at
 from backend.survival.creatures.table import Herd
 
@@ -28,6 +28,7 @@ LoadClaims = Callable[[int, int], set[Cell]]
 WriteBlock = Callable[[int, int, int, str], None]
 CHUNK = 16
 FLUIDS = ("water", "lava")
+LADDER = "ladder"
 
 
 class Grid:
@@ -114,10 +115,15 @@ class Grid:
         return material not in FLUIDS and not is_solid(material)
 
     def supported(self, cell: Cell) -> bool:
-        """Something holds Mimo up in this cell: the cell below is solid or water."""
+        """Something holds Mimo up in this cell: the cell below is solid or water. L3: a fence below
+        is too tall to stand on, and a ladder holds whoever is on it or on top of it."""
         x, y, z = cell
         below = self.material(x, y - 1, z)
-        return below == "water" or is_solid(below)
+        if below in ("water", LADDER):
+            return True
+        if is_solid(below):
+            return not is_tall(below)
+        return self.material(x, y, z) == LADDER
 
     def standable(self, cell: Cell) -> bool:
         return self.passable(cell) and self.supported(cell)

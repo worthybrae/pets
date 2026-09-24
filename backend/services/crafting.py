@@ -50,6 +50,9 @@ RECIPES.update({
     "iron_cap": {"ingredients": {"iron_ingot": 5}, "output": {"iron_cap": 1}, "station": "crafting_table"},
     "iron_tunic": {"ingredients": {"iron_ingot": 8}, "output": {"iron_tunic": 1}, "station": "crafting_table"},
     "lantern": {"ingredients": {"iron_ingot": 1, "torch": 1}, "output": {"lantern": 1}},
+    # Ladders Mimo can climb and fences nothing can cross, anywhere.
+    "ladder": {"ingredients": {"sticks": 7}, "output": {"ladder": 3}},
+    "fence": {"ingredients": {"planks": 4, "sticks": 2}, "output": {"fence": 3}},
 })
 # Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
 # their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.
