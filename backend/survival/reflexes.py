@@ -17,10 +17,11 @@ holds and whose planner returns steps takes over:
   would fall too far, even when it has no steps of its own.
 
 M3 registers surface (10), avoid_drop (20), eat_now (40), warm_up (50), head_home (60) and
-collapse (70). Priority 30 is left for sub-project 3's flee; creature reflexes register
-themselves with `register`. M5: collapse lies down in a bed within 8 blocks when there is one
-(and where it stands when the walk there fails), and head_home leaves Mimo be while it builds its
-shelter or lights torches at home.
+collapse (70). L2's flee (30) and fight (40) register themselves from
+backend.survival.creatures.defense; a fight goes round after round, so a reflex may stay `quiet`
+for a while after it ends and log its event once per encounter. M5: collapse lies down in a bed
+within 8 blocks when there is one (and where it stands when the walk there fails), and head_home
+leaves Mimo be while it builds its shelter or lights torches at home.
 """
 
 from __future__ import annotations
@@ -73,6 +74,8 @@ class Reflex:
     # When it ends, drop the purpose and its set-aside steps (but their cleanup), so the next
     # choice starts from where the reflex left Mimo instead of undoing it.
     ends_purpose: bool = False
+    # L2: real seconds after it last ended during which a new takeover logs no event.
+    quiet: float = 0.0
 
 
 REFLEXES: list[Reflex] = []
@@ -116,7 +119,8 @@ def take_over(state: dict, reflex: Reflex, steps: list[dict], context: ActionCon
         state["queue"] = [{**step, "purpose": reflex.name} for step in steps]
         brain["reflex"] = reflex.name
     state["last_thought"] = reflex.thought
-    context.events.append((at, "reflex", reflex.event.format(name=state["name"])))
+    if at - brain["reflex_ends"].get(reflex.name, -math.inf) >= reflex.quiet:
+        context.events.append((at, "reflex", reflex.event.format(name=state["name"])))
 
 
 def reflex_hook(state: dict, context: ActionContext, at: float) -> str | None:
