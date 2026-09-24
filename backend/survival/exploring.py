@@ -2,8 +2,12 @@
 
 Mimo remembers the ground it walked in 8x8-block patches (memory.memory_explored). `note_ground`
 hears about every finished step (brain.observe_step): a walk or swim counts a visit to each
-distinct patch along its path, any other step a visit to the patch Mimo stands in. The server
-time a patch was first visited is kept as the brain's `new_ground_at`.
+distinct patch along its path (and to its target's, when it ended within reach of it: Mimo saw
+it), any other step a visit to the patch Mimo stands in. The server
+time a patch was first visited is kept as the brain's `new_ground_at`. A patch visited for the
+first time more than 32 blocks from home is looked over: ripe wild food or natural water that
+Mimo does not remember yet (none of its kind known within 24 blocks) is remembered and is a
+discovery, which the brain announces.
 
 explore (purposes.py) walks to `explore_target`: out of 16 headings at 32 and 48 blocks (and 64
 too once all of those are well explored), the dry spot whose patch and its 8 neighbours Mimo has
@@ -29,8 +33,10 @@ from backend.services.worldgen import LEGACY_RADIUS, SEA_LEVEL, terrain_height
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell, Grid
-from backend.survival.memory import PATCH, cell_of, explored, mark_explored, nearest, patch_of
-from backend.survival.senses import near_failure
+from backend.survival.memory import (
+    PATCH, cell_of, explored, known, mark_explored, nearest, patch_of, places, remember, update_place,
+)
+from backend.survival.senses import FOOD_SIGHT, PICKABLE, WATER_SIGHT, natural_plants, near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.triggers import ensure_brain
@@ -50,6 +56,9 @@ SAMPLES = ((2, 2), (6, 2), (2, 6), (6, 6))  # columns sampled in a patch to gues
 COMPASS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
 TOP_DIRECTIONS = 3
 FOUND_KINDS = ("ore", "water", "food", "farm", "home")
+AWAY = 32.0  # new ground farther than this from home may hold a discovery
+SIGHT = max(FOOD_SIGHT, WATER_SIGHT)  # food or water this close to a known place of its kind is not new
+FOOD_WORDS = {"berry_bush_ripe": "berries", "brown_mushroom": "mushrooms", "red_mushroom": "mushrooms"}
 
 
 # Remembering the ground --------------------------------------------------------------------------
@@ -59,20 +68,64 @@ def path_patches(path: list[dict]) -> list[tuple[int, int]]:
     return list(dict.fromkeys(patch_of(int(entry["x"]), int(entry["z"])) for entry in path))
 
 
-def note_ground(state: dict, step: dict, context, at: float) -> list[tuple[int, int]]:
-    """Mark the ground a finished step covered as visited. Returns the patches visited for the
-    first time."""
+def finds_in(grid: Grid, seed: str, patch: tuple[int, int], poisons=()) -> list[tuple[str, Cell, str, int]]:
+    """What a patch holds that is worth remembering, as (kind, cell, words, how many): ripe wild
+    food Mimo would pick (not what it knows is poisonous), and natural water."""
+    rx, rz = patch
+    x0, z0 = rx * PATCH, rz * PATCH
+    wanted = tuple(block for block in PICKABLE if block not in poisons)
+    food = sorted(cell for cell in natural_plants(seed, x0 + PATCH / 2, z0 + PATCH / 2, PATCH, PICKABLE)
+                  if x0 <= cell[0] < x0 + PATCH and z0 <= cell[2] < z0 + PATCH and grid.material(*cell) in wanted)
+    found = []
+    if food:
+        found.append(("food", food[0], FOOD_WORDS[grid.material(*food[0])], len(food)))
+    water = [(x, SEA_LEVEL, z) for x in range(x0, x0 + PATCH) for z in range(z0, z0 + PATCH)
+             if terrain_height(x, z, seed) < SEA_LEVEL and grid.water((x, SEA_LEVEL, z))]
+    if water:
+        found.append(("water", water[0], "water", len(water)))
+    return found
+
+
+def discoveries(state: dict, context, patches: list[tuple[int, int]], at: float) -> list[tuple[str, str]]:
+    """Remember what new patches far from home hold. Returns (kind, words) for each new place: food
+    or water with none of its kind remembered within sight of it (24 blocks), since Mimo would see
+    that from there anyway."""
+    db = context.db
+    home = places(db, ("home",))
+    poisons = known(db, "poisonous")
+    found = []
+    for rx, rz in patches:
+        middle = (rx * PATCH + PATCH / 2, rz * PATCH + PATCH / 2)
+        if home and math.hypot(middle[0] - home[0]["x"], middle[1] - home[0]["z"]) <= AWAY:
+            continue
+        for kind, cell, words, count in finds_in(context.grid, state["world_seed"], (rx, rz), poisons):
+            if nearest(places(db, (kind,), around=cell, reach=SIGHT), cell, (kind,), SIGHT) is not None:
+                continue
+            if remember(db, kind, cell, at):
+                if kind == "food":
+                    update_place(db, "food", cell, {"ripe": count, "seen_at": at})
+                found.append((kind, words))
+    return found
+
+
+def note_ground(state: dict, step: dict, context, at: float) -> list[tuple[str, str]]:
+    """Mark the ground a finished step covered as visited, and look over the patches it saw for the
+    first time. Returns what was discovered there, as (kind, words)."""
     if context.db is None:
         return []
     if step["kind"] in PATH_KINDS:
         patches = path_patches(step.get("path") or [])
+        target = step.get("target")
+        if step.get("reached") and isinstance(target, dict):
+            patches.append(patch_of(int(target["x"]), int(target["z"])))  # seen from within reach
     else:
         x, _, z = as_cell(state["position"])
         patches = [patch_of(x, z)]
     new = mark_explored(context.db, patches, at)
-    if new:
-        ensure_brain(state)["new_ground_at"] = at
-    return new
+    if not new:
+        return []
+    ensure_brain(state)["new_ground_at"] = at
+    return discoveries(state, context, new, at)
 
 
 def visited(s: Situation) -> dict[tuple[int, int], tuple[int, float]]:

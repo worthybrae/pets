@@ -229,6 +229,18 @@ class NoticeAndObserveTests(unittest.TestCase):
         self.assertEqual(explored(ctx.db, (19, 1, 9), 4)[(2, 1)], (3, 16.0))
         self.assertEqual(state["brain"]["new_ground_at"], 14.0)  # no new patch since the swim
 
+    def test_a_walk_that_ends_within_reach_of_its_target_counts_the_targets_patch_as_seen(self):
+        state = pet(position={"x": 21.0, "y": 1.0, "z": 0.0})
+        ensure_brain(state)["pending"] = None
+        ctx = brainy()
+        path = [{"x": x, "y": 1, "z": 0, "at": 1.0 + x / 10} for x in range(17, 22)]
+        short = {"kind": "walk", "path": path, "target": {"x": 24, "y": 1, "z": 0}, "reach": 3.0, "reached": True}
+        observe_step(state, short, ctx, 3.0)
+        self.assertEqual(sorted(explored(ctx.db, (20, 1, 0), 8)), [(2, 0), (3, 0)])
+        lost = {**short, "target": {"x": 40, "y": 1, "z": 0}, "reached": False}
+        observe_step(state, lost, ctx, 4.0)
+        self.assertNotIn((5, 0), explored(ctx.db, (40, 1, 0), 8))
+
 
 class DuskTests(unittest.TestCase):
     def test_a_pet_outdoors_near_dusk_goes_home_and_sleeps_without_going_back_out(self):

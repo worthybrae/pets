@@ -27,7 +27,8 @@ in, places visited, the ground walked (backend.survival.exploring), M4's lessons
 (building.note_building: finished structures, planted trees, full arms, torches). `notice_step`
 runs after each vitals step: vital crossings (urgent), dawn and dusk, a game hour since the last
 choice, and shelter (the first sheltered spot becomes home).
-First sightings (home, each ore material, water) are discoveries and ask for a new choice.
+First sightings (home, each ore material, water) are discoveries and ask for a new choice, and so
+is food or water found on new ground far from home (one a step, logged as an explore event).
 """
 
 from __future__ import annotations
@@ -168,6 +169,21 @@ def discover(state: dict, context: ActionContext, at: float, what: str, kind: st
     mark_trigger(state, "discovery", at)
 
 
+def announce_find(state: dict, step: dict, context: ActionContext, at: float, kind: str, words: str) -> None:
+    """New ground held something new (exploring.note_ground). The first water ever is logged as a
+    discovery like any first sighting, anything else as a find. Either asks for a new choice only
+    on an explore trip: other purposes are not cut short for it, or they would churn in a forest
+    full of mushrooms."""
+    brain, name = ensure_brain(state), state["name"]
+    if kind == "water" and "water" not in brain["found"]:
+        brain["found"].append("water")
+        context.events.append((at, "discovered", f"{name} found water."))
+    else:
+        context.events.append((at, "explore", f"{name} found {words} on new ground."))
+    if step.get("purpose") == "explore":
+        mark_trigger(state, "discovery", at)
+
+
 def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> None:
     """Remember what a finished step showed: ores, recipes, water and visited places."""
     db = context.db
@@ -190,7 +206,9 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
         if water is not None and remember(db, "water", as_cell(water), at):
             discover(state, context, at, "water", "discovered", f"{name} found water.")
         visit(db, as_cell(state["position"]), at)
-    note_ground(state, step, context, at)
+    finds = note_ground(state, step, context, at)
+    if finds:
+        announce_find(state, step, context, at, *finds[0])  # one a step: the rest are remembered quietly
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
 
