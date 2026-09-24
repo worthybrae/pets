@@ -36,7 +36,8 @@ Each milestone gets its own plan, is built task by task with a review of every t
 | L1 | Animals | Creature system (table, kinds registry, spawning, the tick, API stream, viewer models and animations). Passive rabbit, sheep, cow and chicken, plus fish in water. Hunting with a hand or sword, meat and hides, cooked meats, and wool, feathers and leather. |
 | L2 | Danger and combat | Gloomling and skitter; light levels and dark spawning; attack, flee and burn at dawn; Mimo's health regen and damage; the melee attack and bow shoot steps with arrows in the viewer; swords, bow, arrows and leather armor; fight and flee reflexes; doors; death by creature; threats in the model payload; HUD danger cues. |
 | L3 | Bigger world | New blocks, trees, ores and biomes (taiga, swamp, birch forest). Surface boulders, outcrops and cave entrances. Bigger caves, underground lakes and deep lava. Mimo digs 2-wide, 3-tall passages. Gold and diamond tiers, iron armor, lanterns, ladders and fences. Creature seeds. Python/TS worldgen parity for all of it. |
-| L4 | Purposeful life | The goal layer, goal choice by Jev or rules, goal progress, and purposes weighted by the active goal. A daily plan at dawn. The HUD goal line and memorial goals. Fewer aimless loops. |
+| L4 | Purposeful life | The goal layer, goal choice by Jev or rules, goal progress, and purposes weighted by the active goal. A daily plan at dawn. The HUD goal line and memorial goals. Purposeful exploring (every trip has a reason). Fewer aimless loops. |
+| L5 | Frontier | Danger and riches grow with distance from home: danger rings, tougher hostiles and one new hostile farther out, better drops, frontier ruins with loot chests, gloom dust put to use, and Mimo weighing risk against reward. |
 
 ## L1 Animals (detail)
 
@@ -155,6 +156,75 @@ Each milestone gets its own plan, is built task by task with a review of every t
   - Purposes that advance the active goal get +15 score. Purposes that don't are capped in the leisure band unless they meet a need.
   - A "day plan" at dawn lists the goal's next steps and is shown in the HUD. Completing a goal is a notable event with a mood boost.
 - **HUD and memorial:** the HUD shows the goal and its progress bar. The memorial lists the goals reached. The Jev payload carries the goal context.
+
+## Owner input, 2026-09-24 morning
+
+After watching the L3 preview (creatures and more terrain), the owner said:
+
+> "even exploring should be purposeful though. also i feel like the farther from the center you wander the harder the enemies get but better loot or something idk"
+
+The owner also asked for work to continue all day. As before, the controller makes the design calls below. Each can be changed later.
+
+## L4 addition: purposeful exploring
+
+- **Every trip has a reason.** Explore never picks just the least-explored ground. The reason comes from the active goal or a current need. Examples:
+  - "Look for iron for my armor." Head toward unexplored stone, hills, cave mouths and sinkholes, or remembered cave entrances.
+  - "Find birch wood," "find sheep for wool" or "find a creature seed." Head toward unexplored biomes of the right kind.
+  - "Scout for a better home site."
+  - "Map the land," the mapping goal.
+- **Targets are scored by how likely they hold what the reason needs.** The inputs are explore memory patches, remembered places and landmarks, and the biome and height of the terrain.
+- **A trip ends early on a find.** Mimo remembers the find as a place or landmark to come back to, and the next purpose follows up on it.
+- **The reason is visible.** It shows in the thought, the event, the HUD and the Jev payload. Example thought: "Heading north to look for iron. My pickaxe needs it."
+- **Rules pick the reason when Jev isn't used.** A headless check counts explores without a reason, and that count must be 0.
+
+## L5 Frontier (outline; detailed in its plan)
+
+- **The centre is home.** It is Mimo's built home, or its birthplace until a home stands. Distance from it sets a danger ring:
+
+  | Ring | Distance from home | Danger |
+  |---|---|---|
+  | Home ground | under 48 | 0 |
+  | Near wilds | 48–128 | 1 |
+  | Far wilds | 128–256 | 2 |
+  | Frontier | 256–512 | 3 |
+  | Deep frontier | 512 and beyond | 4 |
+
+  Rings move with home, for example when L4 builds a better home. Home ground plays exactly as today.
+- **Harder enemies farther out.**
+  - Hostiles that spawn in a ring get more health (+35 % per danger level) and hit harder (+1 damage per two levels).
+  - The spawn cap grows by one per level.
+  - From danger 3, gloomlings and skitters can be *elder* variants. They are tougher and faintly glowing in the viewer.
+  - One new hostile, the ***thornback***, walks the far wilds and beyond (danger 2+). It is a slow, heavily armoured crawler that hits hard, and arrows are its weakness.
+  - The names and designs are our own.
+- **Better loot farther out.**
+  - Hostile drops improve by ring. From danger 1, gloom dust gets likelier. From danger 2, gold nuggets and a new gem, *amber*. From danger 3, rare diamonds.
+  - Mining in a ring has a small chance of an extra ore drop, rising per level.
+  - Terrain never depends on home. Worldgen stays a pure function of seed and cell, so the Python and TypeScript ports stay identical.
+- **Frontier ruins.**
+  - A small ruin (stone-brick walls, mossy cobblestone, a chest) sometimes stands in a region. It is placed by worldgen, as a pure function of seed and region, in both ports.
+  - The server rolls its chest's loot the first time Mimo opens it, by the ruin's danger ring. Nearer ruins hold food, arrows and iron. Farther ones hold gold, amber and diamonds.
+  - Ruins are landmarks that exploring can aim for.
+- **Loot is useful.**
+  - Gloom dust with a lantern makes a *warding lantern*. It gives light 15, and hostiles won't step within 6 blocks of it.
+  - Amber with iron makes *amber-studded armor*, a step past iron.
+  - Diamonds and gold feed L3's tool ladder sooner.
+- **Mimo weighs risk against reward.**
+  - The Situation knows Mimo's ring and the ring of each target.
+  - Rules offer frontier trips ("seek riches farther out") only when Mimo is armed, armored and healthy enough for that ring.
+  - Flee and fight thresholds account for the ring.
+  - Mimo heads home before dark when far out.
+  - Jev sees each option's ring and its gear readiness.
+- **Viewer.**
+  - The HUD names the current ring ("Far wilds · danger 2").
+  - The minimap shades the rings faintly around home.
+  - Elder hostiles glow. The thornback gets its own voxel model.
+  - Ruins and their chests are drawn.
+- **Tests.**
+  - A pet that stays near home lives as before.
+  - A geared pet survives a trip to danger 2 and back with better loot.
+  - An ungeared pet is never offered a frontier trip.
+  - Ruin loot is deterministic from seed and ring.
+  - Worldgen parity holds for ruins.
 
 ## Error handling and testing
 - The same as the survival core: crashes are logged once, the tick is model-free, GETs are read-only, and migrations are idempotent. Every milestone keeps the headless sims green and adds its own sim check.
