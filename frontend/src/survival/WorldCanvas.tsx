@@ -10,7 +10,7 @@ import { REPLAY_DELAY, replayAt } from './replay'
 import { daylightFactor } from './sky'
 import ActionEffects from './ActionEffects'
 import LeafPuffs from './LeafPuffs'
-import { cutawayFor, type AutoPick, type CameraMode, type ViewMode } from './cameraModes'
+import { CLOSE_DISTANCE, cutawayFor, type AutoPick, type CameraMode, type ViewMode } from './cameraModes'
 import SurvivalPet from './SurvivalPet'
 import type { FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
@@ -67,17 +67,21 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
     const t = replayTime()
     return { ...replayAt(action, recentActions, position, t), t }
   }, [action, recentActions, position, replayTime])
-  // From FollowCamera each frame: which mode's cut to draw, and whether it is inside the pet.
-  const view = useRef<{ cut: ViewMode; petHidden: boolean }>({ cut: 'overview', petHidden: false })
-  const onView = useCallback((cut: ViewMode, petHidden: boolean) => {
+  // From FollowCamera each frame: which mode's cut to draw, whether it is inside the pet, and how
+  // far back the close camera sits (the close cut reaches just past it).
+  const view = useRef<{ cut: ViewMode; petHidden: boolean; closeDistance: number }>(
+    { cut: 'overview', petHidden: false, closeDistance: CLOSE_DISTANCE })
+  const onView = useCallback((cut: ViewMode, petHidden: boolean, closeDistance: number) => {
     view.current.cut = cut
     view.current.petHidden = petHidden
+    view.current.closeDistance = closeDistance
   }, [])
   // Underground, or hidden behind a wall or roof, the terrain over the drawn pet is cut away so the
   // camera can still see it (tighter in close mode, not at all from its eyes).
   const cutawayAt = useCallback((camera: Point) => {
     const pose = serverTime ? stepAt() : null
-    return cutawayFor(view.current.cut, store, pose ? focusPoint(pose.step, pose.rest, pose.t) : position, camera)
+    return cutawayFor(view.current.cut, store, pose ? focusPoint(pose.step, pose.rest, pose.t) : position, camera,
+      view.current.closeDistance)
   }, [store, serverTime, stepAt, position])
   const petHidden = useCallback(() => view.current.petHidden, [])
 

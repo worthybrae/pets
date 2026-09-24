@@ -52,8 +52,9 @@ const LOOK_AHEAD = 4
 export const MAX_PITCH = Math.PI / 3
 /** Within this of Pip's head the camera is inside it, and the pet is not drawn. */
 const INSIDE_PET = 1.2
-/** The close camera's cut: tighter than the overview's CUTAWAY_RADIUS, centred on Pip. */
-export const CLOSE_CUTAWAY_RADIUS = 4.5
+/** How far past the close camera the close cut reaches, so the camera and its near plane sit in
+ * open air, not inside the rock around a tunnel. */
+export const CLOSE_CUT_MARGIN = 1.5
 export const AUTO_HOLD_SECONDS = 1.5
 /** How long the camera takes to move to a new mode's shot. */
 export const SWITCH_SECONDS = 0.4
@@ -260,14 +261,24 @@ export function switchFactor(elapsed: number, dt: number, duration = SWITCH_SECO
 }
 
 /**
- * The terrain cut for a view mode. Overview keeps cutaway.ts's cut as it is: over Mimo underground,
- * and over the walls and roofs that hide it from the camera. Close keeps both but with the tighter
- * CLOSE_CUTAWAY_RADIUS, so the tunnel reads as a cave from just above and behind. Eyes has none:
- * Pip is inside the tunnel and sees its real walls and roof.
+ * The close cut's radius for the close camera `distance` blocks behind Pip (clamped the way
+ * closeCamera clamps it): out to just past the camera, so it never starts inside rock, and no
+ * wider, so a tunnel still reads as a cave. About 6.5 blocks at the usual 5.
  */
-export function cutawayFor(mode: ViewMode, store: BlockReader, pose: Point, camera: Point): Cutaway | null {
+export function closeCutRadius(distance: number): number {
+  return clamp(distance, MIN_CLOSE_DISTANCE, MAX_CLOSE_DISTANCE) + CLOSE_CUT_MARGIN
+}
+
+/**
+ * The terrain cut for a view mode. Overview keeps cutaway.ts's cut as it is: over Mimo underground,
+ * and over the walls and roofs that hide it from the camera. Close keeps both but centred on Pip
+ * out to closeCutRadius of the current `closeDistance`, so the tunnel reads as a cave from just
+ * above and behind. Eyes has none: Pip is inside the tunnel and sees its real walls and roof.
+ */
+export function cutawayFor(mode: ViewMode, store: BlockReader, pose: Point, camera: Point,
+  closeDistance = CLOSE_DISTANCE): Cutaway | null {
   if (mode === 'eyes') return null
   const cut = terrainCutaway(store, pose, camera)
   if (!cut || mode === 'overview') return cut
-  return { ...cut, radius: CLOSE_CUTAWAY_RADIUS }
+  return { ...cut, radius: closeCutRadius(closeDistance) }
 }

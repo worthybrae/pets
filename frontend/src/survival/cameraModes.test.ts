@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { AIR, blockId } from '../engine/blocks'
 import type { Vec3 } from './camera'
 import {
-  AUTO_HOLD_SECONDS, CAMERA_MODES, CLOSE_CUTAWAY_RADIUS, CLOSE_DISTANCE, EYE_FORWARD, EYE_HEIGHT, HEAD_HEIGHT,
+  AUTO_HOLD_SECONDS, CAMERA_MODES, CLOSE_CUT_MARGIN, CLOSE_DISTANCE, EYE_FORWARD, EYE_HEIGHT, HEAD_HEIGHT,
   MAX_CLOSE_DISTANCE, MAX_PITCH, MIN_CLOSE_DISTANCE, OVERVIEW_DIRECTION, SWITCH_SECONDS, autoMode, belowGround,
   closeCamera, cutawayFor, eyesCamera, eyesPitch, headingOf, hidesPet, isCameraKey, loadCameraMode, modeLabel, nextMode,
   overviewCamera, saveCameraMode, smoothYaw, switchFactor, zoomClose,
 } from './cameraModes'
-import { CUTAWAY_RADIUS, cutawayFor as terrainCutaway } from './cutaway'
+import { CUTAWAY_RADIUS, cutawayFor as terrainCutaway, cutsAway } from './cutaway'
 import type { MimoAction } from './types'
 
 const STONE = blockId('stone')
@@ -299,13 +299,26 @@ describe('cutawayFor a camera mode', () => {
     expect(cutawayFor('overview', tunnel, pose, camera)?.radius).toBe(CUTAWAY_RADIUS)
   })
 
-  it('cuts a tighter radius centred on Pip in close, walls and roofs included', () => {
-    expect(CLOSE_CUTAWAY_RADIUS).toBeGreaterThanOrEqual(4)
-    expect(CLOSE_CUTAWAY_RADIUS).toBeLessThanOrEqual(5)
-    expect(cutawayFor('close', tunnel, pose, camera)).toEqual({ x: 0.5, y: -3.5, z: 0.5, radius: CLOSE_CUTAWAY_RADIUS })
-    expect(cutawayFor('close', walled, { x: 0, y: 1, z: 0 }, { x: 5.5, y: 4, z: 0.5 }))
-      .toEqual({ x: 0.5, y: 2.5, z: 0.5, radius: CLOSE_CUTAWAY_RADIUS })
-    expect(cutawayFor('close', ground(), { x: 0, y: 1, z: 0 }, camera)).toBeNull()
+  it('cuts around Pip in close out to just past the camera, walls and roofs included', () => {
+    const radius = CLOSE_DISTANCE + CLOSE_CUT_MARGIN
+    expect(cutawayFor('close', tunnel, pose, camera, CLOSE_DISTANCE)).toEqual({ x: 0.5, y: -3.5, z: 0.5, radius })
+    expect(cutawayFor('close', walled, { x: 0, y: 1, z: 0 }, { x: 5.5, y: 4, z: 0.5 }, CLOSE_DISTANCE))
+      .toEqual({ x: 0.5, y: 2.5, z: 0.5, radius })
+    expect(cutawayFor('close', ground(), { x: 0, y: 1, z: 0 }, camera, CLOSE_DISTANCE)).toBeNull()
+    expect(radius).toBeLessThan(CUTAWAY_RADIUS)  // at the usual distance, still tighter than the overview's
+  })
+
+  it('never leaves the close camera in rock underground, however far the wheel moved it', () => {
+    // Fix wave minor 5: the close camera sits 5 blocks back by default, and a fixed 4.5-block cut
+    // left it inside the tunnel's rock.
+    for (const distance of [MIN_CLOSE_DISTANCE, CLOSE_DISTANCE, 7.5, MAX_CLOSE_DISTANCE, 40]) {
+      const [x, y, z] = closeCamera([0.5, -5, 0.5], 0.7, distance).position
+      const at = { x, y, z }
+      const cut = cutawayFor('close', tunnel, pose, at, distance)
+      expect(cut).not.toBeNull()
+      expect(cutsAway(at, cut!, at)).toBe(true)  // the camera's own spot is cut open
+      expect(cut!.radius).toBeGreaterThanOrEqual(Math.hypot(x - 0.5, z - 0.5) + 1)
+    }
   })
 
   it('turns the cutaway off in eyes, even underground or walled in', () => {
