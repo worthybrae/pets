@@ -15,8 +15,10 @@ Modules register goals on import (backend.survival.life_goals registers the ones
 
 The brain keeps its goal in state["brain"]:
 - goal: {"name", "since", "picker", "progress", "best", "best_at", "plan", "plan_day",
-  "checked_at"} or None. `plan` is the day plan, [{"text", "done", "step"}]: the next milestones
-  toward the goal (step is the milestone's index), written at dawn and when a goal is chosen.
+  "checked_at", "day_start"} or None. `plan` is the day plan, [{"text", "done", "step"}]: the next
+  milestones toward the goal (step is the milestone's index), written at dawn and when a goal is
+  chosen. `day_start` is when the current game day began (set at dawn): `idle` measures no-progress
+  time from there, not from midnight-crossing best_at, so only daylight counts.
 - goal_due: a goal choice Mimo waits for, {"id", "reasons", "since"}, or None (ids come from
   the brain's next_id, like pending purpose choices).
 - goal_penalties: {goal: server time until which it is not offered, after it was given up}.
@@ -47,6 +49,7 @@ backend.survival.scouting); any other purpose a milestone still to do names adva
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import sqlite3
@@ -206,15 +209,19 @@ def active(s: Situation) -> Goal | None:
     return GOALS.get(goal["name"]) if goal else None
 
 
-def ask_for_goal(state: dict, reason: str, at: float) -> None:
-    """Ask for a goal choice. A pending one keeps its id and gains the reason."""
+def ask_for_goal(state: dict, reason: str, at: float, fresh: bool = False) -> None:
+    """Ask for a goal choice. A pending one keeps its id and gains the reason, unless `fresh`: then
+    it gets a new id instead (as mark_trigger(fresh=True) does for purpose choices), so an answer
+    still being worked out for the old id is thrown away when it arrives: the goal moved on."""
     brain = goal_state(state)
     due = brain["goal_due"]
-    if due is not None:
+    if due is not None and not fresh:
         if reason not in due["reasons"]:
             due["reasons"] = [*due["reasons"], reason]
         return
-    brain["goal_due"] = {"id": brain["next_id"], "reasons": [reason], "since": at}
+    reasons = [] if due is None else [known for known in due["reasons"] if known != reason]
+    brain["goal_due"] = {"id": brain["next_id"], "reasons": [*reasons, reason],
+                         "since": at if due is None else due["since"]}
     brain["next_id"] += 1
 
 
@@ -231,9 +238,9 @@ def adopt_goal(state: dict, name: str | None, picker: str, thought: str, at: flo
         current["picker"] = picker
         return False
     brain["goal"] = {"name": name, "since": at, "picker": picker, "progress": 0.0, "best": -1.0, "best_at": at,
-                     "plan": None, "plan_day": None, "checked_at": None}
+                     "plan": None, "plan_day": None, "checked_at": None, "day_start": at}
     state["last_thought"] = thought
-    mark_trigger(state, "goal", at)
+    mark_trigger(state, "goal", at, fresh=True)  # a purpose answer in flight no longer fits
     return True
 
 
@@ -348,7 +355,8 @@ def as_goal(s: Situation, goal: Goal) -> Situation:
     current = s.brain.get("goal")
     if current is not None and current["name"] == goal.name:
         return s
-    return replace(s, state={**s.state, "brain": {**s.brain, "goal": {"name": goal.name}}}, memo={})
+    fake = {"name": goal.name, "since": s.at, "best_at": s.at, "best": -1.0, "plan": None}
+    return replace(s, state={**s.state, "brain": {**s.brain, "goal": fake}}, memo={})
 
 
 def workable(s: Situation, goal: Goal) -> bool:
@@ -358,9 +366,11 @@ def workable(s: Situation, goal: Goal) -> bool:
 
 
 def idle(s: Situation, goal: Goal) -> bool:
-    """By day, the goal's progress has not risen for IDLE game seconds and nothing that advances it
-    is on offer: there is nothing to do for it."""
-    since = s.brain["goal"]["best_at"]
+    """By day, the goal's progress has not risen for IDLE game seconds of daylight and nothing that
+    advances it is on offer: there is nothing to do for it. Measured from best_at or the start of
+    today, whichever is later, so a night spent asleep (or several) is never counted against it."""
+    current = s.brain["goal"]
+    since = max(current["best_at"], current.get("day_start", current["best_at"]))
     return (not s.night and not late_day(s) and (s.at - since) * s.scale >= IDLE and not workable(s, goal))
 
 
@@ -371,16 +381,21 @@ PLAN_EXTRAS: list = []
 
 def day_plan(s: Situation, goal: Goal) -> list[dict]:
     """The next PLAN_STEPS milestones toward the goal, then whatever else the day sets time aside for
-    (PLAN_EXTRAS; one that crashes is left out, logged once)."""
+    (PLAN_EXTRAS: one that crashes, or gives anything but None or a JSON-safe dict with a string
+    "text", is left out, logged once, and never stalls the plan)."""
     plan = [{"text": milestone.text, "done": False, "step": index} for index, milestone in ahead(s, goal)[:PLAN_STEPS]]
     for extra in PLAN_EXTRAS:
         try:
             entry = extra(s, goal)
+            if entry is None:
+                continue
+            if not isinstance(entry, dict) or not isinstance(entry.get("text"), str):
+                raise ValueError(f"not a dict with a text: {entry!r}")
+            json.dumps(entry)  # JSON-safe values only: this rides in the model payload and the HUD
         except Exception as error:
             log_once(logger, "day plan extra", error)
             continue
-        if entry is not None:
-            plan.append({"done": False, "step": None, **entry})
+        plan.append({"done": False, "step": None, **entry})
     return plan
 
 
@@ -391,14 +406,17 @@ def plan_sentence(name: str, plan: list[dict]) -> str:
 
 
 def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float) -> None:
-    """A notable "goal" event, the goal's mood reward, the goal remembered, and new choices."""
+    """A notable "goal" event, the goal's mood reward, the goal remembered, and new choices. A
+    non-repeating goal already known as reached (a stale answer re-adopted it and it completed
+    again) gets neither: only its first reach is a celebration."""
     goal_state(state)["goal"] = None
-    know(context.db, goal.name, REACHED, at)
-    context.events.append((at, "goal", f"{state['name']} reached a goal: {lower(goal.title)}."))
-    state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + goal.reward)
-    state["last_thought"] = f"I did it: {lower(goal.title)}!"
-    ask_for_goal(state, "reached", at)
-    mark_trigger(state, "goal", at)
+    first = know(context.db, goal.name, REACHED, at)
+    if first or goal.repeat:
+        context.events.append((at, "goal", f"{state['name']} reached a goal: {lower(goal.title)}."))
+        state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + goal.reward)
+        state["last_thought"] = f"I did it: {lower(goal.title)}!"
+    ask_for_goal(state, "reached", at, fresh=True)
+    mark_trigger(state, "goal", at, fresh=True)  # a purpose answer in flight no longer fits
 
 
 def give_up_goal(state: dict, context: ActionContext, name: str, at: float, why: str, scale: float) -> None:
@@ -408,8 +426,8 @@ def give_up_goal(state: dict, context: ActionContext, name: str, at: float, why:
     brain["goal_penalties"][name] = at + SET_ASIDE / scale
     title = lower(GOALS[name].title) if name in GOALS else name.replace("_", " ")
     context.events.append((at, "plan", f"{state['name']} set a goal aside for now: {title} ({why})."))
-    ask_for_goal(state, "given_up", at)
-    mark_trigger(state, "goal", at)
+    ask_for_goal(state, "given_up", at, fresh=True)
+    mark_trigger(state, "goal", at, fresh=True)  # a purpose answer in flight no longer fits
 
 
 def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> None:
@@ -421,6 +439,8 @@ def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> No
         give_up_goal(state, context, current["name"], at, "it is not known any more", s.scale)
         return
     current["checked_at"] = at
+    if dawn:
+        current["day_start"] = at
     if complete(s, goal):
         reach_goal(state, context, goal, at)
         return
@@ -462,8 +482,8 @@ def tend_goal(state: dict, context: ActionContext, at: float, phase: str | None)
         dawn = phase == "dawn"
         current = brain["goal"]
         if current is None:
-            idle = brain["goal_idle_at"]
-            if brain["goal_due"] is None and (dawn or idle is None or (at - idle) * scale >= IDLE_RETRY):
+            idle_at = brain["goal_idle_at"]
+            if brain["goal_due"] is None and (dawn or idle_at is None or (at - idle_at) * scale >= IDLE_RETRY):
                 ask_for_goal(state, "dawn" if dawn else "no_goal", at)
             return
         checked = current.get("checked_at")

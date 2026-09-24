@@ -2,12 +2,16 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from backend.survival.choosing import (
     Ask, Choice, Chooser, InlineExecutor, prepare, prepare_goal, store_choice, store_goal,
 )
-from backend.survival.goals import Goal, adopt_goal, ask_for_goal, goal_state, offers
+from backend.survival.goals import (
+    REACHED, Goal, adopt_goal, ask_for_goal, give_up_goal, goal_state, offers, reach_goal,
+)
 from backend.survival.hatch import hatch
+from backend.survival.memory import know
 from backend.survival.models import GOAL_INSTRUCTIONS, ask_jev
 from backend.survival.once import forget_logged
 from backend.survival.pickers import Option
@@ -134,6 +138,60 @@ class GoalChoiceTests(unittest.TestCase):
             self.assertIsNone(store_goal(self.world, ask, Choice("later", "utility", "Some day.", NO_CALLS), BORN + 6))
         self.assertIsNone(self.brain()["goal"])
 
+    def test_reaching_the_goal_gives_a_pending_ask_a_fresh_id_so_a_stale_answer_is_thrown_away(self):
+        with only_goals(WOOD):
+            self.edit(lambda state: adopt_goal(state, "woodpile", "utility", "", BORN))
+            self.edit(lambda state: ask_for_goal(state, "dawn", BORN + 1))
+            ask = self.ask()  # Jev is asked whether to keep or switch, with this pending id
+            with self.world.transaction() as db:
+                state = read_state(db)
+                reach_goal(state, SimpleNamespace(db=db, events=[]), WOOD, BORN + 2)
+                write_state(db, state)
+            stored = store_goal(self.world, ask, Choice("woodpile", "utility", "Keep it.", NO_CALLS), BORN + 6)
+        self.assertIsNone(stored)
+        brain = self.brain()
+        self.assertIsNone(brain["goal"])
+        self.assertNotEqual(brain["goal_due"]["id"], ask.pending_id)
+
+    def test_giving_up_the_goal_gives_a_pending_ask_a_fresh_id_so_a_stale_answer_is_thrown_away(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: adopt_goal(state, "woodpile", "utility", "", BORN))
+            self.edit(lambda state: ask_for_goal(state, "dawn", BORN + 1))
+            ask = self.ask()
+            self.edit(lambda state: give_up_goal(state, SimpleNamespace(events=[]), "woodpile", BORN + 2,
+                                                 "it cannot be done now", 1.0))
+            stored = store_goal(self.world, ask, Choice("woodpile", "utility", "Keep it.", NO_CALLS), BORN + 6)
+        self.assertIsNone(stored)
+        brain = self.brain()
+        self.assertIsNone(brain["goal"])
+        self.assertNotEqual(brain["goal_due"]["id"], ask.pending_id)
+
+    def test_a_fresh_answer_naming_a_penalized_goal_is_refused_and_asked_again(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            ask = self.ask()  # both goals on offer, no current goal
+
+            def penalize(state):
+                goal_state(state)["goal_penalties"]["woodpile"] = BORN + 3600.0
+            self.edit(penalize)  # set aside by some other path after the ask, before the answer
+            stored = store_goal(self.world, ask, Choice("woodpile", "utility", "Wood first.", NO_CALLS), BORN + 6, 1.0)
+        self.assertIsNone(stored)
+        brain = self.brain()
+        self.assertIsNone(brain["goal"])
+        self.assertEqual(brain["goal_due"]["id"], ask.pending_id)  # not stale: still asked, unanswered
+
+    def test_a_fresh_answer_naming_a_goal_no_longer_open_is_refused(self):
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
+            ask = self.ask()
+            with self.world.transaction() as db:
+                state = read_state(db)
+                know(db, "woodpile", REACHED, BORN + 2)  # reached some other way: no longer open
+                write_state(db, state)
+            stored = store_goal(self.world, ask, Choice("woodpile", "utility", "Wood first.", NO_CALLS), BORN + 6, 1.0)
+        self.assertIsNone(stored)
+        self.assertIsNone(self.brain()["goal"])
+
     def test_with_no_goal_open_the_ask_is_answered_at_once(self):
         with only_goals():
             self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))
@@ -155,13 +213,36 @@ class GoalChoiceTests(unittest.TestCase):
 
     def test_a_purpose_toward_a_goal_says_which(self):
         forget_logged()
-        self.edit(lambda state: ensure_brain(state).update(pending={"id": 7, "reasons": ["goal"], "since": BORN,
-                                                                     "urgent": False}))
-        ask = Ask(7, "utility", False, (Option("gather_wood", "gather wood", "Chop.", "", 80.0, "A woodpile"),), {},
-                  BORN + 1)
-        store_choice(self.world, ask, Choice("gather_wood", "utility", "Wood.", NO_CALLS), BORN + 1)
+        with only_goals(WOOD):
+            self.edit(lambda state: adopt_goal(state, "woodpile", "utility", "", BORN))
+            self.edit(lambda state: ensure_brain(state).update(pending={"id": 7, "reasons": ["goal"], "since": BORN,
+                                                                        "urgent": False}))
+            ask = Ask(7, "utility", False, (Option("gather_wood", "gather wood", "Chop.", "", 80.0, "A woodpile"),),
+                      {}, BORN + 1)
+            store_choice(self.world, ask, Choice("gather_wood", "utility", "Wood.", NO_CALLS), BORN + 1)
         self.assertEqual(self.world.events(1)[0]["text"],
                          f'{self.name} decided to gather wood, toward a woodpile. "Wood."')
+
+    def test_a_purpose_toward_a_goal_that_has_since_moved_on_drops_the_stale_toward(self):
+        forget_logged()
+        with only_goals(WOOD, LATER):
+            self.edit(lambda state: adopt_goal(state, "woodpile", "utility", "", BORN))
+            self.edit(lambda state: ensure_brain(state).update(pending={"id": 7, "reasons": ["goal"], "since": BORN,
+                                                                        "urgent": False}))
+            ask = Ask(7, "utility", False, (Option("gather_wood", "gather wood", "Chop.", "", 80.0, "A woodpile"),),
+                      {}, BORN + 1)
+
+            def move_on(state):
+                # the goal moves on to "later" without this pending purpose choice's id changing
+                # (as if the id-refresh that should have caught it did not)
+                adopt_goal(state, "later", "utility", "", BORN + 2)
+                ensure_brain(state).update(pending={"id": 7, "reasons": ["goal"], "since": BORN, "urgent": False})
+            self.edit(move_on)
+            stored = store_choice(self.world, ask, Choice("gather_wood", "utility", "Wood.", NO_CALLS), BORN + 6)
+        self.assertEqual(stored, "gather_wood")  # the choice itself still stands
+        text = self.world.events(1)[0]["text"]
+        self.assertEqual(text, f'{self.name} decided to gather wood. "Wood."')
+        self.assertNotIn("toward", text)
 
 
 if __name__ == "__main__":

@@ -38,11 +38,14 @@ is on offer and neither the daily cap nor its hourly budget is spent; a goal cal
 both, but it does not start the 60-second gap before the next model call, so the purpose choice
 that follows a goal may still go to Jev. Otherwise the rules picker takes the best score (the
 current goal keeps its lead). Luna never chooses goals. A rules answer is stored at once and the
-purpose choice follows in the same poll; `store_goal` saves a goal unless the ask went stale, and
-a new goal asks for the purpose again (goals.adopt_goal). With a goal, a purpose that ended in
-the ordinary way is chosen again by the rules picker (`routine`): Jev speaks at the moments that
-matter (dawn, dusk, discoveries, new goals, vital crossings and the like), and the goal carries
-the day between them. A purpose that works toward a goal says so in its event.
+purpose choice follows in the same poll; `store_goal` saves a goal unless the ask went stale or the
+goal it names has since been set aside or closed (reach_goal and give_up_goal give a pending ask a
+fresh id, so an answer still in flight when the goal ends is thrown away), and a new goal asks for
+the purpose again (goals.adopt_goal). With a goal, a purpose that ended in the ordinary way is
+chosen again by the rules picker (`routine`): Jev speaks at the moments that matter (dawn, dusk,
+discoveries, new goals, vital crossings and the like), and the goal carries the day between them. A
+purpose that works toward a goal says so in its event, unless the goal moved on while its own
+choice was in flight (`store_choice` drops the stale "toward" rather than misname it).
 """
 
 from __future__ import annotations
@@ -59,7 +62,7 @@ from typing import Callable, Mapping
 from backend.survival.actions import ensure_actions, kept_steps, record
 from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
-from backend.survival.goals import GOALS, active, adopt_goal, goal_state, lower, offers, reached_titles
+from backend.survival.goals import GOALS, active, adopt_goal, goal_state, is_open, lower, offers, penalized, reached_titles
 from backend.survival.models import (
     GOAL_INSTRUCTIONS, JEV_TIMEOUT, LUNA_TIMEOUT, Http, ModelError, ask_jev, ask_luna, jev_configured,
     luna_configured, luna_reflect, post_json,
@@ -290,9 +293,13 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> 
             if new_purpose or new_thought:
                 purpose = PURPOSES.get(choice.purpose)
                 phrase = purpose.phrase if purpose else choice.purpose.replace("_", " ")
-                # L4: a purpose that works toward a goal says which.
+                # L4: a purpose that works toward a goal says which — unless the goal moved on while
+                # this choice was in flight (a stale "toward" would misname it): the choice itself
+                # still stands, just without the aim.
                 goal = next((option.goal for option in ask.options if option.name == choice.purpose), "")
-                aim = f", toward {lower(goal)}" if goal else ""
+                current = GOALS.get((brain.get("goal") or {}).get("name"))
+                still_the_goal = goal and current is not None and current.title == goal
+                aim = f", toward {lower(goal)}" if still_the_goal else ""
                 log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}{aim}. "{choice.thought}"')
         write_state(db, state)
         return choice.purpose if fresh else None
@@ -329,14 +336,16 @@ def prepare_goal(world: SurvivalWorld, now: float, scale: float, env: Env) -> As
               kind="goal")
     if not choices:
         store_goal(SurvivalWorld(world.path), ask, Choice("", "utility", "", {"model": 0, "luna": 0, "reflections": 0}),
-                   now)
+                   now, scale)
         return None
     return ask
 
 
-def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> str | None:
-    """Save a goal choice unless the life died or the ask went stale; count its model call. A new
-    goal is logged as a routine "plan" event. Returns the goal stored."""
+def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, scale: float = 1.0) -> str | None:
+    """Save a goal choice unless the life died, the ask went stale, or the goal it names has since
+    been set aside or is no longer open (a stale answer thrown out this way is asked again: unlike a
+    stale id, goal_due is left pending). Counts its model call either way. A new goal is logged as a
+    routine "plan" event. Returns the goal stored."""
     with world.transaction() as db:
         state = read_state(db)
         if state["died_at"] is not None:
@@ -350,11 +359,17 @@ def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> st
             brain["jev_calls"] = [*recent_calls(brain, "jev_calls", ask.game_at), ask.game_at]
         due = brain["goal_due"]
         fresh = due is not None and due["id"] == ask.pending_id
-        if fresh and adopt_goal(state, choice.purpose or None, choice.picker, choice.thought, now):
-            title = lower(GOALS[choice.purpose].title)
+        name = choice.purpose or None
+        if fresh and name is not None:
+            goal = GOALS.get(name)
+            s = from_db(db, state, now, scale)
+            if goal is None or penalized(s, name) or not is_open(s, goal):
+                fresh = False
+        if fresh and adopt_goal(state, name, choice.picker, choice.thought, now):
+            title = lower(GOALS[name].title)
             log_event(db, now, "plan", f'{state["name"]} set a new goal: {title}. "{choice.thought}"')
         write_state(db, state)
-        return (choice.purpose or None) if fresh else None
+        return name if fresh else None
 
 
 class InlineExecutor:
@@ -444,7 +459,8 @@ class Chooser:
         if choice.error:
             log_once(logger, "picker", ModelError(choice.error))
         if ask.kind == "goal":
-            return store_goal(SurvivalWorld(path), ask, choice, now)
+            scale = time_scale() if self.scale is None else self.scale
+            return store_goal(SurvivalWorld(path), ask, choice, now, scale)
         return store_choice(SurvivalWorld(path), ask, choice, now)
 
     def close(self) -> None:

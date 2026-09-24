@@ -55,13 +55,15 @@ def ensure_brain(state: dict) -> dict:
     return brain
 
 
-def mark_trigger(state: dict, reason: str, at: float, urgent: bool = False) -> None:
+def mark_trigger(state: dict, reason: str, at: float, urgent: bool = False, fresh: bool = False) -> None:
     """Ask for a new choice. A pending choice keeps its id and gains the reason. An urgent trigger
     (a vital crossing) gives it a new id instead, so an answer still being worked out for the old
-    id is thrown away when it arrives: the state moved on."""
+    id is thrown away when it arrives: the state moved on. `fresh` also gives it a new id, for the
+    same reason (an answer in flight no longer fits, since Mimo's goal ended or changed underneath
+    it), but without marking it urgent."""
     brain = ensure_brain(state)
     pending = brain["pending"]
-    if pending is not None and not urgent:
+    if pending is not None and not urgent and not fresh:
         if reason not in pending["reasons"]:
             pending["reasons"] = [*pending["reasons"], reason][-REASON_LIMIT:]
         return
