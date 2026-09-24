@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { creatureModel, dropColor } from './creatures'
+import { creatureDots, creatureModel, dropColor } from './creatures'
+import { mapOrigin } from './overheadMap'
+import type { Creature } from './types'
 
 const KINDS = ['rabbit', 'chicken', 'sheep', 'cow', 'fish']
 
@@ -46,5 +48,16 @@ describe('dropColor', () => {
     expect(new Set(['raw_beef', 'leather', 'wool', 'feather', 'rabbit_hide'].map((item) => dropColor(item).join()))
       .size).toBe(5)
     expect(dropColor('mystery')).toEqual([180, 180, 180])
+  })
+})
+
+describe('creatureDots', () => {
+  it('puts the living creatures on the minimap, fish apart, and leaves out the dead and the far', () => {
+    const origin = mapOrigin({ x: 100, y: 5, z: 100 })
+    const cow: Creature = { id: 1, kind: 'cow', x: 110, y: 5, z: 90, heading: 0, health: 1, state: 'grazing' }
+    const dots = creatureDots([cow, { ...cow, id: 2, kind: 'fish', x: 100, z: 100 },
+      { ...cow, id: 3, state: 'dead', dead_at: 5 }, { ...cow, id: 4, x: 400 }], origin)
+    expect(dots).toEqual([{ px: 106.5, py: 86.5, fish: false }, { px: 96.5, py: 96.5, fish: true }])
+    expect(creatureDots(undefined, origin)).toEqual([])
   })
 })

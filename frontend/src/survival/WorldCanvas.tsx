@@ -12,8 +12,9 @@ import ActionEffects from './ActionEffects'
 import LeafPuffs from './LeafPuffs'
 import { CLOSE_DISTANCE, cutawayFor, type AutoPick, type CameraMode, type ViewMode } from './cameraModes'
 import { hidden, holdWallCut, shelterBlocks } from './cutaway'
+import SurvivalCreatures from './SurvivalCreatures'
 import SurvivalPet from './SurvivalPet'
-import type { Built, FinishedAction, LeafDecay, MimoAction, Point } from './types'
+import type { Built, Creature, CreatureMove, FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
@@ -34,9 +35,10 @@ function pickViewDistance(): number {
  * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
  * When the pet is underground, or a wall or roof of a shelter it built (`structures`) hides it, the
  * terrain over it is cut away (cutaway.ts) as the camera mode says (cameraModes.ts). `cameraMode`
- * defaults to the overview camera (archives).
+ * defaults to the overview camera (archives). `creatures` and `creatureMoves` (L1) are drawn
+ * replaying their moves the same REPLAY_DELAY behind the server as the pet.
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, serverTime, cameraMode = 'overview', onAutoPick }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, serverTime, cameraMode = 'overview', onAutoPick }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -50,6 +52,9 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   decays?: LeafDecay[]
   /** What Mimo built (the snapshot's list); its shelters' walls and roofs may be cut away. */
   structures?: Built[]
+  /** The creatures near Mimo and their last moves (the snapshot's lists). */
+  creatures?: Creature[]
+  creatureMoves?: CreatureMove[]
   serverTime?: () => number
   cameraMode?: CameraMode
   /** Called when the auto camera picks overview or close. */
@@ -131,6 +136,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           </SurvivalPet>
           {serverTime && <ActionEffects store={store} action={action} recent={recentActions} position={position} now={replayTime} />}
           {serverTime && <LeafPuffs decays={decays} now={replayTime} />}
+          {serverTime && <SurvivalCreatures creatures={creatures} moves={creatureMoves} now={replayTime} />}
           <FollowCamera focus={position} focusY={position.y} stepAt={serverTime ? stepAt : undefined}
             initialFocus={initial} initialFocusY={initial.y} mode={cameraMode} store={store} onView={onView} onAutoPick={onAutoPick}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}

@@ -4,7 +4,8 @@ import {
   composeMap, MAP_BLOCKS, MAP_RADIUS, MAP_SCALE, mapMarks, mapOrigin, mapPatches, PATCH, PatchCache, PATCHES_PER_DRAW,
   seenPatches, spreadMarks, travelHeading, type MapMark,
 } from './overheadMap'
-import type { Built, ExploredPatch, Landmark, MimoAction, Point } from './types'
+import { creatureDots } from './creatures'
+import type { Built, Creature, ExploredPatch, Landmark, MimoAction, Point } from './types'
 
 const SIZE = MAP_BLOCKS * MAP_SCALE
 const PET = '#f0845c'
@@ -12,6 +13,8 @@ const INK = '#243e3d'
 const HOME = '#f5c46b'
 const FARM = '#8a6a4f'
 const SPROUT = '#9ed07a'
+const ANIMAL = '#fff4de'
+const FISH = '#6fb8d8'
 /** Patches this far past the map's edge stay cached, for a walk back. */
 const KEEP_MARGIN = 4
 /** The map's width on screen before it is laid out (desktop), in CSS pixels. */
@@ -109,6 +112,18 @@ function drawMark(context: CanvasRenderingContext2D, mark: MapMark, u: number): 
   else drawFarm(context, x, y, mark.building, u)
 }
 
+/** A creature (L1): a small cream dot, blue for a fish, about 4 CSS pixels across at any size the map shows. */
+function drawCreature(context: CanvasRenderingContext2D, x: number, y: number, fish: boolean): void {
+  const u = SIZE / (context.canvas.clientWidth || 140)  // canvas pixels to a CSS pixel
+  context.beginPath()
+  context.arc(x, y, 2 * u, 0, Math.PI * 2)
+  context.fillStyle = fish ? FISH : ANIMAL
+  context.fill()
+  context.lineWidth = 0.8 * u
+  context.strokeStyle = INK
+  context.stroke()
+}
+
 /**
  * A top-down map of the land 96 blocks each way around Mimo, north up: the terrain as the 3D
  * world has it (overheadMap.ts), greyed out where Mimo has never been, with home, the farm and Mimo
@@ -116,12 +131,14 @@ function drawMark(context: CanvasRenderingContext2D, mark: MapMark, u: number): 
  * keep the same size on screen whether the map shows at 140 or 110 px. It redraws when a new
  * snapshot arrives, not every frame, working out at most PATCHES_PER_DRAW new patches each time.
  */
-export default function Minimap({ store, position, explored, structures, landmarks, action, name, onHide }: {
+export default function Minimap({ store, position, explored, structures, landmarks, creatures, action, name, onHide }: {
   store: WorldStore
   position: Point
   explored: readonly ExploredPatch[] | undefined
   structures: readonly Built[] | undefined
   landmarks: readonly Landmark[] | undefined
+  /** The creatures near Mimo (L1), drawn as small dots. */
+  creatures?: readonly Creature[]
   action: MimoAction | null
   name: string
   onHide: () => void
@@ -159,13 +176,14 @@ export default function Minimap({ store, position, explored, structures, landmar
     const marks = spreadMarks(mapMarks(structures, landmarks, origin), (GAP * u) / MAP_SCALE)
     for (const mark of marks) if (mark.kind === 'farm') drawMark(context, mark, u)
     for (const mark of marks) if (mark.kind === 'home') drawMark(context, mark, u)
+    for (const dot of creatureDots(creatures, origin)) drawCreature(context, dot.px * MAP_SCALE, dot.py * MAP_SCALE, dot.fish)
     const middle = (MAP_RADIUS + 0.5) * MAP_SCALE
     // At home Mimo's dot shrinks and the house's outline is drawn over it, so both show.
     const homes = marks.filter((mark) => mark.kind === 'home'
       && Math.hypot(mark.px * MAP_SCALE - middle, mark.py * MAP_SCALE - middle) < HOUSE * u)
     drawPet(context, middle, middle, travelHeading(action, position), u, homes.length ? DOT_AT_HOME : DOT)
     for (const home of homes) ringHome(context, home.px * MAP_SCALE, home.py * MAP_SCALE, u)
-  }, [cache, position, explored, structures, landmarks, action])
+  }, [cache, position, explored, structures, landmarks, creatures, action])
 
   return (
     <div className="relative h-[110px] w-[110px] overflow-hidden rounded-2xl border-2 border-white/80 bg-[#b0beba] shadow-[0_14px_40px_rgba(57,95,91,0.18)] sm:h-[140px] sm:w-[140px]">

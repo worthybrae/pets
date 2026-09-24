@@ -126,7 +126,8 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
 
   const minimap = mapOpen
     ? <Minimap store={store} position={state.position} explored={state.explored} structures={state.structures}
-        landmarks={state.landmarks} action={state.action} name={state.life.name} onHide={() => showMap(false)} />
+        landmarks={state.landmarks} creatures={state.creatures} action={state.action} name={state.life.name}
+        onHide={() => showMap(false)} />
     : (
       <button type="button" onClick={() => showMap(true)} title="Show the map (M)"
         className="rounded-xl border border-white/75 bg-[#f5faf7]/90 px-3 py-1.5 text-xs font-medium text-[#315e58] shadow-[0_14px_40px_rgba(57,95,91,0.12)] backdrop-blur-md hover:bg-white">
@@ -150,6 +151,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
       <WorldCanvas store={store} position={state.position} seconds={seconds} arrival={arrival}
         following={following} onOrbit={() => setFollowing(false)} onPetClick={hello} hopSignal={helloCount}
         action={state.action} recentActions={state.recent_actions} decays={state.decays} structures={state.structures}
+        creatures={state.creatures} creatureMoves={state.creature_moves}
         serverTime={serverTime}
         cameraMode={cameraMode} onAutoPick={autoPicked} />
       <SurvivalHud state={state} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}

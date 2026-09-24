@@ -1,5 +1,6 @@
 import type { Voxel } from '../types/world'
-import type { Point } from './types'
+import { MAP_BLOCKS, toMap, type MapOrigin } from './overheadMap'
+import type { Creature, Point } from './types'
 
 /**
  * Blocky voxel models of the creatures, in the soft pixel style of the pet (PetVoxels): a white
@@ -127,4 +128,19 @@ export function dropColor(item: string): Color {
   if (item.startsWith('raw_')) return [214, 112, 108]
   return ({ leather: [150, 96, 62], wool: WOOL, feather: [250, 250, 246], rabbit_hide: [196, 164, 124] } as Record<string, Color>)[item]
     ?? [180, 180, 180]
+}
+
+/** A creature as a small dot on the minimap, in blocks from the map's top-left corner. */
+export interface CreatureDot {
+  px: number
+  py: number
+  fish: boolean
+}
+
+/** The living creatures on the minimap (overheadMap.ts): dead ones and ones off the map are left out. */
+export function creatureDots(creatures: readonly Creature[] | null | undefined, origin: MapOrigin): CreatureDot[] {
+  return (creatures ?? [])
+    .filter((creature) => creature.state !== 'dead')
+    .map((creature) => ({ ...toMap(creature.x, creature.z, origin), fish: creature.kind === 'fish' }))
+    .filter(({ px, py }) => px >= 0 && py >= 0 && px < MAP_BLOCKS && py < MAP_BLOCKS)
 }
