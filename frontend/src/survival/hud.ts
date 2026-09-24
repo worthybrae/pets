@@ -98,17 +98,23 @@ export function purposeText(state: Pick<SurvivalState, 'purpose' | 'reflex' | 'c
   return state.choosing ? 'Deciding what to do' : 'Taking it easy'
 }
 
-/** Mimo's home in a few words: the shelter it built (or is building), or null before it starts one. */
-export function homeText(structures: Built[]): string | null {
-  const shelter = [...structures].reverse().find((built) => built.kind === 'shelter')
+/**
+ * Mimo's home in a few words: the shelter it built (or is building), or null before it starts one.
+ * An API from before M5 sends no `structures`: that reads as nothing built.
+ */
+export function homeText(structures: readonly Built[] | null | undefined): string | null {
+  const shelter = [...(structures ?? [])].reverse().find((built) => built.kind === 'shelter')
   if (!shelter) return null
   return shelter.status === 'done' ? `Home: ${shelter.name}` : `Building ${shelter.name}`
 }
 
-/** What Mimo keeps in its chests, most first, like "40 dirt, 5 gravel"; null when they are empty. */
-export function chestText(chests: Chests): string | null {
+/**
+ * What Mimo keeps in its chests, most first, like "40 dirt, 5 gravel"; null when they are empty.
+ * An API from before M5 sends no `chests`: that reads as none.
+ */
+export function chestText(chests: Chests | null | undefined): string | null {
   const totals = new Map<string, number>()
-  for (const chest of Object.values(chests)) {
+  for (const chest of Object.values(chests ?? {})) {
     for (const [item, count] of Object.entries(chest)) totals.set(item, (totals.get(item) ?? 0) + count)
   }
   const items = [...totals].filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))

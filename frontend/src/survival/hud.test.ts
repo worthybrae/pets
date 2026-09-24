@@ -3,6 +3,7 @@ import {
   actionText, careLabel, causeText, chestText, clockTime, dayLabel, homeText, lifeLine, purposeText, statusText, thingName,
   vitalBars, workerOnline,
 } from './hud'
+import type { Built, Chests } from './types'
 
 const vitals = { health: 100, hunger: 14.6, warmth: 34, energy: 62.4, air: 100, mood: 70 }
 
@@ -113,5 +114,14 @@ describe('building', () => {
     expect(chestText({})).toBeNull()
     expect(chestText({ '1,2,3': { dirt: 40, red_mushroom: 2 }, '5,2,3': { dirt: 2, gravel: 5, sand: 0 } }))
       .toBe('42 dirt, 5 gravel, 2 red mushroom')
+  })
+
+  it('reads a snapshot from an older API with no structures or chests', () => {
+    // Fix wave minor 4: an API from before M5 sends neither field.
+    const older = JSON.parse('{}') as { structures: Built[]; chests: Chests }
+    expect(homeText(older.structures)).toBeNull()
+    expect(chestText(older.chests)).toBeNull()
+    expect(homeText(null)).toBeNull()
+    expect(chestText(null)).toBeNull()
   })
 })
