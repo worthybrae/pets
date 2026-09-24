@@ -31,7 +31,8 @@ MUSHROOMS = ("brown_mushroom", "red_mushroom")
 HARVESTS = {"wheat_3": {"wheat": 1, "seeds": 2}, "carrot_3": {"carrot": 3}}
 # Extra drops when a block is mined, or a leaf decays: (item, chance, roll channel).
 CHANCE_DROPS = {"tall_grass": (("seeds", 0.2, 30), ("carrot", 0.05, 31)),
-                "leaves": (("sapling", 1 / 12, 32), ("apple", 1 / 20, 33))}
+                "leaves": (("sapling", 1 / 12, 32), ("apple", 1 / 20, 33)),
+                "gravel": (("flint", 1 / 8, 38),)}  # L2: flint for arrows
 
 
 def roll(seed: str, cell: Cell, channel: int, salt: int = 0) -> float:

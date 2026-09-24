@@ -27,7 +27,7 @@ CARRY_STACKS = 16
 CHEST_STACKS = 24
 # Carried blocks worth least, the least first: a valuable newcomer that does not fit pushes one out.
 LOW_VALUE = ("moss", "gravel", "sand", "clay", "dirt", "basalt", "limestone", "sandstone", "cobblestone")
-VALUABLE = ("seeds", "sapling", "wheat", "coal")
+VALUABLE = ("seeds", "sapling", "wheat", "coal", "bow", "arrow")  # L2: gear
 
 
 def stacks(items: dict[str, int]) -> int:

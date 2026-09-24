@@ -76,7 +76,7 @@ HAZARDS = {"swim": ("swimming", True), "fall": ("falling", False)}
 # Waits tell the viewer nothing and would push real steps out of the recent list.
 UNRECORDED = frozenset({"wait"})
 MAX_TAKEOVERS = 4
-RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose", "path", "amount")
+RECORDED_FIELDS = ("kind", "started_at", "target", "block", "item", "recipe", "purpose", "path", "amount", "hit")
 
 Event = tuple[float, str, str]
 # A planner gets the state, the tick's ActionContext and the time, and returns the next steps.

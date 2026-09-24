@@ -24,7 +24,7 @@ VISITS_SHOWN = 9  # visits are capped in the stream (one digit): the viewer only
 
 # The parts of the current step the viewer animates. The rest (reach, reached, segments) is the
 # planner's bookkeeping.
-ACTION_FIELDS = ("kind", "started_at", "ends_at", "path", "target", "block", "item", "recipe", "blocks")
+ACTION_FIELDS = ("kind", "started_at", "ends_at", "path", "target", "block", "item", "recipe", "blocks", "hit")
 
 
 def action_view(action: dict | None) -> dict | None:

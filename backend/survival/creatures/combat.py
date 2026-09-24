@@ -150,3 +150,6 @@ def spoils(state: dict, creature: dict, found: dict[str, int], at: float) -> tup
 
 register_step(StepKind("attack", start_attack, finish_attack, "attacking", working=True, cell_field="target",
                        takes_events=True))
+
+# L2's shoot step builds on the blow above and registers itself.
+from backend.survival.creatures import archery  # noqa: E402,F401

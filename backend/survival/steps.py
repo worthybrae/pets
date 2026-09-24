@@ -11,9 +11,10 @@ Every kind of step is a StepKind in the STEP_KINDS registry: how it starts and f
 pet's status while it runs, whether it counts as work and whether a reflex may cut it short. The
 engine (backend.survival.actions) asks the registry, so a new kind only has to register. M4's
 field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fieldwork, M5's
-housework (store, take, drop) in backend.survival.housework and L1's attack in
-backend.survival.creatures.combat. Mining leaves or tall grass may drop
-more (nature.CHANCE_DROPS): saplings, apples, seeds. Sleep on a bed is sleep in a bed.
+housework (store, take, drop) in backend.survival.housework, L1's attack in
+backend.survival.creatures.combat and L2's shoot in backend.survival.creatures.archery. Mining
+leaves, tall grass or gravel may drop more (nature.CHANCE_DROPS): saplings, apples, seeds, flint.
+Sleep on a bed is sleep in a bed.
 """
 
 from __future__ import annotations

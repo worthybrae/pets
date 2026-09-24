@@ -29,6 +29,8 @@ RECIPES = {
     "wooden_sword": {"ingredients": {"planks": 2, "sticks": 1}, "output": {"wooden_sword": 1}, "station": "crafting_table"},
     "stone_sword": {"ingredients": {"cobblestone": 2, "sticks": 1}, "output": {"stone_sword": 1}, "station": "crafting_table"},
     "iron_sword": {"ingredients": {"iron_ingot": 2, "sticks": 1}, "output": {"iron_sword": 1}, "station": "crafting_table"},
+    "bow": {"ingredients": {"sticks": 3, "string": 3}, "output": {"bow": 1}, "station": "crafting_table"},
+    "arrow": {"ingredients": {"flint": 1, "sticks": 1, "feather": 1}, "output": {"arrow": 4}, "station": "crafting_table"},
 }
 
 TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3}
