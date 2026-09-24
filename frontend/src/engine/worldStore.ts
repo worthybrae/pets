@@ -168,6 +168,13 @@ export class WorldStore {
     return Int32Array.from([...merged.values()].flat())
   }
 
+  /** Whether the server placed a block (not air) at the cell: a block Mimo put there, not natural
+   * ground and not a client overlay. */
+  placedAt(x: number, y: number, z: number): boolean {
+    const id = this.server.get(columnKey(chunkOf(x), chunkOf(z)))?.get(cellKey(x, y, z))
+    return id !== undefined && id !== AIR
+  }
+
   /** Names of server-placed blocks within `radius` of (x, z), for workstation checks. */
   materialsNear(x: number, z: number, radius: number): Set<string> {
     const found = new Set<string>()

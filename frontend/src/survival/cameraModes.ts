@@ -271,14 +271,15 @@ export function closeCutRadius(distance: number): number {
 
 /**
  * The terrain cut for a view mode. Overview keeps cutaway.ts's cut as it is: over Mimo underground,
- * and over the walls and roofs that hide it from the camera. Close keeps both but centred on Pip
- * out to closeCutRadius of the current `closeDistance`, so the tunnel reads as a cave from just
- * above and behind. Eyes has none: Pip is inside the tunnel and sees its real walls and roof.
+ * and over the walls and roofs of its shelter when they hide it from the camera (`walled`, held by
+ * cutaway.ts holdWallCut). Close keeps both but centred on Pip out to closeCutRadius of the current
+ * `closeDistance`, so the tunnel reads as a cave from just above and behind. Eyes has none: Pip is
+ * inside the tunnel and sees its real walls and roof.
  */
-export function cutawayFor(mode: ViewMode, store: BlockReader, pose: Point, camera: Point,
+export function cutawayFor(mode: ViewMode, store: BlockReader, pose: Point, walled: boolean,
   closeDistance = CLOSE_DISTANCE): Cutaway | null {
   if (mode === 'eyes') return null
-  const cut = terrainCutaway(store, pose, camera)
+  const cut = terrainCutaway(store, pose, walled)
   if (!cut || mode === 'overview') return cut
   return { ...cut, radius: closeCutRadius(closeDistance) }
 }

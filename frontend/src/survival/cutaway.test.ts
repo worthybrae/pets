@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { AIR, blockId } from '../engine/blocks'
-import { CUTAWAY_RADIUS, cutawayFor, cutsAway, hidden, underground } from './cutaway'
+import {
+  CUTAWAY_RADIUS, WALL_HOLD_SECONDS, cutawayFor, cutsAway, hidden, holdWallCut, shelterBlocks, underground,
+} from './cutaway'
+import type { Built } from './types'
 
 const STONE = blockId('stone')
 
-/** Stone at y <= 0 and air above, with single cells overridden by name. */
+/** Stone at y <= 0 and air above, with single cells overridden by name: those are the blocks the
+ * server says were placed (an overridden 'air' is a block mined out). */
 function ground(cells: Record<string, string> = {}) {
   return {
     getBlock(x: number, y: number, z: number): number {
@@ -12,8 +16,15 @@ function ground(cells: Record<string, string> = {}) {
       if (named) return named === 'air' ? AIR : blockId(named)
       return y <= 0 ? STONE : AIR
     },
+    placedAt(x: number, y: number, z: number): boolean {
+      const named = cells[`${x},${y},${z}`]
+      return named !== undefined && named !== 'air'
+    },
   }
 }
+
+/** The shelter Mimo built, with its home cell at (1, 1, 0). */
+const HOME: Built[] = [{ id: 1, kind: 'shelter', name: "Pip's Snug Cottage", status: 'done', x: 1, y: 1, z: 0 }]
 
 /** A one-block tunnel cell dug at (0, -5, 0), with the rock over it. */
 const tunnel = ground({ '0,-5,0': 'air' })
@@ -58,17 +69,65 @@ describe('a shelter Mimo built', () => {
     expect(underground(ground({ '0,4,0': 'cobblestone' }), { x: 0, y: 1, z: 0 })).toBe(true)
   })
 
-  it('is hidden by a wall or roof reaching above the cut between it and the camera', () => {
-    expect(hidden(wall(3), { x: 0, y: 1, z: 0 }, camera)).toBe(true)
-    expect(hidden(wall(2), { x: 0, y: 1, z: 0 }, camera)).toBe(false)  // the cut would leave it anyway
-    expect(hidden(wall(3, 'leaves'), { x: 0, y: 1, z: 0 }, camera)).toBe(false)
-    expect(hidden(wall(3), { x: 0, y: 1, z: 0 }, { x: -18, y: 14, z: 0.5 })).toBe(false)  // seen from the other side
+  /** Whether `store`'s blocks hide Mimo at (0, 1, 0), counting only what shelterBlocks does. */
+  const hides = (store: ReturnType<typeof ground>, from = camera, built = HOME) =>
+    hidden(store, { x: 0, y: 1, z: 0 }, from, shelterBlocks(store, built))
+
+  it('is hidden by a wall or roof it built reaching above the cut between it and the camera', () => {
+    expect(hides(wall(3))).toBe(true)
+    expect(hides(wall(2))).toBe(false)  // the cut would leave it anyway
+    expect(hides(wall(3, 'leaves'))).toBe(false)
+    expect(hides(wall(3), { x: -18, y: 14, z: 0.5 })).toBe(false)  // seen from the other side
+  })
+
+  it('is not hidden by a natural hill, or by blocks away from any shelter it built', () => {
+    // Fix wave minor 2: the cut used to fire for any cover on the line to the camera.
+    const hill = {
+      getBlock: (x: number, y: number) => (y <= 0 || (x >= 3 && y <= 4) ? STONE : AIR),
+      placedAt: () => false,
+    }
+    expect(underground(hill, { x: 0, y: 1, z: 0 })).toBe(false)
+    expect(hidden(hill, { x: 0, y: 1, z: 0 }, camera, () => true)).toBe(true)  // it is in the way...
+    expect(hidden(hill, { x: 0, y: 1, z: 0 }, camera, shelterBlocks(hill, HOME))).toBe(false)  // ...but not built
+    expect(hides(wall(3), camera, [])).toBe(false)
+    expect(hides(wall(3), camera, [{ ...HOME[0], x: 40 }])).toBe(false)
+    expect(hides(wall(3), camera, [{ ...HOME[0], kind: 'farm' }])).toBe(false)
+    expect(hides(wall(3, 'furnace'))).toBe(false)  // a placed station is not a wall
+  })
+
+  it('knows the blocks of a shelter from its home cell: three across, one below, four above', () => {
+    const built = shelterBlocks(ground({ '4,1,3': 'planks', '5,1,0': 'planks', '1,5,0': 'cobblestone',
+      '1,6,0': 'cobblestone', '1,0,0': 'dirt', '1,-1,0': 'dirt' }), HOME)
+    expect([built(4, 1, 3), built(5, 1, 0), built(1, 5, 0), built(1, 6, 0), built(1, 0, 0), built(1, -1, 0)])
+      .toEqual([true, false, true, false, true, false])
+    expect(built(2, 2, 0)).toBe(false)  // air
   })
 
   it('cuts the walls away when they hide the pet from the camera, and not in the open', () => {
-    expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 }, camera)).toEqual({ x: 0.5, y: 2.5, z: 0.5, radius: CUTAWAY_RADIUS })
+    expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 }, true)).toEqual({ x: 0.5, y: 2.5, z: 0.5, radius: CUTAWAY_RADIUS })
     expect(cutawayFor(wall(3), { x: 0, y: 1, z: 0 })).toBeNull()
-    expect(cutawayFor(ground(), { x: 0, y: 1, z: 0 }, camera)).toBeNull()
+    expect(cutawayFor(ground(), { x: 0, y: 1, z: 0 }, false)).toBeNull()
+  })
+})
+
+describe('holdWallCut', () => {
+  it('cuts at once when a wall Mimo built hides it, and keeps cutting until none has for a moment', () => {
+    // Fix wave minor 2: walking along a wall or orbiting past a corner must not make the cut flicker.
+    let lastHidden: number | null = null
+    const frame = (hiddenNow: boolean, now: number) => {
+      const held = holdWallCut(hiddenNow, lastHidden, now)
+      lastHidden = held.lastHidden
+      return held.on
+    }
+    expect(frame(false, 0)).toBe(false)
+    expect(frame(true, 1)).toBe(true)
+    expect(frame(false, 1.1)).toBe(true)  // the line slipped past a corner for a frame
+    expect(frame(true, 1.2)).toBe(true)
+    expect(frame(false, 1.2 + WALL_HOLD_SECONDS - 0.01)).toBe(true)
+    expect(frame(false, 1.2 + WALL_HOLD_SECONDS)).toBe(false)
+    expect(frame(false, 9)).toBe(false)
+    expect(WALL_HOLD_SECONDS).toBeGreaterThan(0.25)
+    expect(WALL_HOLD_SECONDS).toBeLessThanOrEqual(1.5)
   })
 })
 

@@ -290,21 +290,21 @@ describe('switchFactor', () => {
 describe('cutawayFor a camera mode', () => {
   const tunnel = ground({ '0,-5,0': 'air' })
   const pose = { x: 0, y: -5, z: 0 }
-  const camera = { x: 0.5, y: -2, z: -4.5 }
   /** A wall at x = 3 in front of Mimo (at 0, 1, 0), three blocks tall. */
   const walled = ground({ '3,1,0': 'cobblestone', '3,2,0': 'cobblestone', '3,3,0': 'cobblestone' })
 
   it('keeps today\'s cutaway in overview', () => {
-    expect(cutawayFor('overview', tunnel, pose, camera)).toEqual(terrainCutaway(tunnel, pose, camera))
-    expect(cutawayFor('overview', tunnel, pose, camera)?.radius).toBe(CUTAWAY_RADIUS)
+    expect(cutawayFor('overview', tunnel, pose, false)).toEqual(terrainCutaway(tunnel, pose, false))
+    expect(cutawayFor('overview', tunnel, pose, false)?.radius).toBe(CUTAWAY_RADIUS)
+    expect(cutawayFor('overview', walled, { x: 0, y: 1, z: 0 }, true)?.radius).toBe(CUTAWAY_RADIUS)
   })
 
   it('cuts around Pip in close out to just past the camera, walls and roofs included', () => {
     const radius = CLOSE_DISTANCE + CLOSE_CUT_MARGIN
-    expect(cutawayFor('close', tunnel, pose, camera, CLOSE_DISTANCE)).toEqual({ x: 0.5, y: -3.5, z: 0.5, radius })
-    expect(cutawayFor('close', walled, { x: 0, y: 1, z: 0 }, { x: 5.5, y: 4, z: 0.5 }, CLOSE_DISTANCE))
+    expect(cutawayFor('close', tunnel, pose, false, CLOSE_DISTANCE)).toEqual({ x: 0.5, y: -3.5, z: 0.5, radius })
+    expect(cutawayFor('close', walled, { x: 0, y: 1, z: 0 }, true, CLOSE_DISTANCE))
       .toEqual({ x: 0.5, y: 2.5, z: 0.5, radius })
-    expect(cutawayFor('close', ground(), { x: 0, y: 1, z: 0 }, camera, CLOSE_DISTANCE)).toBeNull()
+    expect(cutawayFor('close', ground(), { x: 0, y: 1, z: 0 }, false, CLOSE_DISTANCE)).toBeNull()
     expect(radius).toBeLessThan(CUTAWAY_RADIUS)  // at the usual distance, still tighter than the overview's
   })
 
@@ -314,7 +314,7 @@ describe('cutawayFor a camera mode', () => {
     for (const distance of [MIN_CLOSE_DISTANCE, CLOSE_DISTANCE, 7.5, MAX_CLOSE_DISTANCE, 40]) {
       const [x, y, z] = closeCamera([0.5, -5, 0.5], 0.7, distance).position
       const at = { x, y, z }
-      const cut = cutawayFor('close', tunnel, pose, at, distance)
+      const cut = cutawayFor('close', tunnel, pose, false, distance)
       expect(cut).not.toBeNull()
       expect(cutsAway(at, cut!, at)).toBe(true)  // the camera's own spot is cut open
       expect(cut!.radius).toBeGreaterThanOrEqual(Math.hypot(x - 0.5, z - 0.5) + 1)
@@ -322,7 +322,7 @@ describe('cutawayFor a camera mode', () => {
   })
 
   it('turns the cutaway off in eyes, even underground or walled in', () => {
-    expect(cutawayFor('eyes', tunnel, pose, camera)).toBeNull()
-    expect(cutawayFor('eyes', walled, { x: 0, y: 1, z: 0 }, { x: 5.5, y: 4, z: 0.5 })).toBeNull()
+    expect(cutawayFor('eyes', tunnel, pose, false)).toBeNull()
+    expect(cutawayFor('eyes', walled, { x: 0, y: 1, z: 0 }, true)).toBeNull()
   })
 })

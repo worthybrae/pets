@@ -120,7 +120,8 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
       <WorldCanvas store={store} position={state.position} seconds={seconds} arrival={arrival}
         following={following} onOrbit={() => setFollowing(false)} onPetClick={hello} hopSignal={helloCount}
-        action={state.action} recentActions={state.recent_actions} decays={state.decays} serverTime={serverTime}
+        action={state.action} recentActions={state.recent_actions} decays={state.decays} structures={state.structures}
+        serverTime={serverTime}
         cameraMode={cameraMode} onAutoPick={autoPicked} />
       <SurvivalHud state={state} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
         busy={busy} message={message || connectionError || syncError}

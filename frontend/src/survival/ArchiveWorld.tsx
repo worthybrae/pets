@@ -30,7 +30,8 @@ function ArchiveScene({ lifeId, detail, onBack }: { lifeId: number; detail: Life
   const position = { x: state.position.x, y: state.position.y ?? 1, z: state.position.z }
   return (
     <main className="relative h-screen min-h-[540px] overflow-hidden bg-[#dce9eb] text-[#243e3d]">
-      <WorldCanvas store={store} position={position} following={following} onOrbit={() => setFollowing(false)} />
+      <WorldCanvas store={store} position={position} following={following} onOrbit={() => setFollowing(false)}
+        structures={isLegacyState(state) ? undefined : state.structures} />
       <section className={`${PANEL} absolute inset-x-4 top-4 z-10 px-4 py-3 sm:inset-x-auto sm:left-8 sm:top-8 sm:w-80`} aria-label={`${life.name}'s life`}>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">Archive · read only</p>
         <p className="mt-1 text-2xl font-semibold tracking-tight">{life.name}</p>

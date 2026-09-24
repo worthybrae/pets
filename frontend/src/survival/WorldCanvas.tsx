@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import BlockWorld, { type ViewStats } from '../engine/BlockWorld'
 import { fogRange } from '../engine/fog'
@@ -11,13 +11,15 @@ import { daylightFactor } from './sky'
 import ActionEffects from './ActionEffects'
 import LeafPuffs from './LeafPuffs'
 import { CLOSE_DISTANCE, cutawayFor, type AutoPick, type CameraMode, type ViewMode } from './cameraModes'
+import { hidden, holdWallCut, shelterBlocks } from './cutaway'
 import SurvivalPet from './SurvivalPet'
-import type { FinishedAction, LeafDecay, MimoAction, Point } from './types'
+import type { Built, FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
 const NO_ACTIONS: FinishedAction[] = []
 const NO_DECAYS: LeafDecay[] = []
+const NO_STRUCTURES: Built[] = []
 
 /** Phones and low-core devices draw fewer columns. */
 function pickViewDistance(): number {
@@ -30,10 +32,11 @@ function pickViewDistance(): number {
  * With `seconds` (game seconds into the day) the sky, lights and terrain follow day and night;
  * without it the scene stays in daylight. `arrival` starts the camera high so it flies down.
  * `action` and `serverTime` (server seconds now) let the pet walk its path and act out its step.
- * When the pet is underground, or a wall or roof hides it, the terrain over it is cut away (cutaway.ts)
- * as the camera mode says (cameraModes.ts). `cameraMode` defaults to the overview camera (archives).
+ * When the pet is underground, or a wall or roof of a shelter it built (`structures`) hides it, the
+ * terrain over it is cut away (cutaway.ts) as the camera mode says (cameraModes.ts). `cameraMode`
+ * defaults to the overview camera (archives).
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, serverTime, cameraMode = 'overview', onAutoPick }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, serverTime, cameraMode = 'overview', onAutoPick }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -45,6 +48,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   action?: MimoAction | null
   recentActions?: FinishedAction[]
   decays?: LeafDecay[]
+  /** What Mimo built (the snapshot's list); its shelters' walls and roofs may be cut away. */
+  structures?: Built[]
   serverTime?: () => number
   cameraMode?: CameraMode
   /** Called when the auto camera picks overview or close. */
@@ -67,22 +72,29 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
     const t = replayTime()
     return { ...replayAt(action, recentActions, position, t), t }
   }, [action, recentActions, position, replayTime])
-  // From FollowCamera each frame: which mode's cut to draw, whether it is inside the pet, and how
-  // far back the close camera sits (the close cut reaches just past it).
-  const view = useRef<{ cut: ViewMode; petHidden: boolean; closeDistance: number }>(
-    { cut: 'overview', petHidden: false, closeDistance: CLOSE_DISTANCE })
-  const onView = useCallback((cut: ViewMode, petHidden: boolean, closeDistance: number) => {
+  // From FollowCamera each frame: which mode's cut to draw, whether it is inside the pet, how far
+  // back the close camera sits (the close cut reaches just past it) and the frame clock.
+  const view = useRef<{ cut: ViewMode; petHidden: boolean; closeDistance: number; now: number }>(
+    { cut: 'overview', petHidden: false, closeDistance: CLOSE_DISTANCE, now: 0 })
+  const onView = useCallback((cut: ViewMode, petHidden: boolean, closeDistance: number, now: number) => {
     view.current.cut = cut
     view.current.petHidden = petHidden
     view.current.closeDistance = closeDistance
+    view.current.now = now
   }, [])
-  // Underground, or hidden behind a wall or roof, the terrain over the drawn pet is cut away so the
-  // camera can still see it (tighter in close mode, not at all from its eyes).
+  // Only the walls and roofs of a shelter Mimo built count as hiding it, never a natural hill.
+  const walls = useMemo(() => shelterBlocks(store, structures), [store, structures])
+  // When those walls last hid the drawn pet (frame clock seconds), for the wall cut's hold.
+  const wallsLastHid = useRef<number | null>(null)
+  // Underground, or hidden behind a wall or roof it built, the terrain over the drawn pet is cut
+  // away so the camera can still see it (closer in close mode, not at all from its eyes).
   const cutawayAt = useCallback((camera: Point) => {
     const pose = serverTime ? stepAt() : null
-    return cutawayFor(view.current.cut, store, pose ? focusPoint(pose.step, pose.rest, pose.t) : position, camera,
-      view.current.closeDistance)
-  }, [store, serverTime, stepAt, position])
+    const at = pose ? focusPoint(pose.step, pose.rest, pose.t) : position
+    const held = holdWallCut(hidden(store, at, camera, walls), wallsLastHid.current, view.current.now)
+    wallsLastHid.current = held.lastHidden
+    return cutawayFor(view.current.cut, store, at, held.on, view.current.closeDistance)
+  }, [store, serverTime, stepAt, position, walls])
   const petHidden = useCallback(() => view.current.petHidden, [])
 
   return (

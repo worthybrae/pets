@@ -75,6 +75,16 @@ describe('WorldStore', () => {
     expect([...store.materialsNear(73, 0, 6)]).toEqual(['crafting_table'])
   })
 
+  it('knows which cells hold a block the server placed', () => {
+    const store = new WorldStore()
+    store.applyServerChanges([{ x: 3, y: 20, z: 0, material: 'cobblestone' }, { x: 4, y: 20, z: 0, material: 'air' }])
+    store.setOverlay([{ x: 5, y: 20, z: 0, material: 'stone' }])
+    expect(store.placedAt(3, 20, 0)).toBe(true)
+    expect(store.placedAt(4, 20, 0)).toBe(false)  // mined out
+    expect(store.placedAt(0, -6, 0)).toBe(false)  // natural bedrock
+    expect(store.placedAt(5, 20, 0)).toBe(false)  // the viewer's own overlay, not the server's
+  })
+
   it('keeps overlay layers independent', () => {
     const store = new WorldStore()
     const a = { x: 5, y: 30, z: 5, material: 'limestone' }

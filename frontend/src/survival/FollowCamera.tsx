@@ -84,10 +84,11 @@ export default function FollowCamera({ focus, focusY, stepAt, initialFocus, init
   store: BlockReader & { readonly seed: string }
   /**
    * Called each frame with the mode whose terrain cut to draw (eyes switches the cut off only once
-   * the camera has arrived), whether the camera is inside Pip, which then isn't drawn, and how far
-   * behind Pip the close camera sits, which sets the close cut's radius.
+   * the camera has arrived), whether the camera is inside Pip, which then isn't drawn, how far
+   * behind Pip the close camera sits, which sets the close cut's radius, and the frame clock
+   * (seconds), which times the wall cut's hold.
    */
-  onView?: (cut: ViewMode, petHidden: boolean, closeDistance: number) => void
+  onView?: (cut: ViewMode, petHidden: boolean, closeDistance: number, now: number) => void
   /** Called when auto picks overview or close. */
   onAutoPick?: (pick: AutoPick) => void
   onOrbit: () => void
@@ -206,7 +207,7 @@ export default function FollowCamera({ focus, focusY, stepAt, initialFocus, init
     s.eye[0] = camera.position.x
     s.eye[1] = camera.position.y
     s.eye[2] = camera.position.z
-    onView?.(s.cut, hidesPet(s.eye, s.feet), s.closeDistance)
+    onView?.(s.cut, hidesPet(s.eye, s.feet), s.closeDistance, now)
 
     // Fog follows the live camera distance, so zooming out does not fade Mimo into fog early.
     const fog = state.scene.fog
