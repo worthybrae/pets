@@ -59,7 +59,6 @@ def luna_answer(content):
 
 
 @patch("backend.survival.work.terrain_height", lambda x, z, seed: 0)
-@patch("backend.survival.purposes.trees_near", lambda seed, x, z, radius: [TREE])
 @patch("backend.survival.senses.trees_near", lambda seed, x, z, radius: [TREE])
 class UtilityTests(unittest.TestCase):
     def test_a_day_goes_wood_then_tools_then_stone(self):

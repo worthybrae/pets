@@ -33,6 +33,8 @@ plan at dawn, a goal reached or given up.
 First sightings (home, each ore material, water) are discoveries and ask for a new choice, and so
 is food or water found on new ground far from home on an explore trip (logged as an explore
 event, one a step; it asks for a choice at most once a game hour).
+L4: after each walk of an explore trip Mimo looks around for what the trip is for
+(backend.survival.trips.look_after); a find that is what it came for ends the trip.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ from backend.survival import cooking, farming, foraging, toolmaking, work  # noq
 from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's building purposes)
 from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, build_pen and stock_pen)
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
+from backend.survival import scouting  # noqa: F401  (L4's trips)
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
@@ -58,6 +61,7 @@ from backend.survival.senses import ORES, afloat, ores_around
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell, label
 from backend.survival.tick import Mind
+from backend.survival.trips import look_after
 from backend.survival.triggers import HOUR, crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
 from backend.survival.vitals import Surroundings
 
@@ -230,6 +234,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     finds = note_ground(state, step, context, at)
     if finds:
         announce_find(state, step, context, at, *finds[0])  # one a step: the rest are remembered quietly
+    look_after(state, step, context, at)
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
 

@@ -9,19 +9,19 @@ first time more than 32 blocks from home is looked over: ripe wild food or natur
 Mimo does not remember yet (none of its kind known within 24 blocks) is remembered and is a
 discovery, which the brain announces.
 
-explore (purposes.py) walks to `explore_target`: out of 16 headings at 32 and 48 blocks (and 64
-too once all of those are well explored), the dry spot whose patch and its 8 neighbours Mimo has
-seen least (few visits, long ago), with a small bonus for distance and a small seeded jitter, so
-ties vary from trip to trip. A spot is never in water (natural or not: the Grid is asked), never
-within 4 blocks of a step that just failed, never in the patch Mimo stands in or one it visited
-less than a game day ago (so it does not pace between two spots), and with a home known never
-farther than 60 blocks from it, so go_home (64 blocks) still finds its way back by dusk. With no
-such spot there is nothing to explore.
+`explore_target` is the least-explored spot: out of 16 headings at 32 and 48 blocks (and 64 too
+once all of those are well explored), the dry spot whose patch and its 8 neighbours Mimo has seen
+least (few visits, long ago), with a small bonus for distance and a small seeded jitter, so ties
+vary from trip to trip. A spot is never in water (natural or not: the Grid is asked), never within
+4 blocks of a step that just failed, never in the patch Mimo stands in or one it visited less than
+a game day ago (so it does not pace between two spots), and with a home known never farther than
+60 blocks from it, so go_home (64 blocks) still finds its way back by dusk. L4: explore goes only
+for a reason (backend.survival.trips). Mapping the land heads for explore_target; every other
+reason heads where the land likely holds what it needs, under the same rules.
 
 `survey` sums up the land within 64 blocks: how many patches Mimo visited, and how much dry land
-it has not seen yet in each of the 8 compass directions (north is -z, east is +x). explore scores
-lower with little new land near, and its facts and the model payload (`exploration_payload`) say
-the same in words and numbers.
+it has not seen yet in each of the 8 compass directions (north is -z, east is +x). explore's facts
+end with it in words, and the model payload (`exploration_payload`) says the same in numbers.
 """
 
 from __future__ import annotations

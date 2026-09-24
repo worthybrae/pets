@@ -52,6 +52,11 @@ offer (goals.toward, pickers.steer). `store_choice` keeps that aim as long as th
 still one Mimo would work toward — registered, open and not penalized — and drops it only once the
 goal itself has ended; the fresh purpose id above already discards a choice whose own goal ended
 while it was in flight, so this is a backstop, not the main defense.
+
+L4: explore always goes for a reason (backend.survival.trips). Its option carries the reasons on
+offer, the rules' pick first, and choosing explore goes for that one: the trip is stored in the
+brain, and its event and thought say what for ("Pip decided to explore to look for iron, toward
+iron tools. \"Heading north to look for iron. My pickaxe needs it.\"").
 """
 
 from __future__ import annotations
@@ -79,6 +84,7 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import from_db
 from backend.survival.triggers import HOUR, ensure_brain
+from backend.survival.trips import Offer, start_trip, trip_thought
 from backend.survival.world import SurvivalWorld, log_event, read_state, recent_events, write_state
 
 logger = logging.getLogger(__name__)
@@ -119,6 +125,7 @@ class Choice:
     thought: str
     calls: dict  # {"model": n, "luna": n, "reflections": n}
     error: str | None = None
+    trip: Offer | None = None  # L4: explore's reason (trips.Offer)
 
 
 def cap(env: Env, setting: tuple[str, int]) -> int:
@@ -236,7 +243,8 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
             errors.append(f"{ask.route}: {error}")
     if purpose is None:
         purpose = utility_pick(choices, rng)
-    thought = answer_thought(ask, purpose, rng)
+    trip = trip_for(ask, purpose)
+    thought = trip_thought(trip) if trip is not None else answer_thought(ask, purpose, rng)
     if ask.reflect and picker != "utility":
         calls["luna"] += 1
         calls["reflections"] += 1
@@ -245,7 +253,15 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
             thought = luna_reflect(ask.payload, option, env, http)
         except Exception as error:
             errors.append(f"reflection: {error}")
-    return Choice(purpose, picker, thought, calls, "; ".join(errors) or None)
+    return Choice(purpose, picker, thought, calls, "; ".join(errors) or None, trip)
+
+
+def trip_for(ask: Ask, purpose: str) -> Offer | None:
+    """L4: the reason an explore choice goes for: the rules' pick, the first offered."""
+    option = next((option for option in ask.options if option.name == purpose), None)
+    if ask.kind != "purpose" or purpose != "explore" or option is None or not option.reasons:
+        return None
+    return option.reasons[0]
 
 
 def answer_thought(ask: Ask, name: str, rng: random.Random) -> str:
@@ -306,10 +322,17 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, sca
         if fresh:
             new_purpose = choice.purpose != brain.get("last_chosen")
             new_thought = choice.picker != "utility" and choice.thought != state.get("last_thought")
+            trip = brain.get("trip") or {}
+            new_reason = choice.trip is not None and trip.get("reason") != choice.trip.reason
+            fresh_trip = new_reason or brain["purpose"] != choice.purpose or trip.get("done")
             apply_choice(state, choice, now)
-            if new_purpose or new_thought:
+            if choice.trip is not None and fresh_trip:
+                start_trip(brain, choice.trip, now, choice.picker)
+            if new_purpose or new_thought or new_reason:
                 purpose = PURPOSES.get(choice.purpose)
                 phrase = purpose.phrase if purpose else choice.purpose.replace("_", " ")
+                if choice.trip is not None:  # L4: explore says what for
+                    phrase = f"{phrase} to {choice.trip.words}"
                 # L4: a purpose that works toward a goal says which: Mimo's own goal, or, meanwhile
                 # (resolution 8), the best other open goal with something on offer (goals.toward,
                 # pickers.steer). Backstop only: the fresh purpose id above already drops a choice

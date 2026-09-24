@@ -6,7 +6,7 @@ from unittest.mock import patch
 from backend.services.worldgen import SEA_LEVEL
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.brain import observe_step
-from backend.survival.exploring import dry_target, explore_target
+from backend.survival.exploring import dry_target, explore_target, survey_text
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, mark_explored, patch_of, places, remember
 from backend.survival.purposes import PURPOSES
@@ -86,23 +86,18 @@ class ExploreTargetTests(unittest.TestCase):
             basin.put(3, 2, 3, "water")  # edits count: water above the ground
             self.assertIsNone(dry_target(basin, "1", 3, 3))
 
-    def test_explore_walks_whole_to_dry_ground_and_never_into_the_lake(self):
+    def test_the_least_explored_spot_is_dry_ground_and_never_in_the_lake(self):
         lake = lambda x, z: x >= 12  # noqa: E731
         grid = self.world(lake)
         state, visited, at = pet(), [], 0.0
         for trip in range(8):
             at += 100.0
-            s = Situation(state, grid, DAY, at, memory(visited=visited))
-            ensure_brain(state)["batches"] = 0
-            steps = PURPOSES["explore"].plan(s, context(grid))
-            self.assertEqual(len(steps), 1)
-            step = steps[0]
-            self.assertEqual((step["kind"], step["reach"], step["whole"]), ("walk", 3.0, True))
-            x, y, z = step["target"]
-            self.assertFalse(lake(x, z), step)
+            target = explore_target(Situation(state, grid, DAY, at, memory(visited=visited)))
+            x, y, z = target
+            self.assertFalse(lake(x, z), target)
             self.assertEqual(y, GROUND + 1)
-            visited += line(HOME, step["target"])
-        self.assertEqual(state["brain"]["explored"], 8)
+            visited += line(HOME, target)
+            ensure_brain(state)["explored"] += 1
 
     def test_explore_prefers_patches_it_has_not_visited(self):
         grid = self.world()
@@ -246,37 +241,22 @@ class NewGroundTests(unittest.TestCase):
         self.assertIsNone(self.state["brain"]["pending"])
 
 
-class ExploreScoreTests(unittest.TestCase):
+class SurveyTests(unittest.TestCase):
     def setUp(self):
         height, self.grid = lake_world()
-        for name in ("backend.survival.exploring.terrain_height",):
-            patcher = patch(name, height)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        trees = patch("backend.survival.purposes.trees_near", lambda seed, x, z, radius: [(5, 0, 0)])
-        trees.start()
-        self.addCleanup(trees.stop)
+        patcher = patch("backend.survival.exploring.terrain_height", height)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def test_explore_scores_lower_with_little_new_land_near_and_higher_for_curious_pets(self):
-        explore = PURPOSES["explore"]
-        fresh = explore.score(Situation(pet(), self.grid, DAY, 100.0, memory()))
-        seen = [(rx, rz) for rx in range(-9, 9) for rz in range(-9, 9)]
-        explored = explore.score(Situation(pet(), self.grid, DAY, 100.0, memory(visited=seen, at=90.0)))
-        self.assertEqual(fresh, 30.0)
-        self.assertEqual(fresh - explored, 20.0)
-        curious = explore.score(Situation(pet(traits={"curiosity": 100}), self.grid, DAY, 100.0, memory()))
-        self.assertGreater(curious, fresh)
-
-    def test_the_facts_say_which_way_is_unexplored_and_how_much_was_seen(self):
+    def test_the_survey_says_which_way_is_unexplored_and_how_much_was_seen(self):
         # West and south of Mimo are known; north, east and the far corners are not.
         seen = [(rx, rz) for rx in range(-9, 1) for rz in range(-9, 9)] + \
                [(rx, rz) for rx in range(-9, 9) for rz in range(0, 9)]
-        facts = PURPOSES["explore"].facts(Situation(pet(), self.grid, DAY, 100.0, memory(visited=seen, at=90.0)))
-        self.assertRegex(facts, r"; northeast, (east and north|north and east) are unexplored; ")
-        self.assertRegex(facts, r"; \d+% of the land within 64 blocks seen$")
-        fresh = PURPOSES["explore"].facts(Situation(pet(), self.grid, DAY, 100.0, memory()))
-        self.assertTrue(fresh.endswith("; land lies unexplored every way; 0% of the land within 64 blocks seen"),
-                        fresh)
+        words = survey_text(Situation(pet(), self.grid, DAY, 100.0, memory(visited=seen, at=90.0)))
+        self.assertRegex(words, r"^northeast, (east and north|north and east) are unexplored; ")
+        self.assertRegex(words, r"; \d+% of the land within 64 blocks seen$")
+        fresh = survey_text(Situation(pet(), self.grid, DAY, 100.0, memory()))
+        self.assertEqual(fresh, "land lies unexplored every way; 0% of the land within 64 blocks seen")
 
 
 if __name__ == "__main__":

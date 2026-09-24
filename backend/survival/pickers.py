@@ -8,6 +8,7 @@ traits, mood, vitals, phase, day, inventory, known places, the last 8 events, th
 Mimo built or could build (M5), how much of the land around it it has explored, and (L2) the
 hostile creatures near it and what it can meet them with. L4: the options follow Mimo's goal
 (`steer`, with the rules in backend.survival.goals).
+Explore's option carries its reasons to explore, the rules' pick first (backend.survival.trips).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from backend.survival.memory import cell_of
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, offered
 from backend.survival.situation import Situation
+from backend.survival.trips import offers
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class Option:
     facts: str
     score: float
     goal: str = ""  # L4: the title of the goal it works toward, if any
+    reasons: tuple = ()  # L4: explore's reasons (trips.Offer), the rules' pick first
 
 
 def options(s: Situation) -> list[Option]:
@@ -55,7 +58,8 @@ def options(s: Situation) -> list[Option]:
             continue
         if s.brain["penalties"].get(purpose.name, -math.inf) > s.at:
             score -= PENALTY
-        found.append(Option(purpose.name, purpose.phrase, purpose.description, facts, score))
+        reasons = tuple(offers(s)) if purpose.name == "explore" else ()
+        found.append(Option(purpose.name, purpose.phrase, purpose.description, facts, score, reasons=reasons))
     return steer(s, found)
 
 

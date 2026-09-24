@@ -3,6 +3,7 @@ import sqlite3
 import unittest
 from unittest.mock import patch
 
+from backend.survival import scouting  # noqa: F401  (L4: the needs explore goes for)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, know, mark_explored, patch_of, remember
@@ -77,7 +78,8 @@ class RegistryTests(unittest.TestCase):
 
 class SimplePurposeTests(unittest.TestCase):
     def test_by_day_rest_and_explore_are_offered(self):
-        self.assertEqual(names(situation()), ["explore", "rest"])
+        with patch("backend.survival.exploring.terrain_height", lambda x, z, seed: 0):
+            self.assertEqual(names(situation()), ["explore", "rest"])  # L4: explore for wood and food
 
     def test_at_night_mimo_goes_home_then_sleeps(self):
         away = situation(clock=NIGHT, places=[("home", (20, 1, 0))])
@@ -173,19 +175,16 @@ class SimplePurposeTests(unittest.TestCase):
             s.brain["batches"] = 3
             self.assertEqual(PURPOSES["explore"].plan(s, context()), [])
 
-    def test_explore_scores_higher_with_no_trees_near(self):
-        s = situation()
-        with patch("backend.survival.purposes.trees_near", lambda seed, x, z, radius: []):
-            lonely = PURPOSES["explore"].score(s)
-        with patch("backend.survival.purposes.trees_near", lambda seed, x, z, radius: [(5, 0, 0)]):
-            wooded = PURPOSES["explore"].score(s)
-        self.assertEqual(lonely - wooded, 25.0)
-
-    def test_explore_never_scores_below_zero_late_in_the_day(self):
+    def test_explore_needs_a_reason_and_scores_as_its_reason(self):
+        # L4: no wood carried and no tree standing near is a reason: look for trees (backend.survival.scouting).
+        fed = pet(inventory={"berries": 10}, traits={"curiosity": 0})
         late = {**DAY, "seconds_into_day": 2100.0}
-        s = situation(pet(traits={"curiosity": 0}), clock=late)
-        with patch("backend.survival.purposes.trees_near", lambda seed, x, z, radius: [(5, 0, 0)]):
-            self.assertEqual(PURPOSES["explore"].score(s), 0.0)
+        stocked = pet(inventory={"oak_log": 20, "berries": 10})  # wood and food enough: no reason to go
+        with patch("backend.survival.exploring.terrain_height", lambda x, z, seed: 0), \
+                patch("backend.survival.scouting.trees_near", lambda seed, x, z, radius: [(x, z, 0)]):
+            self.assertEqual(PURPOSES["explore"].score(situation(fed)), 45.0)
+            self.assertEqual(PURPOSES["explore"].score(situation(fed, clock=late)), 15.0)
+            self.assertNotIn("explore", names(situation(stocked)))
 
     def test_eat_is_offered_with_food_and_eats_the_best_first(self):
         hungry = pet(inventory={"berries": 3, "bread": 1}, vitals={**START_VITALS, "hunger": 50.0})

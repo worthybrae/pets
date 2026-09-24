@@ -28,9 +28,9 @@ dusk:
   gather_wood 40-80 (65 and up while Mimo carries under 3 logs' worth); gather_stone 40-65;
   mine_ore 50-80 (65 and up for iron); farm 40-80 (ripe crops add up to 25 as far as Mimo lacks
   food, capped at 80). Late takes 30 off the outdoor ones, down to 10.
-- leisure, 0-65: rest 10-40 and explore 0-65: 20-65 (45 and up with no tree in sight) less up to
-  20 as the land within 64 blocks runs out of ground Mimo has not seen, and minus late, but
-  never below 0.
+- leisure, 0-65: rest 10-40, and explore, which L4 offers only for a reason (backend.survival.trips):
+  it scores its reason's score, 30-65 (looking for food scores like food work), minus late, never
+  below 0.
 - M5's building purposes sit in the same bands. build_shelter 60-80 while Mimo has no shelter of
   its own (70 and up from the afternoon on), 75 to repair one and 45-55 to furnish it; light_up
   72 in the evening at home, so the torches go up before sleep; build_storage 50-70, rising as
@@ -50,12 +50,12 @@ from typing import TYPE_CHECKING, Callable
 
 from backend.services.worldgen import terrain_height
 from backend.survival.beds import to_bed
-from backend.survival.exploring import explore_target, survey, survey_text
 from backend.survival.memory import BUILT, SHELTER_KINDS, cell_of, nearest
 from backend.survival.once import log_once
-from backend.survival.senses import TREE_SEARCH, WATER_SIGHT, afloat, shores_near, trees_near
+from backend.survival.senses import WATER_SIGHT, afloat, shores_near
 from backend.survival.situation import DUSK, NIGHTFALL, Situation
 from backend.survival.steps import FOOD, FOOD_HEALTH
+from backend.survival.trips import best_trip, lift, next_stop, trip_facts
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -74,7 +74,6 @@ SLEEP_HOME_REACH = 8.0
 TIRED_BELOW = 30.0
 GO_HOME_BATCHES = 3
 EXPLORE_REACH = 3.0
-LITTLE_NEW_LAND = 20.0  # explore scores this much lower once every patch within 64 blocks was seen
 LATE_DAY = DUSK - 300.0  # 5 game minutes before dusk
 LATE_PENALTY = 30.0  # outdoor work scores this much lower late in the day
 HEAD_HOME_LEAD = 180.0  # the head_home reflex's window opens this many game seconds before dusk
@@ -283,42 +282,32 @@ register(Purpose(
 # explore ---------------------------------------------------------------------------------------
 
 def explore_valid(s: Situation) -> bool:
-    """By day, while there is dry ground to explore (exploring.explore_target)."""
-    return not s.night and s.phase != "dusk" and explore_target(s) is not None
+    """By day, while Mimo has a reason to explore and somewhere to go for it (backend.survival.trips)."""
+    return not s.night and s.phase != "dusk" and best_trip(s) is not None
 
 
 def explore_score(s: Situation) -> float:
-    """20, plus up to 20 for a curious pet and 25 with no tree in sight, less up to 20 as the land
-    within 64 blocks runs out of ground Mimo has not seen."""
-    x, _, z = s.here
-    score = 20.0 + s.trait("curiosity") / 5
-    if not trees_near(s.seed, x, z, TREE_SEARCH):
-        score += 25.0
-    score -= LITTLE_NEW_LAND * (1.0 - survey(s).new_share)
-    return max(0.0, score - late_penalty(s))
-
-
-def explore_facts(s: Situation) -> str:
-    x, _, z = s.here
-    trees = len(trees_near(s.seed, x, z, TREE_SEARCH))
-    return f"{trees} trees within {TREE_SEARCH} blocks, {s.brain['explored']} trips so far; {survey_text(s)}"
+    """The score of the best reason to explore (trips.best_trip), plus what lifts every trip
+    (trips.LIFTS), less the late-day penalty."""
+    offer = best_trip(s)
+    return 0.0 if offer is None else max(0.0, offer.score + lift(s) - late_penalty(s))
 
 
 def plan_explore(s: Situation, context: ActionContext) -> list[dict]:
-    """Up to three walks per choice, each to the dry spot Mimo has seen least (exploring.py). A
-    walk goes all the way or fails at once, so it never ends in a pit or the water."""
-    if s.brain["batches"] >= EXPLORE_WALKS:
+    """Up to three walks per choice, each to the best target for the trip's reason (trips.next_stop),
+    after the reason's work where Mimo stands. A walk goes all the way or fails at once, so it
+    never ends in a pit or the water."""
+    stop = next_stop(s, EXPLORE_WALKS)
+    if stop is None:
         return []
-    target = explore_target(s)
-    if target is None:
-        return []
-    s.brain["explored"] += 1
-    return [{**walk_to(target, EXPLORE_REACH), "whole": True}]
+    work, target = stop
+    return [*work, {**walk_to(target, EXPLORE_REACH), "whole": True}]
 
 
 register(Purpose(
-    "explore", "explore", "Walk to land it has not seen yet, up to three times, never into water.",
-    valid=explore_valid, facts=explore_facts, score=explore_score, plan=plan_explore,
+    "explore", "explore", "Go looking for something it needs, where the land likely holds it: up to three walks, "
+    "never into water.",
+    valid=explore_valid, facts=trip_facts, score=explore_score, plan=plan_explore,
     thoughts=("I wonder what's over there.", "Let's see what lies beyond those hills.")))
 
 
