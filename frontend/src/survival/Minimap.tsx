@@ -4,7 +4,7 @@ import {
   composeMap, MAP_BLOCKS, MAP_RADIUS, MAP_SCALE, mapMarks, mapOrigin, mapPatches, PATCH, PatchCache, PATCHES_PER_DRAW,
   seenPatches, spreadMarks, travelHeading, type MapMark,
 } from './overheadMap'
-import { creatureDots } from './creatures'
+import { creatureDots, type CreatureDot } from './creatures'
 import type { Built, Creature, ExploredPatch, Landmark, MimoAction, Point } from './types'
 
 const SIZE = MAP_BLOCKS * MAP_SCALE
@@ -15,6 +15,7 @@ const FARM = '#8a6a4f'
 const SPROUT = '#9ed07a'
 const ANIMAL = '#fff4de'
 const FISH = '#6fb8d8'
+const HOSTILE = '#e0584a'
 /** Patches this far past the map's edge stay cached, for a walk back. */
 const KEEP_MARGIN = 4
 /** The map's width on screen before it is laid out (desktop), in CSS pixels. */
@@ -112,12 +113,13 @@ function drawMark(context: CanvasRenderingContext2D, mark: MapMark, u: number): 
   else drawFarm(context, x, y, mark.building, u)
 }
 
-/** A creature (L1): a small cream dot, blue for a fish, about 4 CSS pixels across at any size the map shows. */
-function drawCreature(context: CanvasRenderingContext2D, x: number, y: number, fish: boolean): void {
+/** A creature (L1): a small cream dot, blue for a fish and (L2) red for a hostile, about 4 CSS pixels
+ * across at any size the map shows. */
+function drawCreature(context: CanvasRenderingContext2D, x: number, y: number, dot: CreatureDot): void {
   const u = SIZE / (context.canvas.clientWidth || 140)  // canvas pixels to a CSS pixel
   context.beginPath()
   context.arc(x, y, 2 * u, 0, Math.PI * 2)
-  context.fillStyle = fish ? FISH : ANIMAL
+  context.fillStyle = dot.hostile ? HOSTILE : dot.fish ? FISH : ANIMAL
   context.fill()
   context.lineWidth = 0.8 * u
   context.strokeStyle = INK
@@ -176,7 +178,7 @@ export default function Minimap({ store, position, explored, structures, landmar
     const marks = spreadMarks(mapMarks(structures, landmarks, origin), (GAP * u) / MAP_SCALE)
     for (const mark of marks) if (mark.kind === 'farm') drawMark(context, mark, u)
     for (const mark of marks) if (mark.kind === 'home') drawMark(context, mark, u)
-    for (const dot of creatureDots(creatures, origin)) drawCreature(context, dot.px * MAP_SCALE, dot.py * MAP_SCALE, dot.fish)
+    for (const dot of creatureDots(creatures, origin)) drawCreature(context, dot.px * MAP_SCALE, dot.py * MAP_SCALE, dot)
     const middle = (MAP_RADIUS + 0.5) * MAP_SCALE
     // At home Mimo's dot shrinks and the house's outline is drawn over it, so both show.
     const homes = marks.filter((mark) => mark.kind === 'home'

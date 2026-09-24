@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import type { Voxel } from '../types/world'
 import { creatureModel, dropColor } from './creatures'
 import { dropPops, drawn, healthBar, lookAt, placeAt, puffAge } from './creatureMotion'
+import { hostileLook } from './hostileMotion'
 import { mergeMoves, type MoveHistory } from './creatureMoves'
 import { puffBits } from './effects'
 import type { Creature, CreatureMove } from './types'
@@ -94,7 +95,8 @@ function CreatureFigure({ creature, history, now }: { creature: Creature; histor
     group.visible = drawn(creature, t)
     if (!group.visible) return
     const place = placeAt(creature, history.current.get(creature.id), t)
-    const look = lookAt(creature, place, t, state.clock.elapsedTime, model.hop)
+    const look = hostileLook(creature, lookAt(creature, place, t, state.clock.elapsedTime, model.hop), t,
+      state.clock.elapsedTime)
     const lift = creature.kind === 'fish' ? FISH_LIFT : 0
     group.position.set(place.x + 0.5 + Math.sin(place.facing) * look.knock, place.y + lift + look.lift,
       place.z + 0.5 + Math.cos(place.facing) * look.knock)

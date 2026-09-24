@@ -5,7 +5,9 @@ import type { Creature, Point } from './types'
 /**
  * Blocky voxel models of the creatures, in the soft pixel style of the pet (PetVoxels): a white
  * rabbit with long ears, a woolly sheep, a spotted cow with horns, a small chicken with a comb and
- * a fish. Each model is two voxel lists, the body and the head, so the head can dip to graze.
+ * a fish, and (L2) the hostile gloomling, tall and dark with glowing eyes and its arms held out,
+ * and the skitter, low and wide on eight legs with red eyes. Each model is two voxel lists, the
+ * body and the head, so the head can dip to graze.
  * Voxel units: x across, y up from the feet, z forward (the way the creature faces). Every kind is
  * drawn on the same grid of VOXEL blocks, coarse enough that eyes, ears and horns still read from
  * the camera next to the pet, and each model is as many voxels tall as its kind's size in blocks
@@ -40,10 +42,18 @@ const BEAK: Color = [240, 184, 72]
 const WING: Color = [224, 220, 210]
 const SCALES: Color = [242, 150, 76]
 const FIN: Color = [250, 196, 120]
+const GLOOM: Color = [66, 58, 88]
+const GLOOM_DARK: Color = [44, 38, 60]
+const GLOW: Color = [170, 238, 255]
+const SHELL: Color = [78, 64, 54]
+const SHELL_DARK: Color = [54, 44, 38]
+const RED_EYE: Color = [226, 70, 62]
 
 /** Blocks tall, as in the kinds registry. Each model is this divided by VOXEL voxels tall. */
-const SIZES: Record<string, number> = { rabbit: 0.5, chicken: 0.6, sheep: 1.0, cow: 1.3, fish: 0.3 }
-const HOPS: Record<string, number> = { rabbit: 0.25, chicken: 0.08, sheep: 0.06, cow: 0.04, fish: 0 }
+const SIZES: Record<string, number> = { rabbit: 0.5, chicken: 0.6, sheep: 1.0, cow: 1.3, fish: 0.3, gloomling: 1.7,
+  skitter: 0.6 }
+const HOPS: Record<string, number> = { rabbit: 0.25, chicken: 0.08, sheep: 0.06, cow: 0.04, fish: 0, gloomling: 0.03,
+  skitter: 0.02 }
 
 class Builder {
   voxels: Voxel[] = []
@@ -121,12 +131,31 @@ function fish(): Omit<CreatureModel, 'scale' | 'hop'> {
   return { body: body.voxels, head: [], neck: { x: 0, y: 1, z: 1 } }
 }
 
+/** L2, 17 voxels tall: long legs, a thin dark body with its arms held out in front, a head with two glowing eyes. */
+function gloomling(): Omit<CreatureModel, 'scale' | 'hop'> {
+  const body = new Builder().pair(1, [0, 6], [0, 0], GLOOM_DARK).box([-2, 2], [7, 12], [-1, 1], GLOOM)
+    .pair(3, [9, 12], [0, 0], GLOOM).pair(3, [9, 9], [1, 4], GLOOM_DARK)
+  const head = new Builder().box([-2, 2], [13, 16], [-1, 2], GLOOM).pair(1, [15, 15], [2, 2], GLOW)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 13, z: 0 } }
+}
+
+/** L2, 6 voxels tall: a low, wide shell on eight splayed legs, a head with red eyes and fangs. */
+function skitter(): Omit<CreatureModel, 'scale' | 'hop'> {
+  const body = new Builder().box([-2, 2], [2, 4], [-3, 1], SHELL).box([-1, 1], [5, 5], [-2, 0], SHELL_DARK)
+  for (const z of [-2, -1, 0, 1]) body.pair(3, [2, 2], [z, z], SHELL_DARK).pair(4, [0, 1], [z, z], SHELL_DARK)
+  const head = new Builder().box([-1, 1], [2, 4], [2, 3], SHELL).pair(1, [4, 4], [3, 3], RED_EYE)
+    .pair(1, [1, 1], [3, 3], SHELL_DARK)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 3, z: 2 } }
+}
+
 /** A plain grey block for a kind this viewer does not know yet. */
 function unknown(): Omit<CreatureModel, 'scale' | 'hop'> {
   return { body: new Builder().box([-2, 2], [0, 5], [-2, 2], [150, 150, 150]).voxels, head: [], neck: { x: 0, y: 5, z: 2 } }
 }
 
-const MODELS: Record<string, () => Omit<CreatureModel, 'scale' | 'hop'>> = { rabbit, chicken, sheep, cow, fish }
+const MODELS: Record<string, () => Omit<CreatureModel, 'scale' | 'hop'>> = {
+  rabbit, chicken, sheep, cow, fish, gloomling, skitter,
+}
 const cache = new Map<string, CreatureModel>()
 
 /** The voxel model of a kind of creature (the same object every time). */
@@ -145,8 +174,8 @@ export function creatureModel(kind: string): CreatureModel {
 /** The color of a dropped item as it pops out of a creature's puff. */
 export function dropColor(item: string): Color {
   if (item.startsWith('raw_')) return [214, 112, 108]
-  return ({ leather: [150, 96, 62], wool: WOOL, feather: [250, 250, 246], rabbit_hide: [196, 164, 124] } as Record<string, Color>)[item]
-    ?? [180, 180, 180]
+  return ({ leather: [150, 96, 62], wool: WOOL, feather: [250, 250, 246], rabbit_hide: [196, 164, 124],
+    gloom_dust: [132, 120, 176], string: [236, 236, 230] } as Record<string, Color>)[item] ?? [180, 180, 180]
 }
 
 /** A creature as a small dot on the minimap, in blocks from the map's top-left corner. */
@@ -154,12 +183,15 @@ export interface CreatureDot {
   px: number
   py: number
   fish: boolean
+  /** L2: a hostile creature, drawn red. */
+  hostile: boolean
 }
 
 /** The living creatures on the minimap (overheadMap.ts): dead ones and ones off the map are left out. */
 export function creatureDots(creatures: readonly Creature[] | null | undefined, origin: MapOrigin): CreatureDot[] {
   return (creatures ?? [])
     .filter((creature) => creature.state !== 'dead')
-    .map((creature) => ({ ...toMap(creature.x, creature.z, origin), fish: creature.kind === 'fish' }))
+    .map((creature) => ({ ...toMap(creature.x, creature.z, origin), fish: creature.kind === 'fish',
+      hostile: Boolean(creature.hostile) }))
     .filter(({ px, py }) => px >= 0 && py >= 0 && px < MAP_BLOCKS && py < MAP_BLOCKS)
 }

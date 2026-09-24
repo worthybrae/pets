@@ -71,9 +71,29 @@ describe('creatureModel', () => {
 
   it('hops rabbits highest and draws a kind it does not know as a plain block', () => {
     expect(creatureModel('rabbit').hop).toBeGreaterThan(creatureModel('cow').hop)
-    const unknown = creatureModel('gloomling')
+    const unknown = creatureModel('dragon')
     expect(unknown.body.length).toBe(150)
     expect(unknown.scale).toBeCloseTo(VOXEL)
+  })
+})
+
+describe('hostile models', () => {
+  it('draws the gloomling tall with glowing eyes and the skitter low on eight legs, on the shared grid', () => {
+    const sizes: Record<string, number> = { gloomling: 1.7, skitter: 0.6 }
+    for (const kind of ['gloomling', 'skitter']) {
+      const model = creatureModel(kind)
+      expect(model.scale).toBeCloseTo(VOXEL)
+      expect(height(kind)).toBeCloseTo(sizes[kind])
+      expect(attached(model.head, [...model.body, ...model.head])).toBe(true)
+      const cells = [...model.body, ...model.head].map(key)
+      expect(new Set(cells).size).toBe(cells.length)
+    }
+    const eyes = creatureModel('gloomling').head.filter((voxel) => voxel.g > 200)
+    expect(eyes.length).toBe(2)
+    const feet = creatureModel('skitter').body.filter((voxel) => voxel.y === 0)
+    expect(new Set(feet.map((voxel) => `${Math.sign(voxel.x)},${voxel.z}`)).size).toBe(8)
+    const width = (kind: string) => Math.max(...creatureModel(kind).body.map((voxel) => voxel.x)) - Math.min(...creatureModel(kind).body.map((voxel) => voxel.x))
+    expect(width('skitter')).toBeGreaterThan(height('skitter') / VOXEL)
   })
 })
 
@@ -92,7 +112,7 @@ describe('creatureDots', () => {
     const cow: Creature = { id: 1, kind: 'cow', x: 110, y: 5, z: 90, heading: 0, health: 1, state: 'grazing' }
     const dots = creatureDots([cow, { ...cow, id: 2, kind: 'fish', x: 100, z: 100 },
       { ...cow, id: 3, state: 'dead', dead_at: 5 }, { ...cow, id: 4, x: 400 }], origin)
-    expect(dots).toEqual([{ px: 106.5, py: 86.5, fish: false }, { px: 96.5, py: 96.5, fish: true }])
+    expect(dots).toEqual([{ px: 106.5, py: 86.5, fish: false, hostile: false }, { px: 96.5, py: 96.5, fish: true, hostile: false }])
     expect(creatureDots(undefined, origin)).toEqual([])
   })
 })
