@@ -99,6 +99,88 @@ export const PATTERNS: Record<string, Painter> = {
       : tone(color, (random() < 0.14 ? 0.84 : 1) * jitter(random)))
   },
   leaves: ({ color }, random) => grid(() => tone(color, (random() < 0.2 ? 0.7 : 1) * jitter(random, 0.14))),
+  // L3, the bigger world: stone variants, bark, ice, desert and swamp plants, fruit, fences and ladders.
+  speckled: ({ color, accent }, random) => grid(() => {
+    const roll = random()
+    return tone(roll < 0.24 ? accent ?? color : color, (roll > 0.9 ? 0.9 : 1) * jitter(random))
+  }),
+  layers: ({ color, accent }, random) => {
+    const bands = Array.from({ length: N }, () => random() < 0.35)
+    return grid((_i, j) => tone(bands[j] ? accent ?? color : color, (random() < 0.12 ? 0.86 : 1) * jitter(random)))
+  },
+  birch_bark: ({ color, accent }, random) => {
+    const marks = Array.from({ length: 6 }, () => [Math.floor(random() * N), Math.floor(random() * (N - 2))])
+    return grid((i, j) => marks.some(([row, from]) => j === row && i >= from && i < from + 2)
+      ? tone(accent ?? color, jitter(random))
+      : tone(color, (i % 4 === 0 ? 0.94 : 1) * jitter(random, 0.05)))
+  },
+  ice: ({ color }, random) => grid((i, j) => {
+    const streak = (i + j) % 5 === 0 && i > 0 && j > 0
+    return tone(color, (streak ? 1.12 : 1) * jitter(random, 0.05), streak ? 215 : 175)
+  }),
+  cactus: ({ color, accent }, random) => grid((i) => {
+    if (i === 0 || i === N - 1) return CLEAR
+    return tone(i === 2 || i === 5 ? accent ?? color : color, (random() < 0.1 ? 1.15 : 1) * jitter(random))
+  }),
+  cactus_top: ({ color, accent }, random) => grid((i, j) => {
+    if (edge(i, j)) return CLEAR
+    const ring = i === 1 || j === 1 || i === N - 2 || j === N - 2
+    return tone(ring ? accent ?? color : color, jitter(random))
+  }),
+  sprite_cane: ({ color, accent, size = 4 }, random) => {
+    const stalks = [1, 4, 6]
+    const tops = stalks.map(() => Math.max(0, N - size * 2 - Math.floor(random() * 2)))
+    return grid((i, j) => {
+      const index = stalks.indexOf(i)
+      if (index < 0 || j < tops[index]) return CLEAR
+      return tone((j + index) % 3 === 0 ? accent ?? color : color, jitter(random, 0.1))
+    })
+  },
+  ribs: ({ color, accent }, random) => grid((i) =>
+    tone(i % 3 === 1 ? accent ?? color : color, (random() < 0.1 ? 0.9 : 1) * jitter(random))),
+  stem_top: ({ color, accent }, random) => grid((i, j) => {
+    if ((i === 3 || i === 4) && (j === 3 || j === 4)) return tone(accent ?? color, jitter(random))
+    return tone(color, (edge(i, j) ? 0.85 : 1) * jitter(random))
+  }),
+  sprite_fern: ({ color, size = 4 }, random) => grid((i, j) => {
+    const rise = N - 1 - j
+    if (rise >= size * 2) return CLEAR
+    const spread = Math.min(3, Math.floor(rise / 2) + 1)
+    if (Math.abs(i - 3.5) > spread || (i + rise) % 2 !== 0) return CLEAR
+    return tone(color, (i === 3 || i === 4 ? 0.88 : 1) * jitter(random, 0.14))
+  }),
+  sprite_twigs: ({ color, size = 4 }, random) => grid((i, j) => {
+    const rise = N - 1 - j
+    if (rise >= size * 2) return CLEAR
+    const stem = rise <= 1 && (i === 3 || i === 4)
+    const twig = rise >= 1 && (i === 3 - rise || i === 4 + rise)
+    return stem || twig ? tone(color, jitter(random, 0.12)) : CLEAR
+  }),
+  mossy_cobble: (recipe, random) => {
+    const patches = Array.from({ length: 2 }, () => [random() * N, random() * N])
+    return PATTERNS.cobble(recipe, random).map((pixel, index) => {
+      const i = index % N, j = Math.floor(index / N)
+      const moss = patches.some(([x, y]) => Math.hypot(i - x, j - y) < 2.3)
+      return moss && recipe.accent ? tone(recipe.accent, jitter(random, 0.14)) : pixel
+    })
+  },
+  ladder: ({ color }, random) => grid((i, j) => {
+    const rail = i === 1 || i === N - 2
+    const rung = j % 3 === 1 && i > 1 && i < N - 2
+    return rail || rung ? tone(color, (rung ? 1.08 : 1) * jitter(random)) : CLEAR
+  }),
+  fence: ({ color }, random) => grid((i, j) => {
+    const post = i === 3 || i === 4
+    return post || j === 2 || j === 5 ? tone(color, (post ? 0.9 : 1) * jitter(random)) : CLEAR
+  }),
+  sprite_sprout: ({ color, accent, size = 2 }, random) => grid((i, j) => {
+    const rise = N - 1 - j
+    const middle = i === 3 || i === 4
+    if (rise === size * 2 && middle) return tone(accent ?? color, jitter(random, 0.05))
+    const stem = rise < size * 2 && middle
+    const leaf = (rise === size && (i === 2 || i === 5)) || (rise === size + 1 && (i === 1 || i === 6))
+    return stem || leaf ? tone(color, jitter(random, 0.12)) : CLEAR
+  }),
   glass: ({ color }, random) => grid((i, j) => {
     if (edge(i, j)) return tone(color, 0.9, 220)
     if (i - j === 2 && i < 6) return tone(color, 1.15, 150)

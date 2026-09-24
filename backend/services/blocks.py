@@ -15,7 +15,7 @@ _REGISTRY = json.loads(REGISTRY_PATH.read_text())
 TILES: dict[str, dict] = _REGISTRY["tiles"]
 BLOCK_LIST: list[dict] = _REGISTRY["blocks"]
 BLOCK_IDS: dict[str, int] = {block["name"]: index for index, block in enumerate(BLOCK_LIST)}
-_RENDER_KEYS = {"name", "textures", "layer", "solid", "replaceable"}
+_RENDER_KEYS = {"name", "textures", "layer", "solid", "replaceable", "shape"}
 
 # Gameplay properties keyed by name, in the shape crafting.BLOCKS has always had.
 BLOCK_PROPERTIES: dict[str, dict] = {

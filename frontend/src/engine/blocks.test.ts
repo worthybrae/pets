@@ -4,6 +4,12 @@ import {
   MISSING_ID, TILES, blockDef, blockId, hasBlock,
 } from './blocks'
 
+/** L3's blocks, in registry order (backend/tests/test_blocks_bigger_world.py). */
+const BIGGER_WORLD = ['granite', 'andesite', 'diorite', 'ashstone', 'gold_ore', 'diamond_ore',
+  'birch_log', 'birch_leaves', 'birch_planks', 'spruce_log', 'spruce_leaves', 'spruce_planks',
+  'snow_block', 'ice', 'mud', 'cactus', 'sugar_cane', 'pumpkin', 'melon', 'fern', 'dead_bush',
+  'mossy_cobblestone', 'stone_bricks', 'ladder', 'fence', 'creature_sprout']
+
 describe('block registry', () => {
   it('puts air at id 0 and keeps ids below the missing id', () => {
     expect(blockId('air')).toBe(AIR)
@@ -46,7 +52,7 @@ describe('block registry', () => {
   it('adds the food and camp blocks after the existing ones, so older ids never change', () => {
     expect(blockId('berry_bush')).toBe(blockId('flower_yellow') + 1)
     expect(blockId('door')).toBe(blockId('chest') + 1)
-    expect(blockId('door')).toBe(BLOCKS.length - 1)
+    expect(blockId('door')).toBe(BLOCKS.length - 1 - BIGGER_WORLD.length)
     expect(LAYER_BY_ID[blockId('door')]).toBe(0)  // not meshed: the viewer draws doors itself
     for (const name of ['berry_bush_ripe', 'red_mushroom', 'wheat_2', 'carrot_3', 'sapling', 'campfire', 'torch']) {
       expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
@@ -57,5 +63,20 @@ describe('block registry', () => {
     expect(GLOW_BY_ID[blockId('campfire')]).toBe(1)
     expect(GLOW_BY_ID[blockId('torch')]).toBe(1)
     expect(GLOW_BY_ID[blockId('sapling')]).toBe(0)
+  })
+
+  it('adds the bigger world\'s blocks at the very end, plants see-through and the stone solid', () => {
+    const names = BLOCKS.map((block) => block.name)
+    expect(names.slice(-BIGGER_WORLD.length)).toEqual(BIGGER_WORLD)
+    expect(blockId('granite')).toBeGreaterThan(blockId('chest'))
+    for (const name of ['cactus', 'sugar_cane', 'fern', 'dead_bush', 'creature_sprout', 'ladder', 'fence']) {
+      expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
+    }
+    for (const name of ['granite', 'ashstone', 'diamond_ore', 'birch_log', 'spruce_leaves', 'mud', 'pumpkin', 'stone_bricks']) {
+      expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_OPAQUE)
+    }
+    expect(LAYER_BY_ID[blockId('ice')]).toBe(LAYER_TRANSLUCENT)
+    expect(blockDef(blockId('snow_block')).textures).toEqual({ top: 'snow', side: 'snow', bottom: 'snow' })
+    expect(blockDef(blockId('birch_log')).textures.side).toBe('birch_log_side')
   })
 })

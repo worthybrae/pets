@@ -74,6 +74,42 @@ describe('atlas', () => {
     expect(red('berry_bush_ripe')).toBeGreaterThan(3)
   })
 
+  it('paints the bigger world: see-through plants, fences and ladders, glassy ice and solid stone and fruit', () => {
+    const alphas = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!).map((pixel) => pixel[3])
+    for (const name of ['sugar_cane', 'fern', 'dead_bush', 'creature_sprout', 'ladder', 'fence', 'cactus_side', 'cactus_top']) {
+      expect(alphas(name), name).toContain(0)
+    }
+    for (const name of ['granite', 'andesite', 'diorite', 'ashstone', 'gold_ore', 'diamond_ore', 'birch_log_side',
+      'birch_log_top', 'birch_leaves', 'birch_planks', 'spruce_log_side', 'spruce_leaves', 'spruce_planks', 'mud',
+      'pumpkin_side', 'pumpkin_top', 'melon_side', 'melon_top', 'mossy_cobblestone', 'stone_bricks']) {
+      expect(Math.min(...alphas(name)), name).toBe(255)
+    }
+    expect(Math.max(...alphas('ice'))).toBeLessThan(255)
+    expect(Math.min(...alphas('ice'))).toBeGreaterThan(0)
+  })
+
+  it('sizes the new plant sprites by their size, like the crops', () => {
+    const top = (name: string) => {
+      const pixels = tilePixels(atlas, atlas.tileIndex.get(name)!)
+      return Math.floor(pixels.findIndex((pixel) => pixel[3] > 0) / TILE_SIZE)
+    }
+    expect(top('sugar_cane')).toBe(0) // size 4: a full block, so a stalk two or three high looks whole
+    expect(top('fern')).toBeGreaterThan(top('sugar_cane'))
+    expect(top('dead_bush')).toBeGreaterThan(top('fern'))
+    expect(top('creature_sprout')).toBeGreaterThanOrEqual(top('dead_bush') - 1)
+    const recipe = { pattern: 'sprite_fern', color: [84, 138, 96] as [number, number, number] }
+    const shown = (size: number) => PATTERNS.sprite_fern({ ...recipe, size }, () => 0.5).filter((pixel) => pixel[3] > 0).length
+    expect(shown(1)).toBeLessThan(shown(2))
+    expect(shown(2)).toBeLessThan(shown(4))
+  })
+
+  it('puts gold and diamond flecks in the stone and dark marks on birch bark', () => {
+    const colours = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!)
+    expect(colours('gold_ore').some(([r, g, b]) => r > 200 && g > 170 && b < 130)).toBe(true)
+    expect(colours('diamond_ore').some(([r, g, b]) => b > 190 && g > 190 && r < 150)).toBe(true)
+    expect(colours('birch_log_side').some(([r]) => r < 90)).toBe(true)
+  })
+
   it('insets uvs by a quarter texel', () => {
     const inset = 0.25 / ATLAS_SIZE
     expect(tileUv(0)).toEqual([inset, inset, 8 / 128 - inset, 8 / 128 - inset])
