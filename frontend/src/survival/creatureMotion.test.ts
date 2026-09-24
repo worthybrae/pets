@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BAR_SECONDS, FLASH_SECONDS, KNOCK_SECONDS, LEAP_SECONDS, PUFF_AFTER, PUFF_LENGTH, dropPops, drawn, healthBar,
-  lookAt, movesById, placeAt, puffAge,
+  BAR_SECONDS, FLASH_SECONDS, KNOCK_SECONDS, LEAP_SECONDS, PUFF_AFTER, PUFF_LENGTH, cellsOf, dropPops, drawn,
+  healthBar, lookAt, placeAt, puffAge,
 } from './creatureMotion'
 import type { Creature, CreatureMove } from './types'
 
@@ -12,17 +12,49 @@ const step: CreatureMove = { id: 3, from: { x: 11, y: 5, z: 2 }, to: { x: 12, y:
 
 describe('placeAt', () => {
   it('replays a move cell by cell, facing the way it goes, then stands where it ended', () => {
-    expect(placeAt(cow, walk, 99)).toMatchObject({ x: 10, z: 2, moving: false, travelled: 0 })
-    expect(placeAt(cow, walk, 100.5)).toMatchObject({ x: 10.5, y: 5, z: 2, facing: Math.PI / 2, moving: true, travelled: 0.5 })
-    expect(placeAt(cow, walk, 101.5)).toMatchObject({ x: 11.5, travelled: 1.5 })
-    expect(placeAt(cow, walk, 102)).toEqual({ x: 12, y: 5, z: 2, facing: 1.2, moving: false, travelled: 0 })
-    expect(placeAt(cow, step, 100.25).x).toBeCloseTo(11.25)
+    expect(placeAt(cow, [walk], 99)).toMatchObject({ x: 10, z: 2, moving: false, travelled: 0 })
+    expect(placeAt(cow, [walk], 100.5)).toMatchObject({ x: 10.5, y: 5, z: 2, facing: Math.PI / 2, moving: true, travelled: 0.5 })
+    expect(placeAt(cow, [walk], 101.5)).toMatchObject({ x: 11.5, travelled: 1.5 })
+    expect(placeAt(cow, [walk], 102)).toEqual({ x: 12, y: 5, z: 2, facing: 1.2, moving: false, travelled: 0 })
+    expect(placeAt(cow, [step], 100.25).x).toBeCloseTo(11.25)
     expect(placeAt(cow, undefined, 100)).toMatchObject({ x: 12, facing: 1.2, moving: false })
+    expect(placeAt(cow, [], 100)).toMatchObject({ x: 12, facing: 1.2, moving: false })
   })
 
-  it('finds each creature\'s move by id, and none from an API without moves', () => {
-    expect(movesById([walk]).get(3)).toBe(walk)
-    expect(movesById(undefined).size).toBe(0)
+  it('plays out the move a hit cut short before the flee it started, instead of skipping ahead', () => {
+    const wander: CreatureMove = { id: 3, from: { x: 0, y: 5, z: 0 }, to: { x: 4, y: 5, z: 0 }, started: 100, ends: 104,
+      cells: [[0, 5, 0], [1, 5, 0], [2, 5, 0], [3, 5, 0], [4, 5, 0]] }
+    const flee: CreatureMove = { id: 3, from: { x: 1, y: 5, z: 0 }, to: { x: 1, y: 5, z: 3 }, started: 101.5, ends: 103,
+      cells: [[1, 5, 0], [1, 5, 1], [1, 5, 2], [1, 5, 3]] }
+    const fled = { ...cow, x: 1, z: 3, state: 'fleeing' as const }
+    expect(placeAt(fled, [wander, flee], 100.5)).toMatchObject({ x: 0.5, z: 0, moving: true })
+    expect(placeAt(fled, [wander, flee], 101.4).x).toBeCloseTo(1.4)
+    expect(placeAt(fled, [wander, flee], 102)).toMatchObject({ x: 1, z: 1, facing: 0, moving: true })
+    expect(placeAt(fled, [wander, flee], 103.5)).toMatchObject({ x: 1, z: 3, moving: false })
+  })
+
+  it('stands at the end of a finished move until the next one starts', () => {
+    const later: CreatureMove = { id: 3, from: { x: 12, y: 5, z: 2 }, to: { x: 12, y: 5, z: 3 }, started: 105, ends: 106 }
+    const moved = { ...cow, z: 3 }
+    expect(placeAt(moved, [walk, later], 103)).toEqual({ x: 12, y: 5, z: 2, facing: Math.PI / 2, moving: false, travelled: 0 })
+    expect(placeAt(moved, [walk, later], 105.5)).toMatchObject({ x: 12, z: 2.5, moving: true })
+  })
+
+  it('stands still on a move of a single cell, such as a death that cut a run before its first step', () => {
+    const fell: CreatureMove = { id: 3, from: { x: 7, y: 5, z: 7 }, to: { x: 7, y: 5, z: 7 }, started: 100, ends: 101,
+      cells: [[7, 5, 7]] }
+    const body = { ...cow, x: 7, z: 7 }
+    for (const t of [99, 100, 100.5, 101, 102]) {
+      const place = placeAt(body, [fell], t)
+      expect(place).toMatchObject({ x: 7, y: 5, z: 7, moving: false })
+      expect(Number.isFinite(place.facing)).toBe(true)
+    }
+  })
+
+  it('works out a move\'s cells once', () => {
+    expect(cellsOf(walk)).toBe(cellsOf(walk))
+    expect(cellsOf(walk)).toEqual([{ x: 10, y: 5, z: 2 }, { x: 11, y: 5, z: 2 }, { x: 12, y: 5, z: 2 }])
+    expect(cellsOf(step)).toEqual([step.from, step.to])
   })
 })
 

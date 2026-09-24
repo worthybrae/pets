@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { Voxel } from '../types/world'
 import { creatureModel, dropColor } from './creatures'
-import { dropPops, drawn, healthBar, lookAt, movesById, placeAt, puffAge } from './creatureMotion'
+import { dropPops, drawn, healthBar, lookAt, placeAt, puffAge } from './creatureMotion'
+import { mergeMoves, type MoveHistory } from './creatureMoves'
 import { puffBits } from './effects'
 import type { Creature, CreatureMove } from './types'
 
@@ -53,11 +54,12 @@ function flashRed(material: THREE.MeshStandardMaterial | null, flash: number) {
 }
 
 /**
- * One creature: its voxel model walking its last move with a hop and bob, grazing head down, a red
- * flash and a knock back when hit with its health bar over it for a few seconds, and when it dies
- * it tips over and puffs away as its drops pop out. All per-frame work happens in useFrame.
+ * One creature: its voxel model walking its recent moves with a hop and bob, grazing head down, a
+ * red flash and a knock back when hit with its health bar over it for a few seconds, and when it
+ * dies it tips over and puffs away as its drops pop out. All per-frame work happens in useFrame,
+ * which reads the move history (kept in a ref by SurvivalCreatures) fresh each frame.
  */
-function CreatureFigure({ creature, move, now }: { creature: Creature; move: CreatureMove | undefined; now: () => number }) {
+function CreatureFigure({ creature, history, now }: { creature: Creature; history: RefObject<MoveHistory>; now: () => number }) {
   const model = creatureModel(creature.kind)
   const low = Math.min(...[...model.body, ...model.head].map((voxel) => voxel.y))
   const height = (Math.max(...[...model.body, ...model.head].map((voxel) => voxel.y)) - low + 1) * model.scale
@@ -82,7 +84,7 @@ function CreatureFigure({ creature, move, now }: { creature: Creature; move: Cre
     const t = now()
     group.visible = drawn(creature, t)
     if (!group.visible) return
-    const place = placeAt(creature, move, t)
+    const place = placeAt(creature, history.current.get(creature.id), t)
     const look = lookAt(creature, place, t, state.clock.elapsedTime, model.hop)
     const lift = creature.kind === 'fish' ? FISH_LIFT : 0
     group.position.set(place.x + 0.5 + Math.sin(place.facing) * look.knock, place.y + lift + look.lift,
@@ -172,18 +174,25 @@ function CreatureFigure({ creature, move, now }: { creature: Creature; move: Cre
   )
 }
 
-/** The creatures near Mimo (the snapshot's list, nearest first), drawn at `now` (the replay time). */
+/**
+ * The creatures near Mimo (the snapshot's list, nearest first), drawn at `now` (the replay time).
+ * Each poll's moves are merged into a short history of every creature's moves (creatureMoves.ts),
+ * so a move a new one cut short still plays out before it.
+ */
 export default function SurvivalCreatures({ creatures, moves, now }: {
   creatures: Creature[] | undefined
   moves: CreatureMove[] | undefined
   now: () => number
 }) {
-  const byId = useMemo(() => movesById(moves), [moves])
+  const history = useRef<MoveHistory>(new Map())
+  useLayoutEffect(() => {
+    history.current = mergeMoves(history.current, moves, now())
+  }, [moves, now])
   const shown = (creatures ?? HIDDEN).slice(0, MAX_DRAWN)
   return (
     <>
       {shown.map((creature) => (
-        <CreatureFigure key={creature.id} creature={creature} move={byId.get(creature.id)} now={now} />
+        <CreatureFigure key={creature.id} creature={creature} history={history} now={now} />
       ))}
     </>
   )

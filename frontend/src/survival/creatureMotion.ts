@@ -3,8 +3,9 @@ import type { Creature, CreatureMove, Point } from './types'
 
 /**
  * Where a creature is and how it moves at a moment, from the snapshot (backend/survival/creatures
- * /view.py), drawn REPLAY_DELAY behind the server like the pet: its last move is replayed cell by
- * cell, and the moments in its state (hurt, died, caught) play once each.
+ * /view.py), drawn REPLAY_DELAY behind the server like the pet: its recent moves (the viewer's
+ * history of them, creatureMoves.ts) are replayed cell by cell, and the moments in its state (hurt,
+ * died, caught) play once each.
  */
 
 /** Where a creature stands at a moment: cell coordinates, fractional while it moves. */
@@ -44,22 +45,40 @@ export const LEAP_SECONDS = 0.8
 export const BAR_SECONDS = 3
 const GRAZE_PITCH = 0.8
 
-/** The last moves by creature id. */
-export function movesById(moves: readonly CreatureMove[] | null | undefined): Map<number, CreatureMove> {
-  return new Map((moves ?? []).map((move) => [move.id, move]))
-}
+const cellCache = new WeakMap<CreatureMove, Point[]>()
 
-function cellsOf(move: CreatureMove): Point[] {
-  return move.cells ? move.cells.map(([x, y, z]) => ({ x, y, z })) : [move.from, move.to]
-}
-
-/** Where a creature is at server time `t`: along its last move while that runs, else where it stands. */
-export function placeAt(creature: Creature, move: CreatureMove | undefined, t: number): Placement {
-  if (!move || t >= move.ends) {
-    return { x: creature.x, y: creature.y, z: creature.z, facing: creature.heading, moving: false, travelled: 0 }
+/** Every cell a move passes, from `from` to `to`, worked out once per move. */
+export function cellsOf(move: CreatureMove): Point[] {
+  let cells = cellCache.get(move)
+  if (!cells) {
+    cells = move.cells?.length ? move.cells.map(([x, y, z]) => ({ x, y, z })) : [move.from, move.to]
+    cellCache.set(move, cells)
   }
+  return cells
+}
+
+function standing(at: Point, facing: number): Placement {
+  return { x: at.x, y: at.y, z: at.z, facing, moving: false, travelled: 0 }
+}
+
+/**
+ * Where a creature is at server time `t`, from its recent moves (oldest first): along the latest
+ * one that has started by then while it runs (a later one takes over the moment it starts), at
+ * the end of it once it is over and the next has not started, where the server has the creature
+ * once its last move is over, and at the start of the first before any has begun.
+ */
+export function placeAt(creature: Creature, moves: readonly CreatureMove[] | undefined, t: number): Placement {
+  const list = moves ?? []
+  let latest = -1
+  list.forEach((move, index) => {
+    if (move.started <= t) latest = index
+  })
+  const move = list[Math.max(0, latest)]
+  if (!move || (t >= move.ends && latest === list.length - 1)) return standing(creature, creature.heading)
   const cells = cellsOf(move)
   const steps = cells.length - 1
+  if (steps < 1) return standing(cells[0], creature.heading)
+  if (t >= move.ends) return standing(cells[steps], facingToward(cells[steps - 1], cells[steps]) ?? creature.heading)
   const span = move.ends - move.started
   const along = t <= move.started || span <= 0 ? 0 : ((t - move.started) / span) * steps
   const index = Math.min(steps - 1, Math.floor(along))
