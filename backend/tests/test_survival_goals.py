@@ -130,6 +130,21 @@ class SteerTests(unittest.TestCase):
             self.assertEqual([(option.name, option.goal) for option in found], [("gather_wood", "A woodpile")])
             self.assertEqual(toward(s, {"rest"}), None)
 
+    def test_a_tie_between_open_goals_is_broken_by_name_not_registration_order(self):
+        current = Goal("current", "Current", "", (Milestone("Rest on it", lambda s: 0.0, ("rest",)),),
+                        score=lambda s: 10.0, thought="")
+        first = Goal("aaa_goal", "First", "", (Milestone("Wood", lambda s: 0.0, ("gather_wood",)),),
+                     score=lambda s: 40.0, thought="")
+        second = Goal("bbb_goal", "Second", "", (Milestone("Stone", lambda s: 0.0, ("gather_stone",)),),
+                      score=lambda s: 40.0, thought="")
+        offered_now = {"gather_wood", "gather_stone"}
+        with only_goals(current, first, second):
+            picked = toward(goal_situation("current"), offered_now)
+        with only_goals(current, second, first):  # registered in the opposite order
+            picked_again = toward(goal_situation("current"), offered_now)
+        self.assertEqual(picked[0].name, "aaa_goal")  # the earlier name wins on the tie, not the earlier import
+        self.assertEqual(picked_again[0].name, "aaa_goal")
+
     def test_a_purpose_with_a_check_of_its_own_advances_the_goal_only_when_it_says_so(self):
         def boom(s, goal):
             raise RuntimeError("boom")

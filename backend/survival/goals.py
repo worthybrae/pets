@@ -294,7 +294,8 @@ def toward(s: Situation, offered_now: set[str]) -> tuple[Goal, frozenset[str]] |
     if names:
         return current, names
     best: tuple[float, Goal, frozenset[str]] | None = None
-    for goal in GOALS.values():
+    for name in sorted(GOALS):
+        goal = GOALS[name]
         if goal.name == current.name or penalized(s, goal.name) or not is_open(s, goal):
             continue
         names = advancing(s, goal) & offered_now
@@ -501,7 +502,7 @@ def offers(s: Situation) -> list[tuple[Goal, str, float]]:
     """The goals on offer as (goal, facts, rules score), best first: the current one while it is
     open, the best goal that repeats (L4's discovery goals are always on offer), and the best
     others, OFFERED in all. Goals given up lately are left out."""
-    found = [(goal, goal_facts(s, goal), rules_score(s, goal)) for goal in GOALS.values()
+    found = [(goal, goal_facts(s, goal), rules_score(s, goal)) for _, goal in sorted(GOALS.items())
              if is_open(s, goal) and not penalized(s, goal.name)]
     found.sort(key=lambda entry: -entry[2])
     current = active(s)
