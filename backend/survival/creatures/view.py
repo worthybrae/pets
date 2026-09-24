@@ -7,7 +7,8 @@ ended reads "idle"). Only when they are set: when it was last hurt (`hurt_at`: t
 knockback and health bar), when it died and what it dropped (`dead_at`, `drops`: the death puff)
 and when a fish last leapt at Mimo's hook (`caught_at`). L2: a hostile kind says so
 (`hostile`), its state may also be "chasing", "attacking" or "burning", and it tells when it last
-struck Mimo (`struck_at`) and when it caught fire (`burning_at`). A creature that died more than
+struck Mimo (`struck_at`) and when it caught fire (`burning_at`). L3 final fix wave: an animal grown
+from a creature seed says so (`tame`, only when set, for L4's herd). A creature that died more than
 DEAD_KEEP seconds ago is left out.
 `creature_moves`: the last move of each listed creature that ended within MOVE_WINDOW seconds,
 with from, to, started and ends, and for a move longer than one block every cell it passes
@@ -56,6 +57,8 @@ def creature_view(creature: dict, now: float) -> dict:
             "state": state_of(creature, now)}
     if kind is not None and kind.hostile:
         view["hostile"] = True
+    if state.get("tame"):
+        view["tame"] = True
     for key in WHEN_SET:
         if state.get(key) is not None:
             value = state[key]

@@ -3,7 +3,8 @@ import unittest
 
 from backend.services.crafting import can_harvest
 from backend.services.worldgen import (
-    LEGACY_RADIUS, LEGACY_WORLD_SEED, block_at, cave_at, cave_plant, terrain_block, terrain_height,
+    CAVE_MUSHROOM_RARITY, LEGACY_RADIUS, LEGACY_WORLD_SEED, block_at, cave_at, cave_plant, hash32, terrain_block,
+    terrain_height,
 )
 
 SEED = "123456789123456789"
@@ -21,11 +22,18 @@ class CaveTests(unittest.TestCase):
     def test_caves_take_a_fifth_of_the_underground_and_stand_taller(self):
         cells = list(underground())
         open_cells = [cell for cell in cells if cell[3] in ("air", "water", "lava")]
-        self.assertGreater(len(open_cells) / len(cells), 0.18)  # 0.12 before L3
-        tallest = {}
-        for x, y, z, _ in open_cells:
-            tallest[(x, z)] = tallest.get((x, z), 0) + 1
-        self.assertGreaterEqual(max(tallest.values()), 5)
+        self.assertGreater(len(open_cells) / len(cells), 0.18)  # about 0.16 before L3 (0.162 in this sample)
+        # L3 final fix wave: "stand taller" counted open cells per column, 5 or more of which the
+        # caves before L3 had already. It now takes each column's longest unbroken run of open cells
+        # and counts the columns where that run is 10 or more high: 29 in this sample before L3, 93
+        # with all of L3, and 67 with caves not stretched upward (CAVE_STRETCH 1), which must fail.
+        runs = {}
+        for x, _, z, block in cells:  # a column's cells come together, from y -4 up
+            run, longest = runs.get((x, z), (0, 0))
+            run = run + 1 if block in ("air", "water", "lava") else 0
+            runs[(x, z)] = (run, max(longest, run))
+        tall = sum(longest >= 10 for _, longest in runs.values())
+        self.assertGreater(tall, 2.5 * 29)
 
     def test_lakes_lie_low_in_caves_and_lava_on_their_lowest_floor(self):
         cells = list(underground())
@@ -34,8 +42,13 @@ class CaveTests(unittest.TestCase):
         self.assertTrue(water and lava)
         self.assertTrue(all(y <= -2 and cave_at(x, y, z, SEED) for x, y, z in water))
         self.assertTrue(all(y == -4 and cave_at(x, y, z, SEED) for x, y, z in lava))
-        for x, y, z in water[:20] + lava[:20]:
-            self.assertIsNone(cave_plant(x, y, z, SEED))
+        # L3 final fix wave: no mushroom on water or lava. Checked on the cells where one would grow
+        # but for that rule: on a cave floor (solid rock under it) and picked by the mushroom's roll.
+        rolled = [(x, y, z) for x, y, z in water + lava if not cave_at(x, y - 1, z, SEED)
+                  and hash32(x, y, z, SEED, 17) % CAVE_MUSHROOM_RARITY == 0]
+        self.assertGreater(len(rolled), 20)
+        for x, y, z in rolled:
+            self.assertIsNone(cave_plant(x, y, z, SEED), (x, y, z))
 
     def test_the_legacy_clearing_keeps_its_old_underground(self):
         for x in range(-LEGACY_RADIUS, LEGACY_RADIUS, 17):

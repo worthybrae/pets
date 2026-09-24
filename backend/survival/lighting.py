@@ -1,12 +1,17 @@
-"""light_up: torches around home for the night.
+"""light_up: torches and lanterns around home for the night.
 
-From 5 game minutes before dusk until nightfall, at the shelter it built, Mimo puts a torch on
-each outside corner the design marked (up to four) that is still dark, making torches from coal
-and sticks (1 coal and 1 stick make 4) when it carries none. Torches glow at night in the viewer
-and each one lifts Mimo's mood a little (building.note_building); their light (14, one less a
-block) keeps hostile creatures from spawning around home (L2, backend.survival.light). A mushroom
-or sapling on a corner is mined first (structures.clearing). The walks to the corners go all the
-way or not at all, and head_home leaves light_up alone, since it keeps Mimo at home.
+From 5 game minutes before dusk until nightfall, at the shelter it built, Mimo puts a light on
+each outside corner the design marked (up to four) that is still dark: a lantern it carries first
+(L3: an iron ingot and a torch, light 15), then torches, making torches from coal and sticks (1
+coal and 1 stick make 4) when it carries none. A lantern left over takes the place of a torch on a
+corner that has one (the torch is mined and goes back in Mimo's arms), so light_up is also
+offered to swap them. Lights glow at night in the viewer and each one lifts Mimo's mood a little
+(building.note_building); their light (a torch 14, a lantern 15, one less a block) keeps hostile
+creatures from spawning around home (L2, backend.survival.light). A mushroom or sapling on a
+corner is mined first (structures.clearing). The walks to the corners go all the way or not at
+all, and head_home leaves light_up alone, since it keeps Mimo at home. Its facts tell the chooser
+how many corners are dark, what lights Mimo carries and (L3 final fix wave) how many torch corners
+a spare lantern can take.
 """
 
 from __future__ import annotations
@@ -81,6 +86,25 @@ def light_valid(s: Situation) -> bool:
     return (bool(dark_corners(s)) and (lanterns > 0 or torch_supply(s, 1)[1] > 0)) or (lanterns > 0 and bool(torch_corners(s)))
 
 
+def swaps(s: Situation) -> int:
+    """Torch corners a carried lantern can take: those left over once the dark corners have one."""
+    return min(max(0, s.count("lantern") - len(dark_corners(s))), len(torch_corners(s)))
+
+
+def plural(count: int, word: str) -> str:
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+def light_facts(s: Situation) -> str:
+    """Dark corners and torches carried, and (L3 final fix wave) with lanterns carried, how many
+    and how many torch corners a spare one can take."""
+    facts = f"{len(dark_corners(s))} dark corners around home, carrying {s.count('torch')} torches"
+    lanterns = s.count("lantern")
+    if lanterns:
+        facts += f" and {plural(lanterns, 'lantern')}; {plural(swaps(s), 'torch corner')} a spare lantern can take"
+    return facts
+
+
 def plan_light(s: Situation, context: ActionContext) -> list[dict]:
     if not evening(s) or s.brain["batches"] > 0:
         return []
@@ -102,6 +126,6 @@ def plan_light(s: Situation, context: ActionContext) -> list[dict]:
 register(Purpose(
     "light_up", "light torches", "Put torches around home before night; they glow in the dark.",
     valid=light_valid,
-    facts=lambda s: f"{len(dark_corners(s))} dark corners around home, carrying {s.count('torch')} torches",
+    facts=light_facts,
     score=lambda s: 72.0, plan=plan_light,
     thoughts=("A little light for the night.", "Torches make home feel safe.")))

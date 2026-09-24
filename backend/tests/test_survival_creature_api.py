@@ -13,11 +13,24 @@ from backend.api.mimo import get_mimo
 from backend.services.live_mimo import MimoStore
 from backend.survival.creatures.moves import timed
 from backend.survival.creatures.table import Herd
-from backend.survival.creatures.view import creatures_view, MOST_SHOWN
+from backend.survival.creatures.view import MOST_SHOWN, creature_view, creatures_view
 from backend.survival.registry import LifeRegistry
 from backend.survival.world import SurvivalWorld, new_survival_state, read_state, write_state
 
 WORST_COORD = -5999.5  # farthest a spawn can land from the origin: a four-digit negative decimal
+
+
+class CreatureViewTests(unittest.TestCase):
+    def test_a_tame_animal_says_so_and_a_wild_one_sends_nothing_extra(self):
+        """L3 final fix wave: the view did not say which animals are tame; L4's herd HUD and journal
+        want it. Like `hostile`, it is only sent when set, so the payload stays small."""
+        def sheep(**state):
+            return {"id": 7, "kind": "sheep", "x": 1.0, "y": 2.0, "z": 3.0, "heading": 0.0, "health": 8.0,
+                    "state": {"pose": "idle", **state}}
+        self.assertIs(creature_view(sheep(tame=True), 0.0)["tame"], True)
+        self.assertEqual(creature_view(sheep(), 0.0),
+                         {"id": 7, "kind": "sheep", "x": 1, "y": 2, "z": 3, "heading": 0.0, "health": 1.0, "state": "idle"})
+        self.assertNotIn("tame", creature_view(sheep(tame=False), 0.0))
 
 
 class CreatureApiTests(unittest.TestCase):

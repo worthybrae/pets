@@ -1,4 +1,3 @@
-import sqlite3
 import unittest
 
 from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest, craft, smelt
@@ -6,7 +5,6 @@ from backend.survival import storage
 from backend.survival.carrying import valuable
 from backend.survival.creatures.combat import SWORDS, weapon
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, remember
 from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ORES, ores_around
 from backend.survival.steps import mine_seconds

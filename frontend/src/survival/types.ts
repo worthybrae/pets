@@ -113,6 +113,8 @@ export interface Creature extends Point {
   caught_at?: number
   /** L2: a gloomling or skitter, which hunts Mimo. */
   hostile?: boolean
+  /** L3: grown from a creature seed Mimo planted; never hunted. Only sent when true. */
+  tame?: boolean
   /** Server time a hostile last struck Mimo: its lunge. */
   struck_at?: number
   /** Server time a hostile caught fire in the sun. */
