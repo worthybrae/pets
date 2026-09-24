@@ -13,7 +13,8 @@ steps: its `plan` fills an empty queue (M1's `rest_plan` in the default `RESTING
 optional hooks let a brain (backend.survival.brain) hear about finished steps (`observe`) and
 notice each vitals step (`notice`). Minds never call a model here: the tick holds the world's
 write transaction. After each chunk of actions the world regrows on its own
-(backend.survival.renewal), whatever mind runs Mimo.
+(backend.survival.renewal) and the creatures near Mimo take their turns
+(backend.survival.creatures.simulate), whatever mind runs Mimo.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
 from backend.survival.clock import DAY_SECONDS, action_scale as action_scale_setting, clock_at, is_night, time_scale
+from backend.survival.creatures.simulate import simulate
 from backend.survival.grid import world_grid
 from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry
@@ -126,6 +128,15 @@ def run_renewal(state: dict, context: ActionContext, at: float) -> None:
         log_once(logger, "renewal", error)
 
 
+def run_creatures(state: dict, context: ActionContext, at: float) -> None:
+    """Let the creatures near Mimo take their turns up to `at` (backend.survival.creatures.simulate).
+    A crash is logged once and the tick goes on."""
+    try:
+        simulate(state, context, at)
+    except Exception as error:
+        log_once(logger, "creatures", error)
+
+
 def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mind = RESTING,
                   action_scale: float = 1.0) -> dict:
     """Catch the world up to `timestamp` in one transaction and return the saved state."""
@@ -147,6 +158,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 record_death(state, "fall", fell_at, scale, events)
                 break
             run_renewal(state, context, cursor)
+            run_creatures(state, context, cursor)
             step = min(MAX_STEP_SECONDS, remaining)
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
@@ -169,6 +181,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 record_death(state, "fall", fell_at, scale, events)
             else:
                 run_renewal(state, context, timestamp)
+                run_creatures(state, context, timestamp)
         state["last_tick_at"] = state["died_at"] if state["died_at"] is not None else timestamp
         write_state(db, state)
         for at, kind, text in sorted(events, key=lambda event: event[0]):
