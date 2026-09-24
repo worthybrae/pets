@@ -7,7 +7,8 @@ names) when it is gpt-6-luna on api.openai.com. Environment: TYPESAFE_API_KEY, T
 TYPESAFE_API_URL for Jev; MIMO_MODEL_API_KEY or OPENAI_API_KEY, MIMO_MODEL, MIMO_MODEL_URL for
 Luna. `http` is injected so tests never touch the network; `post_json` is the real one. Every
 function raises ModelError when anything goes wrong, and the caller falls back to the utility
-picker.
+picker. L4: Jev also chooses goals, in the same call shape with a "goal" question and
+GOAL_INSTRUCTIONS (backend.survival.choosing.prepare_goal).
 """
 
 from __future__ import annotations
@@ -29,6 +30,10 @@ REFLECTION_LIMIT = 160
 INSTRUCTIONS = ("Choose what this small survival pet should do next. Keep it alive first (food, warmth, "
                 "rest, shelter by night), then work toward its goal (the choices that say they do), then "
                 "follow its traits. Choose only from the offered purposes.")
+# L4: a goal is chosen at dawn, or when one is reached or given up, and lasts days.
+GOAL_INSTRUCTIONS = ("Choose the goal this small survival pet works toward for the next few days. A goal lasts "
+                     "days: keep the current one unless it is stuck or another matters much more now. Weigh its "
+                     "traits, the dangers near it and what it lacks. Choose only from the offered goals.")
 
 Http = Callable[[str, dict, dict, float], dict]
 Env = Mapping[str, str]
@@ -64,15 +69,16 @@ def criteria(choices: list[Option]) -> dict[str, str]:
             + (f" It works toward the goal: {option.goal}." if option.goal else "") for option in choices}
 
 
-def ask_jev(payload: dict, choices: list[Option], env: Env, http: Http = post_json) -> str:
-    """Jev's choice among `choices`."""
-    body = {"model": env.get("TYPESAFE_MODEL") or "jev-latest", "state": payload,
-            "questions": {"purpose": {"type": "choice", "instructions": INSTRUCTIONS, "criteria": criteria(choices)}}}
+def ask_jev(payload: dict, choices: list[Option], env: Env, http: Http = post_json, question: str = "purpose",
+            instructions: str = INSTRUCTIONS) -> str:
+    """Jev's choice among `choices`: a purpose, or (L4, question "goal") a goal."""
+    asked = {"type": "choice", "instructions": instructions, "criteria": criteria(choices)}
+    body = {"model": env.get("TYPESAFE_MODEL") or "jev-latest", "state": payload, "questions": {question: asked}}
     headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "curl/8.7.1",
                "Authorization": f"Bearer {env.get('TYPESAFE_API_KEY', '')}"}
     answer = http(env.get("TYPESAFE_API_URL") or DEFAULT_JEV_URL, headers, body, JEV_TIMEOUT)
     try:
-        choice = answer["answers"]["purpose"]["choice"]
+        choice = answer["answers"][question]["choice"]
     except (KeyError, TypeError) as error:
         raise ModelError(f"Jev answered without a choice ({error!r})") from error
     if choice not in {option.name for option in choices}:

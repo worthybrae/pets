@@ -470,3 +470,47 @@ def tend_goal(state: dict, context: ActionContext, at: float, phase: str | None)
             check_goal(state, context, at, dawn)
     except Exception as error:
         log_once(logger, "goals", error)
+
+
+# Offering goals --------------------------------------------------------------------------------
+
+def goal_facts(s: Situation, goal: Goal) -> str:
+    """Progress and the next milestones in words: "40% done; next: find iron ore, mine 3 iron ore"."""
+    words = [lower(milestone.text) for _, milestone in ahead(s, goal)[:NEXT_SHOWN]]
+    current = active(s)
+    mine = " (its goal now)" if current is not None and current.name == goal.name else ""
+    later = "" if workable(s, goal) else "; nothing to do for it right now"
+    return f"{round(progress_of(s, goal) * 100)}% done{mine}; next: {', '.join(words) or 'nothing'}{later}"
+
+
+def rules_score(s: Situation, goal: Goal) -> float:
+    """The goal's own score, WORKABLE more when something can be done for it now, and STICK more
+    for the current goal unless it stalled: the rules keep a goal for as long as it moves."""
+    score = own_score(s, goal)
+    if score is None:
+        return 0.0
+    if workable(s, goal):
+        score += WORKABLE
+    current = active(s)
+    if current is not None and current.name == goal.name and not stalled(s):
+        score += STICK
+    return score
+
+
+def offers(s: Situation) -> list[tuple[Goal, str, float]]:
+    """The goals on offer as (goal, facts, rules score), best first: the current one while it is
+    open, the best goal that repeats (L4's discovery goals are always on offer), and the best
+    others, OFFERED in all. Goals given up lately are left out."""
+    found = [(goal, goal_facts(s, goal), rules_score(s, goal)) for goal in GOALS.values()
+             if is_open(s, goal) and not penalized(s, goal.name)]
+    found.sort(key=lambda entry: -entry[2])
+    current = active(s)
+    kept = [entry for entry in found if current is not None and entry[0].name == current.name]
+    if not any(entry[0].repeat for entry in kept):
+        kept += [entry for entry in found if entry[0].repeat][:1]
+    others = [entry for entry in found if entry not in kept]
+    return sorted(kept + others[:OFFERED - len(kept)], key=lambda entry: -entry[2])
+
+
+def reached_titles(s: Situation) -> list[str]:
+    return [GOALS[name].title if name in GOALS else name.replace("_", " ") for name in reached(s)]

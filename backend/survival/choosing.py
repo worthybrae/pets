@@ -30,6 +30,19 @@ After each tick the worker calls `Chooser.poll`. When the active life has a pend
    model's pick brings a new thought, so re-choosing rest after rest stays out of the event log.
 
 While a choice is pending, the brain keeps Mimo on its current plan, or waiting.
+
+L4: goals. When the tick asks for a goal (backend.survival.goals: with none, at dawn, or when one
+was reached or given up), `poll` answers that first. `prepare_goal` offers the open goals with
+their facts and rules scores (goals.offers). Jev chooses when it is configured, more than one goal
+is on offer and neither the daily cap nor its hourly budget is spent; a goal call counts toward
+both, but it does not start the 60-second gap before the next model call, so the purpose choice
+that follows a goal may still go to Jev. Otherwise the rules picker takes the best score (the
+current goal keeps its lead). Luna never chooses goals. A rules answer is stored at once and the
+purpose choice follows in the same poll; `store_goal` saves a goal unless the ask went stale, and
+a new goal asks for the purpose again (goals.adopt_goal). With a goal, a purpose that ended in
+the ordinary way is chosen again by the rules picker (`routine`): Jev speaks at the moments that
+matter (dawn, dusk, discoveries, new goals, vital crossings and the like), and the goal carries
+the day between them. A purpose that works toward a goal says so in its event.
 """
 
 from __future__ import annotations
@@ -46,9 +59,10 @@ from typing import Callable, Mapping
 from backend.survival.actions import ensure_actions, kept_steps, record
 from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
+from backend.survival.goals import GOALS, active, adopt_goal, goal_state, lower, offers, reached_titles
 from backend.survival.models import (
-    JEV_TIMEOUT, LUNA_TIMEOUT, Http, ModelError, ask_jev, ask_luna, jev_configured, luna_configured,
-    luna_reflect, post_json,
+    GOAL_INSTRUCTIONS, JEV_TIMEOUT, LUNA_TIMEOUT, Http, ModelError, ask_jev, ask_luna, jev_configured,
+    luna_configured, luna_reflect, post_json,
 )
 from backend.survival.once import log_once
 from backend.survival.pickers import Option, context_payload, options, thought_for, utility_pick
@@ -86,6 +100,7 @@ class Ask:
     payload: dict
     asked_at: float
     game_at: float = 0.0  # game seconds since the life began, when asked
+    kind: str = "purpose"  # L4: or "goal"
 
 
 @dataclass(frozen=True)
@@ -119,18 +134,21 @@ def recent_calls(brain: dict, key: str, game_at: float) -> list[float]:
     return [at for at in brain.get(key, []) if game_at - HOUR < at <= game_at]
 
 
-def routine(brain: dict) -> bool:
-    """A short purpose ended in the ordinary way, with nothing more significant waiting."""
+def routine(brain: dict, steady: bool = False) -> bool:
+    """A short purpose ended in the ordinary way, with nothing more significant waiting. L4: with a
+    goal (`steady`), any purpose that ended in the ordinary way: the rules picker carries the goal on
+    between the moments that matter."""
     reasons = set(brain["pending"]["reasons"])
-    return brain.get("last_chosen") in SHORT_PURPOSES and bool(reasons) and reasons <= ROUTINE_REASONS
+    short = steady or brain.get("last_chosen") in SHORT_PURPOSES
+    return short and bool(reasons) and reasons <= ROUTINE_REASONS
 
 
-def route_for(brain: dict, now: float, env: Env, game_at: float) -> str:
+def route_for(brain: dict, now: float, env: Env, game_at: float, steady: bool = False) -> str:
     """Who may answer the pending choice: "jev", "luna" or "utility". `game_at` is the life's game
     time in seconds, for each picker's own rolling game-hour budget (MIMO_JEV_CALLS_PER_HOUR,
     MIMO_LUNA_CALLS_PER_HOUR): once a picker's budget is spent it does not borrow the other's."""
     counters = calls_today(brain, now)
-    if counters["model"] >= cap(env, DECISION_CAP) or routine(brain):
+    if counters["model"] >= cap(env, DECISION_CAP) or routine(brain, steady):
         return "utility"
     if not brain["pending"]["urgent"] and brain["last_call_at"] is not None and now - brain["last_call_at"] < MODEL_GAP:
         return "utility"
@@ -170,10 +188,11 @@ def prepare(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | N
         s = from_db(db, state, now, scale)
         choices = options(s)
         payload = context_payload(s, recent_events(db, EVENTS_SHOWN))
+        steady = active(s) is not None
     if not choices:
         return None
     game_at = max(0.0, now - state["born_at"]) * scale
-    route = route_for(brain, now, env, game_at)
+    route = route_for(brain, now, env, game_at, steady)
     return Ask(brain["pending"]["id"], route, reflect_for(brain, route, now, env), tuple(choices), payload, now,
                game_at)
 
@@ -188,13 +207,16 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
         if ask.route == "luna":
             calls["luna"] += 1
         try:
-            purpose = (ask_jev if ask.route == "jev" else ask_luna)(ask.payload, choices, env, http)
+            if ask.kind == "goal":
+                purpose = ask_jev(ask.payload, choices, env, http, question="goal", instructions=GOAL_INSTRUCTIONS)
+            else:
+                purpose = (ask_jev if ask.route == "jev" else ask_luna)(ask.payload, choices, env, http)
             picker = ask.route
         except Exception as error:
             errors.append(f"{ask.route}: {error}")
     if purpose is None:
         purpose = utility_pick(choices, rng)
-    thought = thought_for(purpose, rng)
+    thought = answer_thought(ask, purpose, rng)
     if ask.reflect and picker != "utility":
         calls["luna"] += 1
         calls["reflections"] += 1
@@ -204,6 +226,13 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
         except Exception as error:
             errors.append(f"reflection: {error}")
     return Choice(purpose, picker, thought, calls, "; ".join(errors) or None)
+
+
+def answer_thought(ask: Ask, name: str, rng: random.Random) -> str:
+    """What Mimo thinks of the answer: the goal's thought (L4), or one of the purpose's."""
+    if ask.kind == "goal":
+        return GOALS[name].thought if name in GOALS else f"I want {name.replace('_', ' ')}."
+    return thought_for(name, rng)
 
 
 def deadline(ask: Ask) -> float:
@@ -261,9 +290,71 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> 
             if new_purpose or new_thought:
                 purpose = PURPOSES.get(choice.purpose)
                 phrase = purpose.phrase if purpose else choice.purpose.replace("_", " ")
-                log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}. "{choice.thought}"')
+                # L4: a purpose that works toward a goal says which.
+                goal = next((option.goal for option in ask.options if option.name == choice.purpose), "")
+                aim = f", toward {lower(goal)}" if goal else ""
+                log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}{aim}. "{choice.thought}"')
         write_state(db, state)
         return choice.purpose if fresh else None
+
+
+def goal_route(brain: dict, now: float, env: Env, game_at: float, offered: int) -> str:
+    """Who chooses a goal (L4): Jev, when configured, more than one goal is on offer and neither the
+    daily cap nor Jev's hourly budget is spent; else the rules picker ("utility")."""
+    if offered < 2 or not jev_configured(env) or calls_today(brain, now)["model"] >= cap(env, DECISION_CAP):
+        return "utility"
+    if len(recent_calls(brain, "jev_calls", game_at)) >= cap(env, JEV_HOUR_CAP):
+        return "utility"
+    return "jev"
+
+
+def prepare_goal(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | None:
+    """A read-only snapshot of the goal choice the tick asked for (L4), or None when none is due.
+    With no goal open the ask is answered at once: no goal, and the tick asks again later."""
+    with world.connect() as db:
+        state = read_state(db)
+        if state["died_at"] is not None:
+            return None
+        ensure_actions(state)
+        brain = goal_state(state)
+        due = brain["goal_due"]
+        if due is None:
+            return None
+        s = from_db(db, state, now, scale)
+        found = offers(s)
+        choices = tuple(Option(goal.name, goal.title, goal.why, facts, score) for goal, facts, score in found)
+        payload = {**context_payload(s, recent_events(db, EVENTS_SHOWN)), "goals_reached": reached_titles(s)}
+    game_at = max(0.0, now - state["born_at"]) * scale
+    ask = Ask(due["id"], goal_route(brain, now, env, game_at, len(choices)), False, choices, payload, now, game_at,
+              kind="goal")
+    if not choices:
+        store_goal(SurvivalWorld(world.path), ask, Choice("", "utility", "", {"model": 0, "luna": 0, "reflections": 0}),
+                   now)
+        return None
+    return ask
+
+
+def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float) -> str | None:
+    """Save a goal choice unless the life died or the ask went stale; count its model call. A new
+    goal is logged as a routine "plan" event. Returns the goal stored."""
+    with world.transaction() as db:
+        state = read_state(db)
+        if state["died_at"] is not None:
+            return None
+        ensure_actions(state)
+        brain = goal_state(state)
+        counters = calls_today(brain, now)
+        for key, count in choice.calls.items():
+            counters[key] += count
+        if choice.calls["model"]:
+            brain["jev_calls"] = [*recent_calls(brain, "jev_calls", ask.game_at), ask.game_at]
+        due = brain["goal_due"]
+        fresh = due is not None and due["id"] == ask.pending_id
+        if fresh and adopt_goal(state, choice.purpose or None, choice.picker, choice.thought, now):
+            title = lower(GOALS[choice.purpose].title)
+            log_event(db, now, "plan", f'{state["name"]} set a new goal: {title}. "{choice.thought}"')
+        write_state(db, state)
+        return (choice.purpose or None) if fresh else None
 
 
 class InlineExecutor:
@@ -313,7 +404,11 @@ class Chooser:
             return None
         path = registry.world_path(life)
         scale = time_scale() if self.scale is None else self.scale
-        ask = prepare(SurvivalWorld(path, read_only=True), now, scale, self.env)
+        ask = prepare_goal(SurvivalWorld(path, read_only=True), now, scale, self.env)
+        if ask is not None and ask.route == "utility":
+            self.store(path, ask, decide(ask, self.env, self.http, self.rng), now)
+            ask = None
+        ask = ask or prepare(SurvivalWorld(path, read_only=True), now, scale, self.env)
         if ask is None:
             return None
         if ask.route == "utility":
@@ -342,11 +437,14 @@ class Chooser:
         purpose = utility_pick(list(ask.options), self.rng)
         calls = {"model": 1, "luna": 1 if ask.route == "luna" else 0, "reflections": 0}
         error = f"{ask.route}: no answer after {deadline(ask):g} s, gave up"
-        return self.store(path, ask, Choice(purpose, "utility", thought_for(purpose, self.rng), calls, error), now)
+        thought = answer_thought(ask, purpose, self.rng)
+        return self.store(path, ask, Choice(purpose, "utility", thought, calls, error), now)
 
     def store(self, path: Path, ask: Ask, choice: Choice, now: float) -> str | None:
         if choice.error:
             log_once(logger, "picker", ModelError(choice.error))
+        if ask.kind == "goal":
+            return store_goal(SurvivalWorld(path), ask, choice, now)
         return store_choice(SurvivalWorld(path), ask, choice, now)
 
     def close(self) -> None:

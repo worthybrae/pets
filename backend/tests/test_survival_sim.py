@@ -60,7 +60,7 @@ TRAPPED_AT_MOST = 180.0  # game seconds
 
 
 class FakeJev:
-    """Picks one of the offered purposes at random and notes the game time of every call."""
+    """Picks one of the offered purposes (or goals) at random and notes the game time of every call."""
 
     def __init__(self, seed: int):
         self.rng = random.Random(seed)
@@ -69,8 +69,9 @@ class FakeJev:
 
     def __call__(self, url, headers, body, timeout):
         self.calls.append(self.now)
-        offered = sorted(body["questions"]["purpose"]["criteria"])
-        return {"answers": {"purpose": {"choice": self.rng.choice(offered)}}}
+        # Every question it is asked gets a random pick among its choices.
+        return {"answers": {question: {"choice": self.rng.choice(sorted(asked["criteria"]))}
+                            for question, asked in body["questions"].items()}}
 
 
 class Errors(logging.Handler):
