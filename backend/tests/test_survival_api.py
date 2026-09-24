@@ -17,10 +17,10 @@ from backend.api.mimo import (
 from backend.services.live_mimo import MimoStore
 from backend.survival.memory import add_structure
 from backend.survival.registry import LifeRegistry
-from backend.survival.snapshot import notable, recent_decays, replayable
+from backend.survival.snapshot import built_view, notable, recent_decays, replayable, survival_view
 from backend.survival.tick import tick_life
 from backend.survival.triggers import new_brain
-from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
+from backend.survival.world import SurvivalWorld, log_event, new_survival_state, read_state, write_state
 
 
 class SurvivalApiTests(unittest.TestCase):
@@ -271,6 +271,24 @@ class SurvivalApiTests(unittest.TestCase):
         self.assertEqual(state["structures"], [{"id": 1, "kind": "shelter", "name": "Pip's Snug Cottage",
                                                 "status": "building", "x": 5, "y": 6, "z": 7}])
         self.assertEqual(state["chests"], {"6,6,8": {"dirt": 9}})
+
+    def test_an_archived_world_from_before_m5_built_nothing(self):
+        """Fix wave fold-in: a pre-M5 world opened read-only (an archive) has no structures table,
+        and built_view falls back to an empty list instead of failing the whole view."""
+        path = Path(self.directory.name) / "before-m5.sqlite3"
+        state = new_survival_state(name="Pip", seed="1", spawn={"x": 0, "y": 1, "z": 0}, born_at=10.0, traits={})
+        SurvivalWorld.create(path, state)
+        db = sqlite3.connect(path)
+        with db:
+            db.execute("DROP TABLE structure_cells")
+            db.execute("DROP TABLE structures")
+        db.close()
+        archive = SurvivalWorld(path, read_only=True)
+        self.assertEqual(built_view(archive), [])
+        view = survival_view(archive, 20.0, 1.0)
+        self.assertEqual((view["structures"], view["chests"]), ([], {}))
+        with archive.connect() as db:  # the read-only view did not add the tables
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='structures'").fetchone())
 
     def test_only_leaves_that_decayed_in_the_last_ten_seconds_are_streamed(self):
         decays = [{"x": 1, "y": 6, "z": 1, "at": 20.0}, {"x": 2, "y": 6, "z": 1, "at": 25.0},
