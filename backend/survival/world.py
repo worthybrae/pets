@@ -1,4 +1,4 @@
-"""A survival life's world database: the shared block table, Mimo's state and its events.
+"""A survival life's world database: the shared block table, Mimo's state, its events and its creatures.
 
 Each survival life has its own file (MIMO_DATA_DIR/lives/<id>.sqlite3). The single
 survival_state row holds position, vitals, inventory, care budget and death as JSON.
@@ -22,6 +22,7 @@ from backend.services.block_table import (
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, craft, smelt, take_items
 from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
+from backend.survival.creatures.table import create_creature_tables
 from backend.survival.memory import create_memory_tables
 from backend.survival.renewal import create_growth_table
 from backend.survival.steps import WORKSTATIONS
@@ -112,6 +113,7 @@ def create_world_tables(db: sqlite3.Connection) -> None:
     create_block_tables(db)
     create_memory_tables(db)
     create_growth_table(db)
+    create_creature_tables(db)
 
 
 def read_state(db: sqlite3.Connection) -> dict:

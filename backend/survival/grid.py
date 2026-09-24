@@ -5,7 +5,9 @@ natural blocks and loads saved edits one 16x16 chunk at a time. `put` records an
 passes it to the world's write_block, so viewers receive it through block sync. It also keeps
 each change until `take_changes` collects it, so renewal can react to what Mimo changed. Cells
 that something Mimo built claims (backend.survival.structures) load the same way, chunk by chunk,
-so planners that dig or till can leave them alone (`claimed`).
+so planners that dig or till can leave them alone (`claimed`). A grid over a world database also
+carries the world's creatures (`herd`, backend.survival.creatures.table.Herd), so steps and
+planners reach them the way they reach blocks; a grid built from `natural` alone has none.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Callable
 from backend.services.block_table import write_block
 from backend.services.blocks import is_plant, is_solid
 from backend.services.worldgen import block_at
+from backend.survival.creatures.table import Herd
 
 Cell = tuple[int, int, int]
 MaterialAt = Callable[[int, int, int], str]
@@ -45,6 +48,7 @@ class Grid:
         self.edits: dict[Cell, str] = {}
         self.changes: list[tuple[Cell, str, str]] = []
         self.claims: set[Cell] = set()
+        self.herd: Herd | None = None
 
     def _load(self, x: int, z: int) -> None:
         if self._load_edits is None:
@@ -155,4 +159,6 @@ def world_grid(db: sqlite3.Connection, seed: str) -> Grid:
             return set()
         return {(row[0], row[1], row[2]) for row in rows}
 
-    return Grid(lambda x, y, z: block_at(x, y, z, seed), load_edits, write, load_claims)
+    grid = Grid(lambda x, y, z: block_at(x, y, z, seed), load_edits, write, load_claims)
+    grid.herd = Herd(db)
+    return grid
