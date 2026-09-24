@@ -158,20 +158,24 @@ class StepKind:
     `start(spec, state, grid, at, scale)` checks a queued spec against the world and returns the
     running step from `at` to its end time (`ends_at`, None when it has no fixed end).
     `finish(step, state, grid, at)` applies it at its end and returns an event (kind, text) worth
-    logging, or None. Both raise StepFailed. `status` is the pet's status while it runs, `working`
-    makes it count as work for the vitals, and `interruptible` lets a takeover (a reflex) cut it
-    short; the other kinds last a few seconds at most and finish first. validate_step checks that
-    the spec's `cell_field` is a cell and its `string_field` a string before `start` sees it.
+    logging, or None; a kind with `takes_events` is also handed the tick's event list,
+    `finish(step, state, grid, at, events)`, for what else it sets off (L1's attack hands it on
+    to the creatures' Scene). Both raise StepFailed. `status` is the pet's status while it runs,
+    `working` makes it count as work for the vitals, and `interruptible` lets a takeover (a
+    reflex) cut it short; the other kinds last a few seconds at most and finish first.
+    validate_step checks that the spec's `cell_field` is a cell and its `string_field` a string
+    before `start` sees it.
     """
 
     name: str
     start: Callable[[dict, dict, Grid, float, float], dict]
-    finish: Callable[[dict, dict, Grid, float], "tuple[str, str] | None"]
+    finish: Callable[..., "tuple[str, str] | None"]
     status: str
     working: bool = False
     interruptible: bool = False
     cell_field: str | None = None
     string_field: str | None = None
+    takes_events: bool = False
 
 
 STEP_KINDS: dict[str, StepKind] = {}
@@ -226,10 +230,15 @@ def start_step(spec: dict, state: dict, grid: Grid, at: float, scale: float = 1.
     return STEP_KINDS[spec["kind"]].start(spec, state, grid, at, scale)
 
 
-def finish_step(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str] | None:
-    """Apply a running step at its end. Returns an event (kind, text) worth logging, if any."""
+def finish_step(step: dict, state: dict, grid: Grid, at: float, events: list | None = None) -> tuple[str, str] | None:
+    """Apply a running step at its end. Returns an event (kind, text) worth logging, if any.
+    `events` is the tick's event list (the engine passes it; a direct call may leave it out)."""
     kind = step_kind(step["kind"])
-    return None if kind is None else kind.finish(step, state, grid, at)
+    if kind is None:
+        return None
+    if kind.takes_events:
+        return kind.finish(step, state, grid, at, [] if events is None else events)
+    return kind.finish(step, state, grid, at)
 
 
 def nothing_happens(step: dict, state: dict, grid: Grid, at: float) -> None:

@@ -57,7 +57,8 @@ class Scene:
     state: dict  # Mimo's state: where it is and what it is doing (L2's attacks hurt it through here)
     at: float
     pace: float = 1.0  # MIMO_ACTION_SCALE: moves and pauses are this many times shorter
-    events: list = field(default_factory=list)
+    # The tick's event list, always passed (never a throwaway), so what happens here is logged.
+    events: list = field(kw_only=True)
 
     @property
     def pet(self) -> Cell:

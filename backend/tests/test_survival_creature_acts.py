@@ -37,7 +37,7 @@ def pet(x=30, purpose=None):
 
 
 def scene(grid, creatures, at=0.0, **changes):
-    return Scene(grid, creatures, "7", changes.pop("state", pet()), at, **changes)
+    return Scene(grid, creatures, "7", changes.pop("state", pet()), at, events=changes.pop("events", []), **changes)
 
 
 def animal(creatures, kind="cow", cell=(0, 1, 0), **state):
@@ -144,6 +144,12 @@ class ActTests(unittest.TestCase):
         stranger = animal(creatures)
         stranger["kind"] = "dragon"
         self.assertIsNone(act(stranger, scene(grid, creatures)))
+
+    def test_a_scene_always_says_where_its_events_go(self):
+        with self.assertRaises(TypeError):
+            Scene(meadow(), herd(), "7", pet(), 0.0)
+        events = []
+        self.assertIs(Scene(meadow(), herd(), "7", pet(), 0.0, 2.0, events=events).events, events)
 
     def test_a_new_action_registers_in_priority_order_and_comes_first(self):
         grid, creatures = meadow(), herd()

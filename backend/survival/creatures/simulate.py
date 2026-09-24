@@ -31,7 +31,8 @@ def simulate(state: dict, context: ActionContext, at: float) -> None:
     grid = context.grid
     if context.db is None or grid.herd is None:
         return
-    scene = Scene(grid, grid.herd, state.get("world_seed", "0"), state, at, context.action_scale, context.events)
+    scene = Scene(grid, grid.herd, state.get("world_seed", "0"), state, at, context.action_scale,
+                  events=context.events)
     scale = context.clock_at(at)["time_scale"]
     x, _, z = scene.pet
     loaded = grid.herd.near(x, z, SIM_REACH)

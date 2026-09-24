@@ -1,10 +1,12 @@
 import math
 import sqlite3
 import unittest
+from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.carrying import CARRY_STACKS
-from backend.survival.creatures.combat import ATTACK_REACH, blow, drops_of, weapon
+from backend.survival.creatures import combat
+from backend.survival.creatures.combat import ATTACK_REACH, LUNGE, blow, drops_of, weapon
 from backend.survival.creatures.kinds import KINDS
 from backend.survival.creatures.table import Herd, create_creature_tables, dead
 from backend.survival.grid import Grid
@@ -89,6 +91,41 @@ class AttackStepTests(unittest.TestCase):
         path = hurt["state"]["path"]
         self.assertEqual(path[0]["at"], 10.6)
         self.assertGreater(math.hypot(path[-1]["x"], path[-1]["z"]), 6)
+
+    def test_an_animal_that_ran_off_before_the_swing_landed_is_missed_and_no_failure(self):
+        grid, state = meadow(), pet()
+        cow = animal(grid)
+        state["queue"] = [attack(cow)]
+        context = ActionContext(grid=grid, clock_at=lambda at: DAY, planner=lambda *args: [], events=[])
+        advance_actions(state, context, 0.3)
+        self.assertEqual((state["action"]["kind"], state["action"]["ends_at"]), ("attack", 0.6))
+        away = grid.herd.get(cow["id"])
+        away["x"] = ATTACK_REACH + LUNGE + 1.0  # it walked off while Mimo wound up
+        grid.herd.save(away)
+        advance_actions(state, context, 1.0)
+        missed = grid.herd.get(cow["id"])
+        self.assertEqual((missed["health"], missed["state"].get("hurt_at")), (KINDS["cow"].health, None))
+        self.assertEqual(state["recent_actions"][-1]["result"], "done")
+        self.assertIsNone(state.get("last_failure"))
+        self.assertNotIn("hunted_at", state)
+        self.assertEqual(context.events, [])
+
+    def test_a_blow_acts_in_a_scene_that_reports_into_the_ticks_events(self):
+        grid, state = meadow(), pet()
+        cow = animal(grid)
+        state["queue"] = [attack(cow)]
+        context = ActionContext(grid=grid, clock_at=lambda at: DAY, planner=lambda *args: [], events=[])
+        scenes = []
+
+        def strike(scene, *args):
+            scenes.append(scene)
+            return real(scene, *args)
+
+        real = combat.strike
+        with patch("backend.survival.creatures.combat.strike", strike):
+            advance_actions(state, context, 1.0)
+        self.assertEqual(len(scenes), 1)
+        self.assertIs(scenes[0].events, context.events)
 
     def test_the_killing_blow_puts_the_drops_in_mimos_arms(self):
         grid, state = meadow(), pet(inventory={"stone_sword": 1})

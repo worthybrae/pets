@@ -110,12 +110,12 @@ def start_attack(spec: dict, state: dict, grid: Grid, at: float, scale: float) -
     return step
 
 
-def finish_attack(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str] | None:
+def finish_attack(step: dict, state: dict, grid: Grid, at: float, events: list) -> tuple[str, str] | None:
     herd, creature = target_of(step, grid)
     if math.dist(as_cell(state["position"]), where(creature, at)) > ATTACK_REACH + LUNGE:
         return None  # it ran off before the blow landed
     damage, _ = blow(step.get("weapon"))
-    scene = Scene(grid, herd, seed_of(state), state, at, step.get("pace", 1.0))
+    scene = Scene(grid, herd, seed_of(state), state, at, step.get("pace", 1.0), events=events)
     found = strike(scene, creature, damage, as_cell(state["position"]))
     if found is None:
         return None
@@ -126,4 +126,5 @@ def finish_attack(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, 
     return "hunt", f"{state['name']} hunted a {label(creature['kind'])}."
 
 
-register_step(StepKind("attack", start_attack, finish_attack, "attacking", working=True, cell_field="target"))
+register_step(StepKind("attack", start_attack, finish_attack, "attacking", working=True, cell_field="target",
+                       takes_events=True))

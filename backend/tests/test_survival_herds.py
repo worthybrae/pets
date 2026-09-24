@@ -80,21 +80,22 @@ class SpawnTests(unittest.TestCase):
     def test_herds_spawn_once_per_chunk_as_mimo_comes_near_and_stop_at_the_cap(self):
         grid, creatures = flat(), herd()
         state = pet()
-        scene = Scene(grid, creatures, "1", state, 10.0)
+        scene = Scene(grid, creatures, "1", state, 10.0, events=[])
         added = populate(scene, [], 1.0)
         self.assertTrue(added)
         noted = creatures.chunks((-9, -9), (9, 9))
         self.assertEqual(len(noted), NEW_CHUNKS)  # the rest wait for the next call
         self.assertLessEqual(len(added), LAND_CAP)
         for _ in range(10):
-            added += populate(Scene(grid, creatures, "1", state, 10.0), creatures.near(8, 8, SIM_REACH), 1.0)
+            added += populate(Scene(grid, creatures, "1", state, 10.0, events=[]), creatures.near(8, 8, SIM_REACH), 1.0)
         self.assertEqual(set(creatures.chunks((-9, -9), (9, 9))), set(chunks_near(8, 8, SIM_REACH)))
         self.assertEqual(len(creatures.near(8, 8, SIM_REACH)), LAND_CAP)
         for creature in added:
             self.assertEqual(creature["state"]["home"], list(cell_of(creature)))
             self.assertTrue(grid.standable(cell_of(creature)))
             self.assertEqual(creature["health"], KINDS[creature["kind"]].health)
-        self.assertEqual(populate(Scene(grid, creatures, "1", state, 11.0), creatures.near(8, 8, SIM_REACH), 1.0), [])
+        later = Scene(grid, creatures, "1", state, 11.0, events=[])
+        self.assertEqual(populate(later, creatures.near(8, 8, SIM_REACH), 1.0), [])
 
     def test_a_school_of_fish_spawns_in_natural_water_and_at_most_eight_near_mimo_six_to_a_region(self):
         with patch("backend.survival.creatures.spawning.SEA_LEVEL", 0), \
@@ -102,7 +103,7 @@ class SpawnTests(unittest.TestCase):
             lake = {(x, z) for x in range(-40, 60) for z in range(-40, 60)}
             grid, creatures = flat(lake), herd()
             for _ in range(10):
-                populate(Scene(grid, creatures, "1", pet(), 10.0), creatures.near(8, 8, SIM_REACH), 1.0)
+                populate(Scene(grid, creatures, "1", pet(), 10.0, events=[]), creatures.near(8, 8, SIM_REACH), 1.0)
         fish = [creature for creature in creatures.near(8, 8, 100) if creature["kind"] == "fish"]
         self.assertTrue(fish)
         for creature in fish:
@@ -124,11 +125,11 @@ class SpawnTests(unittest.TestCase):
         pond = {(x, z) for x in range(30, 36) for z in range(0, 5)}
         grid, creatures = flat(pond), herd()
         fish = self.school(creatures, 3 * FISH_CAP)
-        added = populate(Scene(grid, creatures, "1", pet(), 10.0), fish, 1.0)
+        added = populate(Scene(grid, creatures, "1", pet(), 10.0, events=[]), fish, 1.0)
         self.assertTrue(added)
         self.assertTrue(all(creature["kind"] != "fish" for creature in added))
         for _ in range(10):
-            populate(Scene(grid, creatures, "1", pet(), 10.0), creatures.near(8, 8, SIM_REACH), 1.0)
+            populate(Scene(grid, creatures, "1", pet(), 10.0, events=[]), creatures.near(8, 8, SIM_REACH), 1.0)
         near = creatures.near(8, 8, SIM_REACH)
         self.assertEqual(len([creature for creature in near if creature["kind"] != "fish"]), LAND_CAP)
         self.assertEqual(len([creature for creature in near if creature["kind"] == "fish"]), 3 * FISH_CAP)
@@ -137,14 +138,14 @@ class SpawnTests(unittest.TestCase):
         grid, creatures = flat(), herd()
         with patch("backend.survival.creatures.spawning.chunks_near", lambda x, z, reach: [(0, 0)]), \
                 patch("backend.survival.creatures.spawning.herd_count", lambda seed, chunk: 1):
-            first = populate(Scene(grid, creatures, "1", pet(), 0.0), [], 1.0)
+            first = populate(Scene(grid, creatures, "1", pet(), 0.0, events=[]), [], 1.0)
             self.assertTrue(first)
             for creature in first:
                 creatures.remove(creature["id"])
                 creatures.lost([0, 0], 100.0)
-            again = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS - 1), [], 1.0)
+            again = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS - 1, events=[]), [], 1.0)
             self.assertEqual(again, [])
-            back = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS), [], 1.0)
+            back = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS, events=[]), [], 1.0)
         self.assertTrue(back)
         self.assertEqual(creatures.chunks((0, 0), (0, 0))[(0, 0)]["animals"], len(back))
 
@@ -156,7 +157,7 @@ class SpawnTests(unittest.TestCase):
                 patch("backend.survival.creatures.spawning.herd_count", lambda seed, chunk: 1):
             creatures.note_chunk((0, 0), 1, 1, 0.0)
             creatures.lost([0, 0], 100.0)
-            back = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS), fish, 1.0)
+            back = populate(Scene(grid, creatures, "1", pet(), 100.0 + 3 * DAY_SECONDS, events=[]), fish, 1.0)
         self.assertTrue(back)
         self.assertTrue(all(creature["kind"] != "fish" for creature in back))
         self.assertEqual(creatures.chunks((0, 0), (0, 0))[(0, 0)]["animals"], len(back))

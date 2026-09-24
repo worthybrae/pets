@@ -326,7 +326,7 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
         return False
     before = dict(state["inventory"])
     try:
-        event = finish_step(step, state, grid, at)
+        event = finish_step(step, state, grid, at, events)
     except (ValueError, KeyError) as error:
         fail(state, step, at, str(error), failure_code(error))
         return False
