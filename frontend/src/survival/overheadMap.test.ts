@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AIR, blockId, LAYER_BY_ID, LAYER_CUTOUT } from '../engine/blocks'
-import { biomeAt, blockAt, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
+import { biomeAt, blockAt, regionOpenings, rocksInChunk, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
 import { WorldStore } from '../engine/worldStore'
 import {
   composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, mapShownByDefault, naturalTop, PATCH,
@@ -82,6 +82,25 @@ describe('the terrain seen from above', () => {
       }
     }
     expect(leaves).toEqual(new Set([blockId('spruce_leaves'), blockId('birch_leaves')]))
+  })
+
+  it('shows boulders and outcrops on the ground and the floors of cave entrances, as they stand', () => {
+    const columns: [number, number][] = []
+    for (let cx = 220; cx < 250; cx++) for (let cz = 250; cz < 270; cz++) {
+      for (const [x, z] of rocksInChunk(cx, cz, SEED)) {
+        for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) columns.push([x + dx, z + dz])
+      }
+    }
+    for (let rx = 55; rx < 60; rx++) for (let rz = 62; rz < 66; rz++) {
+      for (const key of regionOpenings(rx, rz, SEED)[1].keys()) columns.push(key.split(',').map(Number) as [number, number])
+    }
+    const kinds = new Set<string>()
+    for (const [x, z] of columns) {
+      const top = naturalTop(x, z, SEED)
+      expect({ x, z, id: top.id, y: top.y }).toEqual({ x, z, ...scanned(x, z) })
+      if (top.y !== terrainHeight(x, z, SEED)) kinds.add(top.y > terrainHeight(x, z, SEED) ? 'above' : 'below')
+    }
+    expect(kinds).toEqual(new Set(['above', 'below']))
   })
 
   it('lets Mimo’s edits show: what it placed, what it dug and what it planted', () => {

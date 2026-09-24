@@ -12,8 +12,8 @@ import random
 from pathlib import Path
 
 from backend.services.worldgen import (
-    LEGACY_WORLD_SEED, SEA_LEVEL, biome_at, block_at, cave_plant, plant_at, plant_stack, swamp_pool, terrain_height,
-    tree_kind, trees_in_chunk,
+    LEGACY_WORLD_SEED, SEA_LEVEL, biome_at, block_at, cave_plant, plant_at, plant_stack, region_openings,
+    rocks_in_chunk, swamp_pool, terrain_height, tree_kind, trees_in_chunk,
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "shared" / "worldgen-fixture.json"
@@ -139,6 +139,30 @@ def _deep(seed: str, count: int) -> list[tuple[int, int, int]]:
     return found
 
 
+def _entrances(seed: str, count: int) -> list[dict]:
+    """The carved columns of `count` sinkholes and `count` hillside mouths."""
+    found, seen = [], {}
+    for rx in range(4, 40):
+        for rz in range(-20, 20):
+            kind, spans = region_openings(rx, rz, seed)
+            if kind and seen.get(kind, 0) < count:
+                seen[kind] = seen.get(kind, 0) + 1
+                found.append(spans)
+    return found
+
+
+def _rocks(seed: str, count: int) -> list[tuple[int, int]]:
+    """The middle columns of `count` boulders and `count` outcrops."""
+    found, seen = [], {}
+    for cx in range(16, 120):
+        for cz in range(-40, 40):
+            for x, z, kind, _, _ in rocks_in_chunk(cx, cz, seed):
+                if seen.get(kind, 0) < count:
+                    seen[kind] = seen.get(kind, 0) + 1
+                    found.append((x, z))
+    return found
+
+
 def sample_cells() -> list[tuple[str, int, int, int]]:
     """Home clearing, tree canopies, plants, rare biomes and random cells for both seeds."""
     cells = {(LEGACY_WORLD_SEED, x, y, z) for x in range(-12, 13) for z in range(-12, 13) for y in range(-2, 8)}
@@ -159,6 +183,12 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
             for tx, tz, base in _kind_trees(seed, kind, 2):
                 cells |= {(seed, tx + dx, base + dy, tz + dz)
                           for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 9)}
+        for spans in _entrances(seed, 2):
+            for (x, z), (low, _) in spans.items():
+                cells |= {(seed, x, y, z) for y in range(low - 1, terrain_height(x, z, seed) + 2)}
+        for rx, rz in _rocks(seed, 3):
+            cells |= {(seed, rx + dx, terrain_height(rx + dx, rz + dz, seed) + dy, rz + dz)
+                      for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 5)}
         for x, y, z in _deep(seed, 3):
             cells |= {(seed, x + dx, y + dy, z + dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)}
         for x, z in _features(seed, 3):

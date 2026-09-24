@@ -1,7 +1,7 @@
 import { AIR, blockDef, blockId, LAYER_BY_ID, LAYER_CUTOUT, TILES, type Rgb } from '../engine/blocks'
 import {
-  blockAt, canopyTop, CHUNK_SIZE, LEGACY_RADIUS, plantStack, SEA_LEVEL, surfaceMaterial, swampPool, terrainBlock,
-  terrainHeight, WORLD_MIN_Y,
+  blockAt, canopyTop, CHUNK_SIZE, LEGACY_RADIUS, plantStack, rockColumn, SEA_LEVEL, surfaceMaterial, surfaceOpened,
+  swampPool, terrainBlock, terrainHeight, WORLD_MIN_Y,
 } from '../engine/worldgen'
 import type { WorldStore } from '../engine/worldStore'
 import { typingIn, type KeyPress } from './cameraModes'
@@ -75,8 +75,8 @@ function scanTop(at: (y: number) => number, from: number): Top {
 }
 
 /** The block worldgen shows from above at (x, z): a tree top (oak, birch or spruce), water or a frozen
- * lake, a swamp pool, a pumpkin or melon, or the ground. Small plants (grass, flowers, bushes, cacti,
- * cane) are too small to see. */
+ * lake, a swamp pool, the bottom of a cave entrance, a boulder or outcrop, a pumpkin or melon, or the
+ * ground. Small plants (grass, flowers, bushes, cacti, cane) are too small to see. */
 export function naturalTop(x: number, z: number, seed: string): Top {
   const height = terrainHeight(x, z, seed)
   if (Math.hypot(x, z) <= LEGACY_RADIUS + CHUNK_SIZE) {
@@ -84,9 +84,14 @@ export function naturalTop(x: number, z: number, seed: string): Top {
     return scanTop((y) => blockId(blockAt(x, y, z, seed)), Math.max(height, SEA_LEVEL) + 8)
   }
   const leaves = canopyTop(x, z, seed)
-  if (leaves !== null && leaves[1] > Math.max(height, SEA_LEVEL)) return { id: blockId(leaves[0]), y: leaves[1], depth: 0 }
+  const rock = rockColumn(x, z, seed)
+  if (leaves !== null && leaves[1] > Math.max(height, SEA_LEVEL) && leaves[1] >= (rock?.[1] ?? -Infinity)) {
+    return { id: blockId(leaves[0]), y: leaves[1], depth: 0 }
+  }
   if (height < SEA_LEVEL) return { id: blockId(terrainBlock(x, SEA_LEVEL, z, seed)), y: SEA_LEVEL, depth: SEA_LEVEL - height }
   if (swampPool(x, z, seed)) return { id: WATER, y: height, depth: 1 }
+  if (surfaceOpened(x, z, seed)) return scanTop((y) => blockId(blockAt(x, y, z, seed)), height)
+  if (rock) return { id: blockId(rock[0]), y: rock[1], depth: 0 }
   const plant = plantStack(x, z, seed)
   if (plant && LAYER_BY_ID[blockId(plant[0])] !== LAYER_CUTOUT) return { id: blockId(plant[0]), y: height + plant[1], depth: 0 }
   return { id: blockId(surfaceMaterial(x, z, seed)), y: height, depth: 0 }

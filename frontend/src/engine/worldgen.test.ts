@@ -3,7 +3,7 @@ import fixture from '../../../shared/worldgen-fixture.json'
 import { blockDef, blockId } from './blocks'
 import {
   blockAt, cavePlant, columnIndex, DEFAULT_WORLD_SEED, generateColumn, legacyHash, plantStack, swampPool, terrainHeight,
-  treeKind, treesInChunk, wildFood, WORLD_MAX_Y, WORLD_MIN_Y,
+  regionOpenings, rocksInChunk, treeKind, treesInChunk, wildFood, WORLD_MAX_Y, WORLD_MIN_Y,
 } from './worldgen'
 
 const WILD_SEED = '123456789123456789'
@@ -94,6 +94,21 @@ describe('worldgen', () => {
     expect([...chunks.keys()].sort()).toEqual([...deep].sort())
     const unique = new Map([...chunks.values()].map((chunk) => [chunk.join(','), chunk]))
     for (const [cx, cz] of unique.values()) expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
+
+  it('carves sinkholes and hillside mouths and stands boulders and outcrops inside columns exactly like blockAt', () => {
+    const chunks = new Map<string, [number, number]>()
+    for (let rx = 4; rx < 40; rx++) for (let rz = -20; rz < 20; rz++) {
+      const [kind, spans] = regionOpenings(rx, rz, WILD_SEED)
+      if (!kind || chunks.has(kind)) continue
+      const [x, z] = [...spans.keys()][0].split(',').map(Number)
+      chunks.set(kind, [Math.floor(x / 16), Math.floor(z / 16)])
+    }
+    for (let cx = 16; cx < 120; cx++) for (let cz = -40; cz < 40; cz++) {
+      for (const [, , kind] of rocksInChunk(cx, cz, WILD_SEED)) if (!chunks.has(kind)) chunks.set(kind, [cx, cz])
+    }
+    expect([...chunks.keys()].sort()).toEqual(['boulder', 'mouth', 'outcrop', 'sinkhole'])
+    for (const [cx, cz] of chunks.values()) expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
   })
 
   it('generates wild food and cave mushrooms inside columns exactly like blockAt', () => {

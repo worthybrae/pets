@@ -49,6 +49,17 @@ const DIAMOND_RARITY = 331
 const DIAMOND_DEPTH = -3
 const ASH_DEPTH = -2
 const VARIANTS = ['granite', 'andesite', 'diorite']
+// L3 on the surface: cave entrances open to the sky (sinkholes and hillside mouths), boulders, outcrops.
+const OPENING_REGION = 64
+const MOUTH_LENGTH = 12
+const MOUTH_TRIES = 6
+const OUTCROP_GROUND = 8
+const BOULDERS: Record<string, string> = { desert: 'sandstone', meadow: 'andesite', alpine: 'stone' }
+const OUTCROPS: Record<string, string> = { desert: 'sandstone', taiga: 'andesite', birch_forest: 'diorite', alpine: 'granite' }
+type Openings = [string, Map<string, [number, number]>]
+type Rock = [number, number, string, number, string]
+const openingCache = new Map<string, Openings>()
+const rockCache = new Map<string, Rock[]>()
 const biomeCache = new Map<string, string>()
 const seedCache = new Map<string, [number, number]>()
 const heightCache = new Map<string, number>()
@@ -267,6 +278,131 @@ function buildHomeBlocks(): Map<string, string> {
 
 const HOME_BLOCKS = buildHomeBlocks()
 
+/** The cave entrance of a 64x64 region, if it has one: its kind ('sinkhole', 'mouth', or '' for none)
+ * and the span of air it carves in each of its columns (see backend/services/worldgen.py). */
+export function regionOpenings(rx: number, rz: number, seed = DEFAULT_WORLD_SEED): Openings {
+  const key = `${seed}:${rx},${rz}`
+  let found = openingCache.get(key)
+  if (found) return found
+  found = findOpenings(rx, rz, seed)
+  openingCache.set(key, found)
+  if (openingCache.size > 4096) openingCache.delete(openingCache.keys().next().value!)
+  return found
+}
+
+function findOpenings(rx: number, rz: number, seed: string): Openings {
+  const x0 = rx * OPENING_REGION, z0 = rz * OPENING_REGION
+  if (Math.hypot(x0 + 32, z0 + 32) <= LEGACY_RADIUS + OPENING_REGION) return ['', new Map()]
+  const roll = hash32(rx, 0, rz, seed, 82)
+  if (roll % 8 < 2) {
+    const cx = x0 + 12 + (roll >>> 8) % 40, cz = z0 + 12 + (roll >>> 16) % 40
+    const ground = terrainHeight(cx, cz, seed)
+    const spans = ground > SEA_LEVEL ? sinkhole(cx, cz, ground, seed) : new Map<string, [number, number]>()
+    return [spans.size ? 'sinkhole' : '', spans]
+  }
+  if (roll % 8 < 5) {
+    for (let attempt = 0; attempt < MOUTH_TRIES; attempt++) {
+      const spot = hash32(rx, attempt, rz, seed, 86)
+      const cx = x0 + 12 + spot % 40, cz = z0 + 12 + (spot >>> 8) % 40
+      const ground = terrainHeight(cx, cz, seed)
+      const spans = ground > SEA_LEVEL ? mouth(cx, cz, ground, seed) : new Map<string, [number, number]>()
+      if (spans.size) return ['mouth', spans]
+    }
+  }
+  return ['', new Map()]
+}
+
+/** A round shaft five across from the surface down 9 to 13 blocks (never below y -3); none next to water. */
+function sinkhole(cx: number, cz: number, ground: number, seed: string): Map<string, [number, number]> {
+  const bottom = Math.max(-3, ground - 9 - hash32(cx, 1, cz, seed, 83) % 5)
+  const spans = new Map<string, [number, number]>()
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    if (dx * dx + dz * dz > 5) continue
+    const top = terrainHeight(cx + dx, cz + dz, seed)
+    if (top <= SEA_LEVEL) return new Map()
+    spans.set(`${cx + dx},${cz + dz}`, [bottom, top])
+  }
+  return spans
+}
+
+/** A tunnel into a hillside from the foot of its steepest rise: 2 wide, up to 3 tall, sinking a block
+ * every 2 for 12 blocks. */
+function mouth(cx: number, cz: number, ground: number, seed: string): Map<string, [number, number]> {
+  let best: [number, number, number] | null = null
+  for (const [dx, dz] of SIDES) {
+    const rise = terrainHeight(cx + 8 * dx, cz + 8 * dz, seed) - ground
+    if (rise >= 1 && (best === null || rise > best[0])) best = [rise, dx, dz]
+  }
+  const spans = new Map<string, [number, number]>()
+  if (best === null) return spans
+  const [, dx, dz] = best
+  for (let step = 0; step < MOUTH_LENGTH; step++) {
+    const floor = ground + 1 - Math.floor(step / 2)
+    for (const side of [0, 1]) {
+      const x = cx + step * dx - side * dz, z = cz + step * dz + side * dx
+      const height = terrainHeight(x, z, seed)
+      const top = Math.min(floor + 2, height)
+      if (top >= floor && height > SEA_LEVEL) spans.set(`${x},${z}`, [floor, top])
+    }
+  }
+  return spans
+}
+
+/** The span of air (lowest y, highest y) a cave entrance carves in the column, or null. */
+export function opening(x: number, z: number, seed = DEFAULT_WORLD_SEED): [number, number] | null {
+  return regionOpenings(Math.floor(x / OPENING_REGION), Math.floor(z / OPENING_REGION), seed)[1].get(`${x},${z}`) ?? null
+}
+
+/** A cave entrance took the column's ground cell: it is open to the sky there. */
+export function surfaceOpened(x: number, z: number, seed = DEFAULT_WORLD_SEED): boolean {
+  const span = opening(x, z, seed)
+  return span !== null && span[1] === terrainHeight(x, z, seed)
+}
+
+/** The boulder or outcrop of a chunk, if it has one: [x, z, kind, size, block] of its middle column. */
+export function rocksInChunk(cx: number, cz: number, seed = DEFAULT_WORLD_SEED): Rock[] {
+  const key = `${seed}:${cx},${cz}`
+  let rocks = rockCache.get(key)
+  if (rocks) return rocks
+  rocks = findRocks(cx, cz, seed)
+  rockCache.set(key, rocks)
+  if (rockCache.size > 4096) rockCache.delete(rockCache.keys().next().value!)
+  return rocks
+}
+
+function findRocks(cx: number, cz: number, seed: string): Rock[] {
+  const x0 = cx * 16, z0 = cz * 16
+  if (Math.hypot(x0 + 8, z0 + 8) <= LEGACY_RADIUS + 16) return []
+  const roll = hash32(cx, 0, cz, seed, 84)
+  const x = x0 + 3 + roll % 10, z = z0 + 3 + (roll >>> 8) % 10
+  const ground = terrainHeight(x, z, seed)
+  if (ground <= SEA_LEVEL || swampPool(x, z, seed) || surfaceOpened(x, z, seed)) return []
+  const biome = biomeAt(x, z, seed), pick = (roll >>> 16) % 12
+  if (ground >= OUTCROP_GROUND && pick < 4) return [[x, z, 'outcrop', 3, OUTCROPS[biome] ?? 'stone']]
+  if (pick >= 9) return [[x, z, 'boulder', 1 + (roll >>> 24) % 2, BOULDERS[biome] ?? 'mossy_cobblestone']]
+  return []
+}
+
+/** The block of the boulder or outcrop standing on a column and the y of its top, or null. */
+export function rockColumn(x: number, z: number, seed = DEFAULT_WORLD_SEED): [string, number] | null {
+  for (const [rx, rz, kind, size, block] of rocksInChunk(Math.floor(x / 16), Math.floor(z / 16), seed)) {
+    const dx = x - rx, dz = z - rz
+    let layers = 0
+    if (kind === 'boulder') {
+      for (let dy = 1; dy <= size; dy++) {
+        if (dx * dx + dz * dz + (dy - 0.5) * (dy - 0.5) * 1.6 <= (size + 0.5) * (size + 0.5)) layers++
+      }
+    } else if (dx * dx + dz * dz <= size * size && ((dx === 0 && dz === 0) || hash32(x, 3, z, seed, 85) % 3 !== 0)) {
+      layers = 1 + hash32(x, 2, z, seed, 85) % 3
+    }
+    const ground = terrainHeight(x, z, seed)
+    if (layers && ground >= SEA_LEVEL && !swampPool(x, z, seed) && !surfaceOpened(x, z, seed) && treeBase(x, z, seed) === null) {
+      return [block, ground + layers]
+    }
+  }
+  return null
+}
+
 /** Terrain, water, caves and ores, before trees and plants are added. */
 export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string {
   if (y <= -5) return 'bedrock'
@@ -288,6 +424,8 @@ export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WOR
     if (y > SEA_LEVEL) return 'air'
     return y === SEA_LEVEL && biomeAt(x, z, seed) === 'taiga' ? 'ice' : 'water'
   }
+  const span = opening(x, z, seed)
+  if (span !== null && y >= span[0] && y <= span[1]) return 'air'
   if (y === height) return swampPool(x, z, seed) ? 'water' : surfaceMaterial(x, z, seed)
   if (y >= height - 2) {
     const biome = biomeAt(x, z, seed)
@@ -310,7 +448,7 @@ function decorationColumn(x: number, z: number, seed: string): boolean {
   if (lx < 3 || lx > 12 || lz < 3 || lz > 12 || Math.hypot(x, z) < 17) return false
   if (terrainHeight(x, z, seed) < SEA_LEVEL) return false
   const biome = biomeAt(x, z, seed)
-  if (biome === 'desert' || biome === 'alpine' || swampPool(x, z, seed)) return false
+  if (biome === 'desert' || biome === 'alpine' || swampPool(x, z, seed) || surfaceOpened(x, z, seed)) return false
   const mx = mod(x, 13), mz = mod(z, 13)
   return !(Math.min(mx, 13 - mx) < 5 && Math.min(mz, 13 - mz) < 5)
 }
@@ -442,7 +580,7 @@ function tallPlant(x: number, z: number, seed: string): [string, number] | null 
 /** What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall grass,
  * a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3. */
 export function plantStack(x: number, z: number, seed = DEFAULT_WORLD_SEED): [string, number] | null {
-  if (Math.hypot(x, z) <= HOME_RADIUS) return null
+  if (Math.hypot(x, z) <= HOME_RADIUS || surfaceOpened(x, z, seed) || rockColumn(x, z, seed)) return null
   const surface = surfaceMaterial(x, z, seed)
   if (decorationColumn(x, z, seed)) {
     if (treeBase(x, z, seed) !== null) return null
@@ -480,6 +618,8 @@ function decorationAt(x: number, y: number, z: number, seed: string): string | n
   const tree = treeBlock(x, y, z, seed)
   if (tree) return tree
   const height = terrainHeight(x, z, seed)
+  const rock = y > height ? rockColumn(x, z, seed) : null
+  if (rock) return y <= rock[1] ? rock[0] : null
   if (y > height && y <= height + 3) {
     const stack = plantStack(x, z, seed)
     return stack && y <= height + stack[1] ? stack[0] : null
@@ -531,6 +671,11 @@ export function generateColumn(cx: number, cz: number, seed = DEFAULT_WORLD_SEED
     if (!stack) continue
     const ground = terrainHeight(x0 + lx, z0 + lz, seed)
     for (let dy = 1; dy <= stack[1]; dy++) stamp(x0 + lx, ground + dy, z0 + lz, stack[0])
+  }
+  for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+    const rock = rockColumn(x0 + lx, z0 + lz, seed)
+    if (!rock) continue
+    for (let y = terrainHeight(x0 + lx, z0 + lz, seed) + 1; y <= rock[1]; y++) stamp(x0 + lx, y, z0 + lz, rock[0])
   }
   const trees = treesInChunk(cx, cz, seed)
   // Where canopies meet, the first tree's leaves win (as in treeBlock): stamp them last.

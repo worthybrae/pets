@@ -59,6 +59,13 @@ DIAMOND_RARITY = 331  # stone cells per diamond ore, at y -3 and below
 DIAMOND_DEPTH = -3
 ASH_DEPTH = -2  # ashstone seams lie this deep and deeper
 VARIANTS = ("granite", "andesite", "diorite")
+# L3 on the surface: cave entrances open to the sky (sinkholes and hillside mouths), boulders, outcrops.
+OPENING_REGION = 64  # blocks on a side; a region holds one entrance at most
+MOUTH_LENGTH = 12
+MOUTH_TRIES = 6  # spots a region tries for a hillside mouth
+OUTCROP_GROUND = 8  # outcrops crown ground at least this high
+BOULDERS = {"desert": "sandstone", "meadow": "andesite", "alpine": "stone"}  # else mossy cobblestone
+OUTCROPS = {"desert": "sandstone", "taiga": "andesite", "birch_forest": "diorite", "alpine": "granite"}  # else stone
 
 
 @lru_cache(maxsize=64)
@@ -296,6 +303,124 @@ def _home_blocks() -> dict[tuple[int, int, int], str]:
 HOME_BLOCKS = _home_blocks()
 
 
+@lru_cache(maxsize=4096)
+def region_openings(rx: int, rz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, dict]:
+    """The cave entrance of a 64x64 region, if it has one: its kind ("sinkhole", "mouth", or "" for
+    none) and the span of air it carves in each of its columns, {(x, z): (lowest y, highest y)}. Two
+    regions in eight try for a sinkhole and three for a hillside mouth (at up to 6 spots, the first on
+    a slope); none near the legacy clearing or by the water."""
+    x0, z0 = rx * OPENING_REGION, rz * OPENING_REGION
+    if math.hypot(x0 + 32, z0 + 32) <= LEGACY_RADIUS + OPENING_REGION:
+        return "", {}
+    roll = hash32(rx, 0, rz, seed, 82)
+    if roll % 8 < 2:
+        cx, cz = x0 + 12 + (roll >> 8) % 40, z0 + 12 + (roll >> 16) % 40
+        ground = terrain_height(cx, cz, seed)
+        spans = _sinkhole(cx, cz, ground, seed) if ground > SEA_LEVEL else {}
+        return ("sinkhole" if spans else ""), spans
+    if roll % 8 < 5:
+        for attempt in range(MOUTH_TRIES):
+            spot = hash32(rx, attempt, rz, seed, 86)
+            cx, cz = x0 + 12 + spot % 40, z0 + 12 + (spot >> 8) % 40
+            ground = terrain_height(cx, cz, seed)
+            spans = _mouth(cx, cz, ground, seed) if ground > SEA_LEVEL else {}
+            if spans:
+                return "mouth", spans
+    return "", {}
+
+
+def _sinkhole(cx: int, cz: int, ground: int, seed: str) -> dict:
+    """A round shaft five across from the surface down 9 to 13 blocks (never below y -3); none next
+    to water."""
+    bottom = max(-3, ground - 9 - hash32(cx, 1, cz, seed, 83) % 5)
+    spans = {}
+    for dx in range(-2, 3):
+        for dz in range(-2, 3):
+            if dx * dx + dz * dz <= 5:
+                top = terrain_height(cx + dx, cz + dz, seed)
+                if top <= SEA_LEVEL:
+                    return {}
+                spans[(cx + dx, cz + dz)] = (bottom, top)
+    return spans
+
+
+def _mouth(cx: int, cz: int, ground: int, seed: str) -> dict:
+    """A tunnel into a hillside from the foot of its steepest rise (the ground 8 blocks on is higher):
+    2 wide, up to 3 tall, its floor sinking a block every 2 for 12 blocks; open to the sky at first,
+    roofed further in. None where no side rises."""
+    best = None
+    for dx, dz in SIDES:
+        rise = terrain_height(cx + 8 * dx, cz + 8 * dz, seed) - ground
+        if rise >= 1 and (best is None or rise > best[0]):
+            best = (rise, dx, dz)
+    if best is None:
+        return {}
+    _, dx, dz = best
+    spans = {}
+    for step in range(MOUTH_LENGTH):
+        floor = ground + 1 - step // 2
+        for side in (0, 1):
+            x, z = cx + step * dx - side * dz, cz + step * dz + side * dx
+            height = terrain_height(x, z, seed)
+            top = min(floor + 2, height)
+            if top >= floor and height > SEA_LEVEL:
+                spans[(x, z)] = (floor, top)
+    return spans
+
+
+def opening(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[int, int] | None:
+    """The span of air (lowest y, highest y) a cave entrance carves in the column, or None."""
+    return region_openings(x // OPENING_REGION, z // OPENING_REGION, seed)[1].get((x, z))
+
+
+def surface_opened(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
+    """A cave entrance took the column's ground cell: it is open to the sky there."""
+    span = opening(x, z, seed)
+    return span is not None and span[1] == terrain_height(x, z, seed)
+
+
+@lru_cache(maxsize=4096)
+def rocks_in_chunk(cx: int, cz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[tuple[int, int, str, int, str], ...]:
+    """The boulder or outcrop of a chunk, if it has one: (x, z, kind, size, block) of its middle
+    column. An outcrop (size 3) crowns a hill 8 or more high in a third of such chunks; a boulder (size
+    1 or 2) sits in a quarter of the others. Neither leaves its chunk, stands in water or tops a hole."""
+    x0, z0 = cx * 16, cz * 16
+    if math.hypot(x0 + 8, z0 + 8) <= LEGACY_RADIUS + 16:
+        return ()
+    roll = hash32(cx, 0, cz, seed, 84)
+    x, z = x0 + 3 + roll % 10, z0 + 3 + (roll >> 8) % 10
+    ground = terrain_height(x, z, seed)
+    if ground <= SEA_LEVEL or swamp_pool(x, z, seed) or surface_opened(x, z, seed):
+        return ()
+    biome, pick = biome_at(x, z, seed), (roll >> 16) % 12
+    if ground >= OUTCROP_GROUND and pick < 4:
+        return ((x, z, "outcrop", 3, OUTCROPS.get(biome, "stone")),)
+    if pick >= 9:
+        return ((x, z, "boulder", 1 + (roll >> 24) % 2, BOULDERS.get(biome, "mossy_cobblestone")),)
+    return ()
+
+
+@lru_cache(maxsize=131072)
+def rock_column(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
+    """The block of the boulder or outcrop standing on a column and the y of its top, or None. Each
+    column of a rock rests on its own ground, so none floats: a boulder is a low dome, an outcrop a
+    jagged crag of pillars 1 to 3 high. A column with a tree, water or a hole in it has no rock."""
+    for rx, rz, kind, size, block in rocks_in_chunk(x // 16, z // 16, seed):
+        dx, dz = x - rx, z - rz
+        if kind == "boulder":
+            layers = sum(1 for dy in range(1, size + 1)
+                         if dx * dx + dz * dz + (dy - 0.5) * (dy - 0.5) * 1.6 <= (size + 0.5) * (size + 0.5))
+        elif dx * dx + dz * dz <= size * size and ((dx, dz) == (0, 0) or hash32(x, 3, z, seed, 85) % 3 != 0):
+            layers = 1 + hash32(x, 2, z, seed, 85) % 3
+        else:
+            layers = 0
+        ground = terrain_height(x, z, seed)
+        if (layers and ground >= SEA_LEVEL and not swamp_pool(x, z, seed) and not surface_opened(x, z, seed)
+                and tree_base(x, z, seed) is None):
+            return block, ground + layers
+    return None
+
+
 def terrain_block(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     """Terrain, water, caves and ores, before trees and plants are added."""
     if y <= -5:
@@ -321,6 +446,9 @@ def terrain_block(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
         if y > SEA_LEVEL:
             return "air"
         return "ice" if y == SEA_LEVEL and biome_at(x, z, seed) == "taiga" else "water"
+    span = opening(x, z, seed)
+    if span is not None and span[0] <= y <= span[1]:
+        return "air"
     if y == height:
         return "water" if swamp_pool(x, z, seed) else surface_material(x, z, seed)
     if y >= height - 2:
@@ -350,7 +478,7 @@ def _decoration_column(x: int, z: int, seed: str) -> bool:
         return False
     if terrain_height(x, z, seed) < SEA_LEVEL or biome_at(x, z, seed) in ("desert", "alpine"):
         return False
-    if swamp_pool(x, z, seed):
+    if swamp_pool(x, z, seed) or surface_opened(x, z, seed):
         return False
     mx, mz = x % 13, z % 13
     return not (min(mx, 13 - mx) < 5 and min(mz, 13 - mz) < 5)
@@ -480,7 +608,7 @@ def tall_plant(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int]
 def plant_stack(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall
     grass, a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3."""
-    if math.hypot(x, z) <= HOME_RADIUS:
+    if math.hypot(x, z) <= HOME_RADIUS or surface_opened(x, z, seed) or rock_column(x, z, seed):
         return None
     surface = surface_material(x, z, seed)
     if _decoration_column(x, z, seed):
@@ -520,7 +648,7 @@ def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
 
 def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
     """Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk,
-    leaves, plant."""
+    leaves, rock, plant."""
     home = HOME_BLOCKS.get((x, y, z))
     if home:
         return home
@@ -528,6 +656,9 @@ def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str 
     if tree:
         return tree
     height = terrain_height(x, z, seed)
+    rock = rock_column(x, z, seed) if y > height else None
+    if rock is not None:
+        return rock[0] if y <= rock[1] else None
     if height < y <= height + 3:
         stack = plant_stack(x, z, seed)
         return stack[0] if stack and y <= height + stack[1] else None

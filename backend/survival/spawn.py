@@ -37,6 +37,8 @@ def spawn_fits(x: int, z: int, seed: str) -> bool:
         return False
     if biome_at(x, z, seed) not in SPAWN_BIOMES or surface_material(x, z, seed) not in SPAWN_SURFACES:
         return False
+    if block_at(x, height, z, seed) != surface_material(x, z, seed):
+        return False  # a cave entrance took the ground here
     for y in (height + 1, height + 2):
         here = block_at(x, y, z, seed)
         if here == "water" or not is_replaceable(here):
