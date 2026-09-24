@@ -5,6 +5,7 @@ from backend.services.crafting import craft
 from backend.survival import farming, storage  # noqa: F401  (register farm, build_storage and drop_items)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter, supplies
+from backend.survival.carrying import stacks
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, finish_structure, know
 from backend.survival.purposes import PURPOSES
@@ -107,13 +108,40 @@ class StorageTests(unittest.TestCase):
         roomy.state["inventory"].pop("item_13")  # 15 stacks: they stay with Mimo
         self.assertFalse(PURPOSES["build_storage"].valid(roomy.situation()))
 
-    def test_a_chest_that_would_not_fit_is_not_planned(self):
-        """Fix wave I1: making the chest from 20 planks at 16 stacks leaves 12 planks and a chest,
-        17 stacks. The step would fail, so build_storage is not offered for it."""
+    def test_a_chest_that_would_not_fit_drops_a_low_value_stack_to_make_room(self):
+        """Follow-up fix, item 2: making the chest from 20 planks at 16 stacks leaves 12 planks and
+        a chest, 17 stacks, which would not fit. Fix wave I1 left build_storage not offered for it;
+        now the plan drops one LOW_VALUE stack first (moss, the first LOOSE has) to clear the room,
+        the same order carrying.settle pushes blocks out in."""
         home = Home({**LOOSE, "planks": 20, "seeds": 1})  # 16 stacks
-        self.assertFalse(PURPOSES["build_storage"].valid(home.situation()))
-        self.assertEqual(home.plan("build_storage"), [])
+        s = home.situation()
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        steps = home.plan("build_storage")
+        self.assertEqual(steps[:3], [{"kind": "drop", "item": "moss", "amount": 3},
+                                     {"kind": "craft", "recipe": "chest"},
+                                     {"kind": "place", "target": [2, 1, 2], "block": "chest"}])
         self.assertTrue(PURPOSES["build_storage"].valid(Home({**LOOSE, "planks": 8, "seeds": 1}).situation()))
+
+    def test_no_room_for_a_chest_is_the_reviewers_repro(self):
+        """Follow-up fix, item 2: the 21-Jev pet at game day 0.106 had 16 stacks -- 2 planks, 8
+        birch logs and 6 cobblestone among them -- and could not craft a chest: the planks it would
+        make needed their own stack, nothing counted as junk so drop_items was never offered, and
+        L3's cobblestone floor (work.STONE_GOAL) had removed the old way out of dropping stone. A
+        dead end no purpose choice could get out of. Dropping the cobblestone it carries (chest_
+        crafting's own one-time room-making, not drop_items' STONE_GOAL floor) gets it a chest."""
+        base = {"apple": 1, "brown_mushroom": 3, "campfire": 1, "coal": 1, "cobblestone": 6, "cooked_beef": 2,
+                "cooked_chicken": 1, "crafting_table": 1, "feather": 1, "planks": 2, "red_mushroom": 1,
+                "sapling": 6, "sticks": 2, "wooden_pickaxe": 1, "wooden_sword": 1}
+        home = Home({**base, "birch_log": 8})  # 16 stacks
+        s = home.situation()
+        self.assertEqual(stacks(s.inventory), 16)
+        self.assertIsNone(storage.made(dict(s.inventory), "chest"))
+        self.assertEqual(storage.junk(s), [])
+        self.assertFalse(PURPOSES["drop_items"].valid(s))
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        self.assertEqual(home.plan("build_storage")[:2],
+                         [{"kind": "drop", "item": "cobblestone", "amount": 6},
+                          {"kind": "craft", "recipe": "birch_planks"}])
 
     def test_the_fuller_mimo_is_the_more_it_wants_to_tidy(self):
         score = PURPOSES["build_storage"].score

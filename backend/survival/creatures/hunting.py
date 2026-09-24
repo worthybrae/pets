@@ -4,8 +4,10 @@ hunt picks the nearest huntable animal within 32 blocks (a passive land animal, 
 blocks of where a step just failed, and (L3 final fix wave) not one more than 2 blocks below the top
 of its column's natural ground: a cave animal, which led the seed-11 pet down its own stairs into a
 pocket it could not climb out of) and keeps after that one: each batch either attacks it, when
-it is within the attack's 2.5 blocks, or walks (all the way or not at all) to where its last move
-ends, at most 40 batches. It is done when the animal is dead or has fled out of range. A hit
+it is within the attack's 2.5 blocks, or walks (all the way or not at all) to where it is now
+(the same cell the cave check used, follow-up fix, the minors: a moving animal's current move can
+already end in a cave it has not reached by then, and walking to that end drew Mimo down after
+it), at most 40 batches. It is done when the animal is dead or has fled out of range. A hit
 animal runs off (backend.survival.creatures.combat), and animals near a hunting Mimo flee now and
 then (backend.survival.creatures.acts), so a hunt is a chase: hit, run after it, hit again.
 
@@ -27,7 +29,7 @@ from backend.survival.clock import DAY_SECONDS
 from backend.survival.creatures.combat import ATTACK_REACH
 from backend.survival.creatures.kinds import huntable, kind_of
 from backend.survival.creatures.moves import where
-from backend.survival.creatures.table import cell_of, dead
+from backend.survival.creatures.table import dead
 from backend.survival.foraging import food_need, food_points, hunger_score, whole_walk
 from backend.survival.purposes import Purpose, register
 from backend.survival.senses import near_failure
@@ -105,7 +107,7 @@ def plan_hunt(s: Situation, context: ActionContext) -> list[dict]:
     there = where(target, s.at)
     if s.distance(there) <= ATTACK_REACH:
         return [{"kind": "attack", "creature": target["id"], "target": list(there)}]
-    return [whole_walk(cell_of(target), CHASE_REACH)]
+    return [whole_walk(there, CHASE_REACH)]
 
 
 register(Purpose(

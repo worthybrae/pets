@@ -114,6 +114,20 @@ class HuntPlanTests(unittest.TestCase):
         self.assertEqual(HUNT.plan(close, context(grid)),
                          [{"kind": "attack", "creature": rabbit["id"], "target": [9, 1, 0]}])
 
+    def test_an_animal_moving_into_a_cave_draws_no_walk_down(self):
+        """Follow-up fix, the minors: prey checks where(creature, s.at) for the cave rule (in_a_cave),
+        but plan_hunt walked to cell_of(target) -- the cell the animal's current move ends at, which
+        can already be in a cave it has not reached yet by s.at. Mimo was walked down into the cave
+        anyway; it now walks to the same cell prey checked, still on the surface."""
+        grid = meadow()
+        rabbit = animal(grid, cell=(9, 2, 0),
+                        path=[{"x": 9, "y": 8, "z": 0, "at": 90.0}, {"x": 9, "y": 2, "z": 0, "at": 110.0}])
+        with patch("backend.survival.creatures.hunting.terrain_height", lambda x, z, seed: 8):
+            s = situation(grid)  # at=100.0: the move is not over yet
+            self.assertEqual([found["id"] for found in prey(s)], [rabbit["id"]])  # not a cave animal yet
+            self.assertEqual(HUNT.plan(s, context(grid)),
+                             [{"kind": "walk", "target": [9, 8, 0], "reach": 2.0, "whole": True}])
+
     def test_keeps_after_the_same_animal_and_stops_when_it_is_gone_or_after_forty_batches(self):
         grid = meadow()
         first, second = animal(grid, cell=(9, 1, 0)), animal(grid, cell=(4, 1, 0))

@@ -19,6 +19,13 @@ moss, gravel, sand and clay; with none of those, dirt; with no dirt either, cobb
 cobblestone that a shelter Mimo started still needs stay, and cobblestone never drops below
 gather_stone's own goal (work.STONE_GOAL), so the two do not dig up and drop the same stone
 forever. It scores low while Mimo has room and high when it is full.
+
+When Mimo has no chest yet and the planks it would make for one need a stack of their own, a full
+16 stacks leaves no room to craft it at all: no block is junk while STONE_GOAL keeps a floor under
+cobblestone (fix round I2's L3 rule, resolution 21), so drop_items never offers a way out either
+(follow-up fix, item 2). chest_crafting first tries the craft as it stands; when that alone would
+not fit, it drops one LOW_VALUE stack -- the same order carrying.settle pushes blocks out in, moss
+first and cobblestone last -- to clear room, then tries again.
 """
 
 from __future__ import annotations
@@ -28,7 +35,7 @@ from typing import TYPE_CHECKING
 from backend.services.crafting import LOGS, PLANKS, TOOL_RANK
 from backend.survival.blueprints import BUILDING
 from backend.survival.building import current_shelter, structures_near, usable_supplies
-from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, full, room_for, stacks
+from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STACK, full, room_for, stacks
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
@@ -169,12 +176,32 @@ def to_take(s: Situation, cell) -> list[tuple[str, int]]:
     return found
 
 
+def chest_crafting(s: Situation) -> list[dict] | None:
+    """The steps that make a chest from what Mimo carries: `made` as it stands, or, when the
+    planks it would need for one leave no room at full arms, the same craft after dropping one
+    LOW_VALUE stack first (carrying.settle's order, moss first and cobblestone last) to clear it.
+    None when neither fits."""
+    steps = made(dict(s.inventory), "chest")
+    if steps is not None:
+        return steps
+    inventory = dict(s.inventory)
+    spare = next((item for item in LOW_VALUE if inventory.get(item, 0) > 0), None)
+    if spare is None:
+        return None
+    drop = inventory[spare] % STACK or STACK
+    inventory[spare] -= drop
+    if not inventory[spare]:
+        del inventory[spare]
+    steps = made(inventory, "chest")
+    return None if steps is None else [{"kind": "drop", "item": spare, "amount": drop}, *steps]
+
+
 def storage_valid(s: Situation) -> bool:
     cell = chest_spot(s)
     if cell is None or s.night:
         return False
     if not chest_placed(s, cell):
-        can_have = s.count("chest") > 0 or made(dict(s.inventory), "chest") is not None
+        can_have = s.count("chest") > 0 or chest_crafting(s) is not None
         return can_have and stacks(s.inventory) >= STORE_FROM
     return (stacks(s.inventory) >= STORE_FROM and bool(to_store(s, cell))) or bool(to_take(s, cell))
 
@@ -204,7 +231,7 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
     steps = [] if s.distance(cell) <= REACH and s.here in blueprint_of(structure).stands else [whole_walk(home)]
     if not chest_placed(s, cell):
         if s.count("chest") < 1:
-            crafting = made(dict(s.inventory), "chest")
+            crafting = chest_crafting(s)
             if crafting is None:
                 return []
             steps.extend(crafting)

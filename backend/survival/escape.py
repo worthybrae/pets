@@ -24,6 +24,10 @@ It tries the four directions and takes the
 first staircase that brings Mimo above the natural surface within 24 stairs, at most once per 60
 real seconds. There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
 to place, stays a trap.
+
+Its steps carry `keep`, the same tag a portable station's mine-back cleanup does, so a new choice
+landing mid-escape (apply_choice's kept_steps) keeps digging out instead of cutting the escape
+short (follow-up fix, the minors).
 """
 
 from __future__ import annotations
@@ -193,4 +197,8 @@ def plan_escape(state: dict, context: ActionContext, at: float) -> list[dict] | 
         return []
     brain.update(escaped_at=at, replans=0, planned_at=at)
     context.events.append((at, "trapped", f"{state['name']} is stuck in a pit and starts digging out."))
-    return [{**step, "purpose": "escape"} for step in steps]
+    # `keep`, the same tag a portable station's mine-back cleanup carries, so apply_choice and the
+    # reflex it resumes into (kept_steps) never cut an escape short the moment the next choice
+    # lands (follow-up fix, the minors: a new choice 9 game seconds into a 41-step escape dropped
+    # the rest of it, and the pocket took 24 more purpose changes and a second escape to get out of).
+    return [{**step, "purpose": "escape", "keep": True} for step in steps]

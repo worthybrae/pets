@@ -5,6 +5,7 @@ from backend.survival import lighting  # noqa: F401  (registers light_up)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter
 from backend.survival.grid import Grid
+from backend.survival.lighting import plural
 from backend.survival.memory import create_memory_tables, finish_structure
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
@@ -37,6 +38,14 @@ class LightTests(unittest.TestCase):
     def plan(self, s):
         return PURPOSES["light_up"].plan(s, ActionContext(grid=self.grid, clock_at=lambda at: s.clock,
                                                            planner=lambda *args: [], events=[], db=self.db))
+
+    def test_plural_handles_torches_and_lanterns(self):
+        """Follow-up fix, the minors: "carrying 1 torches" never took the singular ("torch" needs an
+        "es", not the flat "s" a word like "lantern" gets); light_facts now uses `plural` for both."""
+        self.assertEqual(plural(1, "torch"), "1 torch")
+        self.assertEqual(plural(3, "torch"), "3 torches")
+        self.assertEqual(plural(1, "lantern"), "1 lantern")
+        self.assertEqual(plural(3, "lantern"), "3 lanterns")
 
     def test_offered_in_the_evening_at_home_with_torches_or_coal_and_sticks(self):
         light = PURPOSES["light_up"]

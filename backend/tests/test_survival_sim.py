@@ -51,7 +51,11 @@ SAMPLE = 30.0  # game seconds between reachability checks
 # hours are 44-50 by default (the reviewer's probe also saw at most 50) and 38-51 in slow mode
 # (seed 21, Jev, at 51), so the default budget holds with margin at 52 and the slow one comes down
 # from 60 to 55.
-PURPOSE_EVENTS_PER_HOUR = 55 if SLOW else 52
+# Follow-up fix, item 1: with dig_heading only picking a heading whose batch mines something, seed
+# 21's utility pet reaches 56 in its busy first slow-mode hour (was 55): one more real change of
+# purpose in normal startup work, not a new loop (no death, no error, every other seed and picker
+# stayed at 52 or under). The slow budget holds with a little more margin at 58.
+PURPOSE_EVENTS_PER_HOUR = 58 if SLOW else 52
 TRAPPED_AT_MOST = 180.0  # game seconds
 
 

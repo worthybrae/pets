@@ -6,6 +6,7 @@ from unittest.mock import patch
 from backend.services.worldgen import block_at, terrain_height
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.brain import brain_plan
+from backend.survival.choosing import Choice, apply_choice
 from backend.survival.creatures.hunting import in_a_cave
 from backend.survival.escape import SURFACE_SEARCH, TRAP_WINDOW, escape_plan, staircase, way_out
 from backend.survival.grid import Grid
@@ -215,12 +216,35 @@ class EscapeTests(unittest.TestCase):
         state = stuck()
         ctx = brainy(pit())
         steps = brain_plan(state, ctx, 2.0)
-        self.assertEqual(steps[0], {"kind": "mine", "target": [1, 2, 0], "purpose": "escape"})
-        self.assertEqual(steps[-1], {"kind": "walk", "target": [4, 5, 0], "reach": 0.0, "purpose": "escape"})
+        self.assertEqual(steps[0], {"kind": "mine", "target": [1, 2, 0], "purpose": "escape", "keep": True})
+        self.assertEqual(steps[-1],
+                         {"kind": "walk", "target": [4, 5, 0], "reach": 0.0, "purpose": "escape", "keep": True})
         brain = state["brain"]
         self.assertEqual((brain["purpose"], brain["escaped_at"], brain["replans"], ctx.searches_left),
                          ("explore", 2.0, 0, 1))
         self.assertEqual(ctx.events[-1][1:], ("trapped", "Pip is stuck in a pit and starts digging out."))
+
+    def test_a_new_choice_mid_escape_keeps_the_escape_steps(self):
+        """Follow-up fix, the minors: apply_choice keeps only `keep` steps (choosing.kept_steps), so
+        a new choice landing mid-escape used to drop the rest of the staircase out along with the
+        old plan (the seed-11 pocket replay lost a 41-step escape 9 game seconds in, and took 24
+        more purpose changes and a second escape to get out). Escape steps now carry `keep` too, so
+        they ride out a purpose change the same way a portable station's mine-back does."""
+        state = stuck()
+        steps = brain_plan(state, brainy(pit()), 2.0)
+        self.assertTrue(steps and all(step.get("keep") for step in steps))
+        state["queue"] = steps
+        choice = Choice("craft_tools", "utility", "A table would help.", {"model": 0, "luna": 0, "reflections": 0})
+        apply_choice(state, choice, 3.0)
+        self.assertEqual(state["queue"], steps)
+        self.assertEqual(state["brain"]["purpose"], "craft_tools")
+        # the same steps, set aside during a reflex, ride out a choice there too (kept_steps is
+        # shared by both apply_choice's queue and its reflex set_aside).
+        reflexed = stuck()
+        reflexed["brain"]["reflex"] = "warm_up"
+        reflexed["brain"]["set_aside"] = steps
+        apply_choice(reflexed, choice, 3.0)
+        self.assertEqual(reflexed["brain"]["set_aside"], steps)
 
     def test_any_second_no_path_failure_of_the_purpose_checks_for_a_trap(self):
         partial = {"kind": "walk", "started_at": 1.5, "ended_at": 1.8, "result": "done", "purpose": "explore",
@@ -267,7 +291,8 @@ class EscapeTests(unittest.TestCase):
         ctx = brainy(pocket())
         steps = brain_plan(state, ctx, 2.0)
         self.assertEqual({step["purpose"] for step in steps}, {"escape"})
-        self.assertEqual(steps[-1], {"kind": "walk", "target": [-4, 5, 0], "reach": 0.0, "purpose": "escape"})
+        self.assertEqual(steps[-1],
+                         {"kind": "walk", "target": [-4, 5, 0], "reach": 0.0, "purpose": "escape", "keep": True})
         self.assertEqual(ctx.events[-1][1:], ("trapped", "Pip is stuck in a pit and starts digging out."))
 
     def test_a_home_within_reach_is_a_way_out(self):

@@ -106,13 +106,14 @@ class LanternTests(unittest.TestCase):
 
     def test_the_facts_tell_of_carried_lanterns_and_the_torch_corners_they_could_take(self):
         """L3 final fix wave: the facts spoke only of torches, so the chooser never heard that
-        light_up was on offer to hang a carried lantern or swap one for a torch."""
+        light_up was on offer to hang a carried lantern or swap one for a torch. Follow-up fix, the
+        minors: "carrying 1 torches" never took the singular; torches now use `plural` too."""
         facts = PURPOSES["light_up"].facts
         self.assertEqual(facts(self.situation({"torch": 3})), "4 dark corners around home, carrying 3 torches")
         for cell in CORNERS[:2]:
             self.grid.put(*cell, "torch")
         self.assertEqual(facts(self.situation({"torch": 1, "lantern": 3})),
-                         "2 dark corners around home, carrying 1 torches and 3 lanterns; "
+                         "2 dark corners around home, carrying 1 torch and 3 lanterns; "
                          "1 torch corner a spare lantern can take")
         for cell in CORNERS[2:]:
             self.grid.put(*cell, "torch")

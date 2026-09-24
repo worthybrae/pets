@@ -92,13 +92,17 @@ def swaps(s: Situation) -> int:
 
 
 def plural(count: int, word: str) -> str:
-    return f"{count} {word}" + ("" if count == 1 else "s")
+    """`count` and `word`, `word` pluralised (an "es" for one ending in ch, sh, s, x or z, an s for
+    any other, none for 1): "1 torch", "3 torches", "2 lanterns", "1 torch corner"."""
+    if count == 1:
+        return f"{count} {word}"
+    return f"{count} {word}{'es' if word.endswith(('ch', 'sh', 's', 'x', 'z')) else 's'}"
 
 
 def light_facts(s: Situation) -> str:
     """Dark corners and torches carried, and (L3 final fix wave) with lanterns carried, how many
     and how many torch corners a spare one can take."""
-    facts = f"{len(dark_corners(s))} dark corners around home, carrying {s.count('torch')} torches"
+    facts = f"{len(dark_corners(s))} dark corners around home, carrying {plural(s.count('torch'), 'torch')}"
     lanterns = s.count("lantern")
     if lanterns:
         facts += f" and {plural(lanterns, 'lantern')}; {plural(swaps(s), 'torch corner')} a spare lantern can take"

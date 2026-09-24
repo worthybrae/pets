@@ -13,7 +13,7 @@ from backend.survival.senses import ores_around
 from backend.survival.situation import Situation
 from backend.survival import storage  # noqa: F401  (registers drop_items)
 from backend.survival import work  # noqa: F401  (registers the gathering purposes)
-from backend.survival.work import ORE_REACH, dig_heading, sapling_fits, stair, stone_goal
+from backend.survival.work import ORE_REACH, STAIRS_PER_BATCH, dig_heading, digs, sapling_fits, stair, stone_goal
 from backend.survival.vitals import START_VITALS
 from backend.tests.test_survival_building import World
 
@@ -82,6 +82,22 @@ def rubble(x, y, z):
 
 def walk(x, y, z, reach=0.0):
     return {"kind": "walk", "target": [x, y, z], "reach": reach}
+
+
+def dug_batch(grid, at, heading, inventory, seed="1"):
+    """Every cell a full STAIRS_PER_BATCH batch of `stair` mines from `at` toward `heading`, as a
+    cells override that reads "air": what the ground looks like once gather_stone has already
+    dug that whole batch."""
+    changed, cells = {}, {}
+    for _ in range(STAIRS_PER_BATCH):
+        result = stair(grid, changed, at, heading, inventory, seed)
+        if result is None:
+            break
+        steps, at, _ = result
+        for step in steps:
+            if step["kind"] == "mine":
+                cells[tuple(step["target"])] = "air"
+    return cells
 
 
 @patch("backend.survival.senses.trees_near", lambda seed, x, z, radius: [TREE])
@@ -244,6 +260,39 @@ class StoneTests(unittest.TestCase):
         # Score should be in normal stone band (50 + diligence/10 + thrift/20 ...),
         # not prospecting band (40 + curiosity/10 ...)
         self.assertIn("cobblestone carried, a pickaxe in hand", facts)
+
+    def test_a_staircase_already_fully_dug_from_home_offers_no_heading_that_mines_nothing(self):
+        """rr-l3ff item 1: at the top of its own staircase, dig_heading only checked that `stair`
+        succeeded, not that it mined anything, so the last heading -- already dug all the way down
+        -- won every time and the batch was just walks. It now picks a heading whose batch mines at
+        least one cell, so it moves on to a fresh direction instead."""
+        inventory = {"wooden_pickaxe": 1}
+        already_dug = dug_batch(ground(), (0, 1, 0), (1, 0), inventory)
+        s = situation(pet(inventory=inventory), ground(already_dug))
+        s.brain["dig_heading"] = [1, 0]
+        heading = dig_heading(s)
+        self.assertNotEqual(heading, (1, 0))
+        self.assertEqual(heading, (0, 1))
+        self.assertTrue(digs(s, heading))
+        self.assertTrue(PURPOSES["gather_stone"].valid(s))
+
+    def test_a_pet_at_the_bottom_of_its_own_finished_stair_is_invalid_at_both_ends_not_ping_pong(self):
+        """rr-l3ff item 1: at the bottom, the way ahead is the floor of the passage this same
+        staircase already opened above it (cut refuses it), and the two sides were already dug too
+        (a batch of walks, nothing to mine). The old dig_heading, checking only that `stair`
+        succeeded, took one of those sides anyway; gather_stone is invalid at both ends instead, so
+        go_home is not ping-ponged against a purpose that digs nothing."""
+        inventory = {"wooden_pickaxe": 1}
+        base = ground({(4, -3, 0): "air"})
+        already_dug = {(5, -2, 0): "air",  # the floor of this staircase's own passage, right above
+                       **dug_batch(base, (4, -3, 0), (0, 1), inventory),
+                       **dug_batch(base, (4, -3, 0), (0, -1), inventory)}
+        grid = ground({(4, -3, 0): "air", **already_dug})
+        s = situation(pet((4, -3, 0), inventory=inventory), grid)
+        s.brain["dig_heading"] = [1, 0]
+        heading = dig_heading(s)
+        self.assertIsNone(heading)
+        self.assertFalse(PURPOSES["gather_stone"].valid(s))
 
 
 @patch("backend.survival.work.terrain_height", lambda x, z, seed: 0)

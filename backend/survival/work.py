@@ -258,9 +258,27 @@ def dig_heading(s: Situation) -> tuple[int, int] | None:
         last, back = tuple(last), (-last[0], -last[1])
         headings = [last, *(heading for heading in headings if heading not in (last, back))]
     for heading in headings:
-        if stair(s.grid, {}, s.here, heading, s.inventory, s.seed) is not None:
+        if digs(s, heading):
             return heading
     return None
+
+
+def digs(s: Situation, heading: tuple[int, int]) -> bool:
+    """Whether a batch toward `heading` would mine at least one cell: on Mimo's own staircase, a
+    heading already dug all the way down still lets `stair` succeed (it just walks the open
+    stairs), and the last heading always wins over an untried one, so gather_stone and go_home
+    took turns over a batch that dug nothing. Plans the batch the same way plan_stone does, with
+    no route search, so it stays cheap."""
+    changed: dict[Cell, str] = {}
+    at = s.here
+    for _ in range(STAIRS_PER_BATCH):
+        result = stair(s.grid, changed, at, heading, s.inventory, s.seed)
+        if result is None:
+            return False
+        more, at, _ = result
+        if any(step["kind"] == "mine" for step in more):
+            return True
+    return False
 
 
 def prospecting(s: Situation) -> bool:
