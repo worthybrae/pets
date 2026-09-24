@@ -85,6 +85,14 @@ class StorageTests(unittest.TestCase):
         self.assertIn(store("berries", 10), steps)
         self.assertNotIn("bread", [step.get("item") for step in steps])
 
+    def test_a_chest_that_would_not_fit_is_not_planned(self):
+        """Fix wave I1: making the chest from 20 planks at 16 stacks leaves 12 planks and a chest,
+        17 stacks. The step would fail, so build_storage is not offered for it."""
+        home = Home({**LOOSE, "planks": 20, "seeds": 1})  # 16 stacks
+        self.assertFalse(PURPOSES["build_storage"].valid(home.situation()))
+        self.assertEqual(home.plan("build_storage"), [])
+        self.assertTrue(PURPOSES["build_storage"].valid(Home({**LOOSE, "planks": 8, "seeds": 1}).situation()))
+
     def test_the_fuller_mimo_is_the_more_it_wants_to_tidy(self):
         score = PURPOSES["build_storage"].score
         self.assertEqual(score(Home({**LOOSE, "planks": 8}).situation()), 60.0)  # 15 stacks

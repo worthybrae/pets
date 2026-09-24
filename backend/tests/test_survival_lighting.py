@@ -56,6 +56,14 @@ class LightTests(unittest.TestCase):
         self.assertTrue(all(step["whole"] for step in steps if step["kind"] == "walk"))
         self.assertEqual(steps[-1], {"kind": "walk", "target": [1, 1, 1], "reach": 0.0, "whole": True})
 
+    def test_no_torches_are_made_when_they_would_not_fit(self):
+        """Fix wave I1: 2 coal and 2 sticks at 16 stacks would make 4 torches with nowhere to go."""
+        filler = {f"item_{n}": 1 for n in range(14)}
+        s = self.situation({**filler, "coal": 2, "sticks": 2})
+        self.assertFalse(PURPOSES["light_up"].valid(s))
+        self.assertEqual(self.plan(s), [])
+        self.assertTrue(PURPOSES["light_up"].valid(self.situation({**filler, "coal": 1, "sticks": 1})))
+
     def test_lit_corners_are_left_and_one_torch_lights_one_corner(self):
         self.grid.put(-2, 1, -2, "torch")
         steps = self.plan(self.situation({"torch": 1}))

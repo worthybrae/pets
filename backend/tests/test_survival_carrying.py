@@ -67,6 +67,74 @@ class FullHandsInTheTickTests(unittest.TestCase):
         self.assertIn("full", state["last_thought"])
 
 
+# 15 kinds of item, one stack each: one stack short of full.
+FIFTEEN = {f"item_{n}": 1 for n in range(CARRY_STACKS - 1)}
+
+
+def work(state, grid, queue, until=10.0):
+    state["queue"] = list(queue)
+    advance_actions(state, ActionContext(grid=grid, clock_at=lambda at: DAY, planner=lambda *args: [], events=[]),
+                    until)
+
+
+def meadow(stations=()):
+    grid = Grid(lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air")
+    for cell, block in stations:
+        grid.put(*cell, block)
+    return grid
+
+
+class FullHandsMakeNothingTests(unittest.TestCase):
+    """Fix wave I1: crafting, smelting or cooking with full arms used to use up the inputs and then
+    leave the output behind. Now the step does not start: it fails with code "blocked"."""
+
+    def assert_blocked(self, state, kept):
+        self.assertEqual(state["inventory"], kept)
+        self.assertEqual(state["last_failure"]["code"], "blocked")
+        self.assertEqual(state["recent_actions"][-1]["result"], "failed")
+
+    def test_planks_from_logs_do_not_fit_and_the_logs_stay(self):
+        state = pet({**FIFTEEN, "oak_log": 5})
+        work(state, meadow(), [{"kind": "craft", "recipe": "planks"}])
+        self.assert_blocked(state, {**FIFTEEN, "oak_log": 5})
+        self.assertIn("planks", state["last_failure"]["reason"])
+
+    def test_a_chest_from_planks_does_not_fit_and_the_planks_stay(self):
+        state = pet({**FIFTEEN, "planks": 20})
+        work(state, meadow(), [{"kind": "craft", "recipe": "chest"}])
+        self.assert_blocked(state, {**FIFTEEN, "planks": 20})
+
+    def test_cooked_fish_does_not_fit_and_the_raw_fish_stays(self):
+        state = pet({**FIFTEEN, "raw_fish": 3})
+        work(state, meadow([((2, 1, 0), "campfire")]), [{"kind": "cook", "item": "raw_fish"}])
+        self.assert_blocked(state, {**FIFTEEN, "raw_fish": 3})
+
+    def test_an_ingot_does_not_fit_and_the_ore_and_coal_stay(self):
+        fourteen = {f"item_{n}": 1 for n in range(CARRY_STACKS - 2)}
+        state = pet({**fourteen, "iron_ore": 2, "coal": 2})
+        work(state, meadow([((2, 1, 0), "furnace")]), [{"kind": "smelt", "item": "iron_ore"}])
+        self.assert_blocked(state, {**fourteen, "iron_ore": 2, "coal": 2})
+
+    def test_it_goes_ahead_when_the_inputs_free_the_stack_the_output_needs(self):
+        state = pet({**FIFTEEN, "oak_log": 1})
+        work(state, meadow(), [{"kind": "craft", "recipe": "planks"}])
+        self.assertEqual(state["inventory"], {**FIFTEEN, "planks": 4})
+        self.assertIsNone(state["last_failure"])
+
+    def test_plans_are_checked_the_same_way(self):
+        from backend.survival.carrying import crafts_fit
+        self.assertFalse(crafts_fit({**FIFTEEN, "planks": 20}, [{"kind": "craft", "recipe": "chest"}]))
+        self.assertTrue(crafts_fit({**FIFTEEN, "planks": 8}, [{"kind": "craft", "recipe": "chest"}]))
+        # A table placed and then mined back needs its stack again at the end.
+        thirteen = {f"item_{n}": 1 for n in range(CARRY_STACKS - 3)}
+        torches = [{"kind": "craft", "recipe": "crafting_table"},
+                   {"kind": "place", "target": [1, 1, 0], "block": "crafting_table"},
+                   {"kind": "craft", "recipe": "torch"}]
+        carried = {**thirteen, "planks": 4, "coal": 2, "sticks": 2}
+        self.assertTrue(crafts_fit(carried, torches))
+        self.assertFalse(crafts_fit(carried, [*torches, {"kind": "mine", "target": [1, 1, 0], "keep": True}]))
+
+
 class RecipeTests(unittest.TestCase):
     def test_torches_chests_beds_and_axes_can_be_made(self):
         self.assertEqual(craft({"coal": 1, "sticks": 1}, "torch", set()), {"torch": 4})

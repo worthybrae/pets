@@ -8,7 +8,8 @@
 - fish(water cell): 20 to 60 s per catch. Whether a fish bites depends on the stock of the water
   cell's 16x16 region (nature.catches); a catch takes one fish from it. A reflex may cut it short.
 - cook(item): 5 s at a lit campfire or furnace within 6 blocks, with no fuel (crafting.smelt's
-  rule for food).
+  rule for food). Like crafting and smelting, it does not start when the cooked food would not
+  fit (backend.survival.carrying).
 All of them work on a cell within reach, like mining. steps.py imports this module last, so
 start_step always knows these kinds.
 """
@@ -16,11 +17,11 @@ start_step always knows these kinds.
 from __future__ import annotations
 
 from backend.services.blocks import is_replaceable
-from backend.services.crafting import COOKING, FIRES, add_item, smelt, take_items
+from backend.services.crafting import COOKING, FIRES, SMELTING, add_item, smelt, take_items
 from backend.survival import nature
 from backend.survival.grid import Cell, Grid
 from backend.survival.steps import (
-    StepFailed, StepKind, as_cell, as_point, in_reach, label, register_step, seed_of, stations_near,
+    StepFailed, StepKind, as_cell, as_point, in_reach, label, register_step, room_to_make, seed_of, stations_near,
 )
 
 PICK_SECONDS = 0.5
@@ -155,8 +156,10 @@ def start_cook(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
         raise StepFailed(f"{label(item)} cannot be cooked")
     if state["inventory"].get(item, 0) < 1:
         raise StepFailed(f"no {label(item)} to cook", "missing_item")
-    if not stations_near(grid, as_cell(state["position"])).intersection(FIRES):
+    stations = stations_near(grid, as_cell(state["position"]))
+    if not stations.intersection(FIRES):
         raise StepFailed("no fire to cook on", "missing_item")
+    room_to_make(state["inventory"], smelt(state["inventory"], item, stations), SMELTING[item])
     return {"kind": "cook", "started_at": at, "ends_at": round(at + COOK_SECONDS / scale, 3), "item": item}
 
 

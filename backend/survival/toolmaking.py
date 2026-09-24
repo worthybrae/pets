@@ -8,7 +8,8 @@ otherwise, as crafting.smelt does). Stations are portable: Mimo places a table o
 open cell beside it (or above it), crafts or smelts, then mines the station back into its
 inventory, so it never has to remember where it left one. The mine-back steps are marked `keep`:
 they still run when a new purpose, a failure or a reflex drops the rest of the plan. A station
-already placed within reach is used as it is and left there. One tool per choice.
+already placed within reach is used as it is and left there. One tool per choice, and none while
+something the chain makes would not fit in Mimo's arms (carrying.crafts_fit).
 
 Below the natural surface an open cell beside Mimo may be its only way out, and the cell above
 its head is the headroom it needs to climb, so there Mimo digs a niche into a solid side wall
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest
+from backend.survival.carrying import crafts_fit
 from backend.survival.grid import Cell
 from backend.survival.purposes import Purpose, register, underground
 from backend.survival.situation import Situation
@@ -167,7 +169,7 @@ def tool_plan(s: Situation) -> list[dict] | None:
     except Short:
         return None
     steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
-    return steps
+    return steps if crafts_fit(s.inventory, steps) else None
 
 
 def plan_tools(s: Situation, context: ActionContext) -> list[dict]:

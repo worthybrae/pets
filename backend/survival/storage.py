@@ -2,7 +2,7 @@
 
 Mimo carries at most 16 stacks (backend.survival.carrying). build_storage puts a chest in the
 back corner the shelter design keeps for it, under the roof, making it from 8 planks when Mimo
-carries none, and puts away what Mimo does not need to carry: loose blocks, materials beyond what
+carries none (and has room to carry the chest it makes), and puts away what Mimo does not need to carry: loose blocks, materials beyond what
 a day's work takes (KEEP), and food beyond a day's worth. It takes food back out when Mimo
 carries less than a meal's worth. It is offered at the built shelter when Mimo's arms are getting
 full (13 stacks) or the chest holds food Mimo needs, and scores higher the fuller Mimo is.

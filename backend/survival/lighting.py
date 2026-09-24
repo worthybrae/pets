@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.survival.building import current_shelter
+from backend.survival.carrying import crafts_fit
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.purposes import LATE_DAY, Purpose, register
@@ -43,14 +44,16 @@ def evening(s: Situation) -> bool:
 
 
 def torch_supply(s: Situation, wanted: int) -> tuple[list[dict], int]:
-    """Craft steps making torches (4 at a time) until Mimo has `wanted`, or as many as it can, and
-    how many it will then carry."""
+    """Craft steps making torches (4 at a time) until Mimo has `wanted`, or as many as it can with
+    room to carry them (carrying.crafts_fit), and how many it will then carry."""
     inventory, steps = dict(s.inventory), []
     while inventory.get("torch", 0) < wanted:
         trial, more = dict(inventory), []
         try:
             make(trial, "torch", inventory.get("torch", 0) + 1, more)
         except Short:
+            break
+        if not crafts_fit(s.inventory, steps + more):
             break
         inventory, steps = trial, steps + more
     return steps, inventory.get("torch", 0)

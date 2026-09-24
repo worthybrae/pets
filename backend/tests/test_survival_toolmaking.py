@@ -84,6 +84,12 @@ class ToolmakingTests(unittest.TestCase):
         self.assertIsNone(next_tool({"iron_pickaxe": 1}))
         self.assertFalse(PURPOSES["craft_tools"].valid(situation({"iron_pickaxe": 1, "oak_log": 9})))
 
+    def test_no_plan_when_its_crafts_would_not_fit(self):
+        """Fix wave I1: at 16 stacks the planks from the first log have nowhere to go."""
+        filler = {f"item_{n}": 1 for n in range(15)}
+        self.assertIsNone(tool_plan(situation({**filler, "oak_log": 5})))
+        self.assertIsNotNone(tool_plan(situation({"oak_log": 5})))
+
     def test_no_room_for_a_table_means_no_plan(self):
         walls = {cell: "stone" for cell in ((1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1), (0, 2, 0))}
         self.assertIsNone(tool_plan(situation({"oak_log": 3}, flat(walls))))

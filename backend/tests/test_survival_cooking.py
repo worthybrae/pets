@@ -78,6 +78,13 @@ class CookTests(unittest.TestCase):
                          [craft("crafting_table"), place("crafting_table"), craft("bread"), craft("bread"), PICK_UP])
         self.assertFalse(PURPOSES["cook"].valid(situation({"wheat": 2, "planks": 4})))
 
+    def test_no_cooking_when_the_cooked_fish_would_not_fit(self):
+        """Fix wave I1: at 16 stacks the first cooked fish needs a stack of its own."""
+        filler = {f"item_{n}": 1 for n in range(15)}
+        fire = meadow({(3, 1, 0): "campfire"})
+        self.assertFalse(PURPOSES["cook"].valid(situation({**filler, "raw_fish": 3}, fire)))
+        self.assertTrue(PURPOSES["cook"].valid(situation({**filler, "raw_fish": 1}, fire)))
+
     def test_hunger_and_raw_food_raise_the_score(self):
         score = PURPOSES["cook"].score
         self.assertEqual(score(situation({"raw_fish": 2})), 60.0)

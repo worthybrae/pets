@@ -98,6 +98,19 @@ class ShelterTests(unittest.TestCase):
         self.assertEqual(steps[:3], [{"kind": "craft", "recipe": "planks"}] * 3)
         self.assertEqual({step["block"] for step in places_of(steps)}, {"planks"})
 
+    def test_with_full_arms_logs_are_not_counted_and_no_planks_are_made(self):
+        """Fix wave I1: at 16 stacks the planks from a log have nowhere to go, so the batch places
+        only what Mimo carries, and logs alone do not make a shelter worth starting."""
+        filler = {f"item_{n}": 1 for n in range(14)}
+        world = World({"cobblestone": 60})
+        world.plan()  # starts the design
+        world.state["inventory"] = {**filler, "oak_log": 10, "cobblestone": 5}  # 16 stacks
+        steps = world.plan()
+        self.assertEqual([step["kind"] for step in steps if step["kind"] == "craft"], [])
+        self.assertEqual([step["block"] for step in places_of(steps)], ["cobblestone"] * 5)
+        self.assertFalse(PURPOSES["build_shelter"].valid(World({**filler, "item_14": 1, "oak_log": 10}).situation()))
+        self.assertTrue(PURPOSES["build_shelter"].valid(World({"oak_log": 10}).situation()))
+
     def test_it_pauses_when_the_blocks_run_out_and_gathering_aims_higher(self):
         world = World({"cobblestone": 20, "wooden_pickaxe": 1})
         world.carry_out(world.plan())

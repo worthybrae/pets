@@ -9,7 +9,7 @@
 - Three wheat bake into bread (25) at a crafting table, like craft_tools does it.
 A station or fire the plan placed is mined back into Mimo's inventory at the end. Those steps
 are kept (`keep`), so a new choice does not leave the station behind. cook is offered while
-there is raw food it can cook now, and scores in the needs band.
+there is raw food it can cook now, with room to carry what it makes, and scores in the needs band.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import FIRES
+from backend.survival.carrying import crafts_fit
 from backend.survival.grid import Cell
 from backend.survival.foraging import whole_walk
 from backend.survival.purposes import Purpose, register
@@ -34,11 +35,14 @@ BREAD_WHEAT = 3
 
 
 def made(inventory: dict, item: str) -> list[dict] | None:
-    """The craft steps that make one `item` from `inventory` (which they then change), or None."""
+    """The craft steps that make one `item` from `inventory` (which they then change), or None when
+    they cannot, or when something they make would not fit in Mimo's arms (carrying.crafts_fit)."""
     trial, steps = dict(inventory), []
     try:
         make(trial, item, 1, steps)
     except Short:
+        return None
+    if not crafts_fit(inventory, steps):
         return None
     inventory.clear()
     inventory.update(trial)
@@ -87,7 +91,7 @@ def cook_plan(s: Situation) -> list[dict] | None:
     if not fish and not loaves:
         return None
     steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
-    return steps
+    return steps if crafts_fit(s.inventory, steps) else None
 
 
 def plan_cook(s: Situation, context: ActionContext) -> list[dict]:

@@ -6,6 +6,8 @@ starts once it carries at least half the blocks it needs. The design and the cel
 remembered (backend.survival.structures), so every later batch goes on with the same design:
 walk inside, then place up to 12 blocks a batch in the design's order, floor, walls, roof, making
 planks from logs when the planks run short and letting any building block stand in for another.
+With arms too full to carry the planks a log makes, logs do not count as blocks and the batch
+places only what Mimo carries.
 When the blocks run out the purpose pauses (its plan is done) and the gathering purposes aim for
 what is still missing (`building_need`); it goes on once Mimo carries 8 blocks again, or what is
 left. When the last floor, wall or roof block is down the shelter is done: home moves into it
@@ -33,6 +35,7 @@ from typing import TYPE_CHECKING
 
 from backend.services.worldgen import terrain_height
 from backend.survival.blueprints import Blueprint, Planned, bill, design_shelter, pick_block, supplies
+from backend.survival.carrying import crafts_fit
 from backend.survival.cooking import made
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
@@ -86,8 +89,20 @@ def site_center(s: Situation) -> Cell:
     return x, max(y, terrain_height(x, z, s.seed) + 1), z
 
 
+def without_logs(inventory: dict) -> dict:
+    return {item: count for item, count in inventory.items() if item != "oak_log"}
+
+
+def usable_supplies(inventory: dict) -> dict[str, int]:
+    """The building blocks Mimo can use now (blueprints.supplies): its logs count as planks only
+    while it has room to carry the planks a log makes (carrying.crafts_fit)."""
+    if crafts_fit(inventory, [{"kind": "craft", "recipe": "planks"}]):
+        return supplies(inventory)
+    return supplies(without_logs(inventory))
+
+
 def carried_blocks(s: Situation) -> int:
-    return sum(supplies(s.inventory).values())
+    return sum(usable_supplies(s.inventory).values())
 
 
 def shelter_design(s: Situation) -> Blueprint | None:
@@ -191,9 +206,10 @@ def reach_all(blueprint: Blueprint, stand: Cell, jobs: list[tuple[Cell, dict]]) 
     return steps
 
 
-def structural_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[dict]:
-    """The next blocks in the design's order, making planks from logs when they run short."""
-    have = supplies(s.inventory)
+def next_blocks(s: Situation, blueprint: Blueprint, inventory: dict) -> tuple[list[str], list[tuple[Cell, dict]]]:
+    """The blocks the next cells in the design's order take from `inventory`'s supplies, and their
+    place jobs."""
+    have = supplies(inventory)
     jobs: list[tuple[Cell, dict]] = []
     blocks = []
     for planned in todo(s.grid, blueprint):
@@ -203,7 +219,18 @@ def structural_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[di
         have[block] -= 1
         blocks.append(block)
         jobs.append((planned.cell, {"kind": "place", "target": list(planned.cell), "block": block}))
-    return planks_first(s.inventory, blocks) + reach_all(blueprint, stand, jobs)
+    return blocks, jobs
+
+
+def structural_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[dict]:
+    """The next blocks in the design's order, making planks from logs when they run short, but
+    only when Mimo has room to carry the planks: otherwise it places what it carries."""
+    blocks, jobs = next_blocks(s, blueprint, s.inventory)
+    crafting = planks_first(s.inventory, blocks)
+    if not crafts_fit(s.inventory, crafting):
+        blocks, jobs = next_blocks(s, blueprint, without_logs(s.inventory))
+        crafting = []
+    return crafting + reach_all(blueprint, stand, jobs)
 
 
 def furnishing_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[dict]:

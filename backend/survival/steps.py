@@ -22,8 +22,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.services.blocks import hardness, is_replaceable, mining_tool
-from backend.services.crafting import BLOCKS, add_item, can_harvest, craft, smelt, take_items
+from backend.services.crafting import BLOCKS, SMELTING, add_item, can_harvest, craft, smelt, take_items
 from backend.survival import nature
+from backend.survival.carrying import fits
 from backend.survival.grid import Cell, Grid
 from backend.survival.pathing import route, timed_path
 
@@ -324,8 +325,16 @@ def finish_eat(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str
     return "ate", f"{name} ate {label(item)}."
 
 
+def room_to_make(before: dict[str, int], after: dict[str, int], what: str) -> None:
+    """Fail a craft, smelt or cook whose output would not fit once its inputs are used up: it would
+    only be left behind (backend.survival.carrying)."""
+    if not fits(before, after):
+        raise StepFailed(f"no room to carry the {label(what)}", "blocked")
+
+
 def start_craft(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
-    craft(state["inventory"], spec["recipe"], stations_near(grid, as_cell(state["position"])))
+    after = craft(state["inventory"], spec["recipe"], stations_near(grid, as_cell(state["position"])))
+    room_to_make(state["inventory"], after, spec["recipe"])
     return {"kind": "craft", "started_at": at, "ends_at": round(at + CRAFT_SECONDS / scale, 3),
             "recipe": spec["recipe"]}
 
@@ -337,7 +346,8 @@ def finish_craft(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, s
 
 
 def start_smelt(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
-    smelt(state["inventory"], spec["item"], stations_near(grid, as_cell(state["position"])))
+    after = smelt(state["inventory"], spec["item"], stations_near(grid, as_cell(state["position"])))
+    room_to_make(state["inventory"], after, SMELTING[spec["item"]])
     return {"kind": "smelt", "started_at": at, "ends_at": round(at + SMELT_SECONDS / scale, 3),
             "item": spec["item"]}
 

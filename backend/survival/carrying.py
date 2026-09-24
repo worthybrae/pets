@@ -6,11 +6,18 @@ the part that does not fit stays behind (there are no dropped items to pick up l
 a full inventory in a block game leaves the new item on the ground. Only what the step brought
 in is left: what Mimo already carried is never lost. Being full makes putting things away in a
 chest and dropping low-value items worth doing (backend.survival.storage).
+
+Crafting, smelting and cooking never make something that would be left behind: their steps do
+not start when the output would not fit once the inputs are used up (`fits`, checked in
+backend.survival.steps and backend.survival.fieldwork), and planners leave out crafts that could
+not run (`crafts_fit`).
 """
 
 from __future__ import annotations
 
 import math
+
+from backend.services.crafting import add_item, craft, smelt, take_items
 
 STACK = 32
 CARRY_STACKS = 16
@@ -31,6 +38,53 @@ def room_for(items: dict[str, int], item: str, limit: int) -> int:
 
 def full(items: dict[str, int]) -> bool:
     return stacks(items) >= CARRY_STACKS
+
+
+def fits(before: dict[str, int], after: dict[str, int], limit: int = CARRY_STACKS) -> bool:
+    """Whether what a change from `before` to `after` makes (a craft, a smelt, a cook) fits in
+    `limit` stacks once what it used up is gone: room_for on a copy of `before` minus the inputs."""
+    trial = {item: min(count, after.get(item, 0)) for item, count in before.items()}
+    for item in sorted(after):
+        grown = after[item] - before.get(item, 0)
+        if grown > 0:
+            if room_for(trial, item, limit) < grown:
+                return False
+            trial[item] = trial.get(item, 0) + grown
+    return True
+
+
+ANY_STATION = {"crafting_table", "furnace", "campfire"}
+
+
+def crafts_fit(inventory: dict[str, int], steps: list[dict]) -> bool:
+    """Whether every craft, smelt and cook in `steps`, run in order from `inventory`, has room for
+    what it makes (the steps would fail to start otherwise). A place uses up its block, and a mine
+    of a cell placed earlier in `steps` (a portable station's mine-back) needs room for it again.
+    Stations and materials are the steps' own business: a step that could not run is skipped."""
+    trial, placed = dict(inventory), {}
+    for step in steps:
+        kind = step.get("kind")
+        target = tuple(step["target"]) if isinstance(step.get("target"), list) else None
+        try:
+            if kind == "craft":
+                after = craft(trial, step["recipe"], ANY_STATION)
+            elif kind in ("smelt", "cook"):
+                after = smelt(trial, step["item"], ANY_STATION)
+            elif kind == "place":
+                trial = take_items(trial, {step["block"]: 1})
+                placed[target] = step["block"]
+                continue
+            elif kind == "mine" and target in placed:
+                after = dict(trial)
+                add_item(after, placed.pop(target))
+            else:
+                continue
+        except (KeyError, ValueError):
+            continue
+        if not fits(trial, after):
+            return False
+        trial = after
+    return True
 
 
 def settle(inventory: dict[str, int], before: dict[str, int]) -> dict[str, int]:
