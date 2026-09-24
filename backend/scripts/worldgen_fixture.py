@@ -12,7 +12,8 @@ import random
 from pathlib import Path
 
 from backend.services.worldgen import (
-    LEGACY_WORLD_SEED, biome_at, block_at, cave_plant, plant_at, terrain_height, trees_in_chunk,
+    LEGACY_WORLD_SEED, SEA_LEVEL, biome_at, block_at, cave_plant, plant_at, plant_stack, swamp_pool, terrain_height,
+    tree_kind, trees_in_chunk,
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "shared" / "worldgen-fixture.json"
@@ -25,6 +26,10 @@ WILD_NEG_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(-46, -16)]
 FAR_CHUNKS = [(cx, cz) for cz in range(-8, 8) for cx in range(250, 270)]
 FAR_LIMIT = 30000
 WILD_FOOD = ("berry_bush_ripe", "brown_mushroom", "red_mushroom")
+# L3: trees of each wood, the taller plants and fruit, swamp pools and frozen lakes.
+KIND_CHUNKS = [(cx, cz) for cz in range(-30, 30) for cx in range(16, 80)]
+STACKS = ("cactus", "sugar_cane", "dead_bush", "fern", "pumpkin", "melon")
+NEW_BIOMES = ("taiga", "swamp", "birch_forest")
 
 
 def _trees(seed: str, chunks: list[tuple[int, int]], count: int,
@@ -85,6 +90,38 @@ def _biome_patch(seed: str, biome: str) -> list[tuple[int, int, int]]:
     return []
 
 
+def _kind_trees(seed: str, kind: str, count: int) -> list[tuple[int, int, int]]:
+    """Generated trees of one wood (oak, birch or spruce)."""
+    found = []
+    for cx, cz in KIND_CHUNKS:
+        for tree in trees_in_chunk(cx, cz, seed):
+            if tree_kind(tree[0], tree[1], seed) == kind:
+                found.append(tree)
+                if len(found) == count:
+                    return found
+    return found
+
+
+def _features(seed: str, count: int) -> list[tuple[int, int]]:
+    """Columns with each of the taller plants and fruit, a swamp pool or a frozen lake, `count` of each."""
+    seen: dict[str, int] = {}
+    found = []
+    for x in range(250, 1250):
+        for z in range(-60, 60, 2):
+            stack = plant_stack(x, z, seed)
+            kind = stack[0] if stack and stack[0] in STACKS else None
+            if kind is None and swamp_pool(x, z, seed):
+                kind = "pool"
+            elif kind is None and terrain_height(x, z, seed) < SEA_LEVEL and biome_at(x, z, seed) == "taiga":
+                kind = "ice"
+            if kind is not None and seen.get(kind, 0) < count:
+                seen[kind] = seen.get(kind, 0) + 1
+                found.append((x, z))
+                if len(seen) == len(STACKS) + 2 and all(value == count for value in seen.values()):
+                    return found
+    return found
+
+
 def sample_cells() -> list[tuple[str, int, int, int]]:
     """Home clearing, tree canopies, plants, rare biomes and random cells for both seeds."""
     cells = {(LEGACY_WORLD_SEED, x, y, z) for x in range(-12, 13) for z in range(-12, 13) for y in range(-2, 8)}
@@ -99,8 +136,15 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
             cells |= {(seed, x, height, z), (seed, x, height + 1, z)}
         for x, y, z in _cave_plants(seed, 12):
             cells |= {(seed, x, y, z), (seed, x, y - 1, z)}
-        for biome in ("desert", "alpine"):
+        for biome in ("desert", "alpine") + NEW_BIOMES:
             cells |= {(seed, x, y, z) for x, y, z in _biome_patch(seed, biome)}
+        for kind in ("oak", "birch", "spruce"):
+            for tx, tz, base in _kind_trees(seed, kind, 2):
+                cells |= {(seed, tx + dx, base + dy, tz + dz)
+                          for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 9)}
+        for x, z in _features(seed, 3):
+            height = terrain_height(x, z, seed)
+            cells |= {(seed, x, height + dy, z) for dy in range(-2, 5)}
         for _ in range(1500):
             cells.add((seed, rng.randint(-700, 700), rng.randint(-8, 40), rng.randint(-700, 700)))
     far = random.Random(11)

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import fixture from '../../../shared/worldgen-fixture.json'
 import { blockDef, blockId } from './blocks'
 import {
-  blockAt, cavePlant, columnIndex, DEFAULT_WORLD_SEED, generateColumn, legacyHash, terrainHeight, treesInChunk, wildFood,
-  WORLD_MAX_Y, WORLD_MIN_Y,
+  blockAt, cavePlant, columnIndex, DEFAULT_WORLD_SEED, generateColumn, legacyHash, plantStack, swampPool, terrainHeight,
+  treeKind, treesInChunk, wildFood, WORLD_MAX_Y, WORLD_MIN_Y,
 } from './worldgen'
 
 const WILD_SEED = '123456789123456789'
@@ -50,8 +50,34 @@ describe('worldgen', () => {
     }
     expect(treeChunk).not.toBeNull()
     const [cx, cz] = treeChunk!
-    expect(generateColumn(cx, cz, WILD_SEED).includes(blockId('oak_log'))).toBe(true)
+    const logs = ['oak_log', 'birch_log', 'spruce_log'].map((name) => blockId(name))
+    expect(Array.from(generateColumn(cx, cz, WILD_SEED)).some((id) => logs.includes(id))).toBe(true)
     expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
+
+  it('generates every wood, the tall plants, fruit, pools and frozen lakes inside columns exactly like blockAt', () => {
+    const chunks = new Map<string, [number, number]>()
+    const plants = ['cactus', 'sugar_cane', 'pumpkin', 'melon', 'dead_bush', 'fern']
+    for (let x = 250; x < 1250 && chunks.size < plants.length; x++) {
+      for (let z = -60; z < 60; z += 2) {
+        const stack = plantStack(x, z, WILD_SEED)
+        if (stack && plants.includes(stack[0]) && !chunks.has(stack[0])) chunks.set(stack[0], [Math.floor(x / 16), Math.floor(z / 16)])
+      }
+    }
+    for (let cx = 16; cx < 80; cx++) for (let cz = -30; cz < 30; cz++) {
+      for (const [tx, tz] of treesInChunk(cx, cz, WILD_SEED)) {
+        const kind = treeKind(tx, tz, WILD_SEED)
+        if (!chunks.has(kind)) chunks.set(kind, [cx, cz])
+      }
+    }
+    expect([...chunks.keys()].sort()).toEqual([...plants, 'birch', 'oak', 'spruce'].sort())
+    expect(swampPool(771, -8, WILD_SEED)).toBe(true)  // a swamp pool, in chunk (48, -1)
+    chunks.set('pool', [48, -1])
+    chunks.set('ice', [15, -15])  // a frozen taiga lake
+    expect(Array.from(generateColumn(15, -15, WILD_SEED)).includes(blockId('ice'))).toBe(true)
+    for (const [name, [cx, cz]] of chunks) {
+      if (name !== 'oak') expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10), name).toEqual([])
+    }
   })
 
   it('generates wild food and cave mushrooms inside columns exactly like blockAt', () => {

@@ -1,6 +1,7 @@
 import { AIR, blockDef, blockId, LAYER_BY_ID, LAYER_CUTOUT, TILES, type Rgb } from '../engine/blocks'
 import {
-  blockAt, CHUNK_SIZE, LEGACY_RADIUS, SEA_LEVEL, surfaceMaterial, terrainHeight, treesInChunk, WORLD_MIN_Y,
+  blockAt, canopyTop, CHUNK_SIZE, LEGACY_RADIUS, plantStack, SEA_LEVEL, surfaceMaterial, swampPool, terrainBlock,
+  terrainHeight, WORLD_MIN_Y,
 } from '../engine/worldgen'
 import type { WorldStore } from '../engine/worldStore'
 import { typingIn, type KeyPress } from './cameraModes'
@@ -33,7 +34,7 @@ const FOG = 0.7
 /** How much a column higher (lower) than the one north of it is lightened (darkened). */
 const RELIEF = 0.06
 const WATER = blockId('water')
-const LEAVES = blockId('leaves')
+const LEAVES = new Set(['leaves', 'birch_leaves', 'spruce_leaves'].map((name) => blockId(name)))
 const PATH_KINDS = new Set(['walk', 'swim', 'fall'])
 
 /** The block seen from above in a column, how high it is and, for water, how deep. */
@@ -64,17 +65,6 @@ function visible(id: number): boolean {
   return id !== AIR && LAYER_BY_ID[id] !== LAYER_CUTOUT
 }
 
-/** The highest leaf of a generated tree over the column, or null. Canopies never leave a chunk. */
-function canopyTop(x: number, z: number, seed: string): number | null {
-  let top: number | null = null
-  for (const [tx, tz, base] of treesInChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE), seed)) {
-    const ax = Math.abs(x - tx), az = Math.abs(z - tz)
-    const leaf = ax + az < 2 ? base + 6 : ax <= 2 && az <= 2 && ax + az <= 3 ? base + 5 : null
-    if (leaf !== null && (top === null || leaf > top)) top = leaf
-  }
-  return top
-}
-
 /** The first block from above that the map shows, found by reading `at` down from `from`. */
 function scanTop(at: (y: number) => number, from: number): Top {
   for (let y = from; y >= WORLD_MIN_Y; y--) {
@@ -84,8 +74,9 @@ function scanTop(at: (y: number) => number, from: number): Top {
   return { id: AIR, y: WORLD_MIN_Y, depth: 0 }
 }
 
-/** The block worldgen shows from above at (x, z): a tree top, water or the ground. Small plants
- * (grass, flowers, bushes) are too small to see. */
+/** The block worldgen shows from above at (x, z): a tree top (oak, birch or spruce), water or a frozen
+ * lake, a swamp pool, a pumpkin or melon, or the ground. Small plants (grass, flowers, bushes, cacti,
+ * cane) are too small to see. */
 export function naturalTop(x: number, z: number, seed: string): Top {
   const height = terrainHeight(x, z, seed)
   if (Math.hypot(x, z) <= LEGACY_RADIUS + CHUNK_SIZE) {
@@ -93,8 +84,11 @@ export function naturalTop(x: number, z: number, seed: string): Top {
     return scanTop((y) => blockId(blockAt(x, y, z, seed)), Math.max(height, SEA_LEVEL) + 8)
   }
   const leaves = canopyTop(x, z, seed)
-  if (leaves !== null && leaves > Math.max(height, SEA_LEVEL)) return { id: LEAVES, y: leaves, depth: 0 }
-  if (height < SEA_LEVEL) return { id: WATER, y: SEA_LEVEL, depth: SEA_LEVEL - height }
+  if (leaves !== null && leaves[1] > Math.max(height, SEA_LEVEL)) return { id: blockId(leaves[0]), y: leaves[1], depth: 0 }
+  if (height < SEA_LEVEL) return { id: blockId(terrainBlock(x, SEA_LEVEL, z, seed)), y: SEA_LEVEL, depth: SEA_LEVEL - height }
+  if (swampPool(x, z, seed)) return { id: WATER, y: height, depth: 1 }
+  const plant = plantStack(x, z, seed)
+  if (plant && LAYER_BY_ID[blockId(plant[0])] !== LAYER_CUTOUT) return { id: blockId(plant[0]), y: height + plant[1], depth: 0 }
   return { id: blockId(surfaceMaterial(x, z, seed)), y: height, depth: 0 }
 }
 
@@ -121,7 +115,7 @@ export function topColor(top: Top): Rgb {
   let shade = top.id === WATER
     ? 1.06 - 0.1 * Math.min(4, top.depth)
     : 0.86 + 0.28 * clamp((top.y - SEA_LEVEL) / 14, 0, 1)
-  if (top.id === LEAVES) shade *= 0.86
+  if (LEAVES.has(top.id)) shade *= 0.86
   return [0, 1, 2].map((i) => clamp(Math.round(base[i] * shade), 0, 255)) as Rgb
 }
 

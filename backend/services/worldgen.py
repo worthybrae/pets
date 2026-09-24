@@ -27,6 +27,25 @@ FOREST_EDGE = 0.16  # forest moisture below this is the forest's edge
 BUSH_RARITY = 97
 MUSHROOM_RARITY = 67
 CAVE_MUSHROOM_RARITY = 29
+# L3, the bigger world: taiga, swamp and birch forest, with their trees, plants, snow, ice, mud and
+# pools. Heights never change, and the legacy clearing keeps exactly what it always had.
+TAIGA_HEAT = -0.45  # colder than this is taiga
+SWAMP_WET = 0.45  # wetter than this on low ground is swamp
+SWAMP_TOP = SEA_LEVEL + 1  # swamps lie on ground no higher than this
+BIRCH_HEAT = 0.3  # a forest warmer than this is a birch forest
+PEAK = 15  # alpine ground this high is bare snow
+TREE_RARITY = {"forest": 78, "birch_forest": 70, "taiga": 60, "swamp": 150}  # one tree per this many columns
+MEADOW_TREES = 300
+TREE_LOGS = {"oak": "oak_log", "birch": "birch_log", "spruce": "spruce_log"}
+TREE_LEAVES = {"oak": "leaves", "birch": "birch_leaves", "spruce": "spruce_leaves"}
+CANOPY_TOP = 7  # the highest leaf of any tree, above its ground
+CACTUS_RARITY = 47
+CANE_RARITY = 11  # on a shore; three times likelier in a swamp
+DEAD_BUSH_RARITY = 53
+FERN_RARITY = 5
+FRUIT_RARITY = 421  # a pumpkin or melon patch, on meadow and forest grass
+FRUIT_BIOMES = ("meadow", "forest", "birch_forest")
+SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
 @lru_cache(maxsize=64)
@@ -119,20 +138,53 @@ def biome_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     moisture = noise2(x, z, 160, seed, 5)
     if heat > 0.08 and moisture < -0.12:
         return "desert"
+    if heat < TAIGA_HEAT:
+        return "taiga"
+    if moisture > SWAMP_WET and height <= SWAMP_TOP:
+        return "swamp"
     if moisture > 0.08:
-        return "forest"
+        return "birch_forest" if heat > BIRCH_HEAT else "forest"
     return "meadow"
 
 
+@lru_cache(maxsize=131072)
 def surface_material(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     biome = biome_at(x, z, seed)
     if biome == "desert":
         return "sand"
+    height = terrain_height(x, z, seed)
+    if height < SEA_LEVEL and math.hypot(x, z) > LEGACY_RADIUS:
+        return "gravel" if noise2(x, z, 10, seed, 87) > -0.1 else "sand"  # lake and river beds
     if biome == "alpine":
-        return "snow"
+        if height >= PEAK:
+            return "snow_block"
+        return "gravel" if noise2(x, z, 9, seed, 89) > 0.35 else "snow"  # scree
     if biome == "forest" and hash32(x, 0, z, seed, 6) % 7 == 0:
         return "moss"
+    if biome == "taiga":
+        if noise2(x, z, 11, seed, 89) > 0.5:
+            return "gravel"
+        if noise2(x, z, 9, seed, 18) > 0.15:
+            return "snow"
+    if biome == "swamp" and noise2(x, z, 7, seed, 19) > 0.05:
+        return "mud"
+    if shore(x, z, seed) and noise2(x, z, 7, seed, 88) > 0.3:
+        return "gravel"
     return "grass"
+
+
+@lru_cache(maxsize=131072)
+def shore(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
+    """Land level with the lakes right beside one (never in the legacy clearing)."""
+    return (math.hypot(x, z) > LEGACY_RADIUS and terrain_height(x, z, seed) == SEA_LEVEL
+            and any(terrain_height(x + dx, z + dz, seed) < SEA_LEVEL for dx, dz in SIDES))
+
+
+@lru_cache(maxsize=131072)
+def swamp_pool(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
+    """A shallow swamp pool: one block of water where swamp ground lies level with the lakes."""
+    return (terrain_height(x, z, seed) == SEA_LEVEL and biome_at(x, z, seed) == "swamp"
+            and noise2(x, z, 6, seed, 20) > 0.1)
 
 
 def cave_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
@@ -227,11 +279,14 @@ def terrain_block(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
             return "dirt" if y >= height - 1 else "stone"
         return "air"
     if y > height:
-        return "water" if y <= SEA_LEVEL else "air"
+        if y > SEA_LEVEL:
+            return "air"
+        return "ice" if y == SEA_LEVEL and biome_at(x, z, seed) == "taiga" else "water"
     if y == height:
-        return surface_material(x, z, seed)
+        return "water" if swamp_pool(x, z, seed) else surface_material(x, z, seed)
     if y >= height - 2:
-        return "sand" if biome_at(x, z, seed) == "desert" else "dirt"
+        biome = biome_at(x, z, seed)
+        return "sand" if biome == "desert" else "mud" if biome == "swamp" and y == height - 1 else "dirt"
     if cave_at(x, y, z, seed):
         return "air"
     ore = hash32(x, y, z, seed, 9)
@@ -250,6 +305,8 @@ def _decoration_column(x: int, z: int, seed: str) -> bool:
         return False
     if terrain_height(x, z, seed) < SEA_LEVEL or biome_at(x, z, seed) in ("desert", "alpine"):
         return False
+    if swamp_pool(x, z, seed):
+        return False
     mx, mz = x % 13, z % 13
     return not (min(mx, 13 - mx) < 5 and min(mz, 13 - mz) < 5)
 
@@ -261,7 +318,7 @@ def tree_base(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> int | None:
     if math.hypot(x, z) <= LEGACY_RADIUS:
         grows = legacy_hash(x, z) % 257 == 0
     else:
-        grows = hash32(x, 0, z, seed, 12) % (78 if biome_at(x, z, seed) == "forest" else 300) == 0
+        grows = hash32(x, 0, z, seed, 12) % TREE_RARITY.get(biome_at(x, z, seed), MEADOW_TREES) == 0
     return terrain_height(x, z, seed) if grows else None
 
 
@@ -285,12 +342,50 @@ def is_leaf(dx: int, dy: int, dz: int) -> bool:
     return dy == 6 and dx + dz < 2
 
 
+@lru_cache(maxsize=65536)
+def tree_kind(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
+    """The wood of the tree rooted at (x, z): spruce in the taiga, birch in a birch forest (one in five
+    an oak), now and then a birch in a forest, else oak."""
+    biome = biome_at(x, z, seed)
+    roll = hash32(x, 0, z, seed, 21) % 10
+    if biome == "taiga":
+        return "spruce"
+    if biome == "birch_forest":
+        return "oak" if roll < 2 else "birch"
+    return "birch" if biome == "forest" and roll == 0 else "oak"
+
+
+def leaf_of(kind: str, dx: int, dy: int, dz: int) -> bool:
+    """The canopy of a tree of `kind` relative to its trunk's ground cell: oak's (is_leaf), a slim
+    birch crown from 4 to 7 above the ground, or a spruce cone from 3 to 7. The trunk wins where they
+    meet."""
+    ax, az = abs(dx), abs(dz)
+    if kind == "birch":
+        if dy in (4, 5):
+            return ax + az <= 2
+        return (dy == 6 and ax + az <= 1) or (dy == 7 and ax + az == 0)
+    if kind == "spruce":
+        if dy == 3:
+            return ax <= 2 and az <= 2 and ax + az <= 3
+        if dy in (4, 6):
+            return ax + az <= 1
+        if dy == 5:
+            return ax + az <= 2
+        return dy == 7 and ax + az == 0
+    return is_leaf(dx, dy, dz)
+
+
 def tree_block(x: int, y: int, z: int, seed: str) -> str | None:
+    """A trunk (of any tree in the chunk) first, then the leaves of the first tree whose canopy has
+    the cell."""
     trees = trees_in_chunk(x // 16, z // 16, seed)
-    if any(x == tx and z == tz and base < y <= base + 4 for tx, tz, base in trees):
-        return "oak_log"
-    if any(is_leaf(x - tx, y - base, z - tz) for tx, tz, base in trees):
-        return "leaves"
+    for tx, tz, base in trees:
+        if x == tx and z == tz and base < y <= base + 4:
+            return TREE_LOGS[tree_kind(tx, tz, seed)]
+    for tx, tz, base in trees:
+        kind = tree_kind(tx, tz, seed)
+        if leaf_of(kind, x - tx, y - base, z - tz):
+            return TREE_LEAVES[kind]
     return None
 
 
@@ -320,23 +415,62 @@ def cave_plant(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | N
     return "red_mushroom" if roll // CAVE_MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"
 
 
-def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
-    """Flower, wild food or tall grass growing on top of the terrain at (x, z)."""
+def tall_plant(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
+    """A cactus in the desert, or sugar cane on a shore right beside a lake (not in a swamp pool), with
+    how many blocks high it stands (1 to 3). None in the legacy clearing."""
+    if math.hypot(x, z) <= LEGACY_RADIUS:
+        return None
+    biome = biome_at(x, z, seed)
+    if biome == "desert":
+        roll = hash32(x, 0, z, seed, 25)
+        return ("cactus", 1 + roll // CACTUS_RARITY % 3) if roll % CACTUS_RARITY == 0 else None
+    if biome not in ("meadow", "forest", "birch_forest", "swamp") or not shore(x, z, seed) or swamp_pool(x, z, seed):
+        return None
+    rarity = CANE_RARITY // 3 if biome == "swamp" else CANE_RARITY
+    roll = hash32(x, 0, z, seed, 26)
+    return ("sugar_cane", 1 + roll // rarity % 3) if roll % rarity == 0 else None
+
+
+@lru_cache(maxsize=131072)
+def plant_stack(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
+    """What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall
+    grass, a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3."""
     if math.hypot(x, z) <= HOME_RADIUS:
         return None
+    surface = surface_material(x, z, seed)
     if _decoration_column(x, z, seed):
         if tree_base(x, z, seed) is not None:
             return None
-        if hash32(x, 0, z, seed, 13) % 97 == 0:
-            return "flower_orange" if legacy_hash(x + 1, z) % 2 else "flower_yellow"
+        if hash32(x, 0, z, seed, 13) % 97 == 0 and surface in ("grass", "moss"):
+            return ("flower_orange" if legacy_hash(x + 1, z) % 2 else "flower_yellow"), 1
     if math.hypot(x, z) > LEGACY_RADIUS and terrain_height(x, z, seed) < SEA_LEVEL:
         return None
-    if surface_material(x, z, seed) not in ("grass", "moss"):
+    tall = tall_plant(x, z, seed)
+    if tall:
+        return tall
+    biome = biome_at(x, z, seed)
+    if surface == "sand":
+        dead = biome == "desert" and hash32(x, 0, z, seed, 22) % DEAD_BUSH_RARITY == 0
+        return ("dead_bush", 1) if dead else None
+    if surface not in ("grass", "moss", "mud") or swamp_pool(x, z, seed):
         return None
     food = wild_food(x, z, seed)
     if food:
-        return food
-    return "tall_grass" if hash32(x, 0, z, seed, 14) % 19 == 0 else None
+        return food, 1
+    if biome == "taiga" and hash32(x, 0, z, seed, 23) % FERN_RARITY == 0:
+        return "fern", 1
+    if biome in FRUIT_BIOMES and math.hypot(x, z) > LEGACY_RADIUS:
+        roll = hash32(x, 0, z, seed, 24)
+        if roll % FRUIT_RARITY == 0:
+            return ("pumpkin" if roll // FRUIT_RARITY % 2 == 0 else "melon"), 1
+    rarity = 11 if biome == "swamp" else 19
+    return ("tall_grass", 1) if hash32(x, 0, z, seed, 14) % rarity == 0 else None
+
+
+def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
+    """The plant (or fruit) growing on top of the terrain at (x, z): the base of plant_stack."""
+    stack = plant_stack(x, z, seed)
+    return stack[0] if stack else None
 
 
 def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
@@ -349,8 +483,9 @@ def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str 
     if tree:
         return tree
     height = terrain_height(x, z, seed)
-    if y == height + 1:
-        return plant_at(x, z, seed)
+    if height < y <= height + 3:
+        stack = plant_stack(x, z, seed)
+        return stack[0] if stack and y <= height + stack[1] else None
     if y < height - 2:
         return cave_plant(x, y, z, seed)
     return None

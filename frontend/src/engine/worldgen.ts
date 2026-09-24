@@ -18,6 +18,25 @@ const FOREST_EDGE = 0.16
 const BUSH_RARITY = 97
 const MUSHROOM_RARITY = 67
 const CAVE_MUSHROOM_RARITY = 29
+// L3, the bigger world: taiga, swamp and birch forest (see backend/services/worldgen.py).
+const TAIGA_HEAT = -0.45
+const SWAMP_WET = 0.45
+const SWAMP_TOP = SEA_LEVEL + 1
+const BIRCH_HEAT = 0.3
+const PEAK = 15
+const TREE_RARITY: Record<string, number> = { forest: 78, birch_forest: 70, taiga: 60, swamp: 150 }
+const MEADOW_TREES = 300
+const TREE_LOGS: Record<string, string> = { oak: 'oak_log', birch: 'birch_log', spruce: 'spruce_log' }
+const TREE_LEAVES: Record<string, string> = { oak: 'leaves', birch: 'birch_leaves', spruce: 'spruce_leaves' }
+const CANOPY_TOP = 7
+const CACTUS_RARITY = 47
+const CANE_RARITY = 11
+const DEAD_BUSH_RARITY = 53
+const FERN_RARITY = 5
+const FRUIT_RARITY = 421
+const FRUIT_BIOMES = new Set(['meadow', 'forest', 'birch_forest'])
+const SIDES: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+const biomeCache = new Map<string, string>()
 const seedCache = new Map<string, [number, number]>()
 const heightCache = new Map<string, number>()
 
@@ -99,22 +118,56 @@ function calculateHeight(x: number, z: number, seed: string): number {
 }
 
 export function biomeAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string {
+  const key = `${seed}:${x},${z}`
+  const cached = biomeCache.get(key)
+  if (cached !== undefined) return cached
+  const biome = calculateBiome(x, z, seed)
+  biomeCache.set(key, biome)
+  if (biomeCache.size > 200000) biomeCache.clear()
+  return biome
+}
+
+function calculateBiome(x: number, z: number, seed: string): string {
   if (Math.hypot(x, z) <= LEGACY_RADIUS) return 'meadow'
   const height = terrainHeight(x, z, seed)
   if (height >= 11) return 'alpine'
   const heat = noise2(x, z, 160, seed, 4)
   const moisture = noise2(x, z, 160, seed, 5)
   if (heat > 0.08 && moisture < -0.12) return 'desert'
-  if (moisture > 0.08) return 'forest'
+  if (heat < TAIGA_HEAT) return 'taiga'
+  if (moisture > SWAMP_WET && height <= SWAMP_TOP) return 'swamp'
+  if (moisture > 0.08) return heat > BIRCH_HEAT ? 'birch_forest' : 'forest'
   return 'meadow'
 }
 
 export function surfaceMaterial(x: number, z: number, seed = DEFAULT_WORLD_SEED): string {
   const biome = biomeAt(x, z, seed)
   if (biome === 'desert') return 'sand'
-  if (biome === 'alpine') return 'snow'
+  const height = terrainHeight(x, z, seed)
+  if (height < SEA_LEVEL && Math.hypot(x, z) > LEGACY_RADIUS) return noise2(x, z, 10, seed, 87) > -0.1 ? 'gravel' : 'sand'
+  if (biome === 'alpine') {
+    if (height >= PEAK) return 'snow_block'
+    return noise2(x, z, 9, seed, 89) > 0.35 ? 'gravel' : 'snow'
+  }
   if (biome === 'forest' && hash32(x, 0, z, seed, 6) % 7 === 0) return 'moss'
+  if (biome === 'taiga') {
+    if (noise2(x, z, 11, seed, 89) > 0.5) return 'gravel'
+    if (noise2(x, z, 9, seed, 18) > 0.15) return 'snow'
+  }
+  if (biome === 'swamp' && noise2(x, z, 7, seed, 19) > 0.05) return 'mud'
+  if (shore(x, z, seed) && noise2(x, z, 7, seed, 88) > 0.3) return 'gravel'
   return 'grass'
+}
+
+/** Land level with the lakes right beside one (never in the legacy clearing). */
+function shore(x: number, z: number, seed: string): boolean {
+  return Math.hypot(x, z) > LEGACY_RADIUS && terrainHeight(x, z, seed) === SEA_LEVEL
+    && SIDES.some(([dx, dz]) => terrainHeight(x + dx, z + dz, seed) < SEA_LEVEL)
+}
+
+/** A shallow swamp pool: one block of water where swamp ground lies level with the lakes. */
+export function swampPool(x: number, z: number, seed = DEFAULT_WORLD_SEED): boolean {
+  return terrainHeight(x, z, seed) === SEA_LEVEL && biomeAt(x, z, seed) === 'swamp' && noise2(x, z, 6, seed, 20) > 0.1
 }
 
 export function caveAt(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): boolean {
@@ -195,9 +248,15 @@ export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WOR
     if (y >= 0 && y < height) return y >= height - 1 ? 'dirt' : 'stone'
     return 'air'
   }
-  if (y > height) return y <= SEA_LEVEL ? 'water' : 'air'
-  if (y === height) return surfaceMaterial(x, z, seed)
-  if (y >= height - 2) return biomeAt(x, z, seed) === 'desert' ? 'sand' : 'dirt'
+  if (y > height) {
+    if (y > SEA_LEVEL) return 'air'
+    return y === SEA_LEVEL && biomeAt(x, z, seed) === 'taiga' ? 'ice' : 'water'
+  }
+  if (y === height) return swampPool(x, z, seed) ? 'water' : surfaceMaterial(x, z, seed)
+  if (y >= height - 2) {
+    const biome = biomeAt(x, z, seed)
+    return biome === 'desert' ? 'sand' : biome === 'swamp' && y === height - 1 ? 'mud' : 'dirt'
+  }
   if (caveAt(x, y, z, seed)) return 'air'
   const ore = hash32(x, y, z, seed, 9)
   if (ore % 97 === 0) return 'iron_ore'
@@ -212,7 +271,7 @@ function decorationColumn(x: number, z: number, seed: string): boolean {
   if (lx < 3 || lx > 12 || lz < 3 || lz > 12 || Math.hypot(x, z) < 17) return false
   if (terrainHeight(x, z, seed) < SEA_LEVEL) return false
   const biome = biomeAt(x, z, seed)
-  if (biome === 'desert' || biome === 'alpine') return false
+  if (biome === 'desert' || biome === 'alpine' || swampPool(x, z, seed)) return false
   const mx = mod(x, 13), mz = mod(z, 13)
   return !(Math.min(mx, 13 - mx) < 5 && Math.min(mz, 13 - mz) < 5)
 }
@@ -222,7 +281,7 @@ export function treeBase(x: number, z: number, seed = DEFAULT_WORLD_SEED): numbe
   if (!decorationColumn(x, z, seed)) return null
   const grows = Math.hypot(x, z) <= LEGACY_RADIUS
     ? legacyHash(x, z) % 257 === 0
-    : hash32(x, 0, z, seed, 12) % (biomeAt(x, z, seed) === 'forest' ? 78 : 300) === 0
+    : hash32(x, 0, z, seed, 12) % (TREE_RARITY[biomeAt(x, z, seed)] ?? MEADOW_TREES) === 0
   return grows ? terrainHeight(x, z, seed) : null
 }
 
@@ -251,11 +310,57 @@ function isLeaf(dx: number, dy: number, dz: number): boolean {
   return dy === 6 && ax + az < 2
 }
 
+/** The wood of the tree rooted at (x, z): spruce in the taiga, birch in a birch forest (one in five an
+ * oak), now and then a birch in a forest, else oak. */
+export function treeKind(x: number, z: number, seed = DEFAULT_WORLD_SEED): string {
+  const biome = biomeAt(x, z, seed)
+  const roll = hash32(x, 0, z, seed, 21) % 10
+  if (biome === 'taiga') return 'spruce'
+  if (biome === 'birch_forest') return roll < 2 ? 'oak' : 'birch'
+  return biome === 'forest' && roll === 0 ? 'birch' : 'oak'
+}
+
+/** The canopy of a tree of `kind` relative to its trunk's ground cell (the trunk wins where they meet). */
+function leafOf(kind: string, dx: number, dy: number, dz: number): boolean {
+  const ax = Math.abs(dx), az = Math.abs(dz)
+  if (kind === 'birch') {
+    if (dy === 4 || dy === 5) return ax + az <= 2
+    return (dy === 6 && ax + az <= 1) || (dy === 7 && ax + az === 0)
+  }
+  if (kind === 'spruce') {
+    if (dy === 3) return ax <= 2 && az <= 2 && ax + az <= 3
+    if (dy === 4 || dy === 6) return ax + az <= 1
+    if (dy === 5) return ax + az <= 2
+    return dy === 7 && ax + az === 0
+  }
+  return isLeaf(dx, dy, dz)
+}
+
+/** A trunk (of any tree in the chunk) first, then the leaves of the first tree whose canopy has the cell. */
 function treeBlock(x: number, y: number, z: number, seed: string): string | null {
   const trees = treesInChunk(Math.floor(x / 16), Math.floor(z / 16), seed)
-  if (trees.some(([tx, tz, base]) => x === tx && z === tz && y > base && y <= base + 4)) return 'oak_log'
-  if (trees.some(([tx, tz, base]) => isLeaf(x - tx, y - base, z - tz))) return 'leaves'
+  for (const [tx, tz, base] of trees) {
+    if (x === tx && z === tz && y > base && y <= base + 4) return TREE_LOGS[treeKind(tx, tz, seed)]
+  }
+  for (const [tx, tz, base] of trees) {
+    const kind = treeKind(tx, tz, seed)
+    if (leafOf(kind, x - tx, y - base, z - tz)) return TREE_LEAVES[kind]
+  }
   return null
+}
+
+/** The highest leaf over a column and whose leaves they are (the first tree's on a tie), or null. */
+export function canopyTop(x: number, z: number, seed = DEFAULT_WORLD_SEED): [string, number] | null {
+  let top: [string, number] | null = null
+  for (const [tx, tz, base] of treesInChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE), seed)) {
+    const kind = treeKind(tx, tz, seed)
+    for (let dy = CANOPY_TOP; dy >= 3; dy--) {
+      if (!leafOf(kind, x - tx, dy, z - tz)) continue
+      if (top === null || base + dy > top[1]) top = [TREE_LEAVES[kind], base + dy]
+      break
+    }
+  }
+  return top
 }
 
 /** A ripe berry bush (meadows and forest edges) or a mushroom (forest floor) on generated land. */
@@ -280,17 +385,53 @@ export function cavePlant(x: number, y: number, z: number, seed = DEFAULT_WORLD_
   return Math.floor(roll / CAVE_MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
 }
 
-/** Flower, wild food or tall grass growing on top of the terrain at (x, z). */
-export function plantAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
+/** A cactus in the desert, or sugar cane on a shore right beside a lake, with how many blocks high it
+ * stands (1 to 3). Null in the legacy clearing. */
+function tallPlant(x: number, z: number, seed: string): [string, number] | null {
+  if (Math.hypot(x, z) <= LEGACY_RADIUS) return null
+  const biome = biomeAt(x, z, seed)
+  if (biome === 'desert') {
+    const roll = hash32(x, 0, z, seed, 25)
+    return roll % CACTUS_RARITY === 0 ? ['cactus', 1 + Math.floor(roll / CACTUS_RARITY) % 3] : null
+  }
+  if (!['meadow', 'forest', 'birch_forest', 'swamp'].includes(biome) || !shore(x, z, seed) || swampPool(x, z, seed)) return null
+  const rarity = biome === 'swamp' ? Math.floor(CANE_RARITY / 3) : CANE_RARITY
+  const roll = hash32(x, 0, z, seed, 26)
+  return roll % rarity === 0 ? ['sugar_cane', 1 + Math.floor(roll / rarity) % 3] : null
+}
+
+/** What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall grass,
+ * a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3. */
+export function plantStack(x: number, z: number, seed = DEFAULT_WORLD_SEED): [string, number] | null {
   if (Math.hypot(x, z) <= HOME_RADIUS) return null
+  const surface = surfaceMaterial(x, z, seed)
   if (decorationColumn(x, z, seed)) {
     if (treeBase(x, z, seed) !== null) return null
-    if (hash32(x, 0, z, seed, 13) % 97 === 0) return legacyHash(x + 1, z) % 2 ? 'flower_orange' : 'flower_yellow'
+    if (hash32(x, 0, z, seed, 13) % 97 === 0 && (surface === 'grass' || surface === 'moss')) {
+      return [legacyHash(x + 1, z) % 2 ? 'flower_orange' : 'flower_yellow', 1]
+    }
   }
   if (Math.hypot(x, z) > LEGACY_RADIUS && terrainHeight(x, z, seed) < SEA_LEVEL) return null
-  const surface = surfaceMaterial(x, z, seed)
-  if (surface !== 'grass' && surface !== 'moss') return null
-  return wildFood(x, z, seed) ?? (hash32(x, 0, z, seed, 14) % 19 === 0 ? 'tall_grass' : null)
+  const tall = tallPlant(x, z, seed)
+  if (tall) return tall
+  const biome = biomeAt(x, z, seed)
+  if (surface === 'sand') {
+    return biome === 'desert' && hash32(x, 0, z, seed, 22) % DEAD_BUSH_RARITY === 0 ? ['dead_bush', 1] : null
+  }
+  if ((surface !== 'grass' && surface !== 'moss' && surface !== 'mud') || swampPool(x, z, seed)) return null
+  const food = wildFood(x, z, seed)
+  if (food) return [food, 1]
+  if (biome === 'taiga' && hash32(x, 0, z, seed, 23) % FERN_RARITY === 0) return ['fern', 1]
+  if (FRUIT_BIOMES.has(biome) && Math.hypot(x, z) > LEGACY_RADIUS) {
+    const roll = hash32(x, 0, z, seed, 24)
+    if (roll % FRUIT_RARITY === 0) return [Math.floor(roll / FRUIT_RARITY) % 2 === 0 ? 'pumpkin' : 'melon', 1]
+  }
+  return hash32(x, 0, z, seed, 14) % (biome === 'swamp' ? 11 : 19) === 0 ? ['tall_grass', 1] : null
+}
+
+/** The plant (or fruit) growing on top of the terrain at (x, z): the base of plantStack. */
+export function plantAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
+  return plantStack(x, z, seed)?.[0] ?? null
 }
 
 /** Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk, leaves, plant. */
@@ -300,7 +441,10 @@ function decorationAt(x: number, y: number, z: number, seed: string): string | n
   const tree = treeBlock(x, y, z, seed)
   if (tree) return tree
   const height = terrainHeight(x, z, seed)
-  if (y === height + 1) return plantAt(x, z, seed)
+  if (y > height && y <= height + 3) {
+    const stack = plantStack(x, z, seed)
+    return stack && y <= height + stack[1] ? stack[0] : null
+  }
   if (y < height - 2) return cavePlant(x, y, z, seed)
   return null
 }
@@ -344,16 +488,23 @@ export function generateColumn(cx: number, cz: number, seed = DEFAULT_WORLD_SEED
     if (terrain[index] === AIR) data[index] = blockId(name)
   }
   for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-    const plant = plantAt(x0 + lx, z0 + lz, seed)
-    if (plant) stamp(x0 + lx, terrainHeight(x0 + lx, z0 + lz, seed) + 1, z0 + lz, plant)
+    const stack = plantStack(x0 + lx, z0 + lz, seed)
+    if (!stack) continue
+    const ground = terrainHeight(x0 + lx, z0 + lz, seed)
+    for (let dy = 1; dy <= stack[1]; dy++) stamp(x0 + lx, ground + dy, z0 + lz, stack[0])
   }
   const trees = treesInChunk(cx, cz, seed)
-  for (const [tx, tz, base] of trees) {
-    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (const dy of [5, 6]) {
-      if (isLeaf(dx, dy, dz)) stamp(tx + dx, base + dy, tz + dz, 'leaves')
+  // Where canopies meet, the first tree's leaves win (as in treeBlock): stamp them last.
+  for (const [tx, tz, base] of [...trees].reverse()) {
+    const kind = treeKind(tx, tz, seed)
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = 3; dy <= CANOPY_TOP; dy++) {
+      if (leafOf(kind, dx, dy, dz)) stamp(tx + dx, base + dy, tz + dz, TREE_LEAVES[kind])
     }
   }
-  for (const [tx, tz, base] of trees) for (let y = base + 1; y <= base + 4; y++) stamp(tx, y, tz, 'oak_log')
+  for (const [tx, tz, base] of trees) {
+    const log = TREE_LOGS[treeKind(tx, tz, seed)]
+    for (let y = base + 1; y <= base + 4; y++) stamp(tx, y, tz, log)
+  }
   for (const [key, name] of HOME_BLOCKS) {
     const [x, y, z] = key.split(',').map(Number)
     stamp(x, y, z, name)

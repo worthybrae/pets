@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AIR, blockId, LAYER_BY_ID, LAYER_CUTOUT } from '../engine/blocks'
-import { blockAt, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
+import { biomeAt, blockAt, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
 import { WorldStore } from '../engine/worldStore'
 import {
   composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, mapShownByDefault, naturalTop, PATCH,
@@ -57,13 +57,31 @@ describe('the terrain seen from above', () => {
     let found = false
     for (let x = FAR.x - 300; x < FAR.x + 300 && !found; x += 2) {
       for (let z = FAR.z - 300; z < FAR.z + 300 && !found; z += 2) {
-        if (terrainHeight(x, z, SEED) >= SEA_LEVEL) continue
+        if (terrainHeight(x, z, SEED) >= SEA_LEVEL || biomeAt(x, z, SEED) === 'taiga') continue
         const top = naturalTop(x, z, SEED)
         expect(top).toEqual({ id: blockId('water'), y: SEA_LEVEL, depth: SEA_LEVEL - terrainHeight(x, z, SEED) })
         found = true
       }
     }
     expect(found).toBe(true)
+  })
+
+  it('shows a frozen taiga lake as ice, and spruce and birch crowns in their own leaves', () => {
+    const lake = { x: 3428, z: 4312 }  // a taiga lake
+    expect(naturalTop(lake.x, lake.z, SEED)).toEqual(
+      { id: blockId('ice'), y: SEA_LEVEL, depth: SEA_LEVEL - terrainHeight(lake.x, lake.z, SEED) })
+    const leaves = new Set<number>()
+    for (const [x0, z0] of [[lake.x - 40, lake.z - 40], [FAR.x, FAR.z]]) {
+      for (let x = x0; x < x0 + 80; x++) {
+        for (let z = z0; z < z0 + 80; z += 2) {
+          const top = naturalTop(x, z, SEED)
+          if (top.id !== blockId('spruce_leaves') && top.id !== blockId('birch_leaves')) continue
+          expect({ x, z, id: top.id, y: top.y }).toEqual({ x, z, ...scanned(x, z) })
+          leaves.add(top.id)
+        }
+      }
+    }
+    expect(leaves).toEqual(new Set([blockId('spruce_leaves'), blockId('birch_leaves')]))
   })
 
   it('lets Mimo’s edits show: what it placed, what it dug and what it planted', () => {

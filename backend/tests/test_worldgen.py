@@ -4,8 +4,8 @@ import unittest
 
 from backend.services.blocks import is_solid
 from backend.services.worldgen import (
-    LEGACY_RADIUS, LEGACY_WORLD_SEED, base_material, biome_at, block_at, cave_at, cave_plant, hash32, legacy_hash,
-    plant_at, surface_material, terrain_height, trees_in_chunk, wild_food,
+    LEGACY_RADIUS, LEGACY_WORLD_SEED, TREE_LEAVES, TREE_LOGS, base_material, biome_at, block_at, cave_at, cave_plant,
+    hash32, legacy_hash, plant_at, plant_stack, surface_material, terrain_height, tree_kind, trees_in_chunk, wild_food,
 )
 from backend.scripts.worldgen_fixture import FIXTURE_PATH, build_fixture
 
@@ -75,12 +75,13 @@ class NaturalBlockTests(unittest.TestCase):
         for tx, tz, _ in trees:
             self.assertTrue(3 <= tx % 16 <= 12 and 3 <= tz % 16 <= 12)
         x, z, base = trees[0]
+        kind = tree_kind(x, z, seed)
         self.assertEqual([block_at(x, base + dy, z, seed) for dy in range(1, 7)],
-                         ["oak_log"] * 4 + ["leaves", "leaves"])
+                         [TREE_LOGS[kind]] * 4 + [TREE_LEAVES[kind]] * 2)
         if terrain_height(x + 1, z, seed) < base + 5:
-            self.assertEqual(block_at(x + 1, base + 5, z, seed), "leaves")
+            self.assertEqual(block_at(x + 1, base + 5, z, seed), TREE_LEAVES[kind])
 
-    def test_plants_grow_on_open_grass_only(self):
+    def test_plants_grow_on_the_ground_their_biome_offers(self):
         seed = "123456789123456789"
         found = {}
         for x in range(300, 460):
@@ -88,7 +89,10 @@ class NaturalBlockTests(unittest.TestCase):
                 plant = plant_at(x, z, seed)
                 if plant:
                     found.setdefault(plant, (x, z))
-                    self.assertIn(surface_material(x, z, seed), ("grass", "moss"))
+                    ground = surface_material(x, z, seed)
+                    self.assertIn(ground, ("grass", "moss", "mud", "sand", "gravel"))
+                    if ground in ("sand", "gravel"):  # desert plants, or sugar cane on a shore
+                        self.assertIn(plant_stack(x, z, seed)[0], ("cactus", "dead_bush", "sugar_cane"))
         self.assertIn("tall_grass", found)
         x, z = found["tall_grass"]
         self.assertEqual(block_at(x, terrain_height(x, z, seed) + 1, z, seed), "tall_grass")
@@ -138,7 +142,9 @@ class FixtureTests(unittest.TestCase):
     def test_fixture_covers_every_natural_feature(self):
         materials = set(json.loads(FIXTURE_PATH.read_text())["materials"])
         for name in ("oak_log", "leaves", "tall_grass", "plaster", "roof_tile", "dirt_path",
-                     "water", "sand", "stone", "bedrock", "grass", "berry_bush_ripe", "brown_mushroom", "red_mushroom"):
+                     "water", "sand", "stone", "bedrock", "grass", "berry_bush_ripe", "brown_mushroom", "red_mushroom",
+                     "birch_log", "birch_leaves", "spruce_log", "spruce_leaves", "snow", "snow_block", "ice", "mud",
+                     "cactus", "sugar_cane", "dead_bush", "fern", "pumpkin", "melon", "gravel"):
             self.assertIn(name, materials)
 
     def test_fixture_covers_generated_trees_at_negative_x(self):

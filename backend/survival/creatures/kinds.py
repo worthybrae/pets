@@ -70,11 +70,11 @@ def huntable(kind: Kind | None) -> bool:
 
 
 register_kind(Kind("rabbit", health=3.0, speed=0.35, size=0.5, drops={"raw_rabbit": (1, 1), "rabbit_hide": 0.5},
-                   biomes=("meadow", "forest", "desert", "alpine"), herd=(1, 3)))
+                   biomes=("meadow", "forest", "desert", "alpine", "birch_forest", "taiga", "swamp"), herd=(1, 3)))
 register_kind(Kind("chicken", health=4.0, speed=0.6, size=0.6, drops={"raw_chicken": (1, 1), "feather": (0, 2)},
-                   biomes=("meadow", "forest"), herd=(2, 4)))
+                   biomes=("meadow", "forest", "birch_forest", "swamp"), herd=(2, 4)))
 register_kind(Kind("sheep", health=8.0, speed=0.7, size=1.0, drops={"raw_mutton": (1, 2), "wool": (1, 2)},
-                   biomes=("meadow", "alpine"), herd=(2, 4)))
+                   biomes=("meadow", "alpine", "birch_forest", "taiga"), herd=(2, 4)))
 register_kind(Kind("cow", health=10.0, speed=0.8, size=1.3, drops={"raw_beef": (1, 3), "leather": (0, 2)},
-                   biomes=("meadow", "forest"), herd=(2, 3)))
+                   biomes=("meadow", "forest", "birch_forest", "swamp"), herd=(2, 3)))
 register_kind(Kind("fish", health=2.0, speed=0.8, size=0.3, herd=(2, 4), water=True))
