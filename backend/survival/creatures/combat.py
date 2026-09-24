@@ -33,7 +33,8 @@ from backend.survival.steps import StepFailed, StepKind, as_cell, as_point, labe
 ATTACK_REACH = 2.5
 LUNGE = 1.0  # a swing still lands on a creature this much farther away when it ends
 HAND = (1.0, 0.6)  # damage and seconds of a blow without a sword
-SWORDS = {"wooden_sword": 4.0, "stone_sword": 5.0, "iron_sword": 6.0}  # damage, weakest first
+SWORDS = {"wooden_sword": 4.0, "stone_sword": 5.0, "iron_sword": 6.0, "gold_sword": 7.0,
+          "diamond_sword": 8.0}  # damage, weakest first
 SWORD_SECONDS = 0.5
 DROP_CHANNEL = 70
 

@@ -18,7 +18,7 @@ from backend.survival.steps import REACH
 TREE_SEARCH = 24
 TRUNK_HEIGHT = 4
 LOG = "oak_log"
-ORES = ("coal_ore", "iron_ore", "copper_ore")
+ORES = ("coal_ore", "iron_ore", "copper_ore", "gold_ore", "diamond_ore")
 FOOD_SIGHT = 24
 WATER_SIGHT = 24
 # Wild food Mimo can pick (block names; a mushroom's item has the same name).

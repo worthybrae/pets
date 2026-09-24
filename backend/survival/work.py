@@ -20,8 +20,9 @@ door or the way in (structures.reserved). It never digs back the way it came, an
 floor of an open cell below the natural surface (a stair or tunnel it dug earlier, or a cave)
 unless the same stair just opened that cell, so it cannot cut its own staircase. The staircase
 stays climbable, and from its fourth stair it is sheltered, so it often becomes Mimo's first home.
-mine_ore walks to a remembered coal or iron ore Mimo can harvest and still needs, within 48
-blocks, and mines it.
+mine_ore walks to a remembered coal, iron, gold or diamond ore Mimo can harvest and still needs,
+within 48 blocks, and mines it: gold and diamonds once it has an iron pickaxe and knows where enough
+lie for the pickaxe above it (L3).
 
 Late in the day, work that takes Mimo away from home scores 30 lower (purposes.late_penalty), so
 sleep and go_home win at dusk: gather_wood always, gather_stone when it would start from the
@@ -319,13 +320,32 @@ register(Purpose(
 
 # mine_ore --------------------------------------------------------------------------------------
 
+def pickaxe_rank(inventory: dict) -> int:
+    """The rank of the best pickaxe Mimo carries (crafting.TOOL_RANK), 0 with none."""
+    return max((rank for tool, rank in TOOL_RANK.items() if inventory.get(tool, 0) > 0), default=0)
+
+
+def enough_known(s: Situation, ore: str, have: int, need: int = 3) -> bool:
+    """Mimo has fewer than `need` of what `ore` gives, and with the ores of that kind it remembers it
+    would have enough: one trip then gets them all (L3's gold and diamonds, needed 3 at a time)."""
+    known = sum(1 for place in s.places if place["kind"] == "ore" and place["note"] == ore)
+    return have < need <= have + known
+
+
 def wanted_ores(s: Situation) -> tuple[str, ...]:
-    """Coal until Mimo carries 8; iron until it has 3 ore or ingots (or an iron pickaxe)."""
-    wanted = []
+    """Coal until Mimo carries 8; iron until it has 3 ore or ingots (or an iron pickaxe or better);
+    with an iron pickaxe (L3), gold (until a gold pickaxe or better) and diamonds (until a diamond
+    pickaxe), but only once it knows where enough lie for a pickaxe (`enough_known`)."""
+    wanted, rank = [], pickaxe_rank(s.inventory)
     if s.count("coal") < 8:
         wanted.append("coal_ore")
-    if s.count("iron_ore", "iron_ingot") < 3 and not s.count("iron_pickaxe"):
+    if s.count("iron_ore", "iron_ingot") < 3 and rank < TOOL_RANK["iron_pickaxe"]:
         wanted.append("iron_ore")
+    if (TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["gold_pickaxe"]
+            and enough_known(s, "gold_ore", s.count("gold_ore", "gold_ingot"))):
+        wanted.append("gold_ore")
+    if TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["diamond_pickaxe"] and enough_known(s, "diamond_ore", s.count("diamond")):
+        wanted.append("diamond_ore")
     return tuple(wanted)
 
 
@@ -350,7 +370,7 @@ def ore_targets(s: Situation) -> list[dict]:
 def ore_score(s: Situation) -> float:
     """A trip to a far ore is outdoor work late in the day; a near one is not."""
     targets = ore_targets(s)
-    iron = any(place["note"] == "iron_ore" for place in targets)
+    iron = any(place["note"] in ("iron_ore", "gold_ore", "diamond_ore") for place in targets)
     far = bool(targets) and s.distance(cell_of(targets[0])) > ORE_FAR
     return (50.0 + s.trait("bravery") / 10 + s.trait("curiosity") / 20 + (15.0 if iron else 0.0)
             - late_penalty(s, outdoors=far))
@@ -377,6 +397,6 @@ def plan_ore(s: Situation, context: ActionContext) -> list[dict]:
 
 
 register(Purpose(
-    "mine_ore", "mine ore", "Go back to coal or iron ore seen while digging and mine it.",
+    "mine_ore", "mine ore", "Go back to coal, iron, gold or diamond ore seen while digging and mine it.",
     valid=lambda s: bool(ore_targets(s)), facts=ore_facts, score=ore_score, plan=plan_ore,
     thoughts=("I remember seeing ore down there.", "That ore will make something good.")))

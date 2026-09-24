@@ -83,8 +83,8 @@ class ToolmakingTests(unittest.TestCase):
 
     def test_not_enough_materials_or_nothing_left_to_make_is_not_offered(self):
         self.assertFalse(PURPOSES["craft_tools"].valid(situation({"oak_log": 2})))
-        self.assertIsNone(next_tool({"iron_pickaxe": 1}))
-        self.assertFalse(PURPOSES["craft_tools"].valid(situation({"iron_pickaxe": 1, "iron_sword": 1, "oak_log": 9})))
+        self.assertIsNone(next_tool({"diamond_pickaxe": 1}))  # L3: gold and diamond come after iron
+        self.assertFalse(PURPOSES["craft_tools"].valid(situation({"diamond_pickaxe": 1, "diamond_sword": 1, "oak_log": 9})))
 
     def test_no_plan_when_its_crafts_would_not_fit(self):
         """Fix wave I1: at 16 stacks the planks from the first log have nowhere to go."""

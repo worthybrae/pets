@@ -41,6 +41,11 @@ RECIPES.update({
     "birch_planks": {"ingredients": {"birch_log": 1}, "output": {"birch_planks": 4}},
     "spruce_planks": {"ingredients": {"spruce_log": 1}, "output": {"spruce_planks": 4}},
     "stone_bricks": {"ingredients": {"cobblestone": 4}, "output": {"stone_bricks": 4}},
+    # Gold and diamond tiers, at a crafting table like iron's.
+    "gold_pickaxe": {"ingredients": {"gold_ingot": 3, "sticks": 2}, "output": {"gold_pickaxe": 1}, "station": "crafting_table"},
+    "diamond_pickaxe": {"ingredients": {"diamond": 3, "sticks": 2}, "output": {"diamond_pickaxe": 1}, "station": "crafting_table"},
+    "gold_sword": {"ingredients": {"gold_ingot": 2, "sticks": 1}, "output": {"gold_sword": 1}, "station": "crafting_table"},
+    "diamond_sword": {"ingredients": {"diamond": 2, "sticks": 1}, "output": {"diamond_sword": 1}, "station": "crafting_table"},
 })
 # Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
 # their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.
@@ -49,8 +54,8 @@ PLANKS = ("planks", "birch_planks", "spruce_planks")
 PLANKS_OF = dict(zip(LOGS, PLANKS))  # the planks each log makes, which is also that recipe's name
 STAND_INS = {"oak_log": LOGS[1:], "planks": PLANKS[1:]}
 
-TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3}
-SMELTING = {"iron_ore": "iron_ingot", "copper_ore": "copper_ingot", "sand": "glass", "clay": "brick",
+TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3, "gold_pickaxe": 4, "diamond_pickaxe": 5}
+SMELTING = {"iron_ore": "iron_ingot", "gold_ore": "gold_ingot", "copper_ore": "copper_ingot", "sand": "glass", "clay": "brick",
             "raw_fish": "cooked_fish", "raw_beef": "cooked_beef", "raw_mutton": "cooked_mutton",
             "raw_chicken": "cooked_chicken", "raw_rabbit": "cooked_rabbit"}
 # Food cooks at a lit campfire or a furnace and burns no fuel: the fire is already lit.

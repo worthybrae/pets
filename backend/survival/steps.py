@@ -37,7 +37,8 @@ PLACE_SECONDS = 0.3
 EAT_SECONDS = 1.6
 CRAFT_SECONDS = 1.0
 SMELT_SECONDS = 5.0
-PICKAXE_SPEED = {"wooden_pickaxe": 2.0, "stone_pickaxe": 4.0, "iron_pickaxe": 6.0}
+PICKAXE_SPEED = {"wooden_pickaxe": 2.0, "stone_pickaxe": 4.0, "iron_pickaxe": 6.0, "gold_pickaxe": 7.0,
+                 "diamond_pickaxe": 8.0}
 # Axes are crafting recipes (M5). Any axe doubles the speed on wood.
 AXES = ("wooden_axe", "stone_axe", "iron_axe")
 AXE_SPEED = 2.0

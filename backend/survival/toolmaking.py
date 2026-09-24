@@ -1,9 +1,11 @@
 """craft_tools: make the next pickaxe, and swords, with portable stations.
 
-The ladder is wooden pickaxe, stone pickaxe, iron pickaxe. Only the next one Mimo lacks is on
-offer, and only when everything it needs can be made from what Mimo carries. Swords (L1) climb a
-ladder of their own (wooden, stone, iron: 2 planks, cobblestone or ingots and a stick, at a
-crafting table) no higher than the best pickaxe Mimo has. The sword a new pickaxe opens up is
+The ladder is wooden pickaxe, stone pickaxe, iron pickaxe, gold pickaxe, diamond pickaxe (L3). Only
+the next one Mimo lacks is on offer (and, over an iron pickaxe, a diamond one first: diamonds need
+no smelting, so gold may be skipped), and only when everything it needs can be made from what Mimo
+carries. Swords (L1) climb a ladder of their own (wooden, stone, iron, gold, diamond: 2 planks,
+cobblestone, ingots or diamonds and a stick, at a crafting table) no higher than the best pickaxe
+Mimo has. The sword a new pickaxe opens up is
 made in the same batch, right after it, when the materials stretch that far; with no pickaxe to
 make, the best sword Mimo may make comes alone. The planner works the whole chain out on a copy
 of the inventory: logs into planks, planks into sticks, a crafting
@@ -39,11 +41,13 @@ from backend.survival.structures import reserved
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
-LADDER = ("wooden_pickaxe", "stone_pickaxe", "iron_pickaxe")
-SWORD_LADDER = ("wooden_sword", "stone_sword", "iron_sword")
+LADDER = ("wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "gold_pickaxe", "diamond_pickaxe")
+SWORD_LADDER = ("wooden_sword", "stone_sword", "iron_sword", "gold_sword", "diamond_sword")
 STATIONS = {"wooden_pickaxe": ("crafting_table",), "stone_pickaxe": ("crafting_table",),
             "iron_pickaxe": ("crafting_table", "furnace"), "wooden_sword": ("crafting_table",),
-            "stone_sword": ("crafting_table",), "iron_sword": ("crafting_table", "furnace")}
+            "stone_sword": ("crafting_table",), "iron_sword": ("crafting_table", "furnace"),
+            "gold_pickaxe": ("crafting_table", "furnace"), "gold_sword": ("crafting_table", "furnace"),
+            "diamond_pickaxe": ("crafting_table",), "diamond_sword": ("crafting_table",)}
 SMELTED = {output: ore for ore, output in SMELTING.items()}
 # Cells beside Mimo at its level, then the one above it.
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
@@ -70,12 +74,20 @@ def open_swords(inventory: dict) -> list[str]:
     return list(reversed(SWORD_LADDER[sword:pickaxe]))
 
 
+def upgrades(inventory: dict) -> list[str]:
+    """The pickaxes craft_tools may make next, best first: the next one up the ladder and, over an
+    iron pickaxe, the diamond one before the gold one (L3)."""
+    pickaxe = next_tool(inventory)
+    if pickaxe == "gold_pickaxe":
+        return ["diamond_pickaxe", "gold_pickaxe"]
+    return [] if pickaxe is None else [pickaxe]
+
+
 def tool_orders(inventory: dict) -> list[tuple[str, ...]]:
     """What craft_tools may make, first choice first: the next pickaxe with the best sword it opens
     up, the pickaxe alone, then a sword alone."""
     orders: list[tuple[str, ...]] = []
-    pickaxe = next_tool(inventory)
-    if pickaxe is not None:
+    for pickaxe in upgrades(inventory):
         orders += [(pickaxe, sword) for sword in open_swords({**inventory, pickaxe: 1})]
         orders.append((pickaxe,))
     orders += [(sword,) for sword in open_swords(inventory)]

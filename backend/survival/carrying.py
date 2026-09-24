@@ -93,6 +93,10 @@ def crafts_fit(inventory: dict[str, int], steps: list[dict]) -> bool:
     return True
 
 
+# L3: diamonds, creature seeds, iron armor and lanterns are worth carrying too.
+TREASURES = ("diamond", "creature_seed", "iron_cap", "iron_tunic", "lantern")
+
+
 def valuable(item: str) -> bool:
     """Food that will not make Mimo sick, seeds, saplings, wheat, ore, ingots, coal, tools and swords: worth
     more than any LOW_VALUE block. Food that can make Mimo sick (steps.FOOD_HEALTH), like a red
@@ -100,7 +104,7 @@ def valuable(item: str) -> bool:
     should never cost a good dirt or cobblestone stack in the meantime."""
     from backend.survival.steps import AXES, FOOD, FOOD_HEALTH, PICKAXE_SPEED  # imported here: steps imports this module
     return ((item in FOOD and FOOD_HEALTH.get(item, 0.0) >= 0) or item in VALUABLE or item in PICKAXE_SPEED
-            or item in AXES or item.endswith(("_ore", "_ingot", "_sword")))
+            or item in AXES or item in TREASURES or item.endswith(("_ore", "_ingot", "_sword")))
 
 
 def least_valuable(inventory: dict[str, int], newcomer: str) -> str | None:
