@@ -139,4 +139,14 @@ describe('worldgen', () => {
     expect(Array.from(generateColumn(...foodChunk!, WILD_SEED)).some((id) => food.includes(id))).toBe(true)
     expect(Array.from(generateColumn(...caveChunk!, WILD_SEED)).some((id) => food.includes(id))).toBe(true)
   })
+
+  it('keeps cave mushrooms off the air an entrance carved, exactly like blockAt', () => {
+    // A sinkhole shaft at (1129, -1245), span (-3, 7): the cell right below y -1 is itself carved
+    // to air by the entrance (backend/tests/test_worldgen_surface.py mirrors this cell).
+    const x = 1129, y = -1, z = -1245
+    expect(cavePlant(x, y, z, WILD_SEED)).toBeNull()
+    expect(blockAt(x, y, z, WILD_SEED)).toBe('air')
+    const [cx, cz] = [Math.floor(x / 16), Math.floor(z / 16)]
+    expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
 })

@@ -7,6 +7,8 @@ were introduced. Everything beyond it comes from the saved 64-bit seed.
 from __future__ import annotations
 
 import math
+import types
+from collections.abc import Mapping
 from functools import lru_cache
 
 LEGACY_WORLD_SEED = "13897963875510148821"
@@ -68,6 +70,7 @@ MOUTH_TRIES = 6  # spots a region tries for a hillside mouth
 OUTCROP_GROUND = 8  # outcrops crown ground at least this high
 BOULDERS = {"desert": "sandstone", "meadow": "andesite", "alpine": "stone"}  # else mossy cobblestone
 OUTCROPS = {"desert": "sandstone", "taiga": "andesite", "birch_forest": "diorite", "alpine": "granite"}  # else stone
+EMPTY_SPANS: Mapping[tuple[int, int], tuple[int, int]] = types.MappingProxyType({})
 
 
 @lru_cache(maxsize=64)
@@ -306,20 +309,21 @@ HOME_BLOCKS = _home_blocks()
 
 
 @lru_cache(maxsize=4096)
-def region_openings(rx: int, rz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, dict]:
+def region_openings(rx: int, rz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, Mapping[tuple[int, int], tuple[int, int]]]:
     """The cave entrance of a 64x64 region, if it has one: its kind ("sinkhole", "mouth", or "" for
     none) and the span of air it carves in each of its columns, {(x, z): (lowest y, highest y)}. Two
     regions in eight try for a sinkhole and three for a hillside mouth (at up to 6 spots, the first on
-    a slope); none near the legacy clearing or by the water."""
+    a slope); none near the legacy clearing or by the water. The mapping is read-only, since the cache
+    hands the same object to every caller."""
     x0, z0 = rx * OPENING_REGION, rz * OPENING_REGION
     if math.hypot(x0 + 32, z0 + 32) <= LEGACY_RADIUS + OPENING_REGION:
-        return "", {}
+        return "", EMPTY_SPANS
     roll = hash32(rx, 0, rz, seed, 82)
     if roll % 8 < 2:
         cx, cz = x0 + 12 + (roll >> 8) % 40, z0 + 12 + (roll >> 16) % 40
         ground = terrain_height(cx, cz, seed)
         spans = _sinkhole(cx, cz, ground, seed) if ground > SEA_LEVEL else {}
-        return ("sinkhole" if spans else ""), spans
+        return ("sinkhole" if spans else ""), types.MappingProxyType(spans)
     if roll % 8 < 5:
         for attempt in range(MOUTH_TRIES):
             spot = hash32(rx, attempt, rz, seed, 86)
@@ -327,8 +331,8 @@ def region_openings(rx: int, rz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[st
             ground = terrain_height(cx, cz, seed)
             spans = _mouth(cx, cz, ground, seed) if ground > SEA_LEVEL else {}
             if spans:
-                return "mouth", spans
-    return "", {}
+                return "mouth", types.MappingProxyType(spans)
+    return "", EMPTY_SPANS
 
 
 def _sinkhole(cx: int, cz: int, ground: int, seed: str) -> dict:
@@ -406,7 +410,8 @@ def rocks_in_chunk(cx: int, cz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[tup
 def rock_column(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """The block of the boulder or outcrop standing on a column and the y of its top, or None. Each
     column of a rock rests on its own ground, so none floats: a boulder is a low dome, an outcrop a
-    jagged crag of pillars 1 to 3 high. A column with a tree, water or a hole in it has no rock."""
+    jagged crag of pillars 1 to 3 high. A column with a tree, water or an opened surface has no rock
+    (a roofed mouth column, its surface intact, can still carry one)."""
     for rx, rz, kind, size, block in rocks_in_chunk(x // 16, z // 16, seed):
         dx, dz = x - rx, z - rz
         if kind == "boulder":
@@ -596,11 +601,15 @@ def wild_food(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
 
 
 def cave_plant(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
-    """A mushroom on a cave floor: an open cave cell of air with solid rock (or bedrock) under it."""
+    """A mushroom on a cave floor: an open cave cell of air with solid rock (or bedrock) under it,
+    never where an entrance carved the cell below to air."""
     roll = hash32(x, y, z, seed, 17)
     if roll % CAVE_MUSHROOM_RARITY != 0:
         return None
     if not cave_at(x, y, z, seed) or cave_at(x, y - 1, z, seed) or cave_fill(x, y, z, seed) != "air":
+        return None
+    span = opening(x, z, seed)
+    if span is not None and span[0] <= y - 1 <= span[1]:
         return None
     return "red_mushroom" if roll // CAVE_MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"
 

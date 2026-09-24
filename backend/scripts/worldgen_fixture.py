@@ -142,10 +142,10 @@ def _deep(seed: str, count: int) -> list[tuple[int, int, int]]:
     return found
 
 
-def _entrances(seed: str, count: int) -> list[dict]:
+def _entrances(seed: str, count: int, rxs: range = range(4, 40)) -> list[dict]:
     """The carved columns of `count` sinkholes and `count` hillside mouths."""
     found, seen = [], {}
-    for rx in range(4, 40):
+    for rx in rxs:
         for rz in range(-20, 20):
             kind, spans = region_openings(rx, rz, seed)
             if kind and seen.get(kind, 0) < count:
@@ -154,10 +154,10 @@ def _entrances(seed: str, count: int) -> list[dict]:
     return found
 
 
-def _rocks(seed: str, count: int) -> list[tuple[int, int]]:
+def _rocks(seed: str, count: int, cxs: range = range(16, 120)) -> list[tuple[int, int]]:
     """The middle columns of `count` boulders and `count` outcrops."""
     found, seen = [], {}
-    for cx in range(16, 120):
+    for cx in cxs:
         for cz in range(-40, 40):
             for x, z, kind, _, _ in rocks_in_chunk(cx, cz, seed):
                 if seen.get(kind, 0) < count:
@@ -186,10 +186,10 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
             for tx, tz, base in _kind_trees(seed, kind, 2) + _kind_trees(seed, kind, 2, KIND_CHUNKS_NEG):
                 cells |= {(seed, tx + dx, base + dy, tz + dz)
                           for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 9)}
-        for spans in _entrances(seed, 2):
+        for spans in _entrances(seed, 2) + _entrances(seed, 2, range(-40, -4)):
             for (x, z), (low, _) in spans.items():
                 cells |= {(seed, x, y, z) for y in range(low - 1, terrain_height(x, z, seed) + 2)}
-        for rx, rz in _rocks(seed, 3):
+        for rx, rz in _rocks(seed, 3) + _rocks(seed, 3, range(-120, -16)):
             cells |= {(seed, rx + dx, terrain_height(rx + dx, rz + dz, seed) + dy, rz + dz)
                       for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 5)}
         for x, y, z in _deep(seed, 3):

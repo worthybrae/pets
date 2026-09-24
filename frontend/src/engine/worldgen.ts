@@ -59,7 +59,7 @@ const MOUTH_TRIES = 6
 const OUTCROP_GROUND = 8
 const BOULDERS: Record<string, string> = { desert: 'sandstone', meadow: 'andesite', alpine: 'stone' }
 const OUTCROPS: Record<string, string> = { desert: 'sandstone', taiga: 'andesite', birch_forest: 'diorite', alpine: 'granite' }
-type Openings = [string, Map<string, [number, number]>]
+type Openings = [string, ReadonlyMap<string, [number, number]>]
 type Rock = [number, number, string, number, string]
 const openingCache = new Map<string, Openings>()
 const rockCache = new Map<string, Rock[]>()
@@ -406,8 +406,12 @@ export function rockColumn(x: number, z: number, seed = DEFAULT_WORLD_SEED): [st
   return null
 }
 
-/** Terrain, water, caves and ores, before trees and plants are added. */
-export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string {
+/** Terrain, water, caves and ores, before trees and plants are added. `columnSpan`, when given (even
+ * as null), is the column's cave-entrance span (see `opening`): a caller filling a whole column can
+ * look it up once and pass it down, instead of `opening` refetching it for every y. */
+export function terrainBlock(
+  x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED, columnSpan?: [number, number] | null,
+): string {
   if (y <= -5) return 'bedrock'
   const height = terrainHeight(x, z, seed)
   if (Math.hypot(x, z) <= LEGACY_RADIUS) {
@@ -427,7 +431,7 @@ export function terrainBlock(x: number, y: number, z: number, seed = DEFAULT_WOR
     if (y > SEA_LEVEL) return 'air'
     return y === SEA_LEVEL && biomeAt(x, z, seed) === 'taiga' ? 'ice' : 'water'
   }
-  const span = opening(x, z, seed)
+  const span = columnSpan !== undefined ? columnSpan : opening(x, z, seed)
   if (span !== null && y >= span[0] && y <= span[1]) return 'air'
   if (y === height) return swampPool(x, z, seed) ? 'water' : surfaceMaterial(x, z, seed)
   if (y >= height - 2) {
@@ -572,11 +576,14 @@ export function wildFood(x: number, z: number, seed = DEFAULT_WORLD_SEED): strin
   return null
 }
 
-/** A mushroom on a cave floor: an open cave cell with solid rock (or bedrock) under it. */
+/** A mushroom on a cave floor: an open cave cell with solid rock (or bedrock) under it, never where
+ * an entrance carved the cell below to air. */
 export function cavePlant(x: number, y: number, z: number, seed = DEFAULT_WORLD_SEED): string | null {
   const roll = hash32(x, y, z, seed, 17)
   if (roll % CAVE_MUSHROOM_RARITY !== 0) return null
   if (!caveAt(x, y, z, seed) || caveAt(x, y - 1, z, seed) || caveFill(x, y, z, seed) !== 'air') return null
+  const span = opening(x, z, seed)
+  if (span !== null && y - 1 >= span[0] && y - 1 <= span[1]) return null
   return Math.floor(roll / CAVE_MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
 }
 
@@ -629,7 +636,7 @@ export function plantAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string
   return plantStack(x, z, seed)?.[0] ?? null
 }
 
-/** Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk, leaves, plant. */
+/** Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk, leaves, rock, plant. */
 function decorationAt(x: number, y: number, z: number, seed: string): string | null {
   const home = HOME_BLOCKS.get(`${x},${y},${z}`)
   if (home) return home
@@ -669,15 +676,16 @@ export function generateColumn(cx: number, cz: number, seed = DEFAULT_WORLD_SEED
     const x = x0 + lx, z = z0 + lz
     const height = terrainHeight(x, z, seed)
     const top = Math.max(height, SEA_LEVEL)
+    const span = opening(x, z, seed)
     for (let y = WORLD_MIN_Y; y <= top; y++) {
       // A cave floor plant counts as terrain here: nothing else is ever stamped in a cave.
-      const name = terrainBlock(x, y, z, seed)
+      const name = terrainBlock(x, y, z, seed, span)
       const found = name !== 'air' ? name : y < height - 2 ? cavePlant(x, y, z, seed) : null
       if (found) data[columnIndex(lx, y, lz)] = blockId(found)
     }
   }
   const terrain = data.slice()
-  // Later stamps win, so stamp in rising precedence: plants, leaves, trunks, home.
+  // Later stamps win, so stamp in rising precedence: plants, rocks, leaves, trunks, home.
   const stamp = (x: number, y: number, z: number, name: string) => {
     const lx = x - x0, lz = z - z0
     if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE || y < WORLD_MIN_Y || y > WORLD_MAX_Y) return
