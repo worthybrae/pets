@@ -108,9 +108,9 @@ class SwordTests(unittest.TestCase):
 
 class LeftoversTests(unittest.TestCase):
     def test_hides_wool_and_feathers_are_put_away_and_a_meal_of_meat_is_kept(self):
-        home = Home({"leather": 2, "wool": 3, "feather": 4, "rabbit_hide": 1, "raw_beef": 1}, chest={})
-        self.assertEqual(storage.to_store(home.situation(), home.chest),
-                         [("feather", 4), ("wool", 3), ("leather", 2), ("rabbit_hide", 1)])
+        home = Home({"leather": 7, "wool": 3, "feather": 6, "rabbit_hide": 9, "raw_beef": 1}, chest={})
+        self.assertEqual(storage.to_store(home.situation(), home.chest),  # L2 keeps 5 leather, 4 feathers, 8 hides
+                         [("wool", 3), ("feather", 2), ("leather", 2), ("rabbit_hide", 1)])
 
     def test_a_sword_a_better_one_replaced_is_dropped(self):
         junk = storage.junk(Home({**LOOSE, "wooden_sword": 1, "stone_sword": 1}).situation())

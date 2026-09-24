@@ -31,6 +31,9 @@ RECIPES = {
     "iron_sword": {"ingredients": {"iron_ingot": 2, "sticks": 1}, "output": {"iron_sword": 1}, "station": "crafting_table"},
     "bow": {"ingredients": {"sticks": 3, "string": 3}, "output": {"bow": 1}, "station": "crafting_table"},
     "arrow": {"ingredients": {"flint": 1, "sticks": 1, "feather": 1}, "output": {"arrow": 4}, "station": "crafting_table"},
+    "leather": {"ingredients": {"rabbit_hide": 4}, "output": {"leather": 1}},
+    "leather_cap": {"ingredients": {"leather": 2}, "output": {"leather_cap": 1}, "station": "crafting_table"},
+    "leather_tunic": {"ingredients": {"leather": 3}, "output": {"leather_tunic": 1}, "station": "crafting_table"},
 }
 
 TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3}
