@@ -141,7 +141,9 @@ def spawn_hostiles(scene: Scene) -> list[dict]:
         for cell in spots(scene.grid, scene.seed, cx, cz, y):
             lights = lights or Lights(scene.grid, scene.pet, SPAWN_FAR, scene.seed)
             sky = sky_light(scene.grid, scene.seed, cell, scene.night)
-            if max(sky, lights.at(cell)) > DARK:
+            # Fix round 2: `lights.dark` (not `lights.at`) -- this only ever needs the dark verdict,
+            # and `dark` keeps `at` exact by using a narrower reach for lava just for that verdict.
+            if sky > DARK or not lights.dark(cell):
                 continue
             covered = sky == 0
             name = "skitter" if covered and roll(scene.seed, salt, attempt, KIND) < SKITTER_SHARE else "gloomling"

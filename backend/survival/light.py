@@ -29,6 +29,10 @@ LIGHT_REACH = max(BLOCK_LIGHT.values())  # the farthest any block light carries
 SKY_SCAN = max(8, FEATURE_TOP + 1)
 SEE_THROUGH = CANOPY  # L3: every kind of leaves, by the registry's `canopy`
 LAVA_LIGHT = 15  # L3: lava the generator made lights the cave round it
+# Fix round 2: farther lava than this (Manhattan, from LAVA_LEVEL) could not lift a cell past DARK
+# regardless, so the dark verdict (darkness.spots, via Lights.dark) need never look past it, unlike
+# an exact light level (Lights.at), which still wants the full LAVA_LIGHT reach.
+DARK_LAVA_REACH = LAVA_LIGHT - DARK - 1
 
 
 def sky_open(grid: Grid, seed: str, cell: Cell) -> bool:
@@ -59,19 +63,26 @@ class Lights:
                         for cell, material in grid.placed_cells(x, z, reach + LIGHT_REACH, tuple(BLOCK_LIGHT))]
 
     def at(self, cell: Cell) -> int:
-        """The block light at `cell`: the brightest source less its Manhattan distance, at least 0.
-        Fix round 1: `lava_light` (a chunk scan) is skipped when it cannot change the answer -- when
-        `y` alone already puts lava's best possible gift at or under DARK (only a cell within
-        LAVA_LIGHT - DARK of LAVA_LEVEL can ever be lit past DARK by lava), or when a placed light
-        here already outshines that best case."""
+        """The exact block light at `cell`: the brightest source less its Manhattan distance, at
+        least 0, folding in lava the generator made when there is a seed. Fix round 2: this used to
+        skip the lava scan when it could not change whether the cell reads as dark, which was a
+        correct shortcut for the one caller that only ever asked that (darkness.spots) but made
+        `at` itself report a wrong exact number near lava at low light. That caller now has its own
+        `dark`, which keeps the shortcut (narrower still); `at` stays exact for every other use."""
         x, y, z = cell
         level = max([level - abs(x - sx) - abs(y - sy) - abs(z - sz) for (sx, sy, sz), level in self.sources] + [0])
-        if self.seed is None:
-            return level
-        cap = LAVA_LIGHT - abs(y - LAVA_LEVEL)
-        if cap <= DARK or level >= cap:
-            return level
-        return max(level, lava_light(self.grid, self.seed, cell))
+        return max(level, lava_light(self.grid, self.seed, cell)) if self.seed is not None else level
+
+    def dark(self, cell: Cell) -> bool:
+        """L3, fix round 2: whether `cell`'s block light (placed lights and lava) is DARK or under
+        -- all darkness.spots (the only caller) asks of it. Placed lights are exact and already
+        gathered (`self.sources`); lava uses `lava_dark`'s narrower-than-`lava_light` reach, since
+        lava farther than that could not push this cell past DARK regardless of the exact number."""
+        x, y, z = cell
+        level = max([level - abs(x - sx) - abs(y - sy) - abs(z - sz) for (sx, sy, sz), level in self.sources] + [0])
+        if level > DARK:
+            return False
+        return self.seed is None or not lava_dark(self.grid, self.seed, cell)
 
 
 def lava_light(grid: Grid, seed: str, cell: Cell) -> int:
@@ -90,6 +101,26 @@ def lava_light(grid: Grid, seed: str, cell: Cell) -> int:
                 if level > best and grid.material(lx, ly, lz) == "lava":
                     best = level
     return best
+
+
+def lava_dark(grid: Grid, seed: str, cell: Cell) -> bool:
+    """L3, fix round 2: whether lava the generator made (still there) lifts `cell`'s light past
+    DARK -- the only thing `Lights.dark` (darkness.spots' only caller) needs -- without working
+    out the exact level `lava_light` does. Lava farther than DARK_LAVA_REACH (Manhattan, from
+    LAVA_LEVEL) could not push a cell past DARK regardless, so this touches far fewer chunks on a
+    cold cache than `lava_light`'s full LAVA_LIGHT reach, and it stops at the first lava cell that
+    clears DARK instead of finding the brightest."""
+    x, y, z = cell
+    reach = DARK_LAVA_REACH - abs(y - LAVA_LEVEL)
+    if reach < 0:
+        return False
+    for cx in range((x - reach) // 16, (x + reach) // 16 + 1):
+        for cz in range((z - reach) // 16, (z + reach) // 16 + 1):
+            for lx, ly, lz in lava_in_chunk(cx, cz, seed):
+                level = LAVA_LIGHT - abs(x - lx) - abs(y - ly) - abs(z - lz)
+                if level > DARK and grid.material(lx, ly, lz) == "lava":
+                    return True
+    return False
 
 
 def light_at(grid: Grid, seed: str, cell: Cell, night: bool, lights: Lights | None = None) -> int:

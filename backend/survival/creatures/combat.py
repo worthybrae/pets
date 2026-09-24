@@ -24,6 +24,7 @@ import math
 
 from backend.services.crafting import add_item
 from backend.survival.creatures.acts import Scene, run_away
+from backend.survival.creatures.hostiles import begin_chase
 from backend.survival.creatures.kinds import Kind, kind_of
 from backend.survival.creatures.moves import roll, where
 from backend.survival.creatures.table import Herd, dead
@@ -91,7 +92,7 @@ def strike(scene: Scene, creature: dict, damage: float, source: Cell) -> dict[st
     if kind is not None and kind.flee_when_hurt:
         run_away(creature, kind, scene, source)
     elif kind is not None and kind.hostile:
-        state["chasing"] = True  # L2: a hostile that is hit turns on Mimo
+        begin_chase(state, scene.at)  # L2: a hostile that is hit turns on Mimo; fix round 2: fresh clock
     scene.herd.save(creature)
     return None
 

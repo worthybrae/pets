@@ -117,6 +117,19 @@ class ChaseTests(unittest.TestCase):
         self.assertEqual((gloom["health"], gloom["state"]["chasing"]), (15.0, True))
         self.assertEqual(act(gloom, scene(grid, state, at=11.0)), "chase")
 
+    def test_a_hit_hostile_opens_a_fresh_chase_clock_even_with_a_stale_seen_at(self):
+        # Fix round 2, item 2: combat.strike used to set state["chasing"] = True directly, leaving
+        # a stale seen_at/chase_since from an earlier, separate chase in place, which could make
+        # the hostile ignore the blow that just roused it and read as overdue to give up. A blow
+        # that opens a chase (the hostile was not already chasing) now goes through begin_chase,
+        # the same as hostiles.chase and strike_pet, so the clock starts fresh.
+        grid, state = meadow(), pet()
+        gloom = hostile(grid, cell=(20, 1, 0), seen_at=0.0, chase_since=0.0, bored_at=50.0)
+        strike(scene(grid, state, at=200.0), gloom, 5.0, (0, 1, 0))
+        self.assertEqual((gloom["health"], gloom["state"]["chasing"]), (15.0, True))
+        self.assertEqual((gloom["state"]["chase_since"], gloom["state"]["seen_at"]), (200.0, 200.0))
+        self.assertEqual(act(gloom, scene(grid, state, at=200.5)), "chase")
+
     def test_a_gloomling_needs_two_cells_of_room_and_a_skitter_one(self):
         ceiling = {(x, 2, z): "planks" for x in (2, 3) for z in range(-3, 4)}
         grid, state = meadow(ceiling), pet()

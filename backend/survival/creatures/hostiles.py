@@ -142,18 +142,27 @@ register_action(CreatureAction("strike", 4, strikes, strike_pet))
 
 # chase -----------------------------------------------------------------------------------------
 
-def in_sight(grid: Grid, cell: Cell, target: Cell) -> bool:
-    """L3: nothing solid on the line from a hostile's eyes to Mimo's (fix round 1: both a block up
-    from their feet, so a 1-block rise -- the block Mimo or the hostile stands on -- never reads as
-    hiding it), checked every half block (as creatures.defense.clear_line checks a fight's line)."""
-    eyes = (cell[0], cell[1] + 1, cell[2]), (target[0], target[1] + 1, target[2])
-    start, end = eyes
+def clear_path(grid: Grid, start: Cell, end: Cell) -> bool:
+    """Nothing solid on the straight line from `start` to `end`, checked every half block (as
+    creatures.defense.clear_line checks a fight's line)."""
     samples = max(1, int(math.dist(start, end) * 2))
     for index in range(1, samples):
         point = tuple(round(a + (b - a) * index / samples) for a, b in zip(start, end))
-        if point not in eyes and grid.solid(point):
+        if point not in (start, end) and grid.solid(point):
             return False
     return True
+
+
+def in_sight(grid: Grid, cell: Cell, target: Cell) -> bool:
+    """L3: a hostile sees Mimo when either the line at foot level or the line a block up (both
+    ends) is clear. Fix round 1 checked eyes only (both feet + 1), so a 1-block rise -- the block
+    Mimo or the hostile stands on -- never hid it; but a skitter (1 cell tall) crawling a 1-high
+    tunnel has solid rock at foot + 1 the whole way (the tunnel's own ceiling, exactly its own
+    height above it), which blinded it down a straight, open tunnel. Fix round 2: either line
+    clearing is enough, so a real rise is seen over (the eye line) and a straight crawl is seen
+    down (the foot line), without knowing either creature's height."""
+    eye, eye_target = (cell[0], cell[1] + 1, cell[2]), (target[0], target[1] + 1, target[2])
+    return clear_path(grid, cell, target) or clear_path(grid, eye, eye_target)
 
 
 def begin_chase(state: dict, at: float) -> None:

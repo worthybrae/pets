@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from backend.services.blocks import CANOPY, is_canopy
 from backend.services.worldgen import (
-    CANOPY_TOP, LAVA_LEVEL, block_at, lava_in_chunk, region_openings, rock_column, rocks_in_chunk,
+    LAVA_LEVEL, block_at, lava_in_chunk, region_openings, rock_column, rocks_in_chunk,
     surface_opened, terrain_height, trees_in_chunk,
 )
 from backend.survival.creatures.acts import act
@@ -11,7 +11,7 @@ from backend.survival.creatures.darkness import spots
 from backend.survival.creatures.hostiles import BORED, BORED_REST, SIGHT_LOST
 from backend.survival.creatures.moves import steps
 from backend.survival.grid import Grid
-from backend.survival.light import SKY_SCAN, Lights, light_at, sky_open
+from backend.survival.light import DARK, SKY_SCAN, Lights, lava_dark, lava_light, light_at, sky_open
 from backend.survival.pathing import moves
 from backend.survival.reflexes import plan_collapse
 from backend.tests.test_survival_hostiles import hostile, pet, scene
@@ -62,6 +62,12 @@ class CanopyTests(unittest.TestCase):
 
 
 class SkyScanTests(unittest.TestCase):
+    # Fix round 2, item 5: the tree scan below stopped at CANOPY_TOP + 1 -- the very constant this
+    # test means to check against SKY_SCAN -- so a leaf placed higher than CANOPY_TOP would never
+    # have been sampled and the test could still never fail on that account. SCAN_ABOVE is fixed and
+    # generous (well past any leaf, tree or rock the generator is meant to make) instead.
+    SCAN_ABOVE = 16  # cells above a trunk's own ground sampled for its topmost leaf
+
     def test_the_scan_reaches_over_the_highest_generated_tree_and_rock(self):
         # Fix round 1, defect 5: SKY_SCAN = max(8, FEATURE_TOP + 1) is always greater than FEATURE_TOP
         # by construction, so comparing it to FEATURE_TOP (or to the hand-set ROCK_TOP it is built
@@ -73,7 +79,7 @@ class SkyScanTests(unittest.TestCase):
             for cz in range(-10, 10):
                 for tx, tz, base in trees_in_chunk(cx, cz, SEED):
                     top = base
-                    for dy in range(3, CANOPY_TOP + 2):
+                    for dy in range(1, self.SCAN_ABOVE + 1):
                         if is_canopy(block_at(tx, base + dy, tz, SEED)):
                             top = base + dy
                     self.assertGreater(top, base, (tx, tz))  # every tree found does have leaves
@@ -114,6 +120,23 @@ class LavaLightTests(unittest.TestCase):
                 for cell in lava_in_chunk(cx, cz, SEED):
                     grid.put(*cell, "stone")
         self.assertEqual(Lights(grid, above, 0, SEED).at(above), 0)
+
+    def test_the_dark_verdict_agrees_with_the_exact_light_at_a_narrower_reach(self):
+        # Fix round 2, item 1 and item 6: darkness.spots only needs the dark verdict, so `Lights.dark`
+        # (and `lava_dark` under it) scans a narrower reach than the exact `Lights.at`/`lava_light` --
+        # but must always agree with them on whether a cell reads as dark.
+        lava = next(cell for cx in range(12, 60) for cell in lava_in_chunk(cx, 3, SEED))
+        x, y, z = lava
+        grid = generated()
+        above = (x, y + 1, z)
+        lights = Lights(grid, above, 0, SEED)
+        self.assertFalse(lights.dark(above))  # light 14 there, well above DARK
+        far = (x, y + 16, z)
+        self.assertEqual(lights.at(far), 0)
+        self.assertTrue(Lights(grid, far, 0, SEED).dark(far))
+        for dx in (0, 3, 7, 8, 15, 40):
+            cell = (x + dx, y, z)
+            self.assertEqual(lava_dark(grid, SEED, cell), lava_light(grid, SEED, cell) > DARK, cell)
 
 
 class DeepSpawnTests(unittest.TestCase):
@@ -169,6 +192,19 @@ class LoseInterestTests(unittest.TestCase):
         lost = hostile(grid, cell=(10, 1, 3), chasing=True, chase_since=0.0, seen_at=0.0)
         self.assertEqual(act(lost, scene(grid, state, at=SIGHT_LOST + 1.0)), "prowl")
 
+    def test_a_hostile_saved_mid_chase_without_chase_since_still_gives_up_after_45_seconds(self):
+        # Fix round 1 review minor 4, fix round 2 item 4: a hostile saved mid-chase from before
+        # chase_since/seen_at existed (an L2-era save has only chasing=True) must still time out.
+        # `chases`'s `state.setdefault("chase_since", scene.at)` pins the clock to the first tick
+        # it sees such a hostile, rather than `lost_interest` recomputing a fresh "since" every
+        # tick (which never accumulates any elapsed time at all).
+        grid, state = hunting_ground(), pet()
+        old = hostile(grid, cell=(10, 1, 0), chasing=True)  # no chase_since, seen_at or struck_at
+        self.assertEqual(act(old, scene(grid, state, at=100.0)), "chase")
+        self.assertEqual(old["state"]["chase_since"], 100.0)
+        self.assertEqual(act(old, scene(grid, state, at=100.0 + BORED + 1.0)), "prowl")
+        self.assertFalse(old["state"]["chasing"])
+
 
 class SightTests(unittest.TestCase):
     # Fix round 1, defect 1: 31 of 34 chases the reviewer's probe saw dropped fell to the 5 s sight
@@ -200,6 +236,17 @@ class SightTests(unittest.TestCase):
         opener["x"], opener["z"] = 30.0, 0.0  # out of strike's reach: no second blow lands
         self.assertEqual(act(opener, scene(grid, state, at=BORED + 1.0)), "prowl")
         self.assertFalse(opener["state"]["chasing"])
+
+    def test_a_skitter_in_a_one_high_crawl_sees_mimo_down_it(self):
+        # Fix round 2, defect 3: checking eyes alone (both a block up) blinded a skitter -- 1 cell
+        # tall -- crawling a 1-high tunnel, since its own tunnel roof sits a block above it the
+        # whole way; either the foot line or the eye line clearing is now enough.
+        grid, state = hunting_ground(), pet()
+        for x in range(6, 13):
+            grid.put(x, 2, 0, "stone")  # a crawl's roof from x=6 to x=12; open on either side of it
+        crawler = hostile(grid, "skitter", cell=(10, 1, 0), chasing=True, chase_since=0.0, seen_at=0.0)
+        self.assertEqual(act(crawler, scene(grid, state, at=SIGHT_LOST + 1.0)), "chase")
+        self.assertEqual(crawler["state"]["seen_at"], SIGHT_LOST + 1.0)
 
 
 class RestTests(unittest.TestCase):
