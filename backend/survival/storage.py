@@ -9,8 +9,8 @@ takes food back out when Mimo carries less than a meal's worth. It is offered at
 shelter when Mimo's arms are getting full (13 stacks) or the chest holds food Mimo needs, and
 scores higher the fuller Mimo is.
 
-drop_items leaves behind what is no use at all: food Mimo knows is poisonous, pickaxes and axes a
-better one replaced, and flowers. When its arms are full and build_storage cannot use a chest
+drop_items leaves behind what is no use at all: food Mimo knows is poisonous, pickaxes, axes and
+swords a better one replaced, and flowers. When its arms are full and build_storage cannot use a chest
 instead (none, none Mimo could place either, or a full one), loose blocks go too, least useful
 first and only as far as it takes: moss, gravel, sand and clay; with none of those, dirt; with no
 dirt either, cobblestone. Dirt and cobblestone that a shelter Mimo started still needs stay, and
@@ -33,6 +33,7 @@ from backend.survival.purposes import Purpose, foods, register
 from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
 from backend.survival.structures import blueprint_of, clearing, todo
+from backend.survival.toolmaking import SWORD_LADDER
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -45,7 +46,9 @@ STORE_STEPS = 8
 # stations, food up to a day's worth) stay with Mimo.
 KEEP = {"cobblestone": 16, "planks": 16, "oak_log": 8, "sticks": 8, "coal": 8, "iron_ore": 3, "iron_ingot": 3,
         "seeds": 8, "sapling": 4, "wheat": 6, "torch": 4, "dirt": 0, "gravel": 0, "sand": 0, "clay": 0, "moss": 0,
-        "basalt": 0, "limestone": 0, "sandstone": 0, "brick": 0, "glass": 0, "copper_ore": 0, "copper_ingot": 0}
+        "basalt": 0, "limestone": 0, "sandstone": 0, "brick": 0, "glass": 0, "copper_ore": 0, "copper_ingot": 0,
+        # L1: what animals drop besides meat is put away (L2 makes armor, bows and arrows from it).
+        "leather": 0, "wool": 0, "feather": 0, "rabbit_hide": 0}
 FLOWERS = ("flower_orange", "flower_pink", "flower_yellow")
 LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
 # With full arms and no chest to use, what goes after LEAST_USEFUL, each only when nothing before it
@@ -211,13 +214,15 @@ def loose_blocks(s: Situation) -> list[tuple[str, int]]:
 
 
 def junk(s: Situation) -> list[tuple[str, int]]:
-    """(item, amount) that is no use to carry: known poison, replaced tools, flowers; and, full with
+    """(item, amount) that is no use to carry: known poison, replaced tools and swords, flowers; and, full with
     no chest to use, loose blocks (loose_blocks)."""
     found = [(item, s.inventory[item]) for item in s.poisons if s.inventory.get(item, 0) > 0]
     best = max((TOOL_RANK[tool] for tool in TOOL_RANK if s.count(tool)), default=0)
     found += [(tool, s.count(tool)) for tool, rank in TOOL_RANK.items() if s.count(tool) and rank < best]
     axes = [axe for axe in AXES if s.count(axe)]
     found += [(axe, s.count(axe)) for axe in axes[:-1]]
+    swords = [sword for sword in SWORD_LADDER if s.count(sword)]
+    found += [(sword, s.count(sword)) for sword in swords[:-1]]
     found += [(flower, s.count(flower)) for flower in FLOWERS if s.count(flower)]
     if stacks(s.inventory) >= CARRY_STACKS and no_chest_to_use(s):
         found += loose_blocks(s)

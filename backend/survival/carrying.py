@@ -5,7 +5,7 @@ carries at most 16 stacks and a chest holds 24. When a finished step brings in m
 the part that does not fit stays behind (there are no dropped items to pick up later), the way
 a full inventory in a block game leaves the new item on the ground. Only what the step brought
 in is left, with one exception: something valuable (food, seeds, saplings, wheat, ore, ingots,
-coal and tools) pushes out the least valuable block Mimo carries instead (LOW_VALUE, moss first
+coal, tools and swords) pushes out the least valuable block Mimo carries instead (LOW_VALUE, moss first
 and cobblestone last), a stack at a time; anything else Mimo already carried is never lost. Being
 full makes putting things away in a chest and dropping low-value items worth doing
 (backend.survival.storage).
@@ -94,13 +94,13 @@ def crafts_fit(inventory: dict[str, int], steps: list[dict]) -> bool:
 
 
 def valuable(item: str) -> bool:
-    """Food that will not make Mimo sick, seeds, saplings, wheat, ore, ingots, coal and tools: worth
+    """Food that will not make Mimo sick, seeds, saplings, wheat, ore, ingots, coal, tools and swords: worth
     more than any LOW_VALUE block. Food that can make Mimo sick (steps.FOOD_HEALTH), like a red
     mushroom, is not: it is thrown away by drop_items as soon as Mimo learns it is poisonous, so it
     should never cost a good dirt or cobblestone stack in the meantime."""
     from backend.survival.steps import AXES, FOOD, FOOD_HEALTH, PICKAXE_SPEED  # imported here: steps imports this module
     return ((item in FOOD and FOOD_HEALTH.get(item, 0.0) >= 0) or item in VALUABLE or item in PICKAXE_SPEED
-            or item in AXES or item.endswith(("_ore", "_ingot")))
+            or item in AXES or item.endswith(("_ore", "_ingot", "_sword")))
 
 
 def least_valuable(inventory: dict[str, int], newcomer: str) -> str | None:

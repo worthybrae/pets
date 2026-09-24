@@ -25,13 +25,17 @@ RECIPES = {
     "wooden_axe": {"ingredients": {"planks": 3, "sticks": 2}, "output": {"wooden_axe": 1}, "station": "crafting_table"},
     "stone_axe": {"ingredients": {"cobblestone": 3, "sticks": 2}, "output": {"stone_axe": 1}, "station": "crafting_table"},
     "iron_axe": {"ingredients": {"iron_ingot": 3, "sticks": 2}, "output": {"iron_axe": 1}, "station": "crafting_table"},
+    "wooden_sword": {"ingredients": {"planks": 2, "sticks": 1}, "output": {"wooden_sword": 1}, "station": "crafting_table"},
+    "stone_sword": {"ingredients": {"cobblestone": 2, "sticks": 1}, "output": {"stone_sword": 1}, "station": "crafting_table"},
+    "iron_sword": {"ingredients": {"iron_ingot": 2, "sticks": 1}, "output": {"iron_sword": 1}, "station": "crafting_table"},
 }
 
 TOOL_RANK = {"wooden_pickaxe": 1, "stone_pickaxe": 2, "iron_pickaxe": 3}
 SMELTING = {"iron_ore": "iron_ingot", "copper_ore": "copper_ingot", "sand": "glass", "clay": "brick",
-            "raw_fish": "cooked_fish"}
+            "raw_fish": "cooked_fish", "raw_beef": "cooked_beef", "raw_mutton": "cooked_mutton",
+            "raw_chicken": "cooked_chicken", "raw_rabbit": "cooked_rabbit"}
 # Food cooks at a lit campfire or a furnace and burns no fuel: the fire is already lit.
-COOKING = frozenset({"raw_fish"})
+COOKING = frozenset({"raw_fish", "raw_beef", "raw_mutton", "raw_chicken", "raw_rabbit"})
 FIRES = ("campfire", "furnace")
 
 

@@ -44,7 +44,8 @@ class ToolmakingTests(unittest.TestCase):
         self.assertEqual(PURPOSES["craft_tools"].plan(s, None), [
             craft("planks"), craft("crafting_table"),
             {"kind": "place", "target": [1, 1, 0], "block": "crafting_table"},
-            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"), mine_back(1, 1, 0)])
+            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"), craft("wooden_sword"),
+            mine_back(1, 1, 0)])
         self.assertEqual(s.inventory, {"oak_log": 3})
 
     def test_a_table_already_placed_nearby_is_used_and_left(self):
@@ -71,7 +72,8 @@ class ToolmakingTests(unittest.TestCase):
         self.assertEqual(tool_plan(s), [
             craft("planks"), craft("crafting_table"), {"kind": "mine", "target": [0, -2, 1]},
             {"kind": "place", "target": [0, -2, 1], "block": "crafting_table"},
-            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"), mine_back(0, -2, 1)])
+            craft("planks"), craft("sticks"), craft("planks"), craft("wooden_pickaxe"), craft("wooden_sword"),
+            mine_back(0, -2, 1)])
 
     def test_below_the_surface_open_cells_and_the_headroom_are_never_used(self):
         cave = dug((0, -2, 0), (0, -1, 0), (1, -2, 0), (-1, -2, 0), (0, -2, 1), (0, -2, -1))
@@ -82,7 +84,7 @@ class ToolmakingTests(unittest.TestCase):
     def test_not_enough_materials_or_nothing_left_to_make_is_not_offered(self):
         self.assertFalse(PURPOSES["craft_tools"].valid(situation({"oak_log": 2})))
         self.assertIsNone(next_tool({"iron_pickaxe": 1}))
-        self.assertFalse(PURPOSES["craft_tools"].valid(situation({"iron_pickaxe": 1, "oak_log": 9})))
+        self.assertFalse(PURPOSES["craft_tools"].valid(situation({"iron_pickaxe": 1, "iron_sword": 1, "oak_log": 9})))
 
     def test_no_plan_when_its_crafts_would_not_fit(self):
         """Fix wave I1: at 16 stacks the planks from the first log have nowhere to go."""

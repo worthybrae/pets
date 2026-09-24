@@ -1,11 +1,12 @@
 """cook: turn raw food into better food.
 
 - Raw fish (8 hunger) cooks into cooked fish (30) in 5 s at a lit campfire or furnace within 6
-  blocks. With no fire that close, Mimo places a campfire or furnace it carries beside it (in a
-  niche it digs when it is below the surface, as toolmaking does), or first crafts a campfire
-  from 2 logs and 3 sticks; failing both, it walks to a fire within 32 blocks and cooks there
-  next batch. A fire within 4 blocks of where a step just failed is left alone for a while
-  (senses.near_failure).
+  blocks, and so does the raw meat hunting brings (L1): beef (8 to 35), mutton (8 to 30),
+  chicken and rabbit (6 to 25). With no fire that close, Mimo places a campfire or furnace it
+  carries beside it (in a niche it digs when it is below the surface, as toolmaking does), or
+  first crafts a campfire from 2 logs and 3 sticks; failing both, it walks to a fire within 32
+  blocks and cooks there next batch. A fire within 4 blocks of where a step just failed is left
+  alone for a while (senses.near_failure).
 - Three wheat bake into bread (25) at a crafting table, like craft_tools does it.
 A station or fire the plan placed is mined back into Mimo's inventory at the end. Those steps
 are kept (`keep`), so a new choice does not leave the station behind. cook is offered while
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from backend.services.crafting import FIRES
+from backend.services.crafting import COOKING, FIRES
 from backend.survival.carrying import crafts_fit
 from backend.survival.grid import Cell
 from backend.survival.foraging import whole_walk
@@ -29,6 +30,7 @@ from backend.survival.toolmaking import Short, make, place_station, station_spot
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
+RAW_FOODS = tuple(sorted(COOKING))
 FIRE_TRAVEL = 32.0
 FIRE_STAND = 2.0
 BREAD_WHEAT = 3
@@ -75,20 +77,20 @@ def cook_plan(s: Situation) -> list[dict] | None:
     spots = station_spots(s)
     steps: list[dict] = []
     placed: list[Cell] = []
-    fish = inventory.get("raw_fish", 0)
-    if fish and not near.intersection(FIRES) and not station(inventory, "campfire", spots, steps, placed, FIRES):
+    raw = [(item, inventory[item]) for item in RAW_FOODS if inventory.get(item, 0) > 0]
+    if raw and not near.intersection(FIRES) and not station(inventory, "campfire", spots, steps, placed, FIRES):
         fires = sorted((found for found in s.grid.placed_cells(x, z, FIRE_TRAVEL, FIRES)
                         if not near_failure(s.state, found[0])), key=lambda found: s.distance(found[0]))
         if fires:
             return [whole_walk(fires[0][0], FIRE_STAND)]
-        fish = 0
-    steps.extend({"kind": "cook", "item": "raw_fish"} for _ in range(fish))
+        raw = []
+    steps.extend({"kind": "cook", "item": item} for item, count in raw for _ in range(count))
     loaves = inventory.get("wheat", 0) // BREAD_WHEAT
     if loaves and "crafting_table" not in near and not station(inventory, "crafting_table", spots, steps, placed,
                                                                 ("crafting_table",)):
         loaves = 0
     steps.extend({"kind": "craft", "recipe": "bread"} for _ in range(loaves))
-    if not fish and not loaves:
+    if not raw and not loaves:
         return None
     steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
     return steps if crafts_fit(s.inventory, steps) else None
@@ -101,13 +103,13 @@ def plan_cook(s: Situation, context: ActionContext) -> list[dict]:
 
 
 def cook_score(s: Situation) -> float:
-    servings = s.count("raw_fish") + s.count("wheat") // BREAD_WHEAT
+    servings = s.count(*RAW_FOODS) + s.count("wheat") // BREAD_WHEAT
     return min(80.0, 50.0 + (100.0 - s.vitals["hunger"]) / 4 + 5.0 * servings)
 
 
 register(Purpose(
-    "cook", "cook", "Cook raw fish at a fire and bake wheat into bread; cooked food fills far more.",
+    "cook", "cook", "Cook raw fish and meat at a fire and bake wheat into bread; cooked food fills far more.",
     valid=lambda s: cook_plan(s) is not None,
-    facts=lambda s: f"carrying {s.count('raw_fish')} raw fish and {s.count('wheat')} wheat",
+    facts=lambda s: f"carrying {s.count(*RAW_FOODS)} raw fish and meat and {s.count('wheat')} wheat",
     score=cook_score, plan=plan_cook,
     thoughts=("Cooked fish tastes so much better.", "Let's get a fire going and cook.")))

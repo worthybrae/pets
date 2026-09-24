@@ -41,10 +41,17 @@ AXES = ("wooden_axe", "stone_axe", "iron_axe")
 AXE_SPEED = 2.0
 # Hunger each food restores (spec section 7). A red mushroom fills like a brown one but is poisonous.
 FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "red_mushroom": 6.0, "carrot": 10.0, "bread": 25.0, "raw_fish": 8.0,
-        "cooked_fish": 30.0, "apple": 15.0}
+        "cooked_fish": 30.0, "apple": 15.0,
+        # L1: meat from hunting. Raw it fills little; cooked at a fire it fills far more.
+        "raw_beef": 8.0, "raw_mutton": 8.0, "raw_chicken": 6.0, "raw_rabbit": 6.0,
+        "cooked_beef": 35.0, "cooked_mutton": 30.0, "cooked_chicken": 25.0, "cooked_rabbit": 25.0}
 # Health a food changes when eaten: a red mushroom is poisonous. Poison never takes the last point
 # of health (it is not a cause of death).
 FOOD_HEALTH = {"red_mushroom": -10.0}
+# Food that only sometimes makes Mimo sick: (chance, health). Raw chicken is a gamble, not poison, so
+# Mimo never learns to shun it (backend.survival.learning); cooking makes it safe.
+FOOD_RISK = {"raw_chicken": (0.25, -4.0)}
+RISK_CHANNEL = 39
 # A far walk re-plans segment by segment; after this many extra segments it gives up.
 MAX_SEGMENTS = 12
 
@@ -322,6 +329,10 @@ def finish_eat(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str
     if health < 0:
         vitals["health"] = max(min(vitals["health"], 1.0), vitals["health"] + health)
         return "sick", f"{name} ate {label(item)} and felt sick."
+    chance, risk = FOOD_RISK.get(item, (0.0, 0.0))
+    if chance > 0 and nature.roll(seed_of(state), as_cell(state["position"]), RISK_CHANNEL, int(at)) < chance:
+        vitals["health"] = max(min(vitals["health"], 1.0), vitals["health"] + risk)
+        return "sick", f"{name} ate {label(item)} and felt a little sick."
     return "ate", f"{name} ate {label(item)}."
 
 

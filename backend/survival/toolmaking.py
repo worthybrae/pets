@@ -1,15 +1,20 @@
-"""craft_tools: make the next pickaxe, with portable stations.
+"""craft_tools: make the next pickaxe, and swords, with portable stations.
 
 The ladder is wooden pickaxe, stone pickaxe, iron pickaxe. Only the next one Mimo lacks is on
-offer, and only when everything it needs can be made from what Mimo carries. The planner works
-the whole chain out on a copy of the inventory: logs into planks, planks into sticks, a crafting
+offer, and only when everything it needs can be made from what Mimo carries. Swords (L1) climb a
+ladder of their own (wooden, stone, iron: 2 planks, cobblestone or ingots and a stick, at a
+crafting table) no higher than the best pickaxe Mimo has. The sword a new pickaxe opens up is
+made in the same batch, right after it, when the materials stretch that far; with no pickaxe to
+make, the best sword Mimo may make comes alone. The planner works the whole chain out on a copy
+of the inventory: logs into planks, planks into sticks, a crafting
 table, and for iron a furnace and three smelted ingots (coal as fuel when Mimo has it, planks
 otherwise, as crafting.smelt does). Stations are portable: Mimo places a table or furnace in an
 open cell beside it (or above it), crafts or smelts, then mines the station back into its
 inventory, so it never has to remember where it left one. The mine-back steps are marked `keep`:
 they still run when a new purpose, a failure or a reflex drops the rest of the plan. A station
-already placed within reach is used as it is and left there. One tool per choice, and none while
-something the chain makes would not fit in Mimo's arms (carrying.crafts_fit).
+already placed within reach is used as it is and left there. One pickaxe (with its sword) or one
+sword per choice, and none while something the chain makes would not fit in Mimo's arms
+(carrying.crafts_fit).
 
 Below the natural surface an open cell beside Mimo may be its only way out, and the cell above
 its head is the headroom it needs to climb, so there Mimo digs a niche into a solid side wall
@@ -35,8 +40,10 @@ if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
 LADDER = ("wooden_pickaxe", "stone_pickaxe", "iron_pickaxe")
+SWORD_LADDER = ("wooden_sword", "stone_sword", "iron_sword")
 STATIONS = {"wooden_pickaxe": ("crafting_table",), "stone_pickaxe": ("crafting_table",),
-            "iron_pickaxe": ("crafting_table", "furnace")}
+            "iron_pickaxe": ("crafting_table", "furnace"), "wooden_sword": ("crafting_table",),
+            "stone_sword": ("crafting_table",), "iron_sword": ("crafting_table", "furnace")}
 SMELTED = {output: ore for ore, output in SMELTING.items()}
 # Cells beside Mimo at its level, then the one above it.
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
@@ -53,6 +60,26 @@ def next_tool(inventory: dict) -> str | None:
     """The next pickaxe up the ladder, or None when Mimo has the best one."""
     rank = max((TOOL_RANK[tool] for tool in TOOL_RANK if inventory.get(tool, 0) > 0), default=0)
     return LADDER[rank] if rank < len(LADDER) else None
+
+
+def open_swords(inventory: dict) -> list[str]:
+    """The swords Mimo may make now, best first: better than the best one it has, and no better
+    than the tier of its best pickaxe."""
+    sword = max((rank for rank, name in enumerate(SWORD_LADDER, start=1) if inventory.get(name, 0) > 0), default=0)
+    pickaxe = max((TOOL_RANK[tool] for tool in TOOL_RANK if inventory.get(tool, 0) > 0), default=0)
+    return list(reversed(SWORD_LADDER[sword:pickaxe]))
+
+
+def tool_orders(inventory: dict) -> list[tuple[str, ...]]:
+    """What craft_tools may make, first choice first: the next pickaxe with the best sword it opens
+    up, the pickaxe alone, then a sword alone."""
+    orders: list[tuple[str, ...]] = []
+    pickaxe = next_tool(inventory)
+    if pickaxe is not None:
+        orders += [(pickaxe, sword) for sword in open_swords({**inventory, pickaxe: 1})]
+        orders.append((pickaxe,))
+    orders += [(sword,) for sword in open_swords(inventory)]
+    return orders
 
 
 def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int = 0) -> None:
@@ -144,11 +171,8 @@ def place_station(spots: list[tuple[Cell, bool]], block: str, steps: list[dict])
     return cell
 
 
-def tool_plan(s: Situation) -> list[dict] | None:
-    """The steps that make the next pickaxe, or None when it cannot be made now."""
-    tool = next_tool(s.inventory)
-    if tool is None:
-        return None
+def tool_steps(s: Situation, tools: tuple[str, ...]) -> list[dict] | None:
+    """The steps that make `tools` in order, or None when they cannot all be made now."""
     inventory = dict(s.inventory)
     x, _, z = s.here
     near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
@@ -156,7 +180,7 @@ def tool_plan(s: Situation) -> list[dict] | None:
     steps: list[dict] = []
     placed: list[Cell] = []
     try:
-        for station in STATIONS[tool]:
+        for station in dict.fromkeys(station for tool in tools for station in STATIONS[tool]):
             if station in near:
                 continue
             make(inventory, station, 1, steps)
@@ -165,11 +189,29 @@ def tool_plan(s: Situation) -> list[dict] | None:
                 raise Short(station)
             inventory[station] -= 1
             placed.append(cell)
-        make(inventory, tool, 1, steps)
+        for tool in tools:
+            make(inventory, tool, 1, steps)
     except Short:
         return None
     steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
     return steps if crafts_fit(s.inventory, steps) else None
+
+
+def tool_choice(s: Situation) -> tuple[tuple[str, ...], list[dict]] | None:
+    """The first of tool_orders that can be made now, with its steps; or None."""
+    def look() -> tuple[tuple[str, ...], list[dict]] | None:
+        for tools in tool_orders(s.inventory):
+            steps = tool_steps(s, tools)
+            if steps is not None:
+                return tools, steps
+        return None
+    return s.sensed("tool_choice", look)
+
+
+def tool_plan(s: Situation) -> list[dict] | None:
+    """The steps that make the next pickaxe (and the sword it opens up) or a sword, or None."""
+    choice = tool_choice(s)
+    return None if choice is None else list(choice[1])
 
 
 def plan_tools(s: Situation, context: ActionContext) -> list[dict]:
@@ -179,9 +221,10 @@ def plan_tools(s: Situation, context: ActionContext) -> list[dict]:
 
 
 register(Purpose(
-    "craft_tools", "craft tools", "Make the next pickaxe from carried materials with a portable crafting table.",
+    "craft_tools", "craft tools",
+    "Make the next pickaxe, and a sword, from carried materials with a portable crafting table.",
     valid=lambda s: tool_plan(s) is not None,
-    facts=lambda s: f"can make a {next_tool(s.inventory).replace('_', ' ')} now",
+    facts=lambda s: "can make " + " and ".join(f"a {tool.replace('_', ' ')}" for tool in tool_choice(s)[0]) + " now",
     score=lambda s: 70.0 + s.trait("diligence") / 10,
     plan=plan_tools,
     thoughts=("I can make a better pickaxe now.", "Time to make a proper tool.")))

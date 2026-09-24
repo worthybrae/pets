@@ -65,7 +65,9 @@ class UtilityTests(unittest.TestCase):
     def test_a_day_goes_wood_then_tools_then_stone(self):
         self.assertEqual(picks(situation()), {"gather_wood"})
         self.assertEqual(picks(situation(inventory={"oak_log": 3})), {"craft_tools"})
-        self.assertEqual(picks(situation(inventory={"oak_log": 4, "wooden_pickaxe": 1})), {"gather_stone"})
+        self.assertEqual(picks(situation(inventory={"oak_log": 4, "wooden_pickaxe": 1})), {"craft_tools"})  # a sword
+        self.assertEqual(picks(situation(inventory={"oak_log": 4, "wooden_pickaxe": 1, "wooden_sword": 1})),
+                         {"gather_stone"})
 
     def test_needs_come_first(self):
         self.assertEqual(picks(situation(NIGHT, places=[("home", (20, 1, 0))])), {"go_home"})
