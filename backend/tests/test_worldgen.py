@@ -145,6 +145,17 @@ class WildFoodTests(unittest.TestCase):
             self.assertTrue(is_solid(block_at(x, y - 1, z, seed)), (x, y, z))
 
 
+class CacheTests(unittest.TestCase):
+    def test_the_column_caches_l3_added_stay_small(self):
+        """L3 final fix wave: five column caches of 131,072 entries each took the worker from about
+        90 MB to 250 MB once full. 32,768 each holds all a headless game day touches (15,000 to
+        25,000 columns) and costs about 40 MB when full."""
+        from backend.services import worldgen
+
+        for name in ("surface_material", "shore", "swamp_pool", "rock_column", "plant_stack"):
+            self.assertLessEqual(getattr(worldgen, name).cache_info().maxsize, 32768, name)
+
+
 class FixtureTests(unittest.TestCase):
     def test_shared_fixture_matches_python_worldgen(self):
         saved = json.loads(FIXTURE_PATH.read_text())

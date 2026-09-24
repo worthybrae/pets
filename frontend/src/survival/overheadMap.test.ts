@@ -3,8 +3,9 @@ import { AIR, blockId, LAYER_BY_ID, LAYER_CUTOUT } from '../engine/blocks'
 import { biomeAt, blockAt, regionOpenings, rocksInChunk, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
 import { WorldStore } from '../engine/worldStore'
 import {
-  composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, mapShownByDefault, naturalTop, PATCH,
-  PatchCache, patchPixels, saveMapOpen, seenPatches, spreadMarks, toMap, topBlock, topColor, travelHeading, UNKNOWN,
+  composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, mapPatches, mapShownByDefault,
+  naturalTop, PATCH, PatchCache, PATCHES_PER_DRAW, patchPixels, saveMapOpen, seenPatches, spreadMarks, toMap, topBlock,
+  topColor, travelHeading, UNKNOWN,
 } from './overheadMap'
 import type { Built, MimoAction } from './types'
 
@@ -155,6 +156,13 @@ describe('patches and the composed map', () => {
     expect(Math.abs(pixels[at + 1] - g)).toBeLessThanOrEqual(16)
     expect(Math.abs(pixels[at + 2] - b)).toBeLessThanOrEqual(16)
     expect(pixels[at + 3]).toBe(255)
+  })
+
+  it('works out about 2,000 columns a draw at most, so a new map fills in over a few polls', () => {
+    // L3 final fix wave: a column costs about 3 times what it did before L3's worldgen, and 96
+    // patches a draw (6,144 columns) stalled a frame for 55 ms or more.
+    expect(PATCHES_PER_DRAW * PATCH * PATCH).toBeLessThanOrEqual(2048)
+    expect(Math.ceil(mapPatches(mapOrigin({ x: 0, y: 5, z: 0 })).length / PATCHES_PER_DRAW)).toBeLessThanOrEqual(20)
   })
 
   it('computes each patch once, within a budget per draw, and again after an edit in its chunk', () => {

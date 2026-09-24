@@ -18,6 +18,10 @@ SEA_LEVEL = 2
 MASK = 0xFFFFFFFF
 WORLD_MIN_Y = -8
 WORLD_MAX_Y = 119
+# L3 final fix wave: entries in each per-column cache L3 added (surface_material, shore, swamp_pool,
+# rock_column, plant_stack). 131,072 each took the worker from about 90 MB to 250 MB once full;
+# a headless game day touches 15,000 to 25,000 columns, so this keeps every hit for about 40 MB.
+COLUMN_CACHE = 32768
 HOME_RADIUS = 12
 STEPPING_STONES = {(-3, 2), (-2, 1), (3, 2), (4, 1)}
 HOME_FLOWERS = ((-8, 0, "flower_orange"), (-7, 1, "flower_pink"), (-2, -5, "flower_yellow"),
@@ -180,7 +184,7 @@ def biome_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     return "meadow"
 
 
-@lru_cache(maxsize=131072)
+@lru_cache(maxsize=COLUMN_CACHE)
 def surface_material(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     biome = biome_at(x, z, seed)
     if biome == "desert":
@@ -206,14 +210,14 @@ def surface_material(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     return "grass"
 
 
-@lru_cache(maxsize=131072)
+@lru_cache(maxsize=COLUMN_CACHE)
 def shore(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
     """Land level with the lakes right beside one (never in the legacy clearing)."""
     return (math.hypot(x, z) > LEGACY_RADIUS and terrain_height(x, z, seed) == SEA_LEVEL
             and any(terrain_height(x + dx, z + dz, seed) < SEA_LEVEL for dx, dz in SIDES))
 
 
-@lru_cache(maxsize=131072)
+@lru_cache(maxsize=COLUMN_CACHE)
 def swamp_pool(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> bool:
     """A shallow swamp pool: one block of water where swamp ground lies level with the lakes."""
     return (terrain_height(x, z, seed) == SEA_LEVEL and biome_at(x, z, seed) == "swamp"
@@ -428,7 +432,7 @@ def rocks_in_chunk(cx: int, cz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[tup
     return ()
 
 
-@lru_cache(maxsize=131072)
+@lru_cache(maxsize=COLUMN_CACHE)
 def rock_column(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """The block of the boulder or outcrop standing on a column and the y of its top, or None. Each
     column of a rock rests on its own ground, so none floats: a boulder is a low dome, an outcrop a
@@ -652,7 +656,7 @@ def tall_plant(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int]
     return ("sugar_cane", 1 + roll // rarity % 3) if roll % rarity == 0 else None
 
 
-@lru_cache(maxsize=131072)
+@lru_cache(maxsize=COLUMN_CACHE)
 def plant_stack(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall
     grass, a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3."""

@@ -23,9 +23,11 @@ export const MAP_RADIUS = 96
 export const MAP_BLOCKS = 2 * MAP_RADIUS
 /** Canvas pixels per block, so the marks stay crisp. */
 export const MAP_SCALE = 2
-/** New patches worked out per redraw at most (about 6,000 columns, some 20 ms on a laptop): a new
- * map fills in from the middle over a few polls instead of stalling one frame. */
-export const PATCHES_PER_DRAW = 96
+/** New patches worked out per redraw at most (about 2,000 columns): a new map fills in from the middle
+ * over the next polls (a whole one in 18) instead of stalling one frame. L3 final fix wave: L3's
+ * worldgen made a column about 3 times dearer to work out, so 96 patches cost 55-75 ms a draw; 32
+ * cost about 20 ms. */
+export const PATCHES_PER_DRAW = 32
 export const MAP_OPEN_KEY = 'mimo.minimap'
 /** A patch not worked out yet. */
 export const UNKNOWN: Rgb = [176, 190, 186]
