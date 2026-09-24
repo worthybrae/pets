@@ -1,3 +1,4 @@
+import logging
 import math
 import random
 import sqlite3
@@ -12,15 +13,16 @@ from backend.survival.creatures.acts import Scene
 from backend.survival.creatures.darkness import (
     DESPAWN_REACH, HOSTILE_CAP, SPAWN_EVERY, SPAWN_FAR, SPAWN_NEAR, spawn_hostiles, spots,
 )
-from backend.survival.creatures.kinds import KINDS
-from backend.survival.creatures.simulate import TURNS_EACH, take_turns
+from backend.survival.creatures.kinds import KINDS, kind_of
+from backend.survival.creatures.simulate import HOSTILE_ACTS, MAX_ACTS, TURNS_EACH, take_turns
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
 from backend.survival.grid import Grid, world_grid
 from backend.survival.hatch import hatch
 from backend.survival.memory import places
+from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
 from backend.survival.vitals import START_VITALS
-from backend.survival.tick import advance_world, tick_life
+from backend.survival.tick import FIGHT_SLICES_MAX, advance_world, tick_life
 from backend.survival.world import SurvivalWorld, read_state, write_state
 
 NIGHT = {"phase": "night", "seconds_into_day": 3000.0, "time_scale": 1.0, "day_number": 1}
@@ -75,11 +77,25 @@ class SpawnTests(unittest.TestCase):
     def test_by_day_the_open_ground_is_lit_and_only_caves_spawn_them_mostly_skitters(self):
         self.assertEqual(spawn_hostiles(scene(land(), pet(), clock=DAY)), [])
         kinds = []
-        for minute in range(20):
+        for minute in range(60):
             found = spawn_hostiles(scene(land(cave=True), pet(), at=100.0 + 60 * minute, clock=DAY))
             self.assertEqual([cell_of(creature)[1] for creature in found], [-4])
             kinds += [creature["kind"] for creature in found]
         self.assertEqual(set(kinds), {"skitter", "gloomling"})
+        # fix round 1: SKITTER_SHARE (0.6) of the covered-place spawns should be skitters, not just "some".
+        share = kinds.count("skitter") / len(kinds)
+        self.assertTrue(0.45 <= share <= 0.75, share)
+
+    def test_the_spawn_salt_does_not_repeat_within_one_server_second_at_a_high_time_scale(self):
+        # fix round 1: at MIMO_TIME_SCALE=60, two legitimate chances (SPAWN_EVERY game seconds
+        # apart) can land within the same integer server second; salting by game seconds instead
+        # keeps them from rolling the identical cell (and stacking a second hostile on the first).
+        fast = {**NIGHT, "time_scale": 60.0}
+        grid, state = land(), pet()
+        first = spawn_hostiles(Scene(grid, grid.herd, "4", state, 100.0, 1.0, events=[], clock=fast))
+        second = spawn_hostiles(Scene(grid, grid.herd, "4", state, 100.9, 1.0, events=[], clock=fast))
+        self.assertEqual((len(first), len(second)), (1, 1))
+        self.assertNotEqual(cell_of(first[0]), cell_of(second[0]))
 
     def test_torches_keep_the_ground_near_them_safe_and_nothing_spawns_where_mimo_built(self):
         with patch("backend.survival.creatures.darkness.roll", lambda *args: 0.0):  # every try: 16 blocks east
@@ -137,6 +153,58 @@ class TurnTests(unittest.TestCase):
             take_turns(scene(grid, state, at=20.0), [skitter])
         self.assertEqual(state["vitals"]["health"], 94.0 - 2.0 * TURNS_EACH)  # no more than TURNS_EACH a call
 
+    def test_every_overdue_animal_gets_turns_across_calls_not_just_the_lowest_ids(self):
+        # fix round 1: ordering only by the clamped time (shared by every long-overdue creature)
+        # and then id let ids past MAX_ACTS starve forever; the raw next_at breaks that tie by
+        # staleness, so the ones skipped in an earlier call are the first ones picked next call.
+        grid, state = land(), {**pet(), "vitals": dict(START_VITALS)}
+        cows = [self.add(grid, "cow", (n, 1, 0)) for n in range(30)]
+        for call in range(1, 11):
+            take_turns(scene(grid, state, at=10.0 * call), cows)
+        self.assertTrue(all(cow["state"]["turn"] >= 1 for cow in cows), [cow["state"]["turn"] for cow in cows])
+        self.assertTrue(all(grid.herd.get(cow["id"])["state"]["turn"] >= 1 for cow in cows))
+
+    def test_the_hostile_and_animal_turn_budgets_are_separate_in_one_call(self):
+        # fix round 1: HOSTILE_ACTS (32) and MAX_ACTS (24) are tracked independently, so a glut of
+        # overdue hostiles wanting up to TURNS_EACH turns each never eats into the animals' budget
+        # (or the other way round) within the same call.
+        grid, state = land(), {**pet(), "vitals": dict(START_VITALS)}
+        hostiles = [self.add(grid, "gloomling", (n, 1, 0)) for n in range(11)]  # 11 * TURNS_EACH(3) = 33 > 32
+        animals = [self.add(grid, "cow", (0, 1, n)) for n in range(30)]  # 30 > MAX_ACTS(24)
+        calls = {"hostile": 0, "animal": 0}
+
+        def fake_act(creature, sc):
+            kind = kind_of(creature["kind"])
+            hostile = kind is not None and kind.hostile
+            calls["hostile" if hostile else "animal"] += 1
+            creature["state"]["turn"] = creature["state"].get("turn", 0) + 1
+            creature["next_at"] = sc.at + 0.5  # still due, so a hostile may take another turn now
+            return "fake"
+
+        with patch("backend.survival.creatures.simulate.act", fake_act):
+            take_turns(scene(grid, state, at=10.0), hostiles + animals)
+        self.assertEqual(calls, {"hostile": HOSTILE_ACTS, "animal": MAX_ACTS})
+
+    def test_a_crash_partway_through_a_call_still_saves_the_turns_taken_before_it(self):
+        # fix round 1: saves used to wait until the whole call finished, so one creature's crash
+        # (a raising action) lost every earlier creature's turn in the same call -- and left an
+        # already-struck hostile's cooldown unsaved, free to strike again next call.
+        grid, state = land(), {**pet(), "vitals": dict(START_VITALS)}
+        first = self.add(grid, "cow", (0, 1, 0))
+        second = self.add(grid, "cow", (0, 1, 1))
+
+        def fake_act(creature, sc):
+            if creature["id"] == second["id"]:
+                raise RuntimeError("boom")
+            creature["state"]["turn"] = creature["state"].get("turn", 0) + 1
+            creature["next_at"] = sc.at + 5.0
+            return "fake"
+
+        with patch("backend.survival.creatures.simulate.act", fake_act):
+            with self.assertRaises(RuntimeError):
+                take_turns(scene(grid, state, at=10.0), [first, second])
+        self.assertEqual(grid.herd.get(first["id"])["next_at"], 15.0)  # saved despite the later crash
+
 
 class TickTests(unittest.TestCase):
     def hatched(self, root):
@@ -180,13 +248,40 @@ class TickTests(unittest.TestCase):
                     advance_world(world, BORN + 1.0, 60.0, action_scale=60.0)
             self.assertEqual(len(calls), 60 if near else 1, near)  # a game second a step, else one 60-s step
 
+    def test_a_low_time_scale_with_a_high_action_scale_does_not_balloon_the_short_steps(self):
+        # fix round 1: FIGHT_SLICE / action_scale * scale shrinks toward nothing at a low
+        # MIMO_TIME_SCALE with a high MIMO_ACTION_SCALE; without FIGHT_SLICES_MAX a 60-game-second
+        # transaction here became 3600 separate creature calls (MIMO_TIME_SCALE=1,
+        # MIMO_ACTION_SCALE=60: each short step is only 1/60 of a game second).
+        calls = []
+        real = tick.simulate
+        with tempfile.TemporaryDirectory() as root:
+            _, _, world = self.hatched(root)
+            with world.transaction() as db:
+                state = read_state(db)
+                state["born_at"] = BORN - 2500.0  # deep in the first night
+                write_state(db, state)
+                x, y, z = (round(state["position"][axis]) for axis in "xyz")
+                Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
+            with patch("backend.survival.tick.simulate", lambda *args: calls.append(args[2]) or real(*args)), \
+                    patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
+                    patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
+                advance_world(world, BORN + 60.0, 1.0, action_scale=60.0)
+        self.assertGreaterEqual(len(calls), FIGHT_SLICES_MAX, calls)  # the short-step phase still ran
+        self.assertLessEqual(len(calls), FIGHT_SLICES_MAX + 5, calls)  # then catch-up falls back to long steps
+        self.assertLess(len(calls), 3600)
+
     def test_hostiles_come_out_at_night_stay_few_and_cost_little(self):
-        spent, counts = [], []
+        # fix round 1: while a hostile is near, one 60-game-second slice is up to FIGHT_SLICE_MAX
+        # separate `tick.simulate` calls; averaging cost per call (as this test used to) hides a
+        # slice whose calls are each cheap but whose total is not. Sum a slice's calls instead.
+        slices, counts = [], []
 
         def timed(*args):
             start = time.perf_counter()
-            real(*args)
-            spent.append(time.perf_counter() - start)
+            result = real(*args)
+            slices[-1] += time.perf_counter() - start
+            return result
 
         real = tick.simulate
         with tempfile.TemporaryDirectory() as root:
@@ -194,14 +289,62 @@ class TickTests(unittest.TestCase):
             with patch("backend.survival.tick.simulate", timed), \
                     patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
                 for minute in range(1, 61):
+                    slices.append(0.0)
                     state = advance_world(world, BORN + 60 * minute, 1.0)
                     with world.connect() as db:
                         found = world_grid(db, world.seed).herd.near(state["position"]["x"], state["position"]["z"], 48)
                     counts.append(sum(1 for creature in found if KINDS[creature["kind"]].hostile and not dead(creature)))
-        self.assertLess(sum(spent) / len(spent), 0.020)
+        self.assertLess(sum(slices) / len(slices), 0.020, slices)
         self.assertLessEqual(max(counts), HOSTILE_CAP)
         night, day = counts[41:57], counts[:37]  # night falls 40 game minutes in
         self.assertGreater(sum(night) / len(night), sum(day) / len(day))
+
+    def test_a_gloomling_beside_mimo_at_night_still_costs_little_a_slice(self):
+        # fix round 1: the worst case for the per-slice budget -- a hostile right next to Mimo
+        # keeps every slice in FIGHT_SLICE stepping (a call a game second), so the gating in
+        # spawn_hostiles and saving once a call (not once a turn) must hold the per-slice mean
+        # under budget here too. Land herds (backend.survival.creatures.spawning, L1) are a
+        # separate, pre-existing cost this fix round does not touch, so they are held off here
+        # the same way `test_while_a_hostile_could_reach_mimo...` above holds off spawn_hostiles,
+        # to measure L2's own share of the cost on its own.
+        slices = []
+
+        def timed(*args):
+            start = time.perf_counter()
+            result = real(*args)
+            slices[-1] += time.perf_counter() - start
+            return result
+
+        real = tick.simulate
+        with tempfile.TemporaryDirectory() as root:
+            _, _, world = self.hatched(root)
+            with world.transaction() as db:
+                state = read_state(db)
+                state["born_at"] = BORN - 2500.0  # deep in the first night
+                write_state(db, state)
+                x, y, z = (round(state["position"][axis]) for axis in "xyz")
+                Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
+            with patch("backend.survival.tick.simulate", timed), \
+                    patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0), \
+                    patch("backend.survival.creatures.simulate.populate", lambda scene, loaded, scale: []):
+                for minute in range(1, 11):
+                    slices.append(0.0)
+                    advance_world(world, BORN + 60 * minute, 1.0)
+        self.assertLess(sum(slices) / len(slices), 0.020, slices)
+
+    def test_a_crashing_hostile_near_check_falls_back_to_a_long_step(self):
+        # fix round 1: hostile_near (backend.survival.tick.creature_nearby) had no crash guard, so
+        # a bad query would stop the whole tick instead of just widening the step like run_creatures.
+        forget_logged()
+        with tempfile.TemporaryDirectory() as root:
+            _, _, world = self.hatched(root)
+            with patch("backend.survival.tick.hostile_near", side_effect=RuntimeError("boom")), \
+                    patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
+                    self.assertLogs("backend.survival.tick", level=logging.ERROR) as logs:
+                state = advance_world(world, BORN + 60.0, 1.0)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIsNone(state["died_at"])
+        self.assertEqual(state["last_tick_at"], BORN + 60.0)
 
 
 if __name__ == "__main__":

@@ -105,14 +105,24 @@ def born(scene: Scene, kind: Kind, cell: Cell) -> dict:
 
 def spawn_hostiles(scene: Scene) -> list[dict]:
     """Despawn far hostiles, then maybe spawn one in the dark near Mimo (see the module docstring).
-    Returns the creatures it added."""
-    despawn_far(scene)
+    Returns the creatures it added.
+
+    Fix round 1: near a hostile the tick calls this every game second (backend.survival.tick,
+    FIGHT_SLICE), so the window check comes first and costs nothing but a dict lookup; the sweep
+    and the count (each a table scan) run only on the call that could actually spawn something,
+    at most once every SPAWN_EVERY game seconds."""
     last = scene.state.get("dark_spawn_at")
-    if hostiles_alive(scene) >= HOSTILE_CAP or (last is not None and (scene.at - last) * scene.scale < SPAWN_EVERY):
+    if last is not None and (scene.at - last) * scene.scale < SPAWN_EVERY:
+        return []
+    despawn_far(scene)
+    if hostiles_alive(scene) >= HOSTILE_CAP:
         return []
     scene.state["dark_spawn_at"] = scene.at
     x, y, z = scene.pet
-    salt, lights = int(scene.at), None
+    # Fix round 1: salted by game seconds, not server seconds, so two chances spaced SPAWN_EVERY
+    # game seconds apart never share a salt even when a high MIMO_TIME_SCALE keeps `scene.at`
+    # (server time) inside the same integer second for both.
+    salt, lights = int(scene.at * scene.scale), None
     for attempt in range(SPAWN_TRIES):
         angle = 2 * math.pi * roll(scene.seed, salt, attempt, ANGLE)
         reach = SPAWN_NEAR + (SPAWN_FAR - SPAWN_NEAR) * roll(scene.seed, salt, attempt, DISTANCE)

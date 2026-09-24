@@ -59,31 +59,43 @@ def simulate(state: dict, context: ActionContext, at: float) -> None:
 
 
 def take_turns(scene: Scene, loaded: list[dict]) -> None:
-    """The creatures in `loaded` whose turn has come take it, earliest first: an animal once, at the
-    scene's time; a hostile each turn that comes due up to then, at its own time (see the module
-    docstring for the limits). Each creature that acted is saved once."""
+    """The creatures in `loaded` whose turn has come take it, in order of how overdue each truly is
+    (its raw `next_at`, not the clamp below): an animal once, at the scene's time; a hostile each
+    turn that comes due up to then, at its own time, clamped to at most LATE seconds behind the
+    call so one long-neglected hostile cannot walk up and strike within a single step (see the
+    module docstring for the limits). Fix round 1: ordering on the clamped time alone let ties
+    (every long-overdue creature clamps to the same floor) resolve by id forever, so the animals
+    past MAX_ACTS never got a turn; the raw `next_at` breaks those ties by staleness instead, so
+    every animal's turn comes eventually across calls. Each creature that acted is saved once, in a
+    `finally` around the whole call (fix round 1: saving after every single turn, not just every
+    creature, would cost a multi-turn hostile up to TURNS_EACH writes instead of one), so a crash
+    partway through a call still keeps every earlier creature's turn and never leaves an
+    already-struck hostile unsaved and free to strike again next call."""
     at, earliest = scene.at, scene.at - LATE / scene.pace
     left = {True: HOSTILE_ACTS, False: MAX_ACTS}
     queue = []
     for creature in loaded:
         if not dead(creature) and creature["next_at"] <= at:
             kind = kind_of(creature["kind"])
-            queue.append((max(creature["next_at"], earliest), creature["id"], kind is not None and kind.hostile,
+            hostile = kind is not None and kind.hostile
+            queue.append((max(creature["next_at"], earliest), creature["next_at"], creature["id"], hostile,
                           creature))
     heapq.heapify(queue)
     turns: dict[int, int] = {}
-    acted = {}
-    while queue:
-        when, number, hostile, creature = heapq.heappop(queue)
-        if left[hostile] <= 0:
-            continue
-        left[hostile] -= 1
-        turns[number] = turns.get(number, 0) + 1
-        acted[number] = creature
-        if act(creature, replace(scene, at=when) if hostile else scene) is None:
-            creature["next_at"] = at + UNKNOWN_WAIT
-        if (hostile and turns[number] < TURNS_EACH and not dead(creature)
-                and when < creature["next_at"] <= at):
-            heapq.heappush(queue, (creature["next_at"], number, hostile, creature))
-    for creature in acted.values():
-        scene.herd.save(creature)
+    acted: dict[int, dict] = {}
+    try:
+        while queue:
+            when, _, number, hostile, creature = heapq.heappop(queue)
+            if left[hostile] <= 0:
+                continue
+            left[hostile] -= 1
+            turns[number] = turns.get(number, 0) + 1
+            acted[number] = creature
+            if act(creature, replace(scene, at=when) if hostile else scene) is None:
+                creature["next_at"] = at + UNKNOWN_WAIT
+            if (hostile and turns[number] < TURNS_EACH and not dead(creature)
+                    and when < creature["next_at"] <= at):
+                heapq.heappush(queue, (creature["next_at"], creature["next_at"], number, hostile, creature))
+    finally:
+        for creature in acted.values():
+            scene.herd.save(creature)

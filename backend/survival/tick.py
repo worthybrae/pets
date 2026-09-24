@@ -51,6 +51,11 @@ MAX_STEP_SECONDS = 60.0
 # L2: while a hostile creature could reach Mimo, a step lasts at most this many seconds of action
 # time (divided by MIMO_ACTION_SCALE), so fights and flights see where the creatures are now.
 FIGHT_SLICE = 1.0
+# Fix round 1: at most this many of those short steps run in one transaction. Without a cap, a low
+# MIMO_TIME_SCALE with a high MIMO_ACTION_SCALE shrinks FIGHT_SLICE / action_scale * scale toward
+# nothing (a transaction could otherwise cost thousands of creature calls); once the cap is spent,
+# catch-up falls back to the ordinary (longer) pace for the rest of the transaction.
+FIGHT_SLICES_MAX = 60
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
 
@@ -155,6 +160,17 @@ def caught(state: dict) -> bool:
     return state["vitals"]["health"] <= 0 and bool(state.get("hurt_by"))
 
 
+def creature_nearby(context: ActionContext, state: dict) -> bool:
+    """Whether a hostile could reach Mimo now (backend.survival.creatures.hostiles.hostile_near),
+    so the step ahead should be short. A crash is logged once and treated as "no" (fix round 1),
+    so a bad query falls back to the ordinary (longer) pace instead of stopping the tick."""
+    try:
+        return hostile_near(context.grid, context.db, state)
+    except Exception as error:
+        log_once(logger, "hostile_near", error)
+        return False
+
+
 def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mind = RESTING,
                   action_scale: float = 1.0) -> dict:
     """Catch the world up to `timestamp` in one transaction and return the saved state."""
@@ -170,6 +186,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                                 interrupt=mind.interrupt)
         cursor = state["last_tick_at"]
         remaining = (timestamp - cursor) * scale
+        fight_slices = 0  # fix round 1: bounds how many short (FIGHT_SLICE) steps this transaction takes
         while remaining > 1e-9:
             fell_at = advance_actions(state, context, cursor)
             if fell_at is not None:
@@ -182,8 +199,9 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                     record_death(state, state["hurt_by"], cursor, scale, events)
                     break
             step = min(MAX_STEP_SECONDS, remaining)
-            if hostile_near(context.grid, context.db, state):
+            if fight_slices < FIGHT_SLICES_MAX and creature_nearby(context, state):
                 step = min(step, FIGHT_SLICE / action_scale * scale)
+                fight_slices += 1
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
