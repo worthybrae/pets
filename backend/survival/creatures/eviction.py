@@ -2,9 +2,12 @@
 
 Creatures never step into a cell something Mimo built claims (creatures.moves.steps),
 but one can be standing in one already: a rabbit that wandered onto the site before the walls
-went up. When a shelter's door goes in (building.note_building), every creature inside the
-shelter's claimed cells is put out just beyond the cell in front of the door, so the shelter is
-Mimo's alone from then on; with nowhere to stand out there it is removed -- unless it is tame
+went up. When a shelter's door goes in (building.note_building), every creature standing in one of
+the shelter's own cells (its blueprint's: floor, walls, roof, fittings, the door, the way in and the
+room) is put out just beyond the cell in front of the door, so the shelter is Mimo's alone from
+then on. A creature on something else Mimo claims nearby, such as a pen, stays where it is (L3
+final fix wave: every claimed cell within 8 blocks was cleared, and a tame sheep in a pen 5 blocks
+away was pulled out beside the door). With nowhere to stand out there, it is removed -- unless it is tame
 (L3's creatures/seeds.hatch): resolution 24 has it stay where it grew, so it is never deleted,
 only moved when there is somewhere to put it and left in place otherwise (fix round 1, item 5).
 """
@@ -15,7 +18,7 @@ from backend.survival.blueprints import Blueprint
 from backend.survival.creatures.table import cell_of, dead
 from backend.survival.grid import Cell, Grid
 
-EVICT_REACH = 8.0  # blocks from the shelter's home cell that its claimed cells lie within
+EVICT_REACH = 8.0  # blocks from the shelter's home cell that its own cells lie within
 OUT_STEPS = 3  # cells straight out past the front cell where a creature may be put
 
 
@@ -35,16 +38,17 @@ def outside(grid: Grid, blueprint: Blueprint) -> Cell | None:
 
 
 def evict(grid: Grid, blueprint: Blueprint) -> list[dict]:
-    """Put every living creature standing in a cell the shelter claims outside it. A tame one is
-    never removed: with nowhere to put it, it is left where it is. Returns the ones moved."""
+    """Put every living creature standing in one of the shelter's own cells outside it. A tame one
+    is never removed: with nowhere to put it, it is left where it is. Returns the ones moved."""
     herd = grid.herd
     if herd is None:
         return []
     ax, _, az = blueprint.anchor
+    own = {planned.cell for planned in blueprint.cells}
     out = outside(grid, blueprint)
     moved = []
     for creature in herd.near(ax, az, EVICT_REACH):
-        if dead(creature) or not grid.claimed(cell_of(creature)):
+        if dead(creature) or cell_of(creature) not in own:
             continue
         if out is None:
             if not creature["state"].get("tame"):
