@@ -54,6 +54,44 @@ class StackTests(unittest.TestCase):
         self.assertIsNone(state["full_at"])
 
 
+class WhatGivesWayTests(unittest.TestCase):
+    """Fix wave I2(a): something valuable that does not fit pushes out the least valuable block
+    Mimo carries instead of being left behind itself."""
+
+    carried = {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 3)}, "dirt": 40, "cobblestone": 20}  # 16 stacks
+
+    def test_a_new_fish_or_berry_is_kept_and_a_dirt_stack_is_left(self):
+        for food in ("raw_fish", "berries"):
+            inventory = {**self.carried, food: 3}
+            self.assertEqual(settle(inventory, self.carried), {"dirt": 8}, food)
+            self.assertEqual(inventory, {**self.carried, "dirt": 32, food: 3})
+
+    def test_seeds_saplings_ore_ingots_coal_and_tools_count_as_valuable(self):
+        for item in ("seeds", "sapling", "iron_ore", "iron_ingot", "coal", "stone_pickaxe", "wooden_axe"):
+            inventory = {**self.carried, item: 1}
+            self.assertEqual(settle(inventory, self.carried), {"dirt": 8}, item)
+            self.assertEqual(inventory[item], 1)
+
+    def test_cobblestone_goes_only_when_no_dirt_is_left(self):
+        carried = {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 1)}, "cobblestone": 20}
+        inventory = {**carried, "apple": 1}
+        self.assertEqual(settle(inventory, carried), {"cobblestone": 20})
+        self.assertEqual(inventory, {**{f"item_{n}": 1 for n in range(CARRY_STACKS - 1)}, "apple": 1})
+
+    def test_a_low_value_newcomer_and_a_valuable_one_with_nothing_to_give_way_are_left(self):
+        inventory = {**self.carried, "gravel": 3}
+        self.assertEqual(settle(inventory, self.carried), {"gravel": 3})
+        inventory = {**FULL, "berries": 3}
+        self.assertEqual(settle(inventory, FULL), {"berries": 3})
+
+    def test_in_the_tick_a_picked_berry_stays_and_mimo_says_its_arms_are_full(self):
+        grid = Grid(lambda x, y, z: "berry_bush_ripe" if (x, y, z) == (1, 1, 0) else "grass" if y == 0 else "air")
+        state = pet(self.carried)
+        work(state, grid, [{"kind": "pick", "target": [1, 1, 0]}], until=2.0)
+        self.assertEqual(state["inventory"], {**self.carried, "dirt": 32, "berries": 3})
+        self.assertIn("full", state["last_thought"])
+
+
 class FullHandsInTheTickTests(unittest.TestCase):
     def test_a_mined_block_that_does_not_fit_is_left_and_mimo_says_so(self):
         grid = Grid(lambda x, y, z: "dirt" if y <= 1 and (x, y, z) == (1, 1, 0) else "stone" if y <= 0 else "air")

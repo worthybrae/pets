@@ -4,8 +4,11 @@ Items come in stacks of up to 32 of one kind; a tool or station is a stack of it
 carries at most 16 stacks and a chest holds 24. When a finished step brings in more than fits,
 the part that does not fit stays behind (there are no dropped items to pick up later), the way
 a full inventory in a block game leaves the new item on the ground. Only what the step brought
-in is left: what Mimo already carried is never lost. Being full makes putting things away in a
-chest and dropping low-value items worth doing (backend.survival.storage).
+in is left, with one exception: something valuable (food, seeds, saplings, wheat, ore, ingots,
+coal and tools) pushes out the least valuable block Mimo carries instead (LOW_VALUE, moss first
+and cobblestone last), a stack at a time; anything else Mimo already carried is never lost. Being
+full makes putting things away in a chest and dropping low-value items worth doing
+(backend.survival.storage).
 
 Crafting, smelting and cooking never make something that would be left behind: their steps do
 not start when the output would not fit once the inputs are used up (`fits`, checked in
@@ -22,6 +25,9 @@ from backend.services.crafting import add_item, craft, smelt, take_items
 STACK = 32
 CARRY_STACKS = 16
 CHEST_STACKS = 24
+# Carried blocks worth least, the least first: a valuable newcomer that does not fit pushes one out.
+LOW_VALUE = ("moss", "gravel", "sand", "clay", "dirt", "basalt", "limestone", "sandstone", "cobblestone")
+VALUABLE = ("seeds", "sapling", "wheat", "coal")
 
 
 def stacks(items: dict[str, int]) -> int:
@@ -87,19 +93,38 @@ def crafts_fit(inventory: dict[str, int], steps: list[dict]) -> bool:
     return True
 
 
+def valuable(item: str) -> bool:
+    """Food, seeds, saplings, wheat, ore, ingots, coal and tools: worth more than any LOW_VALUE block."""
+    from backend.survival.steps import AXES, FOOD, PICKAXE_SPEED  # imported here: steps imports this module
+    return (item in FOOD or item in VALUABLE or item in PICKAXE_SPEED or item in AXES
+            or item.endswith(("_ore", "_ingot")))
+
+
+def least_valuable(inventory: dict[str, int], newcomer: str) -> str | None:
+    """The LOW_VALUE block Mimo carries that gives way to a valuable `newcomer`, or None."""
+    if not valuable(newcomer):
+        return None
+    return next((item for item in LOW_VALUE if inventory.get(item, 0) > 0), None)
+
+
 def settle(inventory: dict[str, int], before: dict[str, int]) -> dict[str, int]:
     """Leave behind what a step brought in that Mimo cannot carry: while it carries more than
     CARRY_STACKS stacks, each item that grew goes back down (a stack at a time, never below what
-    it was before the step). Changes `inventory` in place and returns what was left behind."""
+    it was before the step), unless it is valuable and a LOW_VALUE block can go instead (its
+    part-filled stack first). Changes `inventory` in place and returns what was left behind."""
     left: dict[str, int] = {}
     for item in sorted(item for item, count in inventory.items() if count > before.get(item, 0)):
         while stacks(inventory) > CARRY_STACKS and inventory.get(item, 0) > before.get(item, 0):
-            count = inventory[item]
-            drop = min(count % STACK or STACK, count - before.get(item, 0))
-            inventory[item] = count - drop
-            left[item] = left.get(item, 0) + drop
-            if inventory[item] == 0:
-                del inventory[item]
+            spare = least_valuable(inventory, item)
+            gone = spare or item
+            count = inventory[gone]
+            drop = count % STACK or STACK
+            if spare is None:
+                drop = min(drop, count - before.get(item, 0))
+            inventory[gone] = count - drop
+            left[gone] = left.get(gone, 0) + drop
+            if inventory[gone] == 0:
+                del inventory[gone]
     return left
 
 

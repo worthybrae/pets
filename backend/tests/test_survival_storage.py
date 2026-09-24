@@ -12,6 +12,7 @@ from backend.survival.structures import start
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
+NIGHT = {**DAY, "phase": "night", "seconds_into_day": 3000.0}
 LOOSE = {"dirt": 40, "moss": 3, "gravel": 5, "sand": 5, "clay": 2, "basalt": 1, "limestone": 1, "sandstone": 1,
          "copper_ore": 2, "brick": 1, "glass": 1, "cobblestone": 20, "oak_log": 3}  # 14 stacks
 
@@ -40,8 +41,8 @@ class Home:
             self.state["chests"] = {"2,1,2": dict(chest)}
         ensure_actions(self.state)
 
-    def situation(self):
-        return Situation(self.state, self.grid, DAY, 0.0, self.db)
+    def situation(self, clock=DAY):
+        return Situation(self.state, self.grid, clock, 0.0, self.db)
 
     def plan(self, name):
         s = self.situation()
@@ -66,6 +67,7 @@ class StorageTests(unittest.TestCase):
 
     def test_not_offered_with_room_to_spare_or_without_a_built_shelter(self):
         self.assertFalse(PURPOSES["build_storage"].valid(Home({"dirt": 40, "planks": 8}).situation()))
+        self.assertFalse(PURPOSES["build_storage"].valid(Home({**LOOSE, "planks": 8}).situation(NIGHT)))
         home = Home({**LOOSE, "planks": 8})
         home.db.execute("DELETE FROM structures")
         self.assertFalse(PURPOSES["build_storage"].valid(home.situation()))
@@ -84,6 +86,17 @@ class StorageTests(unittest.TestCase):
         steps = home.plan("build_storage")
         self.assertIn(store("berries", 10), steps)
         self.assertNotIn("bread", [step.get("item") for step in steps])
+
+    def test_with_full_arms_even_the_kept_building_blocks_go_in(self):
+        """Fix wave I2(b): 16 cobblestone and 16 planks are what Mimo keeps on it, but when its arms
+        are full they go into the chest whole."""
+        filler = {f"item_{n}": 1 for n in range(14)}
+        home = Home({**filler, "cobblestone": 16, "planks": 16}, chest={})  # 16 stacks
+        self.assertTrue(PURPOSES["build_storage"].valid(home.situation()))
+        self.assertEqual(home.plan("build_storage"), [store("cobblestone", 16), store("planks", 16)])
+        roomy = Home({**filler, "cobblestone": 16, "planks": 16, "item_13": 0}, chest={})
+        roomy.state["inventory"].pop("item_13")  # 15 stacks: they stay with Mimo
+        self.assertFalse(PURPOSES["build_storage"].valid(roomy.situation()))
 
     def test_a_chest_that_would_not_fit_is_not_planned(self):
         """Fix wave I1: making the chest from 20 planks at 16 stacks leaves 12 planks and a chest,
@@ -120,6 +133,34 @@ class DropTests(unittest.TestCase):
         self.assertEqual([step["item"] for step in home.plan("drop_items")], ["moss", "gravel", "sand", "clay"])
         with_chest = Home(full, chest={})
         self.assertFalse(PURPOSES["drop_items"].valid(with_chest.situation()))
+
+
+class DropWhenStuckTests(unittest.TestCase):
+    """Fix wave I2(c): full, with no chest or a full one, Mimo drops dirt, and with no dirt,
+    cobblestone, keeping what a started shelter still needs."""
+
+    filler = {f"item_{n}": 1 for n in range(13)}
+    FULL_CHEST = {f"thing_{n}": 32 for n in range(24)}
+
+    def test_dirt_goes_with_no_chest_or_a_full_one(self):
+        for chest in (None, self.FULL_CHEST):
+            home = Home({**self.filler, "dirt": 40, "cobblestone": 20}, chest=chest)  # 16 stacks
+            self.assertTrue(PURPOSES["drop_items"].valid(home.situation()), chest)
+            self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "dirt", "amount": 40}])
+        roomy = Home({**self.filler, "dirt": 40, "cobblestone": 20}, chest={})
+        self.assertFalse(PURPOSES["drop_items"].valid(roomy.situation()))
+
+    def test_with_no_dirt_cobblestone_goes_but_what_the_shelter_still_needs_stays(self):
+        carried = {**self.filler, "item_13": 1, "cobblestone": 40}  # 16 stacks
+        self.assertEqual(Home(carried).plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 40}])
+        home = Home(carried)
+        for cell in [(-1, 1, 0), (-1, 2, 0), (3, 1, 0), (3, 2, 0), (3, 1, 1)]:  # five wall blocks gone
+            home.grid.put(*cell, "air")
+        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 35}])
+        dirt = Home({**self.filler, "item_13": 1, "dirt": 40})
+        for cell in [(-1, 1, 0), (-1, 2, 0), (3, 1, 0)]:
+            dirt.grid.put(*cell, "air")
+        self.assertEqual(dirt.plan("drop_items"), [{"kind": "drop", "item": "dirt", "amount": 37}])
 
 
 class FarmHarvestTests(unittest.TestCase):
