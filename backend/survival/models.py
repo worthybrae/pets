@@ -27,7 +27,8 @@ DEFAULT_LUNA_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_LUNA_MODEL = "gpt-6-luna"
 REFLECTION_LIMIT = 160
 INSTRUCTIONS = ("Choose what this small survival pet should do next. Keep it alive first (food, warmth, "
-                "rest, shelter by night), then follow its traits. Choose only from the offered purposes.")
+                "rest, shelter by night), then work toward its goal (the choices that say they do), then "
+                "follow its traits. Choose only from the offered purposes.")
 
 Http = Callable[[str, dict, dict, float], dict]
 Env = Mapping[str, str]
@@ -59,7 +60,8 @@ def luna_configured(env: Env) -> bool:
 
 
 def criteria(choices: list[Option]) -> dict[str, str]:
-    return {option.name: f"{option.description} Now: {option.facts}." for option in choices}
+    return {option.name: f"{option.description} Now: {option.facts}."
+            + (f" It works toward the goal: {option.goal}." if option.goal else "") for option in choices}
 
 
 def ask_jev(payload: dict, choices: list[Option], env: Env, http: Http = post_json) -> str:

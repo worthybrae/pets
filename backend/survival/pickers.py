@@ -6,7 +6,8 @@ after a small random nudge (0 to 6), so Mimo does not always do the same thing. 
 from each purpose's templates. `context_payload(s, events)` is what Jev and Luna see: name,
 traits, mood, vitals, phase, day, inventory, known places, the last 8 events, the trigger, what
 Mimo built or could build (M5), how much of the land around it it has explored, and (L2) the
-hostile creatures near it and what it can meet them with.
+hostile creatures near it and what it can meet them with. L4: the options follow Mimo's goal
+(`steer`, with the rules in backend.survival.goals).
 """
 
 from __future__ import annotations
@@ -14,11 +15,12 @@ from __future__ import annotations
 import logging
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from backend.survival.building import building_payload
 from backend.survival.creatures.defense import threats_payload
 from backend.survival.exploring import exploration_payload
+from backend.survival.goals import active, boosted, meets_need, toward
 from backend.survival.memory import cell_of
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, offered
@@ -39,6 +41,7 @@ class Option:
     description: str
     facts: str
     score: float
+    goal: str = ""  # L4: the title of the goal it works toward, if any
 
 
 def options(s: Situation) -> list[Option]:
@@ -53,7 +56,24 @@ def options(s: Situation) -> list[Option]:
         if s.brain["penalties"].get(purpose.name, -math.inf) > s.at:
             score -= PENALTY
         found.append(Option(purpose.name, purpose.phrase, purpose.description, facts, score))
-    return found
+    return steer(s, found)
+
+
+def steer(s: Situation, found: list[Option]) -> list[Option]:
+    """L4: the options with Mimo's goal in mind (backend.survival.goals). The ones that advance the goal
+    (or, while it waits, another open goal: goals.toward) are marked with its title and score more
+    (goals.boosted). While any option advances a goal or meets a need, only those are offered: the
+    others, rest and explore among them, would be capped in the leisure band anyway, and leaving them
+    out keeps a model's pick on the goal too. Otherwise every option keeps its own score. Without a
+    goal, the options are as found."""
+    if active(s) is None:
+        return found
+    aim = toward(s, {option.name for option in found})
+    title, advancing = (aim[0].title, aim[1]) if aim else ("", frozenset())
+    steered = [replace(option, score=boosted(s, option.score), goal=title) if option.name in advancing else option
+               for option in found]
+    focused = [option for option in steered if option.goal or meets_need(s, option.name, option.score)]
+    return focused or steered
 
 
 def utility_pick(choices: list[Option], rng: random.Random) -> str:

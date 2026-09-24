@@ -1,0 +1,333 @@
+"""Goals (L4): long projects above purposes, as a registry.
+
+A Goal is something Mimo works toward for days: a home of its own, iron tools, a full larder. It
+has a name, a title and a why (for the model and the HUD), the goals that must be settled first
+(`after`: reached, or complete now), a validity check, a rules score and a thought. Its progress
+is a list of Milestones, each with its words, a share from 0 to 1 read from Mimo's state and
+memory, and the purposes that work toward it. A milestone none of whose purposes is registered,
+or that needs an item with no recipe yet, is skipped: it counts for nothing and the day plan
+leaves it out. So goals name purposes by name, and grow as other modules register those purposes.
+A goal's progress is the mean of its counted milestones' shares; it is complete when every one is
+whole. A goal is reached once in a life, unless it repeats (`repeat`: a discovery goal, measured
+from when it was set, is on offer again once reached).
+
+Modules register goals on import (backend.survival.life_goals registers the ones Mimo has).
+
+The brain keeps its goal in state["brain"]:
+- goal: {"name", "since", "picker", "progress", "best", "best_at", "plan", "plan_day",
+  "checked_at"} or None. `plan` is the day plan, [{"text", "done", "step"}]: the next milestones
+  toward the goal (step is the milestone's index), written at dawn and when a goal is chosen.
+- goal_due: a goal choice Mimo waits for, {"id", "reasons", "since"}, or None (ids come from
+  the brain's next_id, like pending purpose choices).
+- goal_penalties: {goal: server time until which it is not offered, after it was given up}.
+- goal_idle_at: when a goal choice last found no goal open.
+The goals Mimo reached are remembered in its world (memory_knowledge, fact "goal").
+
+The tick tends the goal (`tend_goal`, from brain.notice_step). At most once a game minute it
+reads the goal's progress: a complete goal is reached (a notable "goal" event, the goal's mood
+reward, and a new goal and a new purpose are asked for); a goal no longer open is given up, and so
+is one whose progress has not risen for IDLE game seconds of daylight while nothing that advances
+it is on offer (`workable`). At dawn it writes the day plan (a routine "plan" event) and asks for a
+goal choice: Jev may keep the goal or pick another, the rules picker keeps it. A goal whose
+progress has not risen for a game day is given up at dawn instead. A goal given up is not offered
+again for a game day. With no goal, a goal choice is asked for at once, then every IDLE_RETRY game
+seconds while none is open. The worker's Chooser answers goal choices (backend.survival.choosing).
+
+Purposes follow the goal (`toward`, used by pickers.steer): the purposes on offer that advance
+the goal score GOAL_BOOST more (`boosted`: not past GOAL_TOP, and not late in the day or at
+night, so going home and sleep still come first). While anything advances the goal or meets a
+need (a purpose in NEEDS, or one whose urge Mimo feels now, `URGES`, scoring NEED_FLOOR or more),
+only those are offered: the others, rest and explore among them, would be capped in the leisure
+band anyway, and leaving them out keeps a model's pick on the goal too. When nothing for the goal is on offer now (torches wait for the
+evening, a hunt for hides for its gap), the best other open goal that has something on offer is
+worked toward meanwhile. A purpose whose work depends on why it is done says for itself whether it
+advances a goal right now (`ADVANCES`: an explore trip does when its reason serves the goal,
+backend.survival.scouting); any other purpose a milestone still to do names advances its goal.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import sqlite3
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Callable
+
+from backend.services.crafting import RECIPES
+from backend.survival.clock import DAY_SECONDS
+from backend.survival.memory import know, known
+from backend.survival.once import log_once
+from backend.survival.purposes import PURPOSES, is_valid, late_day
+from backend.survival.situation import Situation, in_tick
+from backend.survival.triggers import ensure_brain, mark_trigger
+
+if TYPE_CHECKING:
+    from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
+
+GOAL_BOOST = 15.0  # purposes that advance the goal score this much more...
+GOAL_TOP = 80.0  # ...but never into the survival band (80 and up): staying alive comes first
+NEED_FLOOR = 50.0  # a purpose in NEEDS meets a need when it scores at least this
+# The survival and needs bands of purposes.py, and M5's keeping of home and arms.
+NEEDS = frozenset({"sleep", "go_home", "eat", "cook", "forage", "fish", "hunt", "build_shelter", "light_up",
+                   "build_storage", "drop_items"})
+GOAL_MOOD = 15.0  # mood a reached goal gives, unless the goal says otherwise
+CHECK_EVERY = 60.0  # game seconds between two readings of the goal's progress in the tick
+STALL = DAY_SECONDS  # game seconds without progress after which a goal is given up at dawn
+IDLE = DAY_SECONDS / 3  # by day, this long without progress and nothing on offer for it: given up
+SET_ASIDE = DAY_SECONDS  # game seconds a goal given up is not offered again
+IDLE_RETRY = 600.0  # game seconds between two goal choices while no goal is open
+STICK = 100.0  # the rules picker keeps the current goal (a stalled one was given up before)...
+WORKABLE = 20.0  # ...and otherwise prefers a goal something can be done for right now
+OFFERED = 4  # goals offered at a choice, the current one among them
+PLAN_STEPS = 3  # milestones on the day plan
+NEXT_SHOWN = 2  # milestones named in a goal's facts
+REACHED = "goal"  # the memory_knowledge fact for a goal Mimo reached
+
+
+@dataclass(frozen=True)
+class Milestone:
+    text: str  # "Make an iron pickaxe"
+    share: Callable[[Situation], float]  # how much of it is done, 0 to 1
+    purposes: tuple[str, ...]  # the purposes that work toward it
+    items: tuple[str, ...] = ()  # items it needs a recipe for (L3's): skipped while one has none
+
+
+def always(s: Situation) -> bool:
+    return True
+
+
+@dataclass(frozen=True)
+class Goal:
+    name: str
+    title: str  # "Iron tools"
+    why: str  # one sentence for the model and the HUD
+    milestones: tuple[Milestone, ...]
+    score: Callable[[Situation], float]  # the rules picker's score
+    thought: str  # what Mimo thinks when it sets out
+    after: tuple[str, ...] = ()  # goals that must be settled first
+    valid: Callable[[Situation], bool] = always
+    reward: float = GOAL_MOOD
+    repeat: bool = False  # on offer again once reached (its milestones count from when it was set)
+
+
+GOALS: dict[str, Goal] = {}
+
+
+def register_goal(goal: Goal) -> Goal:
+    """Add a goal, or replace the one with the same name."""
+    GOALS[goal.name] = goal
+    return goal
+
+
+def lower(text: str) -> str:
+    return text[:1].lower() + text[1:]
+
+
+# Progress --------------------------------------------------------------------------------------
+
+def counted(goal: Goal) -> list[tuple[int, Milestone]]:
+    """The goal's milestones that count, with their index: a purpose of theirs is registered and
+    every item they need has a recipe."""
+    return [(index, milestone) for index, milestone in enumerate(goal.milestones)
+            if any(name in PURPOSES for name in milestone.purposes)
+            and all(item in RECIPES for item in milestone.items)]
+
+
+def share_of(s: Situation, milestone: Milestone) -> float:
+    """A milestone's share, read once per Situation. One that crashes counts as 0 (logged once)."""
+    def look() -> float:
+        try:
+            share = float(milestone.share(s))
+        except Exception as error:
+            log_once(logger, f"milestone {milestone.text!r}", error)
+            return 0.0
+        return min(1.0, max(0.0, share)) if math.isfinite(share) else 0.0
+    return s.sensed(f"milestone {id(milestone)}", look)
+
+
+def progress_of(s: Situation, goal: Goal) -> float:
+    steps = counted(goal)
+    return sum(share_of(s, milestone) for _, milestone in steps) / len(steps) if steps else 0.0
+
+
+def complete(s: Situation, goal: Goal) -> bool:
+    steps = counted(goal)
+    return bool(steps) and all(share_of(s, milestone) >= 1.0 for _, milestone in steps)
+
+
+def ahead(s: Situation, goal: Goal) -> list[tuple[int, Milestone]]:
+    """The counted milestones still to do, in order."""
+    return [(index, milestone) for index, milestone in counted(goal) if share_of(s, milestone) < 1.0]
+
+
+def reached(s: Situation) -> tuple[str, ...]:
+    """The goals Mimo reached in this life, first first."""
+    return s.sensed("goals reached", lambda: tuple(known(s.db, REACHED)) if s.db is not None else ())
+
+
+def settled(s: Situation, name: str) -> bool:
+    goal = GOALS.get(name)
+    return name in reached(s) or (goal is not None and complete(s, goal))
+
+
+def is_open(s: Situation, goal: Goal) -> bool:
+    """On offer: a milestone counts, the goals before it are settled, it is valid, not reached yet
+    (unless it repeats) and not complete. A validity check that crashes counts as not valid (logged
+    once)."""
+    if not counted(goal) or (goal.name in reached(s) and not goal.repeat):
+        return False
+    if not all(settled(s, name) for name in goal.after):
+        return False
+    try:
+        valid = bool(goal.valid(s))
+    except Exception as error:
+        log_once(logger, f"goal {goal.name} validity", error)
+        return False
+    return valid and not complete(s, goal)
+
+
+# The brain's goal ------------------------------------------------------------------------------
+
+def goal_state(state: dict) -> dict:
+    """The brain, with the goal fields a world from before L4 lacks."""
+    brain = ensure_brain(state)
+    brain.setdefault("goal", None)
+    brain.setdefault("goal_due", None)
+    brain.setdefault("goal_penalties", {})
+    brain.setdefault("goal_idle_at", None)
+    return brain
+
+
+def active(s: Situation) -> Goal | None:
+    """The goal Mimo works toward now, or None."""
+    goal = s.brain.get("goal")
+    return GOALS.get(goal["name"]) if goal else None
+
+
+def ask_for_goal(state: dict, reason: str, at: float) -> None:
+    """Ask for a goal choice. A pending one keeps its id and gains the reason."""
+    brain = goal_state(state)
+    due = brain["goal_due"]
+    if due is not None:
+        if reason not in due["reasons"]:
+            due["reasons"] = [*due["reasons"], reason]
+        return
+    brain["goal_due"] = {"id": brain["next_id"], "reasons": [reason], "since": at}
+    brain["next_id"] += 1
+
+
+def adopt_goal(state: dict, name: str | None, picker: str, thought: str, at: float) -> bool:
+    """Answer the goal choice with `name` (None: no goal is open). True for a new goal: it starts
+    from nothing, the next tick writes its day plan, and the purpose is chosen again under it."""
+    brain = goal_state(state)
+    brain["goal_due"] = None
+    current = brain["goal"]
+    if name is None or name not in GOALS:
+        brain["goal_idle_at"] = at
+        return False
+    if current is not None and current["name"] == name:
+        current["picker"] = picker
+        return False
+    brain["goal"] = {"name": name, "since": at, "picker": picker, "progress": 0.0, "best": -1.0, "best_at": at,
+                     "plan": None, "plan_day": None, "checked_at": None}
+    state["last_thought"] = thought
+    mark_trigger(state, "goal", at)
+    return True
+
+
+# Purposes follow the goal ----------------------------------------------------------------------
+
+# {purpose: check(s, goal)} for purposes that advance a goal only as they would be done now.
+ADVANCES: dict[str, Callable[[Situation, Goal], bool]] = {}
+
+
+def advances(s: Situation, name: str, goal: Goal) -> bool:
+    """The purpose, named by a milestone of the goal still to do, would advance it now: always,
+    unless it has a check of its own (ADVANCES). A check that crashes counts as no (logged once)."""
+    check = ADVANCES.get(name)
+    if check is None:
+        return True
+    try:
+        return bool(check(s, goal))
+    except Exception as error:
+        log_once(logger, f"{name} advances {goal.name}", error)
+        return False
+
+
+def advancing(s: Situation, goal: Goal) -> frozenset[str]:
+    """The registered purposes that would advance the goal now (the milestones still to do name them)."""
+    return frozenset(name for _, milestone in ahead(s, goal) for name in milestone.purposes
+                     if name in PURPOSES and advances(s, name, goal))
+
+
+def goal_purposes(s: Situation) -> frozenset[str] | None:
+    """The purposes that advance the goal now, or None without a goal."""
+    goal = active(s)
+    if goal is None:
+        return None
+    return s.sensed("goal purposes", lambda: advancing(s, goal))
+
+
+def penalized(s: Situation, name: str) -> bool:
+    return s.brain.get("goal_penalties", {}).get(name, -math.inf) > s.at
+
+
+def own_score(s: Situation, goal: Goal) -> float | None:
+    try:
+        return float(goal.score(s))
+    except Exception as error:
+        log_once(logger, f"goal {goal.name} score", error)
+        return None
+
+
+def toward(s: Situation, offered_now: set[str]) -> tuple[Goal, frozenset[str]] | None:
+    """The goal the options on offer work toward, with those that advance it: Mimo's goal when
+    something for it is on offer; else the best other open goal (by its own score) that has
+    something on offer, worked toward meanwhile. None without a goal, or with nothing on offer
+    for any open goal."""
+    current = active(s)
+    if current is None:
+        return None
+    names = (goal_purposes(s) or frozenset()) & offered_now
+    if names:
+        return current, names
+    best: tuple[float, Goal, frozenset[str]] | None = None
+    for goal in GOALS.values():
+        if goal.name == current.name or penalized(s, goal.name) or not is_open(s, goal):
+            continue
+        names = advancing(s, goal) & offered_now
+        score = own_score(s, goal) if names else None
+        if score is not None and (best is None or score > best[0]):
+            best = (score, goal, names)
+    return (best[1], best[2]) if best else None
+
+
+def boosted(s: Situation, score: float) -> float:
+    """The score of a purpose that advances a goal: GOAL_BOOST more, not past GOAL_TOP and never
+    lower. Late in the day and at night the goal waits for tomorrow: no boost."""
+    if s.night or late_day(s):
+        return score
+    return max(score, min(score + GOAL_BOOST, GOAL_TOP))
+
+
+# {purpose: urge(s)}: a purpose that meets a need while Mimo feels its urge (L4's curiosity: explore).
+URGES: dict[str, Callable[[Situation], bool]] = {}
+
+
+def meets_need(s: Situation, name: str, score: float) -> bool:
+    """The purpose meets a need: a survival or needs purpose, or one whose urge Mimo feels now, scoring
+    NEED_FLOOR or more. An urge that crashes counts as not felt (logged once)."""
+    if score < NEED_FLOOR:
+        return False
+    if name in NEEDS:
+        return True
+    urge = URGES.get(name)
+    if urge is None:
+        return False
+    try:
+        return bool(urge(s))
+    except Exception as error:
+        log_once(logger, f"{name} urge", error)
+        return False
