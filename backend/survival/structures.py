@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 
 from backend.services.blocks import hardness, is_plant, is_replaceable, is_solid
-from backend.survival.blueprints import FITTINGS, KEEP_OPEN, STRUCTURAL, Blueprint, Planned, from_data
+from backend.survival.blueprints import FITTINGS, KEEP_OPEN, STRUCTURAL, Blueprint, Planned, from_data, with_door
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import add_structure
 
@@ -42,7 +42,7 @@ def start(db: sqlite3.Connection, grid: Grid, blueprint: Blueprint, at: float) -
 
 
 def blueprint_of(structure: dict) -> Blueprint:
-    return from_data(structure["data"])
+    return with_door(from_data(structure["data"]))
 
 
 def missing(grid: Grid, planned: Planned) -> bool:
@@ -53,6 +53,8 @@ def missing(grid: Grid, planned: Planned) -> bool:
         return not is_solid(material)
     if planned.part == "plot":
         return material != "farmland"
+    if planned.part == "door":  # L2: the gap's lower cell waits for its door; the one above stays open
+        return planned.block == "door" and material != "door"
     return planned.part in FITTINGS and material != planned.block
 
 

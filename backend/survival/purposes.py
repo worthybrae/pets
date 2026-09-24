@@ -64,6 +64,9 @@ REST_LONGEST = 600.0  # game seconds
 EXPLORE_WALKS = 3
 AT_HOME = 2.0
 HOME_RANGE = 64.0
+# L2: a shelter Mimo built, with its door, is the safe place at night, so Mimo goes back to it from
+# twice as far as to any other home or shelter it remembers.
+BUILT_HOME_RANGE = 2 * HOME_RANGE
 SLEEP_HOME_REACH = 8.0
 TIRED_BELOW = 30.0
 GO_HOME_BATCHES = 3
@@ -117,9 +120,9 @@ def walk_to(cell, reach: float = 0.0) -> dict:
 
 
 def home_of(s: Situation) -> dict | None:
-    """The home Mimo built, when it is within HOME_RANGE blocks (M5); else the nearest remembered
-    home or shelter within HOME_RANGE."""
-    home = nearest(s.places, s.here, ("home",), HOME_RANGE)
+    """The home Mimo built, when it is within BUILT_HOME_RANGE blocks (M5, doubled in L2); else the
+    nearest remembered home or shelter within HOME_RANGE."""
+    home = nearest(s.places, s.here, ("home",), BUILT_HOME_RANGE)
     if home is not None and home["note"] == BUILT:
         return home
     return nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)

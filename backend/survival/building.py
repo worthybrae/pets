@@ -15,7 +15,8 @@ left. When the last floor, wall or roof block is down the shelter is done: home 
 (memory.set_home, noted "built"), a notable "built" event is logged and Mimo is pleased.
 
 A finished shelter is furnished by the same purpose: a bed (carried, or made from 6 planks) in
-its back corner and a campfire (carried, or made from 2 logs and 3 sticks) beside the door. A
+its back corner, a campfire (carried, or made from 2 logs and 3 sticks) beside the door and (L2) a
+door (carried, or made from 6 planks) in the door gap, older shelters too. A
 shelter with a floor, wall or roof block gone is damaged and build_shelter repairs it; a door gap
 or passage something solid was put in is cleared. build_storage puts a chest in the other back
 corner and light_up the torches at the outside corners (backend.survival.storage, lighting).
@@ -26,7 +27,8 @@ it takes no late-day penalty; at night Mimo sleeps.
 
 `note_building` hears about every finished step (brain.observe_step): it finishes structures,
 remembers the saplings Mimo planted (so gather_wood knows the trees that grow there are its own
-to chop), lifts Mimo's mood for each torch and asks for a new choice when Mimo's arms get full.
+to chop), lifts Mimo's mood for each torch, puts any creature inside out when the door goes in
+(L2, backend.survival.creatures.eviction) and asks for a new choice when Mimo's arms get full.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from backend.services.worldgen import terrain_height
 from backend.survival.blueprints import Blueprint, Planned, bill, design_shelter, pick_block, supplies
 from backend.survival.carrying import crafts_fit
 from backend.survival.cooking import made
+from backend.survival.creatures.eviction import evict
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.memory import cell_of, finish_structure, nearest, remember, set_home, structures
@@ -59,7 +62,7 @@ NOMINAL_BILL = 38  # about what the smallest shelter takes, before a design says
 AFTERNOON = 1200.0  # game seconds into the day from which building gets more urgent
 BUILT_MOOD = 10.0
 TORCH_MOOD = 2.0
-FURNISHINGS = ("bed", "campfire")
+FURNISHINGS = ("bed", "campfire", "door")
 SHELTER_RANGE = 2 * HOME_RANGE  # a shelter Mimo built this close is still its own: it starts no other
 
 
@@ -343,6 +346,10 @@ def note_building(state: dict, step: dict, context, at: float) -> None:
             finish_if_built(state, context, number, at)
         if kind == "place" and step.get("block") == "torch":
             state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + TORCH_MOOD)
+        if kind == "place" and step.get("block") == "door" and number is not None:
+            shelter = next((found for found in structures(db) if found["id"] == number), None)
+            if shelter is not None:
+                evict(context.grid, blueprint_of(shelter))
 
 
 def building_payload(s: Situation) -> dict:

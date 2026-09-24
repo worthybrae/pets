@@ -45,7 +45,9 @@ describe('block registry', () => {
 
   it('adds the food and camp blocks after the existing ones, so older ids never change', () => {
     expect(blockId('berry_bush')).toBe(blockId('flower_yellow') + 1)
-    expect(blockId('chest')).toBe(BLOCKS.length - 1)
+    expect(blockId('door')).toBe(blockId('chest') + 1)
+    expect(blockId('door')).toBe(BLOCKS.length - 1)
+    expect(LAYER_BY_ID[blockId('door')]).toBe(0)  // not meshed: the viewer draws doors itself
     for (const name of ['berry_bush_ripe', 'red_mushroom', 'wheat_2', 'carrot_3', 'sapling', 'campfire', 'torch']) {
       expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
       expect(blockDef(blockId(name)).solid, name).toBe(false)

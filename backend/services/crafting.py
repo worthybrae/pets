@@ -22,6 +22,7 @@ RECIPES = {
     "torch": {"ingredients": {"coal": 1, "sticks": 1}, "output": {"torch": 4}},
     "chest": {"ingredients": {"planks": 8}, "output": {"chest": 1}},
     "bed": {"ingredients": {"planks": 6}, "output": {"bed": 1}},
+    "door": {"ingredients": {"planks": 6}, "output": {"door": 1}},
     "wooden_axe": {"ingredients": {"planks": 3, "sticks": 2}, "output": {"wooden_axe": 1}, "station": "crafting_table"},
     "stone_axe": {"ingredients": {"cobblestone": 3, "sticks": 2}, "output": {"stone_axe": 1}, "station": "crafting_table"},
     "iron_axe": {"ingredients": {"iron_ingot": 3, "sticks": 2}, "output": {"iron_axe": 1}, "station": "crafting_table"},

@@ -24,14 +24,15 @@ Inputs (spec section 8):
 
 A shelter's inside is enclosed on every side with a roof over all of it, so every inside cell
 passes the server's shelter check (vitals.is_sheltered). Fittings: a bed and a chest in the back
-corners, a campfire outside beside the door, and up to four torches at the outside corners. A
+corners, a campfire outside beside the door, up to four torches at the outside corners and (L2) a
+door in the lower cell of the door gap, which Mimo walks through and creatures never do. A
 farm is a rectangle of 3x3 to 5x5 plots on flat tillable ground, as near its center as it fits.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from backend.services.blocks import is_replaceable, is_solid
 from backend.services.worldgen import hash32
@@ -104,6 +105,17 @@ def from_data(data: dict) -> Blueprint:
         cells=tuple(Planned((x, y, z), part, block) for x, y, z, part, block in data["cells"]),
         stands=tuple(tuple(cell) for cell in data.get("stands", [])),
         front=tuple(data["front"]) if data.get("front") else None, style=dict(data.get("style", {})))
+
+
+def with_door(blueprint: Blueprint) -> Blueprint:
+    """A shelter designed before doors (L2) gets one in the lower cell of its door gap, so build_shelter
+    furnishes old homes too; any other design comes back as it is."""
+    gap = blueprint.parts("door")
+    if blueprint.kind != "shelter" or not gap or any(planned.block == "door" for planned in gap):
+        return blueprint
+    lowest = min(gap, key=lambda planned: planned.cell[1])
+    return replace(blueprint, cells=tuple(Planned(planned.cell, planned.part, "door") if planned is lowest else planned
+                                          for planned in blueprint.cells))
 
 
 # Style and materials ---------------------------------------------------------------------------
@@ -363,8 +375,8 @@ def shelter(site: Site, style: Style, name: str) -> Blueprint:
         if (i, j) in site.grounds:
             cells.append(Planned(site.world(i, j, site.grounds[(i, j)] + 1), "torch", "torch"))
     home = (door, middle)
-    for y in (1, 2):
-        cells.append(Planned(site.world(door, -1, floor + y), "door", "air"))
+    for y in (1, 2):  # L2: a door in the lower cell of the gap; the cell above it stays open
+        cells.append(Planned(site.world(door, -1, floor + y), "door", "door" if y == 1 else "air"))
     front = site.world(door, -2, site.grounds[(door, -2)] + 1)
     cells.append(Planned(front, "front", "air"))
     cells.append(Planned((front[0], front[1] + 1, front[2]), "front", "air"))

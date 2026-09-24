@@ -126,6 +126,7 @@
     {"name": "campfire", "color": [247, 170, 88], "textures": "campfire", "layer": "cutout", "solid": false, "drop": "campfire", "glow": true, "hardness": 2.0, "tool": "axe"},
     {"name": "torch", "color": [250, 214, 120], "textures": "torch", "layer": "cutout", "solid": false, "drop": "torch", "glow": true, "hardness": 0.1},
     {"name": "bed", "color": [196, 92, 88], "textures": {"top": "bed_top", "side": "bed_side", "bottom": "planks"}, "layer": "opaque", "solid": true, "drop": "bed", "hardness": 0.6},
-    {"name": "chest", "color": [186, 138, 88], "textures": {"top": "chest_top", "side": "chest_side", "bottom": "planks"}, "layer": "opaque", "solid": true, "drop": "chest", "hardness": 2.0, "tool": "axe"}
+    {"name": "chest", "color": [186, 138, 88], "textures": {"top": "chest_top", "side": "chest_side", "bottom": "planks"}, "layer": "opaque", "solid": true, "drop": "chest", "hardness": 2.0, "tool": "axe"},
+    {"name": "door", "color": [150, 104, 64], "textures": "planks", "layer": "none", "solid": false, "drop": "door", "hardness": 2.0, "tool": "axe"}
   ]
 }

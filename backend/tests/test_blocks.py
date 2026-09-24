@@ -108,7 +108,8 @@ class BlockRegistryTests(unittest.TestCase):
 
     def test_food_and_camp_blocks_come_after_the_older_blocks(self):
         names = [block["name"] for block in BLOCK_LIST]
-        self.assertEqual(names[BLOCK_IDS["flower_yellow"] + 1:], list(FOOD_AND_CAMP))
+        self.assertEqual(names[BLOCK_IDS["flower_yellow"] + 1:BLOCK_IDS["chest"] + 1], list(FOOD_AND_CAMP))
+        self.assertEqual(names[BLOCK_IDS["chest"] + 1:], ["door"])  # L2
 
     def test_plants_crops_and_fires_are_see_through_and_kept_when_building(self):
         for name in FOOD_AND_CAMP:
