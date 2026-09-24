@@ -33,7 +33,8 @@ COORDINATE_LIMIT = 30_000
 # Everyday events: a memorial or archive card leaves them out, and recent-event lists show each
 # distinct one only once.
 ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
-                            "explore", "owner", "plan", "purpose", "reflex", "ate", "cook", "fish", "grow"})
+                            "explore", "owner", "plan", "purpose", "reflex", "ate", "cook", "fish", "grow",
+                            "hunt"})
 RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to skip repeats
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6

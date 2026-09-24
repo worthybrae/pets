@@ -10,8 +10,9 @@ with a clean StepFailed instead of a TypeError from as_cell or a dict lookup fur
 Every kind of step is a StepKind in the STEP_KINDS registry: how it starts and finishes, the
 pet's status while it runs, whether it counts as work and whether a reflex may cut it short. The
 engine (backend.survival.actions) asks the registry, so a new kind only has to register. M4's
-field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fieldwork and M5's
-housework (store, take, drop) in backend.survival.housework. Mining leaves or tall grass may drop
+field work (pick, harvest, till, plant, fish, cook) lives in backend.survival.fieldwork, M5's
+housework (store, take, drop) in backend.survival.housework and L1's attack in
+backend.survival.creatures.combat. Mining leaves or tall grass may drop
 more (nature.CHANCE_DROPS): saplings, apples, seeds. Sleep on a bed is sleep in a bed.
 """
 
@@ -397,6 +398,7 @@ register_step(StepKind("smelt", start_smelt, finish_smelt, "smelting", string_fi
 register_step(StepKind("sleep", start_sleep, nothing_happens, "sleeping", interruptible=True))
 register_step(StepKind("wait", start_wait, nothing_happens, "idle", interruptible=True))
 
-# M4's field work (pick, harvest, till, plant, fish, cook) and M5's housework (store, take, drop)
-# register themselves. They are imported last because they build on everything above.
+# M4's field work (pick, harvest, till, plant, fish, cook), M5's housework (store, take, drop) and
+# L1's attack register themselves. They are imported last because they build on everything above.
 from backend.survival import fieldwork, housework  # noqa: E402,F401
+from backend.survival.creatures import combat  # noqa: E402,F401
