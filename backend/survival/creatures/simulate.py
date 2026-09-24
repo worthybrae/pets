@@ -14,22 +14,34 @@ steps (backend.survival.tick), so there a gloomling strikes every 1.2 s; the cap
 was out of Mimo's sight when a long step began from walking up and striking within that step.
 Creatures farther away stay put. Moves are written to the creature rows; nothing searches
 for a path and no block changes, so a call costs a few queries and a few hundred cell lookups.
+
+Fix round 2: those short steps call this many times a slice, and herd spawning plus every animal's
+turn scale with how often it is called, not with the game time it covers -- so at that pace they
+cost far more than the L1 budget expects. `fight_step=True` (passed from backend.survival.tick,
+which knows whether a call is one of those short steps or the slice's one final call) skips
+`populate` and loads only hostile rows (`Herd.near(..., kinds=...)`, fewer rows read and decoded),
+so only hostiles act on a fight step; herd spawning and every animal's turn still run once a slice,
+at the final call, the ordinary L1 cadence.
 """
 
 from __future__ import annotations
 
 import heapq
+import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.survival.creatures.acts import Scene, act
-from backend.survival.creatures.darkness import spawn_hostiles
+from backend.survival.creatures.darkness import hostile_kinds, spawn_hostiles
 from backend.survival.creatures.kinds import kind_of
 from backend.survival.creatures.spawning import SIM_REACH, populate
 from backend.survival.creatures.table import dead
+from backend.survival.once import log_once
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
 
 MAX_ACTS = 24  # animal turns in one call, one each at most
 HOSTILE_ACTS = 32  # hostile turns in one call (L2)
@@ -39,8 +51,12 @@ DEAD_KEEP = 10.0  # server seconds a dead creature stays listed, for the viewer'
 UNKNOWN_WAIT = 60.0  # server seconds a creature of a kind no longer registered waits between turns
 
 
-def simulate(state: dict, context: ActionContext, at: float) -> None:
-    """Spawn, clear away and move the creatures near Mimo up to `at`. Needs the tick's database."""
+def simulate(state: dict, context: ActionContext, at: float, fight_step: bool = False) -> None:
+    """Spawn, clear away and move the creatures near Mimo up to `at`. Needs the tick's database.
+
+    `fight_step` (fix round 2): a short 1-second step (backend.survival.tick, FIGHT_SLICE) taken
+    only to see where a hostile near Mimo is now, not the slice's one ordinary call -- so herd
+    spawning and every animal's turn are skipped, and only hostile rows are even loaded."""
     grid = context.grid
     if context.db is None or grid.herd is None:
         return
@@ -49,8 +65,11 @@ def simulate(state: dict, context: ActionContext, at: float) -> None:
                   events=context.events, clock=clock)
     scale = clock["time_scale"]
     x, _, z = scene.pet
-    loaded = grid.herd.near(x, z, SIM_REACH)
-    loaded += populate(scene, loaded, scale)
+    if fight_step:
+        loaded = grid.herd.near(x, z, SIM_REACH, kinds=hostile_kinds())
+    else:
+        loaded = grid.herd.near(x, z, SIM_REACH)
+        loaded += populate(scene, loaded, scale)
     loaded += spawn_hostiles(scene)
     for creature in loaded:
         if dead(creature) and at - creature["state"].get("dead_at", at) > DEAD_KEEP:
@@ -70,7 +89,10 @@ def take_turns(scene: Scene, loaded: list[dict]) -> None:
     `finally` around the whole call (fix round 1: saving after every single turn, not just every
     creature, would cost a multi-turn hostile up to TURNS_EACH writes instead of one), so a crash
     partway through a call still keeps every earlier creature's turn and never leaves an
-    already-struck hostile unsaved and free to strike again next call."""
+    already-struck hostile unsaved and free to strike again next call. Fix round 2: a crashing
+    `act` (a bad kind, a bad state) is caught around that one creature, logged once and backed off
+    (`next_at = at + UNKNOWN_WAIT`), so it does not also cost every other queued creature its turn
+    this call."""
     at, earliest = scene.at, scene.at - LATE / scene.pace
     left = {True: HOSTILE_ACTS, False: MAX_ACTS}
     queue = []
@@ -91,8 +113,13 @@ def take_turns(scene: Scene, loaded: list[dict]) -> None:
             left[hostile] -= 1
             turns[number] = turns.get(number, 0) + 1
             acted[number] = creature
-            if act(creature, replace(scene, at=when) if hostile else scene) is None:
+            try:
+                if act(creature, replace(scene, at=when) if hostile else scene) is None:
+                    creature["next_at"] = at + UNKNOWN_WAIT
+            except Exception as error:
+                log_once(logger, "creature_act", error)
                 creature["next_at"] = at + UNKNOWN_WAIT
+                continue
             if (hostile and turns[number] < TURNS_EACH and not dead(creature)
                     and when < creature["next_at"] <= at):
                 heapq.heappush(queue, (creature["next_at"], creature["next_at"], number, hostile, creature))

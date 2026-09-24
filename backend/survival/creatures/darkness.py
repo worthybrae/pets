@@ -110,14 +110,17 @@ def spawn_hostiles(scene: Scene) -> list[dict]:
     Fix round 1: near a hostile the tick calls this every game second (backend.survival.tick,
     FIGHT_SLICE), so the window check comes first and costs nothing but a dict lookup; the sweep
     and the count (each a table scan) run only on the call that could actually spawn something,
-    at most once every SPAWN_EVERY game seconds."""
+    at most once every SPAWN_EVERY game seconds. Fix round 2: `dark_spawn_at` is set right after
+    that window check, before the sweep and the count -- setting it only once a chance is not also
+    capped (as it was) left it unset, and so the window open, for as long as HOSTILE_CAP hostiles
+    stayed alive, and the sweep and the count ran on every call again."""
     last = scene.state.get("dark_spawn_at")
     if last is not None and (scene.at - last) * scene.scale < SPAWN_EVERY:
         return []
+    scene.state["dark_spawn_at"] = scene.at
     despawn_far(scene)
     if hostiles_alive(scene) >= HOSTILE_CAP:
         return []
-    scene.state["dark_spawn_at"] = scene.at
     x, y, z = scene.pet
     # Fix round 1: salted by game seconds, not server seconds, so two chances spaced SPAWN_EVERY
     # game seconds apart never share a salt even when a high MIMO_TIME_SCALE keeps `scene.at`

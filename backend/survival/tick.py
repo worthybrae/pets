@@ -17,6 +17,12 @@ write transaction. After each chunk of actions the world regrows on its own
 (backend.survival.creatures.simulate), whatever mind runs Mimo; the creatures skip the moment
 the last tick ended on, since that tick already ran them up to it. A hostile creature's blow that
 takes Mimo's last health kills it (L2): the creature's kind is the cause of death.
+
+Fix round 2: while a hostile could reach Mimo, this step is one of many short FIGHT_SLICE steps in
+the same transaction (see below), so only that call's creature turn is a hostile one
+(`run_creatures(..., fight_step=True)`, backend.survival.creatures.simulate): herd spawning and
+every animal's turn wait for the transaction's one final call, the ordinary L1 cadence, instead of
+running (and costing) on every short step too.
 """
 
 from __future__ import annotations
@@ -54,7 +60,10 @@ FIGHT_SLICE = 1.0
 # Fix round 1: at most this many of those short steps run in one transaction. Without a cap, a low
 # MIMO_TIME_SCALE with a high MIMO_ACTION_SCALE shrinks FIGHT_SLICE / action_scale * scale toward
 # nothing (a transaction could otherwise cost thousands of creature calls); once the cap is spent,
-# catch-up falls back to the ordinary (longer) pace for the rest of the transaction.
+# catch-up falls back to the ordinary (longer) pace for the rest of the transaction. Fix round 2:
+# those short steps are spread evenly across the transaction's span instead (max(FIGHT_SLICE /
+# action_scale * scale, span / FIGHT_SLICES_MAX)), so the cap being spent does not also leave one
+# long tail step at the end.
 FIGHT_SLICES_MAX = 60
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
@@ -146,11 +155,13 @@ def run_renewal(state: dict, context: ActionContext, at: float) -> None:
         log_once(logger, "renewal", error)
 
 
-def run_creatures(state: dict, context: ActionContext, at: float) -> None:
+def run_creatures(state: dict, context: ActionContext, at: float, fight_step: bool = False) -> None:
     """Let the creatures near Mimo take their turns up to `at` (backend.survival.creatures.simulate).
-    A crash is logged once and the tick goes on."""
+    `fight_step` (fix round 2) says whether this call is one of the short FIGHT_SLICE steps, so
+    only hostiles load and act, or the slice's one final call, the ordinary L1 cadence. A crash is
+    logged once and the tick goes on."""
     try:
-        simulate(state, context, at)
+        simulate(state, context, at, fight_step=fight_step)
     except Exception as error:
         log_once(logger, "creatures", error)
 
@@ -186,7 +197,9 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                                 interrupt=mind.interrupt)
         cursor = state["last_tick_at"]
         remaining = (timestamp - cursor) * scale
+        span = remaining  # fix round 2: the whole span, to spread the short steps evenly across it
         fight_slices = 0  # fix round 1: bounds how many short (FIGHT_SLICE) steps this transaction takes
+        fight_step = False  # fix round 2: whether the step that reached the current cursor was one of those
         while remaining > 1e-9:
             fell_at = advance_actions(state, context, cursor)
             if fell_at is not None:
@@ -194,14 +207,18 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 break
             run_renewal(state, context, cursor)
             if cursor != state["last_tick_at"]:  # the last tick already ran the creatures up to here
-                run_creatures(state, context, cursor)
+                run_creatures(state, context, cursor, fight_step=fight_step)
                 if caught(state):
                     record_death(state, state["hurt_by"], cursor, scale, events)
                     break
             step = min(MAX_STEP_SECONDS, remaining)
+            fight_step = False
             if fight_slices < FIGHT_SLICES_MAX and creature_nearby(context, state):
-                step = min(step, FIGHT_SLICE / action_scale * scale)
+                # Fix round 2: spread the FIGHT_SLICES_MAX steps evenly across the whole span,
+                # instead of many tiny ones followed by one long tail step once the cap is spent.
+                step = min(step, max(FIGHT_SLICE / action_scale * scale, span / FIGHT_SLICES_MAX))
                 fight_slices += 1
+                fight_step = True
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
@@ -223,7 +240,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 record_death(state, "fall", fell_at, scale, events)
             else:
                 run_renewal(state, context, timestamp)
-                run_creatures(state, context, timestamp)
+                run_creatures(state, context, timestamp)  # the slice's one final call: full (fix round 2)
                 if caught(state):
                     record_death(state, state["hurt_by"], timestamp, scale, events)
         state["last_tick_at"] = state["died_at"] if state["died_at"] is not None else timestamp

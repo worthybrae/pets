@@ -64,12 +64,18 @@ class Herd:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
 
-    def near(self, x: float, z: float, reach: float) -> list[dict]:
-        """Every creature, dead or alive, within `reach` blocks (horizontally) of (x, z), by id."""
+    def near(self, x: float, z: float, reach: float, kinds: list[str] | None = None) -> list[dict]:
+        """Every creature, dead or alive, within `reach` blocks (horizontally) of (x, z), by id.
+        With `kinds` (fix round 2), only creatures of those kinds are read from the row and JSON-
+        decoded at all, for a call that only needs a few of the many creatures near Mimo."""
         box = math.ceil(reach)
+        query = f"SELECT {','.join(COLUMNS)} FROM creatures WHERE x BETWEEN ? AND ? AND z BETWEEN ? AND ?"
+        params: list = [x - box, x + box, z - box, z + box]
+        if kinds is not None:
+            query += f" AND kind IN ({','.join('?' * len(kinds))})"
+            params += list(kinds)
         try:
-            rows = self.db.execute(f"SELECT {','.join(COLUMNS)} FROM creatures WHERE x BETWEEN ? AND ? "
-                                   "AND z BETWEEN ? AND ? ORDER BY id", (x - box, x + box, z - box, z + box)).fetchall()
+            rows = self.db.execute(query + " ORDER BY id", params).fetchall()
         except sqlite3.OperationalError as error:
             if not missing_table(error):
                 raise

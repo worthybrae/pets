@@ -229,7 +229,7 @@ class TickTests(unittest.TestCase):
         calls = []
         with tempfile.TemporaryDirectory() as root:
             world = self.hatched(root)
-            with patch("backend.survival.tick.simulate", lambda state, context, at: calls.append(at)):
+            with patch("backend.survival.tick.simulate", lambda state, context, at, **kwargs: calls.append(at)):
                 for second in (30, 60, 200):
                     advance_world(world, BORN + second, 1.0)
         self.assertEqual(calls, [BORN + second for second in (30, 60, 120, 180, 200)])
@@ -245,9 +245,9 @@ class TickTests(unittest.TestCase):
     def test_creatures_cost_well_under_twenty_milliseconds_a_slice(self):
         spent = []
 
-        def timed(*args):
+        def timed(*args, **kwargs):
             start = time.perf_counter()
-            real(*args)
+            real(*args, **kwargs)
             spent.append(time.perf_counter() - start)
 
         real = tick.simulate
@@ -262,9 +262,9 @@ class TickTests(unittest.TestCase):
         """Mimo 40 blocks farther on every slice: new chunks to spawn each time, and a new crowd to move."""
         spent = []
 
-        def timed(*args):
+        def timed(*args, **kwargs):
             start = time.perf_counter()
-            real(*args)
+            real(*args, **kwargs)
             spent.append(time.perf_counter() - start)
 
         real = tick.simulate

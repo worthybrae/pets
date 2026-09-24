@@ -9,12 +9,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.survival import tick
+from backend.survival.creatures import darkness
 from backend.survival.creatures.acts import Scene
 from backend.survival.creatures.darkness import (
     DESPAWN_REACH, HOSTILE_CAP, SPAWN_EVERY, SPAWN_FAR, SPAWN_NEAR, spawn_hostiles, spots,
 )
 from backend.survival.creatures.kinds import KINDS, kind_of
-from backend.survival.creatures.simulate import HOSTILE_ACTS, MAX_ACTS, TURNS_EACH, take_turns
+from backend.survival.creatures.simulate import HOSTILE_ACTS, MAX_ACTS, TURNS_EACH, UNKNOWN_WAIT, take_turns
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
 from backend.survival.grid import Grid, world_grid
 from backend.survival.hatch import hatch
@@ -112,7 +113,27 @@ class SpawnTests(unittest.TestCase):
         self.assertEqual(spawn_hostiles(scene(grid, state)), [])
         near[0]["state"]["pose"] = "dead"
         grid.herd.save(near[0])
-        self.assertEqual(len(spawn_hostiles(scene(grid, state))), 1)
+        # fix round 2: dark_spawn_at is now set on the capped call too, so the next chance is at
+        # least SPAWN_EVERY game seconds later, not on the very next call at the same moment.
+        self.assertEqual(len(spawn_hostiles(scene(grid, state, at=100.0 + SPAWN_EVERY))), 1)
+
+    def test_the_spawn_window_stays_shut_while_the_cap_holds_so_the_sweep_and_count_run_once(self):
+        # fix round 2: dark_spawn_at used to stay unset for as long as HOSTILE_CAP hostiles were
+        # alive (the cap-blocked return came before the assignment), so the cheap window check kept
+        # passing and despawn_far/hostiles_alive (each a table scan) ran on every call regardless.
+        grid, state = land(), pet()
+        [grid.herd.add("gloomling", (20 + n, 1, 0), 20.0, 0.0, 0.0, {}) for n in range(HOSTILE_CAP)]
+        swept = []
+        real_despawn_far = darkness.despawn_far
+
+        def counted(scene):
+            swept.append(scene.at)
+            return real_despawn_far(scene)
+
+        with patch("backend.survival.creatures.darkness.despawn_far", counted):
+            for at in (100.0, 105.0, 110.0, 115.0, 120.0, 125.0):  # all within one SPAWN_EVERY (30) window
+                self.assertEqual(spawn_hostiles(scene(grid, state, at=at)), [])
+        self.assertEqual(swept, [100.0])  # only the first call actually swept; the window then stayed shut
 
     def test_hostiles_far_from_mimo_go_at_night_and_out_of_its_reach_by_day_but_animals_stay(self):
         grid = land()
@@ -185,13 +206,18 @@ class TurnTests(unittest.TestCase):
             take_turns(scene(grid, state, at=10.0), hostiles + animals)
         self.assertEqual(calls, {"hostile": HOSTILE_ACTS, "animal": MAX_ACTS})
 
-    def test_a_crash_partway_through_a_call_still_saves_the_turns_taken_before_it(self):
+    def test_a_crashing_creature_does_not_stop_the_others_from_taking_their_turn(self):
         # fix round 1: saves used to wait until the whole call finished, so one creature's crash
-        # (a raising action) lost every earlier creature's turn in the same call -- and left an
-        # already-struck hostile's cooldown unsaved, free to strike again next call.
+        # (a raising action) used to propagate out of take_turns and lose every earlier creature's
+        # turn in the same call -- and leave an already-struck hostile's cooldown unsaved, free to
+        # strike again next call.
+        # fix round 2: the crash is now caught around that one creature (logged once, backed off
+        # with UNKNOWN_WAIT), so it also does not cost every LATER queued creature its turn this
+        # call -- one bad creature no longer freezes the rest.
         grid, state = land(), {**pet(), "vitals": dict(START_VITALS)}
         first = self.add(grid, "cow", (0, 1, 0))
         second = self.add(grid, "cow", (0, 1, 1))
+        third = self.add(grid, "cow", (0, 1, 2))
 
         def fake_act(creature, sc):
             if creature["id"] == second["id"]:
@@ -200,10 +226,14 @@ class TurnTests(unittest.TestCase):
             creature["next_at"] = sc.at + 5.0
             return "fake"
 
-        with patch("backend.survival.creatures.simulate.act", fake_act):
-            with self.assertRaises(RuntimeError):
-                take_turns(scene(grid, state, at=10.0), [first, second])
-        self.assertEqual(grid.herd.get(first["id"])["next_at"], 15.0)  # saved despite the later crash
+        forget_logged()
+        with patch("backend.survival.creatures.simulate.act", fake_act), \
+                self.assertLogs("backend.survival.creatures.simulate", level=logging.ERROR) as logs:
+            take_turns(scene(grid, state, at=10.0), [first, second, third])
+        self.assertEqual(len(logs.output), 1)
+        self.assertEqual(grid.herd.get(first["id"])["next_at"], 15.0)  # acted, before the crash
+        self.assertEqual(grid.herd.get(third["id"])["next_at"], 15.0)  # still acted, after the crash
+        self.assertEqual(grid.herd.get(second["id"])["next_at"], 10.0 + UNKNOWN_WAIT)  # backed off, not stuck
 
 
 class TickTests(unittest.TestCase):
@@ -233,6 +263,11 @@ class TickTests(unittest.TestCase):
         for near in (True, False):
             calls = []
             real = tick.simulate
+
+            def track(*args, **kwargs):
+                calls.append(args[2])
+                return real(*args, **kwargs)
+
             with tempfile.TemporaryDirectory() as root:
                 _, _, world = self.hatched(root)
                 with world.transaction() as db:
@@ -242,7 +277,7 @@ class TickTests(unittest.TestCase):
                     x, y, z = (round(state["position"][axis]) for axis in "xyz")
                     if near:
                         Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
-                with patch("backend.survival.tick.simulate", lambda *args: calls.append(args[2]) or real(*args)), \
+                with patch("backend.survival.tick.simulate", track), \
                         patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
                         patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
                     advance_world(world, BORN + 1.0, 60.0, action_scale=60.0)
@@ -255,6 +290,11 @@ class TickTests(unittest.TestCase):
         # MIMO_ACTION_SCALE=60: each short step is only 1/60 of a game second).
         calls = []
         real = tick.simulate
+
+        def track(*args, **kwargs):
+            calls.append(args[2])
+            return real(*args, **kwargs)
+
         with tempfile.TemporaryDirectory() as root:
             _, _, world = self.hatched(root)
             with world.transaction() as db:
@@ -263,7 +303,7 @@ class TickTests(unittest.TestCase):
                 write_state(db, state)
                 x, y, z = (round(state["position"][axis]) for axis in "xyz")
                 Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
-            with patch("backend.survival.tick.simulate", lambda *args: calls.append(args[2]) or real(*args)), \
+            with patch("backend.survival.tick.simulate", track), \
                     patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
                     patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
                 advance_world(world, BORN + 60.0, 1.0, action_scale=60.0)
@@ -277,9 +317,9 @@ class TickTests(unittest.TestCase):
         # slice whose calls are each cheap but whose total is not. Sum a slice's calls instead.
         slices, counts = [], []
 
-        def timed(*args):
+        def timed(*args, **kwargs):
             start = time.perf_counter()
-            result = real(*args)
+            result = real(*args, **kwargs)
             slices[-1] += time.perf_counter() - start
             return result
 
@@ -303,15 +343,18 @@ class TickTests(unittest.TestCase):
         # fix round 1: the worst case for the per-slice budget -- a hostile right next to Mimo
         # keeps every slice in FIGHT_SLICE stepping (a call a game second), so the gating in
         # spawn_hostiles and saving once a call (not once a turn) must hold the per-slice mean
-        # under budget here too. Land herds (backend.survival.creatures.spawning, L1) are a
-        # separate, pre-existing cost this fix round does not touch, so they are held off here
-        # the same way `test_while_a_hostile_could_reach_mimo...` above holds off spawn_hostiles,
-        # to measure L2's own share of the cost on its own.
+        # under budget here too.
+        # fix round 2: the short steps are what multiply the herd cost (backend.survival.creatures
+        # .spawning, L1) -- animals were acting, and herds spawning, on every one of the short
+        # steps instead of once a slice, which a re-review measured at 33-38 ms mean, 77 ms peak.
+        # Herds are on here (not held off) so this test covers exactly that: `fight_step` now keeps
+        # `populate` and every animal's turn to the slice's one final call (backend.survival.tick,
+        # backend.survival.creatures.simulate), so this must hold budget with herds about too.
         slices = []
 
-        def timed(*args):
+        def timed(*args, **kwargs):
             start = time.perf_counter()
-            result = real(*args)
+            result = real(*args, **kwargs)
             slices[-1] += time.perf_counter() - start
             return result
 
@@ -325,8 +368,7 @@ class TickTests(unittest.TestCase):
                 x, y, z = (round(state["position"][axis]) for axis in "xyz")
                 Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
             with patch("backend.survival.tick.simulate", timed), \
-                    patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0), \
-                    patch("backend.survival.creatures.simulate.populate", lambda scene, loaded, scale: []):
+                    patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
                 for minute in range(1, 11):
                     slices.append(0.0)
                     advance_world(world, BORN + 60 * minute, 1.0)
