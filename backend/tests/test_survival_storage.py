@@ -1,9 +1,10 @@
 import sqlite3
 import unittest
 
+from backend.services.crafting import craft
 from backend.survival import farming, storage  # noqa: F401  (register farm, build_storage and drop_items)
 from backend.survival.actions import ActionContext, ensure_actions
-from backend.survival.blueprints import Style, find_site, shelter
+from backend.survival.blueprints import Style, find_site, shelter, supplies
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, finish_structure, know
 from backend.survival.purposes import PURPOSES
@@ -120,6 +121,35 @@ class StorageTests(unittest.TestCase):
         home = Home({**LOOSE, "planks": 8, "seeds": 9})  # 16 stacks, and something had to stay behind
         home.state["full_at"] = 5.0
         self.assertEqual(score(home.situation()), 70.0)
+
+    def test_logs_and_planks_are_kept_as_one_pool_of_any_wood(self):
+        """L3 final fix wave: KEEP held 8 logs and 16 planks of each wood, so a pet with oak and birch
+        carried two log stacks for good and sat at 15-16 of 16 stacks. Mimo now keeps 8 logs and 16
+        planks in all, of the wood it holds most (oak first on a tie, then birch, then spruce), and
+        the rest goes in the chest."""
+        home = Home({"birch_log": 8, "oak_log": 1, "planks": 10, "birch_planks": 10}, chest={})
+        s = home.situation()
+        self.assertEqual([storage.kept(s, item) for item in ("birch_log", "oak_log", "planks", "birch_planks")],
+                         [8, 0, 10, 6])
+        self.assertEqual(sorted(storage.to_store(s, home.chest)), [("birch_planks", 4), ("oak_log", 1)])
+        mixed = Home({"oak_log": 3, "spruce_log": 7, "birch_log": 2}, chest={}).situation()
+        self.assertEqual([storage.kept(mixed, item) for item in ("spruce_log", "oak_log", "birch_log")], [7, 1, 0])
+        oak = Home({"oak_log": 12, "planks": 20}, chest={}).situation()  # one wood: the same as before
+        self.assertEqual([storage.kept(oak, "oak_log"), storage.kept(oak, "planks")], [8, 16])
+
+    def test_what_the_pool_keeps_still_crafts_and_builds(self):
+        """L3 final fix wave: the pool can leave Mimo birch or spruce and no oak. Recipes that name
+        oak take any wood (crafting.STAND_INS and paid), and a shelter takes any planks and logs
+        (blueprints.supplies)."""
+        home = Home({"birch_log": 11, "oak_log": 3, "spruce_planks": 20, "planks": 4, "sticks": 4}, chest={})
+        s = home.situation()
+        kept = {item: min(count, storage.kept(s, item)) for item, count in s.inventory.items()}
+        self.assertEqual(kept, {"birch_log": 8, "oak_log": 0, "spruce_planks": 16, "planks": 0, "sticks": 4})
+        kept = {item: count for item, count in kept.items() if count}
+        tables = {"crafting_table"}
+        for recipe in ("birch_planks", "sticks", "crafting_table", "chest", "fence", "campfire", "wooden_pickaxe"):
+            self.assertIsInstance(craft(dict(kept), recipe, tables), dict, recipe)
+        self.assertEqual(supplies(kept), {"spruce_planks": 16, "birch_planks": 24})
 
     def test_torch_keep_matches_the_shelters_own_dark_corners(self):
         """L3 fix round 1, item 1: KEEP held a flat 4 torches, so once light_up lit every corner a

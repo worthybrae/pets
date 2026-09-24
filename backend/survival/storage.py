@@ -3,8 +3,8 @@
 Mimo carries at most 16 stacks (backend.survival.carrying). build_storage puts a chest in the
 back corner the shelter design keeps for it, under the roof, making it from 8 planks when Mimo
 carries none (and has room to carry the chest it makes), and puts away what Mimo does not need to
-carry: loose blocks, materials beyond what a day's work takes (KEEP), and food beyond a day's
-worth. With its arms full, the building blocks it keeps (cobblestone, planks) go in whole too. It
+carry: loose blocks, materials beyond what a day's work takes (KEEP; logs and planks of every wood
+count toward one keep each, L3 final fix wave), and food beyond a day's worth. With its arms full, the building blocks it keeps (cobblestone, planks) go in whole too. It
 takes food back out when Mimo carries less than a meal's worth. It is offered at the built
 shelter when Mimo's arms are getting full (13 stacks) or the chest holds food Mimo needs, and
 scores higher the fuller Mimo is.
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from backend.services.crafting import TOOL_RANK
+from backend.services.crafting import LOGS, PLANKS, TOOL_RANK
 from backend.survival.blueprints import BUILDING
 from backend.survival.building import current_shelter, structures_near, usable_supplies
 from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, full, room_for, stacks
@@ -55,11 +55,15 @@ KEEP = {"cobblestone": 16, "planks": 16, "oak_log": 8, "sticks": 8, "coal": 8, "
         # (final fix wave, `kept`); gloom dust waits for L3.
         "leather": 5, "wool": 0, "feather": 4, "rabbit_hide": 8, "string": 3, "flint": 4, "gloom_dust": 0}
 # L3: birch and spruce are kept like oak, stone bricks like cobblestone; fruit and desert or swamp
-# plants Mimo happens to break are put away.
+# plants Mimo happens to break are put away. L3 final fix wave: the woods share one keep (WOOD_POOLS,
+# `kept`): 8 logs and 16 planks in all, not of each wood, so a pet with oak and birch no longer
+# carries two log stacks for good.
 KEEP.update({"birch_log": 8, "spruce_log": 8, "birch_planks": 16, "spruce_planks": 16, "stone_bricks": 16,
              "pumpkin": 0, "melon": 0, "cactus": 0, "sugar_cane": 0, "gold_ore": 3, "gold_ingot": 3,
              "iron_ore": 16, "iron_ingot": 16,  # iron armor takes 13 ingots: keep them on hand
              "creature_seed": 0})  # seeds wait in the chest for the pen (backend.survival.pens)
+# Logs and planks of every wood are kept as one pool each, as many as KEEP gives oak's (8 logs, 16 planks).
+WOOD_POOLS = (LOGS, PLANKS)
 FLOWERS = ("flower_orange", "flower_pink", "flower_yellow")
 LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
 # With full arms and no chest to use, what goes after LEAST_USEFUL, each only when nothing before it
@@ -100,12 +104,25 @@ def spare_food(s: Situation) -> list[tuple[str, int]]:
     return list(reversed(spare))
 
 
+def pooled(s: Situation, item: str, pool: tuple[str, ...]) -> int:
+    """How many of `item` Mimo keeps from its wood pool: KEEP of the pool's first wood (oak) in all,
+    shared out to the wood it holds most first (the pool's order breaks a tie: oak, birch, spruce)."""
+    left = KEEP[pool[0]]
+    for wood in sorted(pool, key=lambda name: (-s.count(name), pool.index(name))):
+        share = min(s.count(wood), left)
+        if wood == item:
+            return share
+        left -= share
+    return 0
+
+
 def kept(s: Situation, item: str) -> int:
     """How many of `item` Mimo keeps on it: KEEP, or none of a building block when its arms are
     full, only as many torches as home's own dark corners still need (fix round 1, item 1: a
     carried lantern fills a corner as well as a torch does, so it counts against the need too,
     and once every corner is lit or Mimo has no finished shelter near enough to light, that need
-    is 0), or (final fix wave) of a gear material once the gear it is for is made."""
+    is 0), or (final fix wave) of a gear material once the gear it is for is made. Logs and planks
+    are kept as one pool of any wood each (L3 final fix wave, `pooled`)."""
     from backend.survival.creatures.gear import GEAR_MATERIALS, materials_wanted  # here: keeps purpose order
     from backend.survival.lighting import dark_corners  # here: lighting imports building; keeps purpose order
 
@@ -115,7 +132,8 @@ def kept(s: Situation, item: str) -> int:
         return 0
     if item in GEAR_MATERIALS and item not in materials_wanted(s.inventory):
         return 0
-    return KEEP[item]
+    pool = next((pool for pool in WOOD_POOLS if item in pool), None)
+    return pooled(s, item, pool) if pool else KEEP[item]
 
 
 def to_store(s: Situation, cell) -> list[tuple[str, int]]:
