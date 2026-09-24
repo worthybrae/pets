@@ -6,8 +6,9 @@ steps whenever Mimo's queue runs dry:
 1. A batch that failed (a `state["last_failure"]` the brain has not dealt with yet) is planned
    again once. A second failure reports back: the purpose is dropped, scores 30 lower for 600
    game seconds, and a `plan_failed` trigger asks for a new choice.
-   On any failure after two walks of the purpose found no path, the brain first checks whether
-   Mimo is trapped and digs a staircase out (backend.survival.escape).
+   On any failure after two walks found no path (of the purpose, or of any purposes within a few
+   game minutes: L3 final fix wave), the brain first checks whether Mimo is trapped (no way to the
+   surface or home) and digs a staircase out (backend.survival.escape).
 2. Otherwise the last batch finished well and counts toward the purpose's `batches`.
 3. The chosen purpose plans its next batch, each step tagged with the purpose's name. A purpose
    that is no longer valid, or has nothing left to do, is finished: `plan_done` asks for a new

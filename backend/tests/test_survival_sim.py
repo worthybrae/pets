@@ -15,7 +15,7 @@ from pathlib import Path
 
 from backend.survival.brain import BRAIN
 from backend.survival.choosing import JEV_HOUR_CAP, Chooser, InlineExecutor, cap
-from backend.survival.escape import TRAPPED_LIMIT, reachable_count
+from backend.survival.escape import way_out
 from backend.survival.grid import world_grid
 from backend.survival.hatch import hatch
 from backend.survival.memory import cell_of, places
@@ -83,14 +83,17 @@ def most_in_an_hour(times: list[float]) -> int:
     return max((sum(1 for other in times if at - HOUR < other <= at) for at in times), default=0)
 
 
-def sample(world: SurvivalWorld) -> tuple[int, int | None]:
-    """How many cells Mimo can reach, and how many its home can (None while it has no home)."""
+def sample(world: SurvivalWorld) -> tuple[bool, bool | None]:
+    """Whether Mimo can walk to the natural surface or home, and whether its home can walk to the
+    surface (None while it has no home). L3 final fix wave: this was "fewer than 256 cells reachable",
+    blind to a bigger pocket with no way up (escape.way_out)."""
     with world.connect() as db:
         state = read_state(db)
-        grid = world_grid(db, state["world_seed"])
-        homes = places(db, ("home",))
-        here = reachable_count(grid, as_cell(state["position"]), TRAPPED_LIMIT)
-        home = reachable_count(grid, cell_of(homes[0]), TRAPPED_LIMIT) if homes else None
+        seed = state["world_seed"]
+        grid = world_grid(db, seed)
+        homes = [cell_of(place) for place in places(db, ("home",))]
+        here = way_out(grid, as_cell(state["position"]), seed, set(homes))
+        home = way_out(grid, homes[0], seed) if homes else None
     return here, home
 
 
@@ -116,7 +119,7 @@ def run_life(seed: int, jev: bool) -> dict:
                 chooser.poll(registry, BORN + t)
                 if t % SAMPLE < STEP:
                     here, home = sample(world)
-                    if here < TRAPPED_LIMIT:
+                    if not here:
                         trapped_since = t if trapped_since is None else trapped_since
                         trapped_longest = max(trapped_longest, t - trapped_since)
                     else:
@@ -137,7 +140,7 @@ class HeadlessBrainTests(unittest.TestCase):
         self.assertEqual(run["errors"], [])
         self.assertLessEqual(run["trapped"], TRAPPED_AT_MOST)
         self.assertTrue(run["homes"], f"seed {seed} found no home")
-        self.assertTrue(all(home >= TRAPPED_LIMIT for home in run["homes"]), run["homes"])
+        self.assertTrue(all(run["homes"]), run["homes"])
         self.assertLessEqual(most_in_an_hour(run["purposes"]), PURPOSE_EVENTS_PER_HOUR)
 
     def test_the_utility_brain_lives_a_day_with_its_home_in_reach(self):

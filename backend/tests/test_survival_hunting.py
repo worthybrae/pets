@@ -1,5 +1,6 @@
 import sqlite3
 import unittest
+from unittest.mock import patch
 
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.brain import brain_plan
@@ -62,6 +63,16 @@ class PreyTests(unittest.TestCase):
                                       "target": {"x": 8, "y": 1, "z": 2}}])
         self.assertEqual([found["id"] for found in prey(situation(grid, failed))], [far["id"]])
         self.assertEqual(prey(Situation(pet(), Grid(lambda x, y, z: "air"), DAY, 0.0)), [])
+
+    def test_an_animal_more_than_2_below_its_columns_natural_surface_is_left_alone(self):
+        """L3 final fix wave: a hunt after a cave chicken took the seed-11 pet down its own stairs
+        and into a pocket it could not climb out of. Cave animals (more than 2 below the top of
+        their column's natural ground) are not prey; one on the surface, or 1 or 2 down in a dug
+        hole, still is."""
+        grid = meadow()
+        on_top, dug, cave = animal(grid, cell=(4, 9, 0)), animal(grid, cell=(6, 6, 0)), animal(grid, cell=(8, 5, 0))
+        with patch("backend.survival.creatures.hunting.terrain_height", lambda x, z, seed: 8):
+            self.assertCountEqual([found["id"] for found in prey(situation(grid))], [on_top["id"], dug["id"]])
 
 
 class HuntValidityTests(unittest.TestCase):
