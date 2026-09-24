@@ -51,6 +51,12 @@ class MoveTests(unittest.TestCase):
         self.assertNotIn((4, 1, 0), steps(grid, (3, 1, 0), False))  # the pond's surface
         self.assertEqual(sorted(steps(grid, (5, 0, 0), True)), [(4, 0, 0), (5, 0, -1), (5, 0, 1), (6, 0, 0)])
 
+    def test_steps_keep_out_of_what_mimo_built_or_means_to(self):
+        grid = meadow()
+        grid.claims.update({(1, 1, 0), (0, 1, 1), (5, 0, 1)})  # a shelter's door, a wall to be, a claimed pond cell
+        self.assertEqual(sorted(steps(grid, (0, 1, 0), False)), [(-1, 1, 0), (0, 1, -1)])
+        self.assertEqual(sorted(steps(grid, (5, 0, 0), True)), [(4, 0, 0), (5, 0, -1), (6, 0, 0)])
+
     def test_a_move_is_a_timed_path_and_where_follows_it(self):
         path = timed((0, 1, 0), [(1, 1, 0), (2, 1, 0)], 10.0, 0.5)
         self.assertEqual([entry["at"] for entry in path], [10.0, 10.5, 11.0])
@@ -79,6 +85,19 @@ class ActTests(unittest.TestCase):
                 self.assertLessEqual(math.hypot(cell[0], cell[2]), LEASH)
         self.assertEqual(seen, {"graze", "wander", "idle"})
         self.assertEqual(cow["state"]["turn"], 300)
+
+    def test_animals_never_wander_or_flee_into_a_shelter_mimo_is_building(self):
+        grid, creatures = meadow(), herd()
+        room = {(x, 1, z) for x in range(-3, 4) for z in range(2, 7)}  # room, door, passage and walls to be
+        grid.claims.update(room)
+        cow = animal(creatures, cell=(0, 1, 0))
+        at = 0.0
+        for turn in range(300):
+            at = max(at, cow["next_at"])
+            hunted = turn % 7 == 0
+            act(cow, scene(grid, creatures, at, state=pet(0 if hunted else 30, "hunt" if hunted else None)))
+            for entry in cow["state"].get("path") or []:
+                self.assertNotIn((entry["x"], entry["y"], entry["z"]), room)
 
     def test_an_animal_that_strayed_past_its_leash_heads_home(self):
         grid, creatures = meadow(), herd()

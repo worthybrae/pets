@@ -3,7 +3,9 @@
 There is no path search. A creature steps to one of its 4 neighbours at a time by the rules
 Mimo's paths follow (backend.survival.pathing.moves: level, one up with headroom, or down at most
 3). A land creature never steps onto water (a cell whose floor is water), and a fish only ever
-moves from water cell to water cell. Each move is a short timed path, like Mimo's walks, so the
+moves from water cell to water cell. No creature steps into a cell something Mimo built or is
+building claims (`Grid.claimed`: a shelter's room, door and passage, walls still to be placed),
+so animals never wander into a home or stand where a block has to go. Each move is a short timed path, like Mimo's walks, so the
 viewer can replay it: the creature's row holds the cell the move ends in, and `where` says where
 it is along the way at any moment. Chance comes from `roll`, fixed by the world seed, the
 creature, its turn and a channel, so a world always does the same thing.
@@ -28,11 +30,12 @@ def roll(seed: str, number: int, turn: int, channel: int) -> float:
 
 def steps(grid: Grid, cell: Cell, water: bool) -> list[Cell]:
     """The cells a creature can step to from `cell`: water cells around a fish, else the cells Mimo
-    could walk to in one move that are not on the water."""
+    could walk to in one move that are not on the water; never a cell something Mimo built claims."""
     if water:
         x, y, z = cell
-        return [(x + dx, y + dy, z + dz) for dx, dy, dz in WATER_SIDES if grid.water((x + dx, y + dy, z + dz))]
-    return [step for step in moves(grid, cell) if not grid.swimming(step)]
+        near = [(x + dx, y + dy, z + dz) for dx, dy, dz in WATER_SIDES]
+        return [step for step in near if grid.water(step) and not grid.claimed(step)]
+    return [step for step in moves(grid, cell) if not grid.swimming(step) and not grid.claimed(step)]
 
 
 def timed(start: Cell, cells: list[Cell], at: float, seconds: float) -> list[dict]:
