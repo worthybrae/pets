@@ -18,6 +18,8 @@ their goals'). A Reason has:
   was for, and whether the place is new to it;
 - `work(s)`: steps to take at each stop before walking on (breaking tall grass for a seed);
 - `goals`: the goals it serves; `score(s)`: explore's score with it, in the leisure band;
+- `urgent(s)`: it goes first now, before the reasons that serve Mimo's goal (L4a final fix wave,
+  I3: food while Mimo is hungry);
 - `reach`: how far from home its targets may lie, LEASH (60) like every trip. L5's frontier
   hooks in here: its "seek riches farther out" will be a reason with a longer reach, offered only
   to a pet geared for the ring it leads into. L4 does not build it.
@@ -30,8 +32,9 @@ in water, never within 4 blocks of a step that just failed, never in the patch M
 in one it visited less than a game day ago (spots excepted: they are where it means to go), and
 with a home known, never beyond the reason's reach from it unless nearer than Mimo is now.
 
-`offers` are the reasons wanted now that have a target, best first by the rules: a reason that
-serves Mimo's goal first, then the higher score; at most OFFERED. explore (purposes.py) is on offer
+`offers` are the reasons wanted now that have a target, best first by the rules: an urgent one
+first (food while Mimo is hungry, the final fix wave), then a reason that serves Mimo's goal, then
+the higher score; at most OFFERED. explore (purposes.py) is on offer
 only while there is one, and scores the first one's score. When explore is chosen the worker stores
 the trip in the brain (backend.survival.choosing: the rules' reason, or Jev's pick among the
 offers): state["brain"]["trip"] = {"reason", "words", "why", "direction", "since", "picker",
@@ -113,6 +116,10 @@ def no_work(s: Situation) -> list[dict]:
     return []
 
 
+def never(s: Situation) -> bool:
+    return False
+
+
 @dataclass(frozen=True)
 class Reason:
     name: str
@@ -125,6 +132,7 @@ class Reason:
     look: Callable[[Situation, "ActionContext"], Find | None] = no_look
     work: Callable[[Situation], list[dict]] = no_work
     reach: float = LEASH
+    urgent: Callable[[Situation], bool] = never  # goes first now, before the goal's reasons (food when hungry)
 
 
 REASONS: dict[str, Reason] = {}
@@ -264,11 +272,12 @@ def serves(reason: Reason, goal: str | None) -> bool:
 
 
 def offers(s: Situation) -> list[Offer]:
-    """The reasons Mimo could explore for now, with their best targets, best first: one that serves
-    its goal first, then the higher score."""
+    """The reasons Mimo could explore for now, with their best targets, best first: an urgent one
+    first (L4a final fix wave, I3: food while Mimo is hungry used to wait behind a goal's reason),
+    then one that serves its goal, then the higher score."""
     def look() -> list[Offer]:
         goal = (s.brain.get("goal") or {}).get("name")
-        found = []
+        found, urgent = [], set()
         for reason in REASONS.values():
             why = wanted_now(s, reason)
             if why is None:
@@ -277,7 +286,10 @@ def offers(s: Situation) -> list[Offer]:
             if aims:
                 score = float(guarded(reason, "score", lambda: reason.score(s), 0.0))
                 found.append(Offer(reason.name, reason.words, why, score, tuple(aims[:SHOWN])))
-        found.sort(key=lambda offer: (not serves(REASONS[offer.reason], goal), -offer.score, offer.reason))
+                if guarded(reason, "urgent", lambda: reason.urgent(s), False):
+                    urgent.add(reason.name)
+        found.sort(key=lambda offer: (offer.reason not in urgent, not serves(REASONS[offer.reason], goal),
+                                      -offer.score, offer.reason))
         return found[:OFFERED]
     return s.sensed("trip offers", look)
 

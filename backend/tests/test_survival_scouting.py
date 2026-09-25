@@ -3,10 +3,12 @@ import unittest
 from unittest.mock import patch
 
 from backend.survival import brain  # noqa: F401  (registers every purpose and reason)
-from backend.survival.goals import Goal, Milestone, advances
+from backend.survival.goals import GOALS, NEEDS, Goal, Milestone, adopt_goal, advances, meets_need, register_goal
 from backend.survival.grid import Grid
 from backend.survival.memory import places
-from backend.survival.trips import REASONS, best_trip, targets
+from backend.survival.pickers import options
+from backend.survival.triggers import ensure_brain
+from backend.survival.trips import REASONS, Reason, best_trip, offers, targets
 from backend.survival.vitals import START_VITALS
 from backend.tests.test_survival_purposes import context, pet, situation
 
@@ -124,6 +126,52 @@ class FoodTests(unittest.TestCase):
         self.assertEqual((find.words, find.done, find.new), ("berries", True, True))
         food = places(s.db, ("food",))
         self.assertEqual([(place["x"], place["data"]["ripe"]) for place in food], [(6, 1)])
+
+
+class HungryTripTests(unittest.TestCase):
+    """L4a final fix wave, I3: with goal work on offer, steer kept only goal work and needs, and
+    explore was no need, so at hunger 45, 30, 20, 10 and 5 a pet with no food near was offered
+    only the goal's work (the reviewer's probe_hungry). Explore is a need now when its best reason
+    is food, the food reason goes first when Mimo is hungry, and farm is a need too."""
+
+    def setUp(self):
+        for name, value in (("backend.survival.exploring.terrain_height", lambda x, z, seed: 0),
+                            ("backend.survival.scouting.natural_plants", BUSHES_EAST)):
+            patcher = patch(name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        goals = patch.dict(GOALS)
+        goals.start()
+        self.addCleanup(goals.stop)
+        register_goal(Goal("zz_work", "Some work", "", (Milestone("Dig stone", lambda s: 0.0,
+                                                                    ("gather_stone", "craft_tools")),),
+                           score=lambda s: 50.0, thought=""))
+
+    def hungry(self, hunger):
+        state = pet(inventory={"oak_log": 20, "wooden_pickaxe": 1}, vitals={**START_VITALS, "hunger": hunger})
+        ensure_brain(state)
+        adopt_goal(state, "zz_work", "utility", "", 0.0)
+        return situation(state)
+
+    def test_a_hungry_pet_with_goal_work_on_offer_is_offered_the_food_trip(self):
+        for hunger in (45.0, 30.0, 20.0, 10.0, 5.0):
+            found = {option.name: option for option in options(self.hungry(hunger))}
+            self.assertIn("gather_stone", found, hunger)  # the goal's work is still on offer...
+            self.assertIn("explore", found, hunger)  # ...and so is the trip for food
+            self.assertEqual(found["explore"].reasons[0].reason, "food", hunger)
+            self.assertTrue(meets_need(self.hungry(hunger), "explore", found["explore"].score), hunger)
+
+    def test_the_food_reason_goes_first_when_hungry_even_before_one_for_the_goal(self):
+        goal_trip = Reason("dig", "look for stone", lambda s: "the goal needs it",
+                           lambda s, x, z: (1.0, "stone"), lambda s: 90.0, goals=("zz_work",))
+        with patch.dict(REASONS, {"dig": goal_trip}):
+            self.assertEqual([offer.reason for offer in offers(self.hungry(30.0))][:2], ["food", "dig"])
+            fed = self.hungry(80.0)  # not hungry, only carrying little food: the goal's trip first
+            self.assertEqual([offer.reason for offer in offers(fed)][:2], ["dig", "food"])
+            self.assertFalse(meets_need(fed, "explore", 90.0) and best_trip(fed).reason == "food")
+
+    def test_farm_is_a_need(self):
+        self.assertIn("farm", NEEDS)
 
 
 if __name__ == "__main__":

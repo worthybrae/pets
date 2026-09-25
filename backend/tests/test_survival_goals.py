@@ -24,6 +24,9 @@ STONE = Goal("quarry", "A quarry", "Stone lasts.", (Milestone("Dig stone", lambd
              score=lambda s: 40.0, thought="Stone next.", after=("woodpile",))
 LATER = Goal("later", "Later", "Some day.", (Milestone("Dig stone", lambda s: 0.0, ("gather_stone",)),),
              score=lambda s: 30.0, thought="Some day.")
+# L4a final fix wave, I3: an empty-handed pet with no food near is offered the food trip as a need
+# (explore, when food is its best reason); half a day's food keeps these steering tests to steering.
+SOME_FOOD = {"berries": 4}
 
 
 @contextmanager
@@ -111,21 +114,21 @@ class SteerTests(unittest.TestCase):
 
     def test_purposes_that_advance_the_goal_score_more_and_nothing_else_is_offered(self):
         with only_goals(WOOD):
-            found = options(goal_situation("woodpile"))
+            found = options(goal_situation("woodpile", inventory=dict(SOME_FOOD)))
         self.assertEqual([(option.name, option.score, option.goal) for option in found],
                          [("gather_wood", 80.0, "A woodpile")])  # 72.5 + 15, no higher than 80
 
     def test_a_need_is_still_offered_and_late_in_the_day_the_goal_waits(self):
         with only_goals(WOOD):
-            hungry = goal_situation("woodpile", inventory={"berries": 2}, vitals={**START_VITALS, "hunger": 40.0})
+            hungry = goal_situation("woodpile", inventory=dict(SOME_FOOD), vitals={**START_VITALS, "hunger": 40.0})
             self.assertEqual({(option.name, option.score) for option in options(hungry)},
                              {("gather_wood", 80.0), ("eat", 60.0)})
-            late = goal_situation("woodpile", clock={**DAY, "seconds_into_day": DUSK - 100.0})
+            late = goal_situation("woodpile", inventory=dict(SOME_FOOD), clock={**DAY, "seconds_into_day": DUSK - 100.0})
             self.assertEqual([(option.name, option.score) for option in options(late)], [("gather_wood", 42.5)])
 
     def test_while_nothing_for_the_goal_is_on_offer_another_open_goal_is_worked_toward(self):
         with only_goals(WOOD, LATER):
-            s = goal_situation("later")  # no pickaxe: nothing digs stone
+            s = goal_situation("later", inventory=dict(SOME_FOOD))  # no pickaxe: nothing digs stone
             found = options(s)
             self.assertEqual([(option.name, option.goal) for option in found], [("gather_wood", "A woodpile")])
             self.assertEqual(toward(s, {"rest"}), None)

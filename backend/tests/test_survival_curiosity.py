@@ -87,6 +87,7 @@ class CuriosityTests(unittest.TestCase):
 
     def test_high_curiosity_lifts_explore_makes_it_a_need_and_is_a_reason_to_wander(self):
         tend_curiosity(self.state, self.context, 0.0)
+        self.state["inventory"] = {"berries": 4}  # (the final fix wave: no food trip, whose need is its own)
         levels = ((10.0, 0.0, False), (50.0, 0.0, False), (65.0, 9.0, False), (90.0, 24.0, True))
         for value, lifted, urge in levels:
             curiosity_state(self.state, 0.0)["value"] = value

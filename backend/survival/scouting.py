@@ -15,7 +15,10 @@
   then grazing land. Found once food work is on offer again: ripe food is remembered as a food
   place, water as a water place, an animal's ground as a "pasture" landmark. It scores like food
   work (30, plus a third of the food Mimo lacks and a third of its hunger) and serves the full
-  larder.
+  larder. L4a final fix wave, I3: it is food work in all but name, so explore meets a need when
+  food is its best reason (goals.URGES; with goal work on offer a hungry pet was offered only that
+  work), and while Mimo is hungry (under HUNGRY) the food reason goes first, before a reason that
+  serves its goal.
 
 The goals' own reasons register with their goals (backend.survival.life_goals: iron, hides, a
 creature seed, the map; backend.survival.homes: a site for a bigger home). Landmarks are places
@@ -38,12 +41,12 @@ from backend.survival.foraging import (
     FOOD_WANTED, fishing_spots, food_need, food_points, patches, ripe_food, room_for_food,
 )
 from backend.survival.building import building_need
-from backend.survival.goals import ADVANCES
+from backend.survival.goals import ADVANCES, add_urge
 from backend.survival.memory import SAME_PLACE, cell_of, remember, update_place
 from backend.survival.senses import PICKABLE, TREE_SEARCH, TRUNK_HEIGHT, natural_plants, trees_near
 from backend.survival.situation import Situation
 from backend.survival.steps import label
-from backend.survival.trips import Find, Reason, register_reason, serving
+from backend.survival.trips import Find, Reason, best_trip, register_reason, serving
 from backend.survival.work import logs_to_chop, wood, wood_goal
 
 if TYPE_CHECKING:
@@ -58,6 +61,7 @@ HOME_GOALS = ("first_shelter", "better_home")  # goals whose blocks wood is
 TREE_GROVE = 12  # blocks around a spot whose trees count
 SURE_TREES = 3
 FOOD_SHORT = FOOD_WANTED / 2  # hunger of food carried below which Mimo goes looking for more
+HUNGRY = 50.0  # hunger below which the food trip goes first ("I am hungry and no food is near")
 PLANT_REACH = 10  # blocks around a spot whose wild food counts
 SURE_PLANTS = 2
 WATER_SAMPLES = ((0, 0), (8, 0), (-8, 0), (0, 8), (0, -8))
@@ -126,7 +130,7 @@ def food_wanted(s: Situation) -> str | None:
     nothing to give way to food and not hungry enough to eat it there: foraging.room_for_food)."""
     if food_points(s) >= FOOD_SHORT or food_need(s) <= 0 or not room_for_food(s) or food_work(s):
         return None
-    if s.vitals["hunger"] < 50:
+    if s.vitals["hunger"] < HUNGRY:
         return "I am hungry and no food is near"
     return "I carry little food and none is near"
 
@@ -165,7 +169,16 @@ def food_look(s: Situation, context: ActionContext) -> Find | None:
 register_reason(Reason(
     "food", "look for food", food_wanted, food_value,
     lambda s: 30.0 + food_need(s) / 3 + (100.0 - s.vitals["hunger"]) / 3,
-    goals=("full_larder",), look=food_look))
+    goals=("full_larder",), look=food_look, urgent=lambda s: s.vitals["hunger"] < HUNGRY))
+
+
+def food_trip(s: Situation) -> bool:
+    """The best reason to explore now is food: explore is food work then (I3)."""
+    offer = best_trip(s)
+    return offer is not None and offer.reason == "food"
+
+
+add_urge("explore", food_trip)
 
 
 # explore and the goals -------------------------------------------------------------------------

@@ -73,7 +73,8 @@ GOAL_BOOST = 15.0  # purposes that advance the goal score this much more...
 GOAL_TOP = SURVIVAL_FLOOR  # ...but never into the survival band (80 and up): staying alive comes first
 NEED_FLOOR = 50.0  # a purpose in NEEDS meets a need when it scores at least this
 # The survival and needs bands of purposes.py, and M5's keeping of home and arms.
-NEEDS = frozenset({"sleep", "go_home", "eat", "cook", "forage", "fish", "hunt", "build_shelter", "light_up",
+# L4a final fix wave, I3: farm too (it tends and harvests the crops Mimo eats).
+NEEDS = frozenset({"sleep", "go_home", "eat", "cook", "forage", "fish", "hunt", "farm", "build_shelter", "light_up",
                    "build_storage", "drop_items"})
 GOAL_MOOD = 15.0  # mood a reached goal gives, unless the goal says otherwise
 CHECK_EVERY = 60.0  # game seconds between two readings of the goal's progress in the tick
@@ -320,8 +321,25 @@ def boosted(s: Situation, score: float) -> float:
     return max(score, min(score + GOAL_BOOST, GOAL_TOP))
 
 
-# {purpose: urge(s)}: a purpose that meets a need while Mimo feels its urge (L4's curiosity: explore).
+# {purpose: urge(s)}: a purpose that meets a need while Mimo feels its urge (L4's curiosity: explore,
+# once restless; the final fix wave's food trip: explore, when its best reason is food). Add one with
+# add_urge, so two modules' urges for the same purpose both count.
 URGES: dict[str, Callable[[Situation], bool]] = {}
+
+
+def felt(name: str, urge: Callable[[Situation], bool], s: Situation) -> bool:
+    """Whether Mimo feels the urge now. One that crashes counts as not felt (logged once)."""
+    try:
+        return bool(urge(s))
+    except Exception as error:
+        log_once(logger, f"{name} urge", error)
+        return False
+
+
+def add_urge(name: str, urge: Callable[[Situation], bool]) -> None:
+    """Add an urge for the purpose `name`: with one there already, either one felt is enough."""
+    before = URGES.get(name)
+    URGES[name] = urge if before is None else (lambda s: felt(name, before, s) or felt(name, urge, s))
 
 
 def meets_need(s: Situation, name: str, score: float) -> bool:
@@ -332,13 +350,7 @@ def meets_need(s: Situation, name: str, score: float) -> bool:
     if name in NEEDS:
         return True
     urge = URGES.get(name)
-    if urge is None:
-        return False
-    try:
-        return bool(urge(s))
-    except Exception as error:
-        log_once(logger, f"{name} urge", error)
-        return False
+    return urge is not None and felt(name, urge, s)
 
 
 # The goal in the tick --------------------------------------------------------------------------

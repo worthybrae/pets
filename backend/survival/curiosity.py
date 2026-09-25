@@ -61,7 +61,7 @@ from backend.survival.clock import DAY_SECONDS
 from backend.survival.creatures.kinds import KINDS, land_kinds
 from backend.survival.creatures.table import dead
 from backend.survival.exploring import HEADINGS, area_novelty, home_cell, lately
-from backend.survival.goals import PLAN_EXTRAS, URGES
+from backend.survival.goals import PLAN_EXTRAS, add_urge
 from backend.survival.life_goals import looked_into, opening_words, openings_near
 from backend.survival.memory import BUILT, PATCH, know, known, patch_of, places
 from backend.survival.once import log_once
@@ -316,8 +316,13 @@ def lift(s: Situation) -> float:
     return max(0.0, value_of(s.brain) - LIFTED) * LIFT_RATE
 
 
+def restless(s: Situation) -> bool:
+    """From RESTLESS on, exploring meets a need (goals.URGES)."""
+    return value_of(s.brain) >= RESTLESS
+
+
 LIFTS.append(lift)
-URGES["explore"] = lambda s: value_of(s.brain) >= RESTLESS
+add_urge("explore", restless)
 
 
 def since_words(seconds: float | None) -> str:
