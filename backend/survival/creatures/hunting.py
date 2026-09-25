@@ -83,8 +83,14 @@ def hunted_lately(s: Situation) -> bool:
     return hunted_at is not None and (s.at - hunted_at) * s.scale < DAY_SECONDS
 
 
+# L4: what else makes Mimo hunt though it lacks no food, as functions of the Situation
+# (backend.survival.life_goals adds hides and leather while armor is its goal).
+HUNT_FOR: list = []
+
+
 def hunt_valid(s: Situation) -> bool:
-    return not s.night and (food_need(s) > 0 or not hunted_lately(s)) and bool(prey(s))
+    wanted = food_need(s) > 0 or not hunted_lately(s) or any(want(s) for want in HUNT_FOR)
+    return not s.night and wanted and bool(prey(s))
 
 
 def hunt_facts(s: Situation) -> str:

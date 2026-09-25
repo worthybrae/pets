@@ -17,16 +17,20 @@ At 0 health Mimo dies of it: the tick records the death with the kind as its cau
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import RECIPES
 from backend.survival.creatures.table import missing_table
 from backend.survival.memory import remember
+from backend.survival.once import log_once
 from backend.survival.triggers import crossings, mark_trigger
 
 if TYPE_CHECKING:
     from backend.survival.creatures.acts import Scene
+
+logger = logging.getLogger(__name__)
 
 ARMOR = {"leather_cap": 0.08, "leather_tunic": 0.12}  # the share of a blow each piece takes off
 # L3: iron armor, 45 % together; a piece covers a slot, and only the best piece on each slot counts.
@@ -54,9 +58,23 @@ def covered(inventory: dict, piece: str) -> bool:
     return any(inventory.get(other, 0) > 0 for other in ARMOR if SLOTS.get(other, other) == slot)
 
 
+# L4: functions of Mimo's state that make iron armor worth its ingots before any creature hurt it
+# (armor as Mimo's goal, backend.survival.life_goals).
+ARMOR_WANTED: list = []
+
+
 def armor_wanted(state: dict) -> bool:
-    """Iron armor is worth its 13 ingots once a creature has hurt Mimo (L3)."""
-    return state.get("hurt_at") is not None
+    """Iron armor is worth its 13 ingots once a creature has hurt Mimo (L3), or (L4) while one of
+    ARMOR_WANTED says so; one that crashes counts as no (logged once)."""
+    if state.get("hurt_at") is not None:
+        return True
+    for wants in ARMOR_WANTED:
+        try:
+            if wants(state):
+                return True
+        except Exception as error:
+            log_once(logger, "armor wanted", error)
+    return False
 
 
 def armor_iron(inventory: dict) -> int:

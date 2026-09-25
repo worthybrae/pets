@@ -31,6 +31,7 @@ surface, and mine_ore when the ore is more than 16 blocks away. craft_tools need
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING
 
@@ -45,6 +46,7 @@ from backend.survival.creatures.harm import armor_iron, armor_wanted
 from backend.survival.carrying import CARRY_STACKS, room_for
 from backend.survival.farming import plant
 from backend.survival.nature import SOIL
+from backend.survival.once import log_once
 from backend.survival.senses import ORES, by_distance, failed_columns, standing_logs, trunks_near
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
@@ -52,6 +54,8 @@ from backend.survival.structures import reserved
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
 
 WOOD_GOAL = 8.0
 STAND_REACH = 2.0  # close enough to the lowest log that the top one (3 higher) stays within reach
@@ -353,18 +357,38 @@ def pickaxe_rank(inventory: dict) -> int:
     return max((rank for tool, rank in TOOL_RANK.items() if inventory.get(tool, 0) > 0), default=0)
 
 
+# L4: functions of (Situation, ore) that let mine_ore go for any ore of that kind Mimo remembers,
+# not only once it knows where enough lie (diamonds as Mimo's goal, backend.survival.life_goals).
+EAGER: list = []
+
+
+def eager(s: Situation, ore: str) -> bool:
+    """One of EAGER wants `ore` now; one that crashes counts as no (logged once)."""
+    for wants in EAGER:
+        try:
+            if wants(s, ore):
+                return True
+        except Exception as error:
+            log_once(logger, "eager for ore", error)
+    return False
+
+
 def enough_known(s: Situation, ore: str, have: int, need: int = 3) -> bool:
     """Mimo has fewer than `need` of what `ore` gives, and with the ores of that kind it remembers it
-    would have enough: one trip then gets them all (L3's gold and diamonds, needed 3 at a time)."""
+    would have enough: one trip then gets them all (L3's gold and diamonds, needed 3 at a time).
+    L4: while a goal wants the ore (EAGER), any one it remembers will do."""
     known = sum(1 for place in s.places if place["kind"] == "ore" and place["note"] == ore)
+    if have < need and known >= 1 and eager(s, ore):
+        return True
     return have < need <= have + known
 
 
 def wanted_ores(s: Situation) -> tuple[str, ...]:
     """Coal until Mimo carries 8; iron until it has 3 ore or ingots (or an iron pickaxe or better),
-    and then, once a creature has hurt it, as much as the iron armor it lacks takes; with an iron
-    pickaxe (L3), gold (until a gold pickaxe or better) and diamonds (until a diamond pickaxe), but
-    only once it knows where enough lie for a pickaxe (`enough_known`)."""
+    and then, once a creature has hurt it (L4: or while armor is its goal), as much as the iron
+    armor it lacks takes; with an iron pickaxe (L3), gold (until a gold pickaxe or better) and
+    diamonds (until a diamond pickaxe), but only once it knows where enough lie for a pickaxe
+    (`enough_known`; L4: any one it knows while diamonds are its goal)."""
     wanted, rank = [], pickaxe_rank(s.inventory)
     if s.count("coal") < 8:
         wanted.append("coal_ore")

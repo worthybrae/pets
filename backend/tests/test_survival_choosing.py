@@ -23,6 +23,8 @@ BORN = 1_000_000.0
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
 LUNA_URL = "https://api.openai.com/v1/chat/completions"
 JEV_REST = {"answers": {"purpose": {"choice": "rest"}}}
+# L4: a hatched pet's first goal is a home of its own, and while wood advances it rest is not offered.
+JEV_WOOD = {"answers": {"purpose": {"choice": "gather_wood"}}}
 
 
 class FakeHttp:
@@ -100,16 +102,16 @@ class ChoosingTests(unittest.TestCase):
     def test_jev_answers_in_the_background_and_the_answer_is_stored(self):
         tick_life(self.registry, BORN + 1, scale=1, mind=BRAIN)
         held = HeldExecutor()
-        chooser = self.chooser({"TYPESAFE_API_KEY": "k"}, {JEV_URL: JEV_REST}, held)
+        chooser = self.chooser({"TYPESAFE_API_KEY": "k"}, {JEV_URL: JEV_WOOD}, held)
         self.assertIsNone(chooser.poll(self.registry, BORN + 1))
         self.assertIsNotNone(self.brain()["pending"])
         self.assertIsNone(chooser.poll(self.registry, BORN + 2))
         self.assertEqual(len(held.held), 1)
         held.run()
-        self.assertEqual(chooser.poll(self.registry, BORN + 3), "rest")
+        self.assertEqual(chooser.poll(self.registry, BORN + 3), "gather_wood")
         brain = self.brain()
         self.assertEqual((brain["purpose"], brain["picker"], brain["calls"]["model"], brain["last_call_at"]),
-                         ("rest", "jev", 1, BORN + 1))
+                         ("gather_wood", "jev", 1, BORN + 1))
 
     def test_the_gap_and_the_daily_caps_send_choices_to_utility(self):
         now = BORN + 100
@@ -212,7 +214,7 @@ class ChoosingTests(unittest.TestCase):
             fresh.append(InlineExecutor())
             return fresh[-1]
 
-        chooser = Chooser(env={"TYPESAFE_API_KEY": "k"}, http=FakeHttp({JEV_URL: JEV_REST}), executor=stuck,
+        chooser = Chooser(env={"TYPESAFE_API_KEY": "k"}, http=FakeHttp({JEV_URL: JEV_WOOD}), executor=stuck,
                           rng=random.Random(1), scale=1.0, executor_factory=new_executor)
         self.assertIsNone(chooser.poll(self.registry, BORN + 1))
         self.assertIsNone(chooser.poll(self.registry, BORN + 36))  # 35 s: Jev's 20 s timeout plus 15 s
@@ -224,7 +226,7 @@ class ChoosingTests(unittest.TestCase):
                          (None, "utility", 1, BORN + 1))
         self.assertEqual((stuck.shut, len(fresh)), (True, 1))
         self.edit(lambda state: mark_trigger(state, "hello", BORN + 200))
-        self.assertEqual(chooser.poll(self.registry, BORN + 200), "rest")  # new work skips the stuck thread
+        self.assertEqual(chooser.poll(self.registry, BORN + 200), "gather_wood")  # new work skips the stuck thread
         self.assertEqual(self.brain()["picker"], "jev")
 
     def test_the_wait_for_a_model_covers_its_timeouts_and_a_reflection(self):

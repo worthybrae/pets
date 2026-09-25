@@ -57,6 +57,12 @@ SAMPLE = 30.0  # game seconds between reachability checks
 # stayed at 52 or under). The slow budget holds with a little more margin at 58.
 PURPOSE_EVENTS_PER_HOUR = 58 if SLOW else 52
 TRAPPED_AT_MOST = 180.0  # game seconds
+# L4: goals fill the day with work, and a change toward a goal (its event says ", toward ...") is
+# that work, so the flood guard above now counts the other changes, and all changes get a looser
+# cap of their own. Every explore trip has a reason and ends early on a find, so a trip is a change
+# to explore and one to the purpose that follows up on the find (with all of L4 on L3, the busiest
+# game hour reached 55, and 75 in slow mode, at most 31 of them toward no goal).
+ALL_EVENTS_PER_HOUR = 90
 
 
 class FakeJev:
@@ -132,8 +138,10 @@ def run_life(seed: int, jev: bool) -> dict:
                     if home is not None:
                         homes.append(home)
             events = world.events(100_000)
+            purposes = [event for event in events if event["kind"] == "purpose"]
             return {"state": world.state(), "calls": fake.calls, "trapped": trapped_longest, "homes": homes,
-                    "purposes": [event["at"] - BORN for event in events if event["kind"] == "purpose"],
+                    "purposes": [event["at"] - BORN for event in purposes],
+                    "free": [event["at"] - BORN for event in purposes if ", toward " not in event["text"]],
                     "errors": [record.getMessage() for record in errors.records]}
     finally:
         logging.getLogger("backend").removeHandler(errors)
@@ -146,7 +154,8 @@ class HeadlessBrainTests(unittest.TestCase):
         self.assertLessEqual(run["trapped"], TRAPPED_AT_MOST)
         self.assertTrue(run["homes"], f"seed {seed} found no home")
         self.assertTrue(all(run["homes"]), run["homes"])
-        self.assertLessEqual(most_in_an_hour(run["purposes"]), PURPOSE_EVENTS_PER_HOUR)
+        self.assertLessEqual(most_in_an_hour(run["free"]), PURPOSE_EVENTS_PER_HOUR)
+        self.assertLessEqual(most_in_an_hour(run["purposes"]), ALL_EVENTS_PER_HOUR)
 
     def test_the_utility_brain_lives_a_day_with_its_home_in_reach(self):
         for seed in SEEDS:
