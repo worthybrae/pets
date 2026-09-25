@@ -23,8 +23,10 @@ their goals'). A Reason has:
   to a pet geared for the ring it leads into. L4 does not build it.
 
 Targets (`targets`) are the reason's spots and the dry columns at 16 headings 32, 48 and 64 blocks
-away whose land may hold what it needs. Each scores LIKELY times that likelihood (1 for a spot)
-plus NEW times how new the land around it is (exploring.area_novelty, 0 to 1), plus exploring's
+away whose land may hold what it needs. Each scores LIKELY times that likelihood (a spot's own
+`Reason.spot_likely`, 1 unless the reason says otherwise: wander's are merely new ground, not a
+sure thing, so they score 0.3, fix round 1) plus NEW times how new the land around it is
+(exploring.area_novelty, 0 to 1), plus exploring's
 small bonus for distance and its seeded jitter. The rules that keep explore safe still hold: never
 in water, never within 4 blocks of a step that just failed, never in the patch Mimo stands in, never
 in one it visited less than a game day ago (spots excepted: they are where it means to go), and
@@ -118,6 +120,10 @@ class Reason:
     look: Callable[[Situation, "ActionContext"], Find | None] = no_look
     work: Callable[[Situation], list[dict]] = no_work
     reach: float = LEASH
+    # Task 8 fix round 1: how likely a spot is to hold what the reason needs -- 1.0 (sure) for every
+    # reason but wander, whose far-out spots are merely new ground, not a sure thing, and used to
+    # outrank a cave mouth (0.6) or an unmet creature's biome (0.7) by counting as sure too.
+    spot_likely: float = 1.0
 
 
 REASONS: dict[str, Reason] = {}
@@ -185,7 +191,13 @@ def wanted_now(s: Situation, reason: Reason) -> str | None:
 
 def cool_down(brain: dict, reason: str, at: float, scale: float) -> None:
     """A trip for `reason` failed to find what it needed: it is not offered again for a while (fix
-    round 1; the same pattern purposes use after a step fails twice, brain.report)."""
+    round 1; the same pattern purposes use after a step fails twice, brain.report). Task 8 fix
+    round 1 (the curiosity review): wander is exempt -- its targets move on their own as the ground
+    around Mimo changes, so the reasons for a cooldown (a target that keeps disappointing, a
+    follow-up purpose needing room to run) barely apply, and pacing it here just piled onto rest.
+    The reviewer measured rest 58.0%->50.9%, new patches +35%, once it was exempt."""
+    if reason == "wander":
+        return
     brain.setdefault("trip_penalties", {})[reason] = at + TRIP_PENALTY_SECONDS / scale
 
 
@@ -226,7 +238,7 @@ def targets(s: Situation, reason: Reason) -> list[Target]:
             cell = stand_near(s, sx, sz)
             if (cell is not None and patch_of(cell[0], cell[2]) != here and not near_failure(s.state, cell)
                     and not beyond(s, reason, home, cell)):
-                add(cell, 1.0, what)
+                add(cell, reason.spot_likely, what)
         for distance in (*DISTANCES, FAR):
             for heading in range(HEADINGS):
                 angle = heading * 2 * math.pi / HEADINGS

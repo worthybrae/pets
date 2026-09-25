@@ -81,6 +81,10 @@ HEAD_HOME_LEAD = 180.0  # the head_home reflex's window opens this many game sec
 HOMEWARD = DUSK - HEAD_HOME_LEAD
 EAT_BELOW = 70.0
 FULL = 90.0
+# L4 fix round 1: the leisure and work bands' ceiling -- a lift (curiosity's among them) never
+# pushes a purpose past here, into the survival band (80 and up): staying alive comes first, the
+# same rule goals.boosted's GOAL_TOP already gives a goal's own boost, so the two share it.
+SURVIVAL_FLOOR = 80.0
 
 
 @dataclass(frozen=True)
@@ -289,9 +293,14 @@ def explore_valid(s: Situation) -> bool:
 
 def explore_score(s: Situation) -> float:
     """The score of the best reason to explore (trips.best_trip), plus what lifts every trip
-    (trips.LIFTS), less the late-day penalty."""
+    (trips.LIFTS), less the late-day penalty. Fix round 1: the lift never pushes it past
+    SURVIVAL_FLOOR -- a settled, maxed-out pet's trip stops short of outranking real survival work
+    (eating, sleeping), the same ceiling a goal's own boost respects (goals.boosted)."""
     offer = best_trip(s)
-    return 0.0 if offer is None else max(0.0, offer.score + lift(s) - late_penalty(s))
+    if offer is None:
+        return 0.0
+    lifted = max(offer.score, min(offer.score + lift(s), SURVIVAL_FLOOR))
+    return max(0.0, lifted - late_penalty(s))
 
 
 def plan_explore(s: Situation, context: ActionContext) -> list[dict]:

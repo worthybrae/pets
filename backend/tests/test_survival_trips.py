@@ -70,6 +70,24 @@ class ReasonTests(unittest.TestCase):
             with patch("backend.survival.trips.LIFTS", [lambda s: 12.5]):
                 self.assertEqual(PURPOSES["explore"].score(situation()), 62.5)  # a lift, whatever the reason
 
+    def test_the_lift_never_pushes_explore_past_the_survival_band(self):
+        # Task 8 fix round 1: lift() used to add straight onto the reason's own score with no
+        # ceiling, so a settled, maxed-out pet's explore trip could outscore eating or sleeping,
+        # and stayed that way for good (a settled pet sits at curiosity 100). Capped at
+        # SURVIVAL_FLOOR (80), the same ceiling a goal's own boost respects (goals.boosted), it
+        # stops there instead.
+        with only_reasons(test_reason(score=65.0)), patch("backend.survival.trips.LIFTS", [lambda s: 30.0]):
+            hungry = pet()
+            hungry["vitals"]["hunger"] = 15.0
+            s = situation(hungry)
+            self.assertEqual(PURPOSES["explore"].score(s), 80.0)  # 65 + 30 uncapped would be 95
+            self.assertGreater(PURPOSES["eat"].score(s), PURPOSES["explore"].score(s))
+            tired = pet()
+            tired["vitals"]["energy"] = 10.0
+            s = situation(tired)
+            self.assertEqual(PURPOSES["explore"].score(s), 80.0)
+            self.assertGreater(PURPOSES["sleep"].score(s), PURPOSES["explore"].score(s))
+
     def test_targets_head_where_the_land_likely_holds_what_the_reason_needs(self):
         spot = test_reason("spots", value=lambda s, x, z: (0.0, ""), spots=lambda s: [(-40, 3, "the pond it found")])
         with only_reasons(test_reason(), spot):

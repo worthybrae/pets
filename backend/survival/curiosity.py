@@ -12,19 +12,27 @@ A newborn starts at START.
 - Discoveries lower it (`discovered`): ground it never walked (NEW_GROUND, once a step), a biome it
   never saw (NEW_BIOME: "Pip saw the taiga for the first time."), a kind of block it never dug
   (NEW_BLOCK), a kind of creature it never met (NEW_CREATURE: "Pip met its first sheep."), and a
-  place new to it (NEW_PLACE: each "found" or "discovered" event of the step, as first ores, water
-  and home are, and each new place a trip finds, trips.FINDS). The biomes, blocks and creatures it
-  met are remembered in memory_knowledge (facts "biome", "block" and "creature", with when). The
-  biome it hatched in is known from the start, without a word.
-- High curiosity lifts every explore trip (`lift`, trips.LIFTS): from LIFTED on, LIFT_RATE a point,
-  up to 30 more at 100, into the work band. From RESTLESS on, exploring meets a need (goals.URGES),
-  so goal work does not crowd it out. Curiosity is always a reason of its own, the "wander" trip
-  ("look for something new": land it has never seen, a biome where creatures it never met live, a
-  cave mouth it has not looked into, then new ground, near or FAR_OUT blocks away, up to
-  WANDER_REACH blocks from home): when nothing for its goal or a need is on offer, Mimo goes to
-  see something new rather than sit and rest (the trip serves the discovery goals, so it is worked
-  toward one of them meanwhile). Once its needs are met and it is curious (PLAN_FROM), the day
-  plan sets time aside to wander (goals.PLAN_EXTRAS), ticked off by the next discovery.
+  place new to it (NEW_PLACE: each "found" or "discovered" event of the step, as first ores and
+  water are, and each new place a trip finds, trips.FINDS; the first home is its own event, from
+  brain.notice_step, outside this count). The biomes, blocks and creatures it met are remembered in
+  memory_knowledge (facts "biome", "block" and "creature", with when). The biome it hatched in is
+  known from the start, without a word -- and on an old save (fix round 1), so is everything else
+  it already has: the biome of every patch it explored, the creature kinds in sight and the block
+  kinds it carries or has built with (`old_save`, `learn_quietly`), so upgrading a life never floods
+  the notable feed with false "firsts" or drops curiosity for half a day.
+- High curiosity lifts every explore trip (`lift`, trips.LIFTS), never past SURVIVAL_FLOOR
+  (purposes.py, fix round 1: the same ceiling a goal's own boost respects): from LIFTED on,
+  LIFT_RATE a point, up to 30 more at 100, into the work band but no further. From RESTLESS on,
+  exploring meets a need (goals.URGES), so goal work does not crowd it out. Curiosity is always a
+  reason of its own, the "wander" trip ("look for something new": land it has never seen, a biome
+  where creatures it never met live, a cave mouth it has not looked into, then new ground (spot
+  likelihood 0.3, fix round 1: it is not a sure thing the way the others are), near or FAR_OUT
+  blocks away, up to WANDER_REACH blocks from home, exempt from the usual cooldown between trips
+  for the same reason since its targets move on their own): when nothing for its goal or a need is
+  on offer, Mimo goes to see something new rather than sit and rest (the trip serves the discovery
+  goals, so it is worked toward one of them meanwhile). Once its needs are met and it is curious
+  (PLAN_FROM), the day plan sets time aside to wander (goals.PLAN_EXTRAS), ticked off by the next
+  discovery.
 - The model is told how it feels (`feeling`, `curiosity_view`): "restless; nothing new for 2 game
   days".
 The tick tends it (`tend_curiosity`, from brain.notice_step; the creatures in sight are looked over
@@ -38,6 +46,7 @@ import logging
 import math
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import BLOCKS
 from backend.services.worldgen import biome_at
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.creatures.kinds import land_kinds
@@ -45,7 +54,7 @@ from backend.survival.creatures.table import dead
 from backend.survival.exploring import HEADINGS, area_novelty, home_cell, lately
 from backend.survival.goals import PLAN_EXTRAS, URGES
 from backend.survival.life_goals import looked_into, opening_words, openings_near
-from backend.survival.memory import BUILT, know, known, patch_of, places
+from backend.survival.memory import BUILT, PATCH, know, known, patch_of, places
 from backend.survival.once import log_once
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell, label
@@ -80,6 +89,9 @@ FED, RESTED, WARM, WELL = 60.0, 50.0, 50.0, 60.0
 BIOME_WORDS = {"meadow": "a meadow", "forest": "a forest", "birch_forest": "a birch forest", "taiga": "the taiga",
                "swamp": "a swamp", "desert": "a desert", "alpine": "the mountains"}
 OPENING_NEAR = 12
+# L4 fix round 1: younger than this and there is nothing an old save's first tend could need to
+# backfill -- a true newborn's first tend stays the quiet single-biome case below.
+NEWBORN_WITHIN = 300.0  # game seconds (5 game minutes, as purposes.LATE_DAY counts them)
 
 
 def biome_words(biome: str) -> str:
@@ -133,6 +145,38 @@ def meet_creatures(state: dict, context: ActionContext, at: float) -> None:
         discovered(state, at, NEW_CREATURE)
 
 
+def old_save(state: dict, context: ActionContext, at: float) -> bool:
+    """L4 fix round 1: this brain's first tend belongs to a life curiosity did not exist for yet --
+    it has already explored ground, or it is older than a newborn's first few minutes."""
+    if context.db.execute("SELECT 1 FROM memory_explored LIMIT 1").fetchone() is not None:
+        return True
+    scale = context.clock_at(at)["time_scale"]
+    return (at - state.get("born_at", at)) * scale >= NEWBORN_WITHIN
+
+
+def learn_quietly(state: dict, context: ActionContext, at: float) -> None:
+    """An old save's first tend (fix round 1): everything curiosity would otherwise announce as a
+    "first" is already old news to Mimo, so it is learned with no events and no drop -- the biome
+    of every patch it explored, the creature kinds in sight now, and the block kinds it carries or
+    has built with. Without this an upgraded world logged "met its first sheep" and "saw the taiga
+    for the first time" for everything it already knew, crowding the notable feed and dropping
+    curiosity to near 0 for about half a day."""
+    db = context.db
+    for rx, rz in db.execute("SELECT rx, rz FROM memory_explored").fetchall():
+        x, z = rx * PATCH + PATCH // 2, rz * PATCH + PATCH // 2
+        know(db, biome_at(x, z, state["world_seed"]), "biome", at)
+    herd = context.grid.herd
+    if herd is not None:
+        x, _, z = as_cell(state["position"])
+        for kind in {creature["kind"] for creature in herd.near(x, z, CREATURE_SIGHT) if not dead(creature)}:
+            know(db, kind, "creature", at)
+    for block in set(BLOCKS) & set(state["inventory"]):
+        know(db, block, "block", at)
+    for (block,) in db.execute("SELECT DISTINCT block FROM structure_cells").fetchall():
+        if block in BLOCKS:
+            know(db, block, "block", at)
+
+
 def tend_curiosity(state: dict, context: ActionContext, at: float) -> None:
     """After a vitals step (brain.notice_step): curiosity grows with the game time since it was last
     tended, and the creatures in sight are looked over once a game minute."""
@@ -141,9 +185,12 @@ def tend_curiosity(state: dict, context: ActionContext, at: float) -> None:
     try:
         fresh = "curiosity" not in ensure_brain(state)
         curiosity = curiosity_state(state, at)
-        if fresh:  # the biome Mimo hatched in is no discovery
-            x, _, z = as_cell(state["position"])
-            know(context.db, biome_at(x, z, state["world_seed"]), "biome", at)
+        if fresh:
+            if old_save(state, context, at):
+                learn_quietly(state, context, at)
+            else:  # a newborn: only the biome it hatched in is known, without a word
+                x, _, z = as_cell(state["position"])
+                know(context.db, biome_at(x, z, state["world_seed"]), "biome", at)
         scale = context.clock_at(at)["time_scale"]
         rate = GROWTH * (NEEDS_MET if needs_met(state, context.db) else 1.0)
         hours = max(0.0, at - curiosity["at"]) * scale / CLOCK_HOUR
@@ -289,7 +336,7 @@ def wander_look(s: Situation, context: ActionContext) -> Find | None:
 register_reason(Reason(
     "wander", "look for something new", wander_wanted, wander_value, lambda s: 35.0,
     goals=("new_land", "new_creature", "cave", "water", "far_hills"), spots=wander_spots, look=wander_look,
-    reach=WANDER_REACH))
+    reach=WANDER_REACH, spot_likely=0.3))
 
 
 def time_to_wander(s: Situation, goal) -> dict | None:

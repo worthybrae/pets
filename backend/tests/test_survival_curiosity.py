@@ -5,14 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.survival import curiosity
-from backend.survival.brain import BRAIN
+from backend.survival.brain import BRAIN, observe_step
 from backend.survival.curiosity import (
     CLOCK_HOUR, NEW_BIOME, NEW_BLOCK, NEW_CREATURE, NEW_GROUND, NEW_PLACE, START, curiosity_state, curiosity_view,
     lift, note_discoveries, tend_curiosity, time_to_wander,
 )
 from backend.survival.goals import GOALS, URGES, Goal, adopt_goal, goal_state
 from backend.survival.hatch import hatch
-from backend.survival.memory import known
+from backend.survival.memory import known, mark_explored
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
 from backend.survival.tick import tick_life
@@ -122,6 +122,23 @@ class CuriosityTests(unittest.TestCase):
         curiosity_state(self.state, 0.0)["value"] = 20.0
         self.assertIsNone(time_to_wander(self.world.situation(), GOALS["iron_tools"]))
 
+    def test_an_old_saves_first_tend_learns_quietly_and_keeps_curiosity_at_start(self):
+        # Fix round 1: a life curiosity did not exist for yet -- it already explored ground before
+        # this tick (mark_explored, as the brain would have from every walk), already carries a
+        # block kind, and already built with another (built()'s shelter is cobblestone). None of
+        # that should announce a false "first" or cost curiosity, the way an upgraded save's first
+        # tend used to.
+        mark_explored(self.world.db, [(0, 0), (3, -2)], 0.0)
+        self.world.grid.herd = Creatures("sheep")
+        self.state["inventory"]["oak_log"] = 2
+        tend_curiosity(self.state, self.context, 0.0)
+        self.assertEqual(self.value(), START)
+        self.assertEqual(self.context.events, [])
+        self.assertIn("sheep", known(self.world.db, "creature"))
+        self.assertIn("oak_log", known(self.world.db, "block"))
+        self.assertIn("cobblestone", known(self.world.db, "block"))  # built with it, per structure_cells
+        self.assertTrue(known(self.world.db, "biome"))
+
     def test_a_crash_is_logged_once_and_the_tick_goes_on(self):
         forget_logged()
         with patch("backend.survival.curiosity.needs_met", side_effect=RuntimeError("boom")), \
@@ -138,6 +155,21 @@ class BrainTests(unittest.TestCase):
             hatch(registry, random.Random(8), timestamp=BORN)
             state = tick_life(registry, BORN + 1, scale=1.0, mind=BRAIN)
         self.assertIn(state["brain"]["curiosity"]["value"], (START, START - NEW_GROUND))  # it may walk new ground
+
+    def test_observe_step_wires_note_discoveries_into_a_finished_step(self):
+        # Fix round 1: unwiring note_discoveries from brain.observe_step still passed all 8
+        # original curiosity tests, since every one of them called note_discoveries (or
+        # tend_curiosity) directly. This one goes through the real wiring: a finished mine step
+        # with a block kind Mimo never dug before should be learned and counted.
+        world = built()
+        context = world.context()
+        context.events = []
+        tend_curiosity(world.state, context, 0.0)  # curiosity exists, at START
+        seen_before = world.state["brain"]["curiosity"]["seen"]
+        self.assertNotIn("iron_ore", known(world.db, "block"))
+        observe_step(world.state, {"kind": "mine", "target": [1, 0, 1], "block": "iron_ore"}, context, 1.0)
+        self.assertIn("iron_ore", known(world.db, "block"))
+        self.assertGreater(world.state["brain"]["curiosity"]["seen"], seen_before)
 
 
 if __name__ == "__main__":

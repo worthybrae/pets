@@ -60,7 +60,7 @@ from backend.services.crafting import RECIPES
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.memory import know, known
 from backend.survival.once import log_once
-from backend.survival.purposes import PURPOSES, is_valid, late_day
+from backend.survival.purposes import PURPOSES, SURVIVAL_FLOOR, is_valid, late_day
 from backend.survival.situation import Situation, in_tick
 from backend.survival.triggers import ensure_brain, mark_trigger
 
@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 GOAL_BOOST = 15.0  # purposes that advance the goal score this much more...
-GOAL_TOP = 80.0  # ...but never into the survival band (80 and up): staying alive comes first
+GOAL_TOP = SURVIVAL_FLOOR  # ...but never into the survival band (80 and up): staying alive comes first
 NEED_FLOOR = 50.0  # a purpose in NEEDS meets a need when it scores at least this
 # The survival and needs bands of purposes.py, and M5's keeping of home and arms.
 NEEDS = frozenset({"sleep", "go_home", "eat", "cook", "forage", "fish", "hunt", "build_shelter", "light_up",
