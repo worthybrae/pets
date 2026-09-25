@@ -535,3 +535,41 @@ def offers(s: Situation) -> list[tuple[Goal, str, float]]:
 
 def reached_titles(s: Situation) -> list[str]:
     return [GOALS[name].title if name in GOALS else name.replace("_", " ") for name in reached(s)]
+
+
+# What the model and the viewer are told ---------------------------------------------------------
+
+def goal_payload(s: Situation) -> dict | None:
+    """The goal for the model: its title, why, progress, next milestones and days on it; or None."""
+    goal = active(s)
+    if goal is None:
+        return None
+    since = s.brain["goal"]["since"]
+    return {"title": goal.title, "why": goal.why, "progress": round(progress_of(s, goal), 2),
+            "next_steps": [milestone.text for _, milestone in ahead(s, goal)[:PLAN_STEPS]],
+            "days_on_it": math.floor(max(0.0, s.at - since) * s.scale / DAY_SECONDS)}
+
+
+def goal_view(brain: dict | None) -> dict | None:
+    """The goal for /api/mimo: name, title, why, progress (0 to 1), the day plan, who chose it and
+    when; None without one."""
+    current = (brain or {}).get("goal")
+    if not current:
+        return None
+    goal = GOALS.get(current["name"])
+    return {"name": current["name"], "title": goal.title if goal else current["name"].replace("_", " "),
+            "why": goal.why if goal else "", "progress": round(float(current.get("progress") or 0.0), 2),
+            "plan": [{"text": entry["text"], "done": bool(entry.get("done"))} for entry in current.get("plan") or []],
+            "picker": current.get("picker"), "since": current.get("since")}
+
+
+def reached_rows(db: sqlite3.Connection) -> list[tuple[str, float]]:
+    """(goal, when) for every goal reached, first first. A world from before M3 reached none."""
+    try:
+        rows = db.execute("SELECT subject, learned_at FROM memory_knowledge WHERE fact=? ORDER BY learned_at, subject",
+                          (REACHED,)).fetchall()
+    except sqlite3.OperationalError as error:
+        if "no such table" not in str(error):
+            raise
+        return []
+    return [(row[0], row[1]) for row in rows]

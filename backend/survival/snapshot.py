@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import sqlite3
 
+import backend.survival.brain  # noqa: F401  (L4: every goal registered, for its title)
 from backend.services.block_table import blocks_seq
 from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
@@ -13,8 +14,11 @@ from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
 from backend.survival.creatures.harm import sheltered
 from backend.survival.creatures.view import creatures_view
+from backend.survival.curiosity import curiosity_view
+from backend.survival.goals import GOALS, goal_view, reached_rows
 from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.registry import LifeRegistry
+from backend.survival.trips import trip_view
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
 
 NOTABLE_LIMIT = 6
@@ -36,12 +40,13 @@ def action_view(action: dict | None) -> dict | None:
 
 
 def brain_view(brain: dict | None) -> dict:
-    """What Mimo is up to: its purpose, a running reflex, who chose, and whether it is choosing.
-    A world whose brain has not started yet is about to choose."""
+    """What Mimo is up to: its purpose, a running reflex, who chose, and whether it is choosing;
+    (L4) its goal with the day plan, and while it explores, what for. A world whose brain has not
+    started yet is about to choose."""
     if brain is None:
-        return {"purpose": None, "reflex": None, "picker": None, "choosing": True}
+        return {"purpose": None, "reflex": None, "picker": None, "choosing": True, "goal": None, "trip": None}
     return {"purpose": brain.get("purpose"), "reflex": brain.get("reflex"), "picker": brain.get("picker"),
-            "choosing": brain.get("pending") is not None}
+            "choosing": brain.get("pending") is not None, "goal": goal_view(brain), "trip": trip_view(brain)}
 
 
 def replayable(recent: list[dict], now: float) -> list[dict]:
@@ -176,6 +181,8 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # from before M5, which has no structures).
         "sheltered": indoors,
         **brain_view(state.get("brain")),
+        # L4: how curious Mimo is, and how it feels ({"level", "feeling"}; null before it is tended).
+        "curiosity": curiosity_view(state.get("brain"), at, scale),
     }
 
 
@@ -183,18 +190,29 @@ def alive_snapshot(life: dict, world: SurvivalWorld, now: float, scale: float) -
     return {"phase": "alive", "life": life_row(life, scale, now), **survival_view(world, now, scale)}
 
 
+def goals_reached(world: SurvivalWorld, born_at: float, scale: float) -> list[dict]:
+    """L4: the goals a survival life reached, first first, as {name, title, day}."""
+    with world.connect() as db:
+        rows = reached_rows(db)
+    return [{"name": name, "title": GOALS[name].title if name in GOALS else name.replace("_", " "),
+             "day": clock_at(born_at, at, scale)["day_number"]} for name, at in rows]
+
+
 def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
-    """One life's row, notable events and final state (the legacy snapshot shape for life 1)."""
+    """One life's row, notable events and final state (the legacy snapshot shape for life 1), and
+    (L4) the goals it reached (none for the legacy life)."""
     archive = open_archive(registry, life)
     if isinstance(archive, MimoStore):
         state = archive.snapshot()
         events = notable(state["events"])
+        goals = []
     else:
         state = survival_view(archive, now, scale)
         events = archive.notable_events(NOTABLE_LIMIT)
-    return {"life": life_row(life, scale, now), "notable_events": events, "state": state}
+        goals = goals_reached(archive, life["born_at"], scale)
+    return {"life": life_row(life, scale, now), "notable_events": events, "state": state, "goals_reached": goals}
 
 
 def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
     detail = life_detail(registry, life, scale, now)
-    return {**detail["life"], "notable_events": detail["notable_events"]}
+    return {**detail["life"], "notable_events": detail["notable_events"], "goals_reached": detail["goals_reached"]}

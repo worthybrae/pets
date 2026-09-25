@@ -54,9 +54,11 @@ goal itself has ended; the fresh purpose id above already discards a choice whos
 while it was in flight, so this is a backstop, not the main defense.
 
 L4: explore always goes for a reason (backend.survival.trips). Its option carries the reasons on
-offer, the rules' pick first, and choosing explore goes for that one: the trip is stored in the
-brain, and its event and thought say what for ("Pip decided to explore to look for iron, toward
-iron tools. \"Heading north to look for iron. My pickaxe needs it.\"").
+offer, the rules' pick first. When Jev answers and explore is offered for more than one reason,
+the same call asks a second question, "explore_reason", and a Jev pick of explore goes for the
+reason Jev chose; otherwise (the rules, Luna) it goes for the rules' pick. Choosing explore
+stores the trip in the brain, and its event and thought say what for ("Pip decided to explore to
+look for iron, toward iron tools. \"Heading north to look for iron. My pickaxe needs it.\"").
 """
 
 from __future__ import annotations
@@ -75,8 +77,8 @@ from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
 from backend.survival.goals import GOALS, active, adopt_goal, goal_state, is_open, lower, offers, penalized, reached_titles
 from backend.survival.models import (
-    GOAL_INSTRUCTIONS, JEV_TIMEOUT, LUNA_TIMEOUT, Http, ModelError, ask_jev, ask_luna, jev_configured,
-    luna_configured, luna_reflect, post_json,
+    GOAL_INSTRUCTIONS, INSTRUCTIONS, JEV_TIMEOUT, LUNA_TIMEOUT, REASON_INSTRUCTIONS, Http, ModelError, ask_jev,
+    ask_luna, jev_answers, jev_configured, luna_configured, luna_reflect, post_json,
 )
 from backend.survival.once import log_once
 from backend.survival.pickers import Option, context_payload, options, thought_for, utility_pick
@@ -84,7 +86,7 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import from_db
 from backend.survival.triggers import HOUR, ensure_brain
-from backend.survival.trips import Offer, start_trip, trip_thought
+from backend.survival.trips import Offer, start_trip, target_words, trip_thought
 from backend.survival.world import SurvivalWorld, log_event, read_state, recent_events, write_state
 
 logger = logging.getLogger(__name__)
@@ -228,7 +230,8 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
     """Answer an Ask. Never raises: model failures fall back to the utility picker."""
     calls = {"model": 0, "luna": 0, "reflections": 0}
     choices, errors = list(ask.options), []
-    purpose, picker = None, "utility"
+    purpose, picker, reason = None, "utility", None
+    reasons = reason_options(ask)
     if ask.route in ("jev", "luna"):
         calls["model"] += 1
         if ask.route == "luna":
@@ -236,6 +239,10 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
         try:
             if ask.kind == "goal":
                 purpose = ask_jev(ask.payload, choices, env, http, question="goal", instructions=GOAL_INSTRUCTIONS)
+            elif ask.route == "jev" and len(reasons) > 1:
+                answers = jev_answers(ask.payload, {"purpose": (choices, INSTRUCTIONS),
+                                                    "explore_reason": (reasons, REASON_INSTRUCTIONS)}, env, http)
+                purpose, reason = answers["purpose"], answers["explore_reason"]
             else:
                 purpose = (ask_jev if ask.route == "jev" else ask_luna)(ask.payload, choices, env, http)
             picker = ask.route
@@ -243,7 +250,7 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
             errors.append(f"{ask.route}: {error}")
     if purpose is None:
         purpose = utility_pick(choices, rng)
-    trip = trip_for(ask, purpose)
+    trip = trip_for(ask, purpose, reason)
     thought = trip_thought(trip) if trip is not None else answer_thought(ask, purpose, rng)
     if ask.reflect and picker != "utility":
         calls["luna"] += 1
@@ -256,12 +263,25 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
     return Choice(purpose, picker, thought, calls, "; ".join(errors) or None, trip)
 
 
-def trip_for(ask: Ask, purpose: str) -> Offer | None:
-    """L4: the reason an explore choice goes for: the rules' pick, the first offered."""
-    option = next((option for option in ask.options if option.name == purpose), None)
-    if ask.kind != "purpose" or purpose != "explore" or option is None or not option.reasons:
+def explore_option(ask: Ask) -> Option | None:
+    return next((option for option in ask.options if option.name == "explore"), None) if ask.kind == "purpose" else None
+
+
+def reason_options(ask: Ask) -> list[Option]:
+    """L4: explore's reasons as choices for Jev's "explore_reason" question, with why and where."""
+    option = explore_option(ask)
+    return [Option(offer.reason, offer.words, f"Go and {offer.words}: {offer.why}.",
+                   "; ".join(target_words(target) for target in offer.targets), offer.score)
+            for offer in (option.reasons if option is not None else ())]
+
+
+def trip_for(ask: Ask, purpose: str, reason: str | None = None) -> Offer | None:
+    """L4: the reason an explore choice goes with: Jev's pick when it made one, else the rules' (the
+    first offered)."""
+    option = explore_option(ask)
+    if purpose != "explore" or option is None or not option.reasons:
         return None
-    return option.reasons[0]
+    return next((offer for offer in option.reasons if offer.reason == reason), option.reasons[0])
 
 
 def answer_thought(ask: Ask, name: str, rng: random.Random) -> str:

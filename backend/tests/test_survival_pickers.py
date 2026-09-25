@@ -87,7 +87,9 @@ class UtilityTests(unittest.TestCase):
         payload = context_payload(s, [{"text": f"event {n}"} for n in range(10)])
         self.assertEqual(set(payload), {"name", "traits", "mood", "vitals", "phase", "day", "inventory",
                                         "known_places", "recent_events", "trigger", "building", "exploration",
-                                        "threats", "defense"})
+                                        "threats", "defense", "goal", "explore_reasons", "trip", "curiosity"})
+        self.assertIsNone(payload["goal"])  # L4: no goal chosen yet
+        self.assertIsNone(payload["trip"])  # L4: not exploring
         self.assertEqual(payload["building"], {"home": "found", "built": [], "blocks_short": 0,
                                                "shelter": "no shelter of its own yet; a small shelter would need 38 "
                                                           "blocks, carrying 0 (short 38)"})

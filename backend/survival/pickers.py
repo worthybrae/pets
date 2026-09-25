@@ -7,8 +7,9 @@ from each purpose's templates. `context_payload(s, events)` is what Jev and Luna
 traits, mood, vitals, phase, day, inventory, known places, the last 8 events, the trigger, what
 Mimo built or could build (M5), how much of the land around it it has explored, and (L2) the
 hostile creatures near it and what it can meet them with. L4: the options follow Mimo's goal
-(`steer`, with the rules in backend.survival.goals).
-Explore's option carries its reasons to explore, the rules' pick first (backend.survival.trips).
+(`steer`, with the rules in backend.survival.goals), and the payload carries the goal.
+Explore's option carries its reasons to explore, the rules' pick first (backend.survival.trips);
+the payload says what a trip would look for and where, the trip Mimo is on, and how curious it is.
 """
 
 from __future__ import annotations
@@ -20,13 +21,14 @@ from dataclasses import dataclass, replace
 
 from backend.survival.building import building_payload
 from backend.survival.creatures.defense import threats_payload
+from backend.survival.curiosity import curiosity_view
 from backend.survival.exploring import exploration_payload
-from backend.survival.goals import active, boosted, meets_need, toward
+from backend.survival.goals import active, boosted, goal_payload, meets_need, toward
 from backend.survival.memory import cell_of
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, offered
 from backend.survival.situation import Situation
-from backend.survival.trips import offers
+from backend.survival.trips import offers, reasons_payload, trip_view
 
 logger = logging.getLogger(__name__)
 
@@ -115,4 +117,12 @@ def context_payload(s: Situation, events: list[dict]) -> dict:
         "exploration": exploration_payload(s),
         # L2: the hostile creatures that could come after Mimo, and how it can meet them.
         **threats_payload(s),
+        # L4: the goal Mimo works toward, how far along it is and what comes next (or None).
+        "goal": goal_payload(s),
+        # L4: what an explore trip would go looking for, why, and which ways it could head (with what
+        # lies there); and the trip Mimo is on, if it is exploring.
+        "explore_reasons": reasons_payload(s),
+        "trip": trip_view(s.brain),
+        # L4: how curious Mimo is and how it feels about it ("restless; nothing new for 2 game days").
+        "curiosity": curiosity_view(s.brain, s.at, s.scale),
     }
