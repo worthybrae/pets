@@ -110,6 +110,20 @@ class GoingHomeFromFarOutTests(unittest.TestCase):
         self.assertTrue(head_home_due(s))
         self.assertIsNone(home_of(s))  # but not a refuge to flee to (creatures.defense) or swim for from out there
 
+    def test_go_home_and_head_home_reach_a_built_home_from_well_beyond_a_day_trip_too(self):
+        """Fix round 1, Minor 3: GO_HOME_RANGE is infinite (follow-up fix, item 2), not just far
+        enough for a day trip -- pins "home from any distance" past FARTHEST_TRIP itself, since L5
+        relies on it for expeditions farther out still."""
+        world = built()
+        anchor = home_cell(world.situation())
+        world.state["position"] = {"x": anchor[0] + 400.0, "y": 1.0, "z": float(anchor[2])}
+        dusk = {"phase": "day", "seconds_into_day": DUSK - 100.0, "time_scale": 1.0, "day_number": 1}
+        s = world.situation(dusk)
+        self.assertTrue(PURPOSES["go_home"].valid(s))
+        self.assertEqual(PURPOSES["go_home"].plan(s, world.context())[0]["target"], list(anchor))
+        self.assertTrue(head_home_due(s))
+        self.assertIsNone(home_of(s))  # but not a refuge to flee to (creatures.defense) or swim for from out there
+
 
 class CooldownTests(unittest.TestCase):
     def test_each_reason_has_a_cooldown_of_its_own(self):
