@@ -6,7 +6,8 @@ with a fake Jev that answers at once with a seeded random pick and never touches
 Set MIMO_SLOW_TESTS=1 for longer runs on more seeds. L4: each run is made once and shared by the
 tests, which also check that goals leave fewer aimless changes of purpose than before them, that
 every explore goes for a reason, and that once home stands every game day brings a discovery and
-Mimo rests or sleeps at most half the time.
+Mimo rests or sleeps at most half the time. L4a final fix wave: in slow mode, a few lives run six game
+days, and on days 4 and 5 they still walk new ground and rest at most a little over half the time.
 """
 
 import functools
@@ -79,6 +80,17 @@ AIMLESS = (" decided to rest.", " decided to explore")  # a change toward a goal
 # or asleep), over every seed and both pickers: 70-80 % before L4 (the controller's measure), and
 # the night alone is a third of a game day.
 REST_AT_MOST = 0.5
+# L4a final fix wave, I4: 6-day lives in slow mode. By day 4 a pet had walked all the land within a
+# fixed 90 blocks and settled back into resting (82-93 % of days 4-5 on some seeds, 1-12 new patches
+# a day); now the day trips' reach grows with the land walked. LONG_RUNS (seed, Jev) live LONG_DAYS
+# game days; on each of days 4 and 5 every one walks at least NEW_GROUND_LATE patches it never walked
+# before, and once home stands they rest or sleep at most LONG_REST_AT_MOST of the ticks. The floors
+# are the final fix wave's measure with margin (its report).
+LONG_DAYS = 6
+LONG_RUNS = ((3, False), (21, True))
+LATE_DAYS = (3, 4)  # days 4 and 5, counted from 0
+NEW_GROUND_LATE = 40
+LONG_REST_AT_MOST = 0.55
 
 
 class FakeJev:
@@ -142,9 +154,15 @@ def sample(world: SurvivalWorld) -> tuple[bool, bool | None]:
     return here, home
 
 
+def patches_walked(world: SurvivalWorld) -> int:
+    with world.connect() as db:
+        return db.execute("SELECT COUNT(*) FROM memory_explored").fetchone()[0]
+
+
 @functools.lru_cache(maxsize=None)
-def run_life(seed: int, jev: bool) -> dict:
-    """One headless run, made once per seed and picker and shared by the tests (call it with jev=...)."""
+def run_life(seed: int, jev: bool, length: float = LENGTH) -> dict:
+    """One headless run, made once per seed, picker and length and shared by the tests (call it with
+    jev=...)."""
     forget_logged()
     errors = Errors()
     logging.getLogger("backend").addHandler(errors)
@@ -158,8 +176,11 @@ def run_life(seed: int, jev: bool) -> dict:
                               rng=random.Random(seed), scale=1.0)
             t, trapped_since, trapped_longest, homes, unreasoned_walks = 0.0, None, 0.0, [], 0
             home_at, seen, discoveries, resting, lived = None, 0, [], 0, 0
-            while t < LENGTH:
+            walked_by_day = [0]  # patches walked by the end of each game day (L4a final fix wave)
+            while t < length:
                 t += STEP
+                if t // DAY > len(walked_by_day) - 1:
+                    walked_by_day.append(patches_walked(world))
                 state = tick_life(registry, BORN + t, scale=1.0, mind=BRAIN, action_scale=1.0)
                 if state is None or state["died_at"] is not None:
                     break
@@ -195,6 +216,7 @@ def run_life(seed: int, jev: bool) -> dict:
                     "unreasoned_walks": unreasoned_walks,
                     "dull_days": dull_days(home_at, discoveries, t),
                     "resting": resting, "lived": lived,
+                    "new_ground": [after - before for before, after in zip(walked_by_day, walked_by_day[1:])],
                     "hours": t / HOUR,
                     "errors": [record.getMessage() for record in errors.records]}
     finally:
@@ -239,6 +261,17 @@ class HeadlessBrainTests(unittest.TestCase):
         runs = [run_life(seed, jev=jev) for seed in SEEDS for jev in (False, True)]
         share = sum(run["resting"] for run in runs) / sum(run["lived"] for run in runs)
         self.assertLessEqual(share, REST_AT_MOST)
+
+    @unittest.skipUnless(SLOW, "6-day lives run in slow mode only (MIMO_SLOW_TESTS=1)")
+    def test_six_days_on_mimo_still_walks_new_ground_and_rests_at_most_a_little_over_half_the_time(self):
+        runs = {(seed, jev): run_life(seed, jev=jev, length=LONG_DAYS * DAY) for seed, jev in LONG_RUNS}
+        for key, run in runs.items():
+            self.assertIsNone(run["state"]["died_at"], key)
+            self.assertEqual(run["errors"], [], key)
+        late = {key: [run["new_ground"][day] for day in LATE_DAYS] for key, run in runs.items()}
+        self.assertTrue(all(min(days) >= NEW_GROUND_LATE for days in late.values()), late)
+        share = sum(run["resting"] for run in runs.values()) / sum(run["lived"] for run in runs.values())
+        self.assertLessEqual(share, LONG_REST_AT_MOST)
 
     def test_every_explore_goes_for_a_reason(self):
         runs = [run_life(seed, jev=jev) for seed in SEEDS for jev in (False, True)]

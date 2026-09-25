@@ -17,6 +17,10 @@ from backend.survival.world import SurvivalWorld
 BORN = 1_000_000.0
 SCALE = 60.0  # a game day is 60 real seconds, as in the manual check
 FOODS = ("berries", "brown_mushroom", "red_mushroom", "carrot", "bread", "raw_fish", "cooked_fish", "apple")
+# The slow hunt check (L4a final fix wave): Chooser seeds 0-19, at least 16 of which hunt and cook
+# within 4 game days (measured with the final fix wave: see its report).
+HUNT_SEEDS = range(20)
+HUNT_SEEDS_AT_LEAST = 16
 
 
 class LivingDaysTests(unittest.TestCase):
@@ -95,26 +99,31 @@ class LivingDaysTests(unittest.TestCase):
         if os.environ.get("MIMO_SLOW_TESTS"):
             # L3 fix round 1, item 1: a spare torch filling Mimo's arms made gather_stone and
             # build_storage beat hunt far more often (30/40 across Chooser seeds 0-39, down from
-            # 38/40 before Task 6). Chooser seeds 5-9 alone went from 5/5 hunting and cooking to
-            # 2/5; the fix should put it back near 5/5, so at least 4 of 5 is the floor here.
-            successes = 0
-            for seed in range(5, 10):
-                with tempfile.TemporaryDirectory() as root:
-                    registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
-                    life = hatch(registry, random.Random(8), timestamp=BORN)
-                    world = SurvivalWorld(registry.world_path(life))
-                    chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
-                    for second in range(1, 4 * 60 + 1):
-                        seed_state = tick_life(registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
-                        self.assertIsNone(seed_state["died_at"], seed_state["cause"])
-                        chooser.poll(registry, BORN + second)
-                    seed_events = world.events(5000)
-                    seed_hunts = [event["text"] for event in seed_events if event["kind"] == "hunt"]
-                    seed_cooked = [event["text"] for event in seed_events if event["kind"] == "cook"]
-                    if seed_hunts and any(f"raw {meat}" in text for text in seed_cooked
-                                          for meat in ("beef", "mutton", "chicken", "rabbit")):
-                        successes += 1
-            self.assertGreaterEqual(successes, 4, f"only {successes}/5 Chooser seeds 5-9 hunted and cooked")
+            # 38/40 before Task 6). L4a final fix wave (the ruling on Task 4's review): a check pinned
+            # to 5 Chooser seeds flips on any change to the option list, since one option more or
+            # fewer shifts utility_pick's random stream, so this counts HUNT_SEEDS instead: at least
+            # HUNT_SEEDS_AT_LEAST of them must hunt and cook within 4 game days.
+            successes = [seed for seed in HUNT_SEEDS if self.hunted_and_cooked(seed)]
+            self.assertGreaterEqual(len(successes), HUNT_SEEDS_AT_LEAST,
+                                    f"only Chooser seeds {successes} of {list(HUNT_SEEDS)} hunted and cooked")
+
+    def hunted_and_cooked(self, seed: int) -> bool:
+        """Whether the life hatched on seed 8 hunts an animal and cooks its meat within 4 game days, with
+        the utility picker on Chooser seed `seed`."""
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            life = hatch(registry, random.Random(8), timestamp=BORN)
+            world = SurvivalWorld(registry.world_path(life))
+            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
+            for second in range(1, 4 * 60 + 1):
+                seed_state = tick_life(registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
+                self.assertIsNone(seed_state["died_at"], seed_state["cause"])
+                chooser.poll(registry, BORN + second)
+            seed_events = world.events(5000)
+        seed_hunts = [event["text"] for event in seed_events if event["kind"] == "hunt"]
+        seed_cooked = [event["text"] for event in seed_events if event["kind"] == "cook"]
+        return bool(seed_hunts) and any(f"raw {meat}" in text for text in seed_cooked
+                                        for meat in ("beef", "mutton", "chicken", "rabbit"))
 
 
 if __name__ == "__main__":
