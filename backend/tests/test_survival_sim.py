@@ -3,9 +3,13 @@
 Each run hatches a life on a fixed seed and ticks it for a game day at 1x in coarse steps, the
 way the worker would (tick, then let the chooser answer), once with the utility picker and once
 with a fake Jev that answers at once with a seeded random pick and never touches the network.
-Set MIMO_SLOW_TESTS=1 for longer runs on more seeds.
+Set MIMO_SLOW_TESTS=1 for longer runs on more seeds. L4: each run is made once and shared by the
+tests, which also check that goals leave fewer aimless changes of purpose than before them, that
+every explore goes for a reason, and that once home stands every game day brings a discovery and
+Mimo rests or sleeps at most half the time.
 """
 
+import functools
 import logging
 import os
 import random
@@ -63,6 +67,18 @@ TRAPPED_AT_MOST = 180.0  # game seconds
 # to explore and one to the purpose that follows up on the find (with all of L4 on L3, the busiest
 # game hour reached 55, and 75 in slow mode, at most 31 of them toward no goal).
 ALL_EVENTS_PER_HOUR = 90
+# L4: changes of purpose to rest or explore that work toward no goal, per game hour, over every
+# seed and both pickers, measured on these runs before L4 (bd765f2): 4.5 (4.56 in slow mode).
+# With goals they must fall by at least a quarter; measured with L4, 0.0 (0.81 in slow mode).
+# An explore says what it goes for ("decided to explore to look for trees."), and one that serves no
+# goal still counts here.
+AIMLESS_BEFORE_GOALS = 4.56 if SLOW else 4.5
+AIMLESS_SHARE = 0.75
+AIMLESS = (" decided to rest.", " decided to explore")  # a change toward a goal says ", toward ..."
+# L4: once home stands, the share of ticks Mimo spends resting or asleep (its purpose rest or sleep,
+# or asleep), over every seed and both pickers: 70-80 % before L4 (the controller's measure), and
+# the night alone is a third of a game day.
+REST_AT_MOST = 0.5
 
 
 class FakeJev:
@@ -94,6 +110,24 @@ def most_in_an_hour(times: list[float]) -> int:
     return max((sum(1 for other in times if at - HOUR < other <= at) for at in times), default=0)
 
 
+def aimless(text: str) -> bool:
+    """L4: a change of purpose to rest or explore that works toward no goal."""
+    return any(words in text for words in AIMLESS) and ", toward " not in text
+
+
+def unreasoned(text: str) -> bool:
+    """L4: a change of purpose to explore that does not say what for ("decided to explore to ...")."""
+    return " decided to explore" in text and " decided to explore to " not in text
+
+
+def dull_days(home_at: float | None, discoveries: list[float], end: float) -> list[int]:
+    """L4: the game days, from the one home first stood in on, that brought no discovery."""
+    if home_at is None:
+        return []
+    return [day for day in range(int(home_at // DAY), int(end // DAY) + (end % DAY > 0))
+            if not any(max(home_at, day * DAY) <= at < (day + 1) * DAY for at in discoveries)]
+
+
 def sample(world: SurvivalWorld) -> tuple[bool, bool | None]:
     """Whether Mimo can walk to the natural surface or home, and whether its home can walk to the
     surface (None while it has no home). L3 final fix wave: this was "fewer than 256 cells reachable",
@@ -108,7 +142,9 @@ def sample(world: SurvivalWorld) -> tuple[bool, bool | None]:
     return here, home
 
 
+@functools.lru_cache(maxsize=None)
 def run_life(seed: int, jev: bool) -> dict:
+    """One headless run, made once per seed and picker and shared by the tests (call it with jev=...)."""
     forget_logged()
     errors = Errors()
     logging.getLogger("backend").addHandler(errors)
@@ -120,12 +156,23 @@ def run_life(seed: int, jev: bool) -> dict:
             fake = FakeJev(seed)
             chooser = Chooser(env={"TYPESAFE_API_KEY": "k"} if jev else {}, http=fake, executor=InlineExecutor(),
                               rng=random.Random(seed), scale=1.0)
-            t, trapped_since, trapped_longest, homes = 0.0, None, 0.0, []
+            t, trapped_since, trapped_longest, homes, unreasoned_walks = 0.0, None, 0.0, [], 0
+            home_at, seen, discoveries, resting, lived = None, 0, [], 0, 0
             while t < LENGTH:
                 t += STEP
                 state = tick_life(registry, BORN + t, scale=1.0, mind=BRAIN, action_scale=1.0)
                 if state is None or state["died_at"] is not None:
                     break
+                action = state.get("action") or {}
+                if action.get("purpose") == "explore" and not (state["brain"].get("trip") or {}).get("reason"):
+                    unreasoned_walks += 1  # L4: an explore step under way with no reason in the brain
+                if home_at is not None:
+                    lived += 1
+                    resting += state["brain"].get("purpose") in ("rest", "sleep") or action.get("kind") == "sleep"
+                count = (state["brain"].get("curiosity") or {}).get("seen", 0)
+                if count > seen:
+                    seen = count
+                    discoveries.append(t)  # L4: a discovery (curiosity counts them)
                 fake.now = t
                 chooser.poll(registry, BORN + t)
                 if t % SAMPLE < STEP:
@@ -137,11 +184,18 @@ def run_life(seed: int, jev: bool) -> dict:
                         trapped_since = None
                     if home is not None:
                         homes.append(home)
+                        home_at = t if home_at is None else home_at
             events = world.events(100_000)
             purposes = [event for event in events if event["kind"] == "purpose"]
             return {"state": world.state(), "calls": fake.calls, "trapped": trapped_longest, "homes": homes,
                     "purposes": [event["at"] - BORN for event in purposes],
                     "free": [event["at"] - BORN for event in purposes if ", toward " not in event["text"]],
+                    "aimless": [event["at"] - BORN for event in purposes if aimless(event["text"])],
+                    "unreasoned": [event["text"] for event in purposes if unreasoned(event["text"])],
+                    "unreasoned_walks": unreasoned_walks,
+                    "dull_days": dull_days(home_at, discoveries, t),
+                    "resting": resting, "lived": lived,
+                    "hours": t / HOUR,
                     "errors": [record.getMessage() for record in errors.records]}
     finally:
         logging.getLogger("backend").removeHandler(errors)
@@ -171,6 +225,25 @@ class HeadlessBrainTests(unittest.TestCase):
                 self.check(run, seed)
                 self.assertGreater(len(run["calls"]), 0)
                 self.assertLessEqual(most_in_an_hour(run["calls"]), cap({}, JEV_HOUR_CAP))
+
+    def test_goals_leave_fewer_aimless_rests_and_explores_than_before_them(self):
+        runs = [run_life(seed, jev=jev) for seed in SEEDS for jev in (False, True)]
+        per_hour = sum(len(run["aimless"]) for run in runs) / sum(run["hours"] for run in runs)
+        self.assertLessEqual(per_hour, AIMLESS_SHARE * AIMLESS_BEFORE_GOALS)
+
+    def test_once_home_stands_every_game_day_brings_a_discovery(self):
+        runs = [run_life(seed, jev=jev) for seed in SEEDS for jev in (False, True)]
+        self.assertEqual([run["dull_days"] for run in runs], [[]] * len(runs))
+
+    def test_once_home_stands_mimo_rests_and_sleeps_at_most_half_the_time(self):
+        runs = [run_life(seed, jev=jev) for seed in SEEDS for jev in (False, True)]
+        share = sum(run["resting"] for run in runs) / sum(run["lived"] for run in runs)
+        self.assertLessEqual(share, REST_AT_MOST)
+
+    def test_every_explore_goes_for_a_reason(self):
+        runs = [run_life(seed, jev=jev) for seed in SEEDS for jev in (False, True)]
+        self.assertEqual([text for run in runs for text in run["unreasoned"]], [])
+        self.assertEqual(sum(run["unreasoned_walks"] for run in runs), 0)
 
 
 if __name__ == "__main__":
