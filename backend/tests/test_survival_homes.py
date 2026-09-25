@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.survival import brain  # noqa: F401  (registers every purpose and goal)
+from backend.survival.actions import ActionContext, advance_actions
 from backend.survival.blueprints import find_site
 from backend.survival.goals import GOALS, adopt_goal, complete, is_open
 from backend.survival.homes import better_design, blocks_wanted, moved_up, rising
@@ -10,9 +11,10 @@ from backend.survival.lighting import home_blueprint
 from backend.survival.memory import places, structures
 from backend.survival.pens import home_done
 from backend.survival.purposes import PURPOSES
-from backend.survival.storage import chest_spot, storage_valid
+from backend.survival.storage import chest_spot, storage_valid, to_take
 from backend.survival.structures import blueprint_of
 from backend.survival.trips import REASONS
+from backend.tests.test_survival_building import DAY
 from backend.tests.test_survival_life_goals import built, shares
 
 DUSK = {"phase": "day", "seconds_into_day": 2000.0, "time_scale": 1.0, "day_number": 1}
@@ -152,6 +154,70 @@ class HomeResolutionTests(unittest.TestCase):
         self.assertIsNotNone(blueprint)
         self.assertEqual(blueprint.anchor, anchor)
         self.assertTrue(home_done(s))
+
+
+def act(world, steps, until=120.0):
+    """Carry the steps out for real, as the tick does (walks follow a route, takes and stores need the
+    chest within reach), and return what failed."""
+    world.state["queue"] = list(steps)
+    world.state["recent_actions"] = []
+    advance_actions(world.state, ActionContext(grid=world.grid, clock_at=lambda at: DAY, planner=lambda *args: [],
+                                               events=[], db=world.db), until)
+    return [action for action in world.state["recent_actions"] if action["result"] == "failed"]
+
+
+class AfterTheMoveTests(unittest.TestCase):
+    """L4a final fix wave, I2: after moving into the bigger home, build_storage walked onto the old
+    home's chest block itself (reach 0), which no route ever reaches, so the take never happened and
+    the purpose was chosen again and again with failed full-budget searches. It now walks into the
+    old home, within reach of its chest, as it walks into home for its own chest, and a failed walk
+    there holds that chest off (senses.near_failure) like the walk home."""
+
+    def moved(self):
+        world, first, first_chest = HomeResolutionTests.two_shelters(self)
+        for _ in range(15):
+            steps = PURPOSES["build_shelter"].plan(world.situation(), world.context())
+            if not steps:
+                break
+            world.carry_out(steps)
+        self.assertTrue(moved_up(world.situation()))
+        second = structures(world.db)[1]
+        new_chest = blueprint_of(second).one("chest")
+        world.grid.put(*new_chest, "chest")  # the new home has its chest, empty; the old one holds fish
+        world.state["position"] = dict(zip("xyz", map(float, (second["x"], second["y"], second["z"]))))
+        world.state["inventory"] = {}
+        return world, first, first_chest, new_chest
+
+    def test_the_whole_move_then_take_from_the_old_chest_and_store_in_the_new(self):
+        world, first, first_chest, new_chest = self.moved()
+        s = world.situation()
+        self.assertEqual(chest_spot(s), new_chest)
+        self.assertEqual(chest_food(s), 90.0)  # the larder counts the old home's chest: 3 cooked fish
+        self.assertTrue(storage_valid(s))
+        steps = PURPOSES["build_storage"].plan(s, world.context())
+        old_home = (first["x"], first["y"], first["z"])
+        self.assertIn({"kind": "walk", "target": list(old_home), "reach": 0.0, "whole": True}, steps)
+        self.assertEqual(act(world, steps), [])
+        self.assertEqual(world.state["inventory"], {"cooked_fish": 2})  # a meal's worth taken out
+        self.assertEqual(chest_food(world.situation()), 30.0)
+        # home again with spare food and loose blocks: they go into the new home's chest
+        world.state["position"] = dict(zip("xyz", map(float, blueprint_of(structures(world.db)[1]).anchor)))
+        world.state["inventory"] = {"cooked_fish": 4, "dirt": 20, **{f"item_{n}": 1 for n in range(11)}}
+        s = world.situation()
+        self.assertTrue(storage_valid(s))
+        self.assertEqual(act(world, PURPOSES["build_storage"].plan(s, world.context()), until=240.0), [])
+        stored = world.state["chests"][f"{new_chest[0]},{new_chest[1]},{new_chest[2]}"]
+        self.assertEqual(stored, {"dirt": 20, "cooked_fish": 2})
+        self.assertEqual(chest_food(world.situation()), 90.0)  # both chests: 1 fish in the old, 2 in the new
+
+    def test_a_failed_walk_into_the_old_home_holds_its_chest_off(self):
+        world, first, first_chest, new_chest = self.moved()
+        old_home = (first["x"], first["y"], first["z"])
+        world.state["recent_actions"] = [{"kind": "walk", "started_at": 0.0, "ended_at": 0.0, "result": "failed",
+                                          "target": dict(zip("xyz", old_home))}]
+        s = world.situation()
+        self.assertEqual(to_take(s), [])
+        self.assertFalse(storage_valid(s))
 
 
 if __name__ == "__main__":

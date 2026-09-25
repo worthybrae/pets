@@ -188,14 +188,23 @@ def carried_food(s: Situation) -> float:
     return sum(FOOD[item] * s.inventory[item] for item in foods(s.inventory, s.poisons))
 
 
+def reachable_chests(s: Situation) -> list[tuple[tuple[int, int, int], tuple[int, int, int]]]:
+    """`chests_built`, leaving out one whose stand a step just failed near while Mimo would have to
+    walk there (the final fix wave, I2: the same guard as storage_valid's walk home), so a chest
+    with no way to it is not tried again at once."""
+    return [(cell, stand) for cell, stand in chests_built(s)
+            if s.here == stand or s.distance(cell) <= REACH or not near_failure(s.state, stand)]
+
+
 def to_take(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
     """(cell, item, amount) to take out of a chest when Mimo carries less than a meal's worth, best
     first: home's own chest first, then (fix round 1) any other chest Mimo built, so an older
-    home's chest is never stranded once a bigger one takes over."""
+    home's chest is never stranded once a bigger one takes over (not one it just failed to reach,
+    `reachable_chests`)."""
     if carried_food(s) >= TAKE_BELOW:
         return []
     have, found = carried_food(s), []
-    for chest_cell in built_chests(s):
+    for chest_cell, _ in reachable_chests(s):
         chest = chest_contents(s, chest_cell)
         for item in foods(chest, s.poisons):
             amount = 0
@@ -270,7 +279,10 @@ def storage_score(s: Situation) -> float:
 def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
     """Walk home, make and place the chest if it is not there, put things away, and take food out
     -- home's own chest first, then (fix round 1) walk on to any other chest Mimo built that still
-    holds some, so an older home's chest is never stranded once a bigger one takes over."""
+    holds some, so an older home's chest is never stranded once a bigger one takes over. The final
+    fix wave, I2: that walk goes into the chest's own shelter (its stand, `chests_built`), within
+    reach of the chest, as the walk home does; it used to head for the chest block itself, which no
+    route ever reaches."""
     cell = chest_spot(s)
     if cell is None or s.brain["batches"] > 0:
         return []
@@ -287,10 +299,10 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
         steps.append({"kind": "place", "target": list(cell), "block": "chest"})
     steps.extend({"kind": "store", "target": list(cell), "item": item, "amount": amount}
                  for item, amount in to_store(s, cell))
-    at = cell
+    stands, at = dict(chests_built(s)), cell
     for chest_cell, item, amount in to_take(s):
         if chest_cell != at:
-            steps.append(whole_walk(chest_cell))
+            steps.append(whole_walk(stands[chest_cell]))
             at = chest_cell
         steps.append({"kind": "take", "target": list(chest_cell), "item": item, "amount": amount})
     return steps
