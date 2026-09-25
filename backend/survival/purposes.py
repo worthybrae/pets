@@ -44,6 +44,7 @@ dusk:
 - L4b: investigate (backend.survival.journal) sits in the work band, 40-65 by curiosity, minus late.
 - L4b: an expedition's pack is 60 and come_home 75 (backend.survival.expedition). While Mimo means
   to stay out (`AWAY`), go_home is not on offer.
+- L4b: camp is 85 late in the day and 95 at dusk and at night (backend.survival.camp).
 """
 
 from __future__ import annotations

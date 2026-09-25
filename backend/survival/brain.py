@@ -39,8 +39,9 @@ L4: after each walk of an explore trip Mimo looks around for what the trip is fo
 finished step makes.
 L4b: each finished step also feeds the knowledge journal (backend.survival.journal): what Mimo
 learns there and then, the things it sees to study later, and the end of a look; and an
-expedition (backend.survival.expedition: its walks onto new ground and its nights out).
-`notice_step` moves the expedition on.
+expedition (backend.survival.expedition: its walks onto new ground and its nights out;
+backend.survival.camp: a camp's roof going on). `notice_step` moves the expedition on, and by day
+the first batch planned inside a dug-in camp takes the roof off first (camp.leave_camp).
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival.curiosity import note_discoveries, tend_curiosity
 from backend.survival.journal import observe_journal
 from backend.survival.expedition import observe_expedition, tend_expedition
+from backend.survival.camp import leave_camp, observe_camp
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
@@ -187,7 +189,8 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
     elif brain["planned_at"] is not None:
         brain["batches"] += 1
         brain["replans"] = 0
-    steps = plan_batch(purpose, in_tick(state, context, at), context)
+    s = in_tick(state, context, at)
+    steps = plan_batch(purpose, s, context)
     if steps is None:
         report(state, context, purpose.name, at, "its plan broke")
         return waiting(state, context, at)
@@ -195,6 +198,7 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
         finish_purpose(state, at, "plan_done")
         return waiting(state, context, at)
     brain["planned_at"] = at
+    steps = leave_camp(s, steps)  # L4b: out of a dug-in camp, the roof comes off first
     return [{**step, "purpose": purpose.name} for step in steps]
 
 
@@ -256,6 +260,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     look_after(state, step, context, at)
     observe_journal(state, step, context, at)
     observe_expedition(state, step, context, at)
+    observe_camp(state, step, context, at)
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
 
