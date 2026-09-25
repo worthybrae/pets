@@ -33,8 +33,9 @@ from backend.services.worldgen import LEGACY_RADIUS, SEA_LEVEL, terrain_height
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell, Grid
+from backend.survival.home import home_cell  # L4a final fix wave, I1: the one home lookup, also for trips
 from backend.survival.memory import (
-    PATCH, cell_of, explored, known, mark_explored, nearest, patch_of, places, remember, update_place,
+    PATCH, explored, known, mark_explored, nearest, patch_of, places, remember, update_place,
 )
 from backend.survival.senses import FOOD_SIGHT, PICKABLE, WATER_SIGHT, natural_plants, near_failure
 from backend.survival.situation import Situation
@@ -174,11 +175,6 @@ class Candidate:
     distance: int
     novelty: float
     score: float
-
-
-def home_cell(s: Situation) -> Cell | None:
-    home = nearest(s.places, s.here, ("home",))
-    return None if home is None else cell_of(home)
 
 
 def leashed(s: Situation, home: Cell | None, cell: Cell) -> bool:

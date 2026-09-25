@@ -1,7 +1,8 @@
+import math
 import sqlite3
 import unittest
 
-from backend.survival import pens, storage
+from backend.survival import life_goals, pens, storage
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter
 from backend.survival.building import finish_if_built
@@ -125,6 +126,70 @@ class PenTests(unittest.TestCase):
         self.assertTrue(PURPOSES["stock_pen"].valid(s))
         steps = PURPOSES["stock_pen"].plan(s, self.context())
         self.assertEqual(steps[1], {"kind": "take", "target": list(chest), "item": "creature_seed", "amount": 2})
+        self.assertEqual(len([step for step in steps if step["kind"] == "plant"]), 2)
+
+
+class PenByHomeTests(unittest.TestCase):
+    """L4a final fix wave, I1: pens resolve from home (home.py), never from where Mimo stands. The
+    reviewer's probe: a seed carried 80 blocks out started a second pen there, and the herd goal
+    counted only the oldest pen, so after the seed and wander trips most pens stood 76-86 blocks out
+    and the herd never completed."""
+
+    setUp = PenTests.setUp
+    situation = PenTests.situation
+    context = PenTests.context
+
+    def finished(self, center):
+        design = pens.design_pen(self.grid, center, "Pip")
+        number = start(self.db, self.grid, design, 0.0)
+        finish_structure(self.db, number, 1.0)
+        for planned in design.parts("fence"):
+            self.grid.put(*planned.cell, "fence")
+        return number, design
+
+    def test_a_seed_carried_80_blocks_out_builds_no_pen_there(self):
+        far = self.situation({"creature_seed": 1, **WOOD}, position=(80, 1, 1))
+        self.assertFalse(PURPOSES["build_pen"].valid(far))
+        self.assertEqual(PURPOSES["build_pen"].plan(far, self.context()), [])
+        self.assertEqual(structures(self.db, ("pen",)), [])
+        near = self.situation({"creature_seed": 1, **WOOD})  # back by home, the pen goes up there
+        self.assertTrue(PURPOSES["build_pen"].valid(near))
+        self.assertTrue(PURPOSES["build_pen"].plan(near, self.context()))
+        (pen,) = structures(self.db, ("pen",))
+        self.assertLessEqual(math.hypot(pen["x"] - 1, pen["z"] - 1), pens.SITE_REACH + pens.PEN_SIZE)
+
+    def test_the_pen_by_home_is_mimos_pen_wherever_it_stands_and_the_herd_counts_it(self):
+        self.finished((80, 1, 1))  # an old save's pen, started out where Mimo stood
+        number, design = self.finished((12, 1, 1))
+        inside = design.parts("pen")[0].cell
+        self.grid.herd.add("cow", inside, 10.0, 0.0, 1e9, {"tame": True})
+        for position in ((80, 1, 4), (12, 1, 4)):
+            s = self.situation({"creature_seed": 1}, position=position)
+            self.assertEqual(pens.current_pen(s)["id"], number, position)
+            self.assertEqual(life_goals.finished_pen(s)["id"], number, position)
+            self.assertEqual(life_goals.animals_in_pen(s), 1, position)
+        self.assertFalse(PURPOSES["stock_pen"].valid(self.situation({"creature_seed": 1}, position=(80, 1, 4))))
+        self.assertTrue(PURPOSES["stock_pen"].valid(self.situation({"creature_seed": 1}, position=(12, 1, 4))))
+
+    def test_creature_seeds_in_any_chest_mimo_built_are_at_hand(self):
+        """The parked Task 6 minor: an old home's chest still holds its seeds once a bigger home
+        takes over, so they are counted and taken out from there (as build_storage takes food)."""
+        self.finished((12, 1, 1))
+        site = find_site(self.grid, (1, 1, 20), (3, 3), ("north",), "flat", reach=0)
+        old = shelter(site, Style("flat", "cobblestone", "planks", "none", ("north",)), "Pip's Old Cottage")
+        for planned in old.parts("floor", "wall", "roof"):
+            self.grid.put(*planned.cell, "cobblestone")
+        finish_structure(self.db, start(self.db, self.grid, old, 0.0), 1.0)
+        chest = old.one("chest")
+        self.grid.put(*chest, "chest")
+        s = self.situation({})
+        s.state["chests"] = {chest_key(chest): {"creature_seed": 2}}
+        self.assertNotEqual(storage.chest_spot(s), chest)  # not home's own chest
+        self.assertEqual(pens.seeds_at_hand(s), 2)
+        self.assertTrue(PURPOSES["stock_pen"].valid(s))
+        steps = PURPOSES["stock_pen"].plan(s, self.context())
+        self.assertEqual(steps[:2], [{"kind": "walk", "target": list(old.anchor), "reach": 0.0, "whole": True},
+                                     {"kind": "take", "target": list(chest), "item": "creature_seed", "amount": 2}])
         self.assertEqual(len([step for step in steps if step["kind"] == "plant"]), 2)
 
 

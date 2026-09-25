@@ -44,7 +44,8 @@ from backend.survival.cooking import made
 from backend.survival.creatures.eviction import evict
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
-from backend.survival.memory import cell_of, finish_structure, nearest, remember, set_home, structures
+from backend.survival.home import built_home, home_place
+from backend.survival.memory import cell_of, finish_structure, remember, set_home, structures
 from backend.survival.purposes import HOME_RANGE, Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH, as_cell
@@ -81,15 +82,22 @@ def current_shelter(s: Situation) -> dict | None:
 
 
 def shelter_elsewhere(s: Situation) -> bool:
-    """Mimo has a shelter of its own farther than 64 but within 128 blocks: it goes back to that
-    one instead of starting another."""
-    return current_shelter(s) is None and bool(structures_near(s, "shelter", SHELTER_RANGE))
+    """Mimo has a shelter of its own farther than 64 but within 128 blocks, or (L4a final fix wave,
+    I1) a home it built anywhere: it goes back to that one instead of starting another. A day trip
+    can take Mimo farther out than 128 blocks now (curiosity.reach), and with blocks enough on it,
+    it would otherwise have started a second house out there and moved into it."""
+    return current_shelter(s) is None and (built_home(s) or bool(structures_near(s, "shelter", SHELTER_RANGE)))
 
 
 def site_center(s: Situation) -> Cell:
     """Where to look for a site: home (on the surface above it, when home is a staircase or cave),
-    else where Mimo stands."""
-    home = nearest(s.places, s.here, ("home",), HOME_RANGE)
+    else where Mimo stands. L4a final fix wave, I1: the home Mimo built wherever Mimo stands
+    (backend.survival.home), so a pen, a farm or a bigger home goes up by home even when Mimo
+    comes by the materials far out; a sheltered spot it only found counts within HOME_RANGE, as
+    before, so the first shelter is not pulled to a spot far away."""
+    home = home_place(s)
+    if home is not None and not built_home(s) and s.distance(cell_of(home)) > HOME_RANGE:
+        home = None
     x, y, z = cell_of(home) if home is not None else s.here
     return x, max(y, terrain_height(x, z, s.seed) + 1), z
 
@@ -359,7 +367,7 @@ def note_building(state: dict, step: dict, context, at: float) -> None:
 
 def building_payload(s: Situation) -> dict:
     """What a model is told about building: home, what Mimo built and what it could build now."""
-    home = nearest(s.places, s.here, ("home",), HOME_RANGE)
+    home = home_place(s)
     built = [{"kind": found["kind"], "name": found["name"], "status": found["status"]}
              for found in structures_near(s, "shelter") + structures_near(s, "farm")]
     return {"home": None if home is None else (home["note"] or "found"), "built": built,

@@ -63,7 +63,8 @@ from backend.survival.creatures.seeds import SEED
 from backend.survival.creatures.table import dead
 from backend.survival.exploring import SURVEY, dry_blocks, explore_target
 from backend.survival.goals import Goal, Milestone, register_goal
-from backend.survival.memory import BUILT, PATCH, cell_of, explored, patch_of, remember, structures
+from backend.survival.home import all_structures, by_home, home_cell, home_structure
+from backend.survival.memory import PATCH, cell_of, explored, patch_of, remember
 from backend.survival.purposes import PURPOSES, is_valid
 from backend.survival.senses import ORES, grass_near, natural_plants, near_failure
 from backend.survival.situation import Situation
@@ -97,22 +98,8 @@ def whole(done: bool) -> float:
 
 # What Mimo built -------------------------------------------------------------------------------
 
-def all_structures(s: Situation) -> list[dict]:
-    """Everything Mimo started, oldest first, read once per Situation (the key building.py uses)."""
-    return s.sensed("structures", lambda: structures(s.db) if s.db is not None else [])
-
-
 def shelters(s: Situation) -> list[dict]:
     return [found for found in all_structures(s) if found["kind"] == "shelter"]
-
-
-def home_structure(s: Situation) -> dict | None:
-    """The shelter Mimo lives in: the one whose inside cell is the home it built."""
-    home = next((place for place in s.places if place["kind"] == "home" and place["note"] == BUILT), None)
-    if home is None:
-        return None
-    return next((found for found in reversed(shelters(s)) if (found["x"], found["y"], found["z"]) == cell_of(home)),
-                None)
 
 
 def first_home(s: Situation) -> dict | None:
@@ -433,7 +420,9 @@ register_goal(Goal(
 # herd ------------------------------------------------------------------------------------------
 
 def finished_pen(s: Situation) -> dict | None:
-    return next((found for found in all_structures(s) if found["kind"] == "pen" and found["status"] == "done"), None)
+    """The finished pen by home (L4a final fix wave, I1: home.by_home, the pen pens.current_pen
+    works with, not the oldest pen anywhere -- one an old save started far out never counts)."""
+    return next((found for found in reversed(by_home(s, "pen")) if found["status"] == "done"), None)
 
 
 def animals_in_pen(s: Situation) -> int:
@@ -497,11 +486,6 @@ register_reason(Reason(
 
 
 # map_land --------------------------------------------------------------------------------------
-
-def home_cell(s: Situation):
-    home = next((place for place in s.places if place["kind"] == "home"), None)
-    return None if home is None else cell_of(home)
-
 
 def land_seen(s: Situation) -> float:
     """The share of the dry 8x8 patches within 64 blocks of home that Mimo set foot on."""

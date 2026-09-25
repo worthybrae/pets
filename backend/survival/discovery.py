@@ -36,7 +36,9 @@ from backend.survival.goals import Goal, Milestone, register_goal
 from backend.survival.life_goals import (
     HILLS, iron_look, looked_into, opening_spots, opening_words, openings_near, whole,
 )
-from backend.survival.memory import BUILT, PATCH, patch_of, remember
+from backend.survival.home import built_home
+from backend.survival.home import home_place as home_of  # L4a final fix wave, I1: the one home lookup
+from backend.survival.memory import PATCH, patch_of, remember
 from backend.survival.situation import Situation
 from backend.survival.steps import label
 from backend.survival.trips import Find, Reason, register_reason
@@ -52,15 +54,6 @@ FAR_PATCHES = 12
 WATER_NEAR = 16.0
 LAKE_SAMPLES = ((0, 0), (6, 0), (-6, 0), (0, 6), (0, -6))
 GOAL_NAMES = ("new_land", "new_creature", "cave", "water", "far_hills")
-
-
-def home_of(s: Situation) -> dict | None:
-    return next((place for place in s.places if place["kind"] == "home"), None)
-
-
-def built_home(s: Situation) -> bool:
-    home = home_of(s)
-    return home is not None and home["note"] == BUILT
 
 
 def since(s: Situation, name: str) -> float | None:

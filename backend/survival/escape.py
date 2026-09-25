@@ -41,7 +41,7 @@ from backend.services.crafting import BLOCKS, LOGS, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext, take_search
 from backend.survival.grid import Cell, Grid, supports
-from backend.survival.memory import cell_of
+from backend.survival.home import home_cell
 from backend.survival.pathing import moves
 from backend.survival.purposes import walk_to
 from backend.survival.senses import ORES
@@ -191,7 +191,8 @@ def plan_escape(state: dict, context: ActionContext, at: float) -> list[dict] | 
         return []
     if not take_search(context):
         return None
-    homes = {cell_of(place) for place in in_tick(state, context, at).places if place["kind"] == "home"}
+    home = home_cell(in_tick(state, context, at))  # L4a final fix wave, I1: the one home lookup
+    homes = {home} if home is not None else set()
     if way_out(context.grid, here, seed, homes):
         return []
     steps = escape_plan(context.grid, here, state["inventory"], seed)

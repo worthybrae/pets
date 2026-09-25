@@ -1,11 +1,15 @@
 """build_pen and stock_pen: a fence ring by home for the animals Mimo grows from creature seeds
 (spec L3: "farm purposes may plant them near home once a pen exists (a fence ring)").
 
-build_pen lays out a pen once Mimo has a finished shelter within 64 blocks and carries a creature
-seed: a 5x5 ring of 16 fences around 3x3 of grass, on flat untouched ground near home with a
-walkway of standable ground all round it (`design_pen`). The pen is a structure (kind "pen") that
-claims its fences and its inside (structures.start), so no plan digs, tills or builds there and no
-wild animal wanders in; it is done when the last fence stands (building.finish_if_built). Mimo
+build_pen lays out a pen once Mimo has a finished home, stands within 64 blocks of it and carries
+a creature seed: a 5x5 ring of 16 fences around 3x3 of grass, on flat untouched ground near home
+with a walkway of standable ground all round it (`design_pen`). L4a final fix wave, I1: the pen is
+always home's (backend.survival.home): the site is looked for by home however far Mimo walked, a
+pen counts as Mimo's only within home.YARD of home, and none is started while Mimo is out past
+HOME_RANGE (a seed found on a trip 80 blocks out used to start a second pen there). The pen is a
+structure (kind "pen") that claims its fences and its inside (structures.start), so no plan digs,
+tills or builds there and no wild animal wanders in; it is done when the last fence stands
+(building.finish_if_built). Mimo
 makes the fences (4 planks and 2 sticks make 3, any wood) and places them standing on the walkway,
 never inside, 8 a batch. Nothing can stand on a fence or step over one (grid.supported), so what
 grows inside stays there. It is offered while Mimo can make every fence still missing, and is day
@@ -14,7 +18,10 @@ work: 45 plus a tenth of diligence and a twentieth of creativity.
 stock_pen, a farm purpose, plants creature seeds on the pen's open grass from the walkway while
 the pen holds fewer than PEN_ANIMALS animals and sprouts; a game day later each sprout is a tame
 animal (backend.survival.creatures.seeds). The seeds wait in the chest at home (storage.KEEP keeps
-none on hand), so it first takes out what it needs. Day work: 50 plus a tenth of patience.
+none on hand), so it first takes out what it needs -- from any chest Mimo built, home's own first
+(the final fix wave: an old home's chest still holds the seeds stored there before a bigger home
+took over), walking into each chest's shelter as build_storage does. Day work: 50 plus a tenth of
+patience.
 """
 
 from __future__ import annotations
@@ -24,18 +31,18 @@ from typing import TYPE_CHECKING
 
 from backend.services.blocks import is_replaceable
 from backend.survival.blueprints import Blueprint, Planned, Survey
-from backend.survival.building import site_center, structures_near
+from backend.survival.building import site_center
 from backend.survival.carrying import crafts_fit
 from backend.survival.creatures.seeds import SEED, SPROUT
 from backend.survival.creatures.table import cell_of as creature_cell
 from backend.survival.creatures.table import dead
 from backend.survival.foraging import whole_walk
 from backend.survival.grid import Cell, Grid
-from backend.survival.life_goals import home_structure
+from backend.survival.home import YARD, by_home, from_home, home_structure
 from backend.survival.purposes import HOME_RANGE, Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
-from backend.survival.storage import chest_contents, chest_placed, chest_spot
+from backend.survival.storage import chest_contents, chests_built
 from backend.survival.structures import blueprint_of, clearing, start, todo
 from backend.survival.toolmaking import Short, make
 
@@ -82,8 +89,15 @@ def design_pen(grid: Grid, center: Cell, owner: str, reach: int = SITE_REACH) ->
 
 
 def current_pen(s: Situation) -> dict | None:
-    near = structures_near(s, "pen")
+    """The newest pen by home (home.YARD), wherever Mimo stands."""
+    near = by_home(s, "pen", YARD)
     return near[-1] if near else None
+
+
+def near_home(s: Situation) -> bool:
+    """Mimo stands within HOME_RANGE of home: pen work is done by home, not on a trip."""
+    away = from_home(s, s.here[0], s.here[2])
+    return away is not None and away <= HOME_RANGE
 
 
 def home_done(s: Situation) -> bool:
@@ -122,10 +136,8 @@ def inside(blueprint: Blueprint, cell: Cell) -> bool:
 
 
 def seeds_at_hand(s: Situation) -> int:
-    """Creature seeds Mimo carries or keeps in its chest at home."""
-    cell = chest_spot(s)
-    stored = chest_contents(s, cell).get(SEED, 0) if chest_placed(s, cell) else 0
-    return s.count(SEED) + stored
+    """Creature seeds Mimo carries or keeps in any chest it built (storage.chests_built)."""
+    return s.count(SEED) + sum(chest_contents(s, cell).get(SEED, 0) for cell, _ in chests_built(s))
 
 
 def from_walkway(s: Situation, blueprint: Blueprint, jobs: list[tuple[Cell, list[dict]]],
@@ -148,7 +160,7 @@ def from_walkway(s: Situation, blueprint: Blueprint, jobs: list[tuple[Cell, list
 # build_pen ---------------------------------------------------------------------------------------
 
 def build_valid(s: Situation) -> bool:
-    if s.night or not home_done(s) or seeds_at_hand(s) < 1:
+    if s.night or not home_done(s) or not near_home(s) or seeds_at_hand(s) < 1:
         return False
     pen = current_pen(s)
     if pen is not None:
@@ -158,7 +170,7 @@ def build_valid(s: Situation) -> bool:
 
 
 def plan_build_pen(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or s.brain["batches"] >= PEN_BATCHES or s.db is None:
+    if s.night or s.brain["batches"] >= PEN_BATCHES or s.db is None or not near_home(s):
         return []
     pen = current_pen(s)
     if pen is None:
@@ -233,12 +245,13 @@ def plan_stock_pen(s: Situation, context: ActionContext) -> list[dict]:
         return []
     room = PEN_ANIMALS - pen_life(s, blueprint)
     steps, carried, at = [], s.count(SEED), s.here
-    if carried < room:
-        cell = chest_spot(s)
-        take = min(room - carried, chest_contents(s, cell).get(SEED, 0)) if chest_placed(s, cell) else 0
-        if take:
-            at = blueprint_of(home_structure(s)).anchor
-            steps += [whole_walk(at), {"kind": "take", "target": list(cell), "item": SEED, "amount": take}]
+    for cell, stand in chests_built(s):
+        take = min(room - carried, chest_contents(s, cell).get(SEED, 0))
+        if take > 0:
+            if at != stand:
+                steps.append(whole_walk(stand))
+                at = stand
+            steps.append({"kind": "take", "target": list(cell), "item": SEED, "amount": take})
             carried += take
     jobs = [(cell, [{"kind": "plant", "target": list(cell), "item": SEED}])
             for cell in open_plots(s, blueprint)[:min(carried, room)]]

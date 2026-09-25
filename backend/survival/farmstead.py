@@ -24,6 +24,7 @@ from backend.survival.farming import (
     FARM_BATCHES, FARM_TRAVEL, PLANTABLE, PLOTS_PER_BATCH, SITE_SEARCH, next_seed, open_above, plant,
 )
 from backend.survival.foraging import reach_steps
+from backend.survival.home import from_home
 from backend.survival.memory import cell_of, nearest
 from backend.survival.purposes import HOME_RANGE, Purpose, late_penalty, register
 from backend.survival.senses import shores_near
@@ -58,7 +59,8 @@ def farm_design(s: Situation) -> Blueprint | None:
     """A new farm's design, over the farm Mimo keeps, else beside the nearest shore within 16
     blocks of home, else at home (looked for once per Situation)."""
     def look() -> Blueprint | None:
-        if nearest(s.places, s.here, ("home",), HOME_RANGE) is None:
+        away = from_home(s, s.here[0], s.here[2])  # L4a final fix wave, I1: the one home lookup
+        if away is None or away > HOME_RANGE:
             return None
         old = nearest(s.places, s.here, ("farm",), FARM_TRAVEL)
         if old is not None:

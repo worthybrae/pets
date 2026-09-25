@@ -40,7 +40,7 @@ from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STA
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
-from backend.survival.life_goals import home_structure
+from backend.survival.home import by_home, home_structure
 from backend.survival.purposes import Purpose, foods, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
@@ -91,19 +91,26 @@ def chest_spot(s: Situation) -> tuple[int, int, int] | None:
     return blueprint_of(structure).one("chest")
 
 
-def built_chests(s: Situation) -> list[tuple[int, int, int]]:
-    """Every chest Mimo built and placed, home's own first (fix round 1): once Mimo moves into a
-    bigger home, an older one's chest still holds what was stored there, so `to_take` looks there
-    too rather than stranding it."""
-    home = chest_spot(s)
-    found = [home] if home is not None and chest_placed(s, home) else []
-    for structure in structures_near(s, "shelter", math.inf):
-        if structure["status"] != "done":
-            continue
-        cell = blueprint_of(structure).one("chest")
-        if cell is not None and cell not in found and chest_placed(s, cell):
-            found.append(cell)
+def chests_built(s: Situation) -> list[tuple[tuple[int, int, int], tuple[int, int, int]]]:
+    """(chest, stand) for every chest Mimo built and placed, home's own first (fix round 1): once
+    Mimo moves into a bigger home, an older one's chest still holds what was stored there, so
+    `to_take` (and pens.seeds_at_hand, the final fix wave) looks there too rather than stranding it.
+    The stand is the inside cell of the chest's own shelter, where Mimo reaches it from (the final
+    fix wave, I2: build_storage walks there, as it walks into home, never onto the chest block)."""
+    found: list[tuple[tuple[int, int, int], tuple[int, int, int]]] = []
+    home = home_structure(s)
+    shelters = [structure for structure in structures_near(s, "shelter", math.inf) if structure["status"] == "done"]
+    for structure in ([home] if home is not None and home["status"] == "done" else []) + shelters:
+        blueprint = blueprint_of(structure)
+        cell = blueprint.one("chest")
+        if cell is not None and chest_placed(s, cell) and all(cell != known for known, _ in found):
+            found.append((cell, blueprint.anchor))
     return found
+
+
+def built_chests(s: Situation) -> list[tuple[int, int, int]]:
+    """Every chest Mimo built and placed, home's own first (`chests_built`)."""
+    return [cell for cell, _ in chests_built(s)]
 
 
 def chest_placed(s: Situation, cell) -> bool:
@@ -333,9 +340,10 @@ def loose_blocks(s: Situation) -> list[tuple[str, int]]:
 
 
 def spare_fences(s: Situation) -> list[tuple[str, int]]:
-    """L3: fences are made 3 at a time, so a pen leaves one or two over. Once the newest pen near
-    Mimo is done (backend.survival.pens), they are no use to carry."""
-    pens = structures_near(s, "pen")
+    """L3: fences are made 3 at a time, so a pen leaves one or two over. Once the newest pen by home
+    is done (backend.survival.pens; the final fix wave: by home, home.by_home, not near Mimo), they
+    are no use to carry."""
+    pens = by_home(s, "pen")
     if not s.count("fence") or not pens or pens[-1]["status"] != "done":
         return []
     return [("fence", s.count("fence"))]
