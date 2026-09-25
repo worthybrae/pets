@@ -59,7 +59,9 @@ def materials_wanted(inventory: dict) -> set[str]:
     """The GEAR_MATERIALS still wanted for gear Mimo lacks: leather and hides for missing armor,
     string for a missing bow, flint and feathers while arrows are still wanted."""
     wanted = set()
-    if any(inventory.get(piece, 0) < 1 for piece in ARMOR_PIECES):
+    # L4a final fix wave, C1: a slot iron covers wants no leather (the leather piece is dropped as
+    # junk once iron replaces it, so asking for the piece itself wanted leather and hides for good).
+    if any(not covered(inventory, piece) for piece in ARMOR_PIECES):
         wanted |= {"leather", "rabbit_hide"}
     if inventory.get("bow", 0) < 1:
         wanted.add("string")

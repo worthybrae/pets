@@ -14,6 +14,13 @@ Both are day work, not offered at night, and both score in the needs band (purpo
 hungrier Mimo is and the less food it carries, the higher. Their walks go all the way or not at
 all (`whole`), and places within 4 blocks of where a step just failed are left alone for a while
 (senses.near_failure).
+
+L4a final fix wave, C1: food work (forage, fish and hunt, backend.survival.creatures.hunting) is
+offered only while the food it brings would be kept or eaten, never left behind (`room_for_food`:
+a stack is free, something Mimo carries gives way to food, carrying.gives_way, or Mimo is hungry
+enough to eat what does not fit, carrying.eat_what_is_left). And a food patch Mimo goes back to lies
+within FORAGE_REACH of home as well as of Mimo (backend.survival.home): with full arms leaving every
+berry behind, each forage used to lead on to the next patch from where Mimo stood, 536 blocks out.
 """
 
 from __future__ import annotations
@@ -22,10 +29,12 @@ import math
 from typing import TYPE_CHECKING
 
 from backend.survival import nature
+from backend.survival.carrying import full, gives_way
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell
+from backend.survival.home import from_home
 from backend.survival.memory import cell_of
-from backend.survival.purposes import Purpose, foods, late_penalty, register, walk_to
+from backend.survival.purposes import EAT_BELOW, HOME_RANGE, Purpose, foods, late_penalty, register, walk_to
 from backend.survival.senses import FOOD_SIGHT, WATER_SIGHT, food_near, near_failure, shores_near
 from backend.survival.situation import Situation
 from backend.survival.steps import FOOD, REACH
@@ -38,6 +47,7 @@ PICKS_PER_BATCH = 4
 FORAGE_BATCHES = 6
 STAND = 2.0  # a walk to pick or tend something ends within this many blocks of it
 PATCH_RANGE = 64.0
+FORAGE_REACH = HOME_RANGE  # C1: a food patch Mimo goes back to lies this close to home too
 PATCH_REACH = 3.0
 REGROWN = 2 * DAY_SECONDS
 FISH_GOAL = 4
@@ -62,6 +72,14 @@ def food_need(s: Situation) -> float:
 def hunger_score(s: Situation, base: float) -> float:
     """The needs-band score of food work: `base`, plus the food Mimo lacks and how hungry it is."""
     return base + food_need(s) / 3 + (100.0 - s.vitals["hunger"]) / 3 - late_penalty(s)
+
+
+def room_for_food(s: Situation) -> bool:
+    """C1: food Mimo gathers now would be kept or eaten, never left behind: a stack is free,
+    something it carries gives way to food, or it is hungry enough (EAT_BELOW) to eat what does
+    not fit on the spot."""
+    return (not full(s.inventory) or bool(gives_way(s.inventory, "berries"))
+            or s.vitals["hunger"] < EAT_BELOW)
 
 
 def whole_walk(cell: Cell, reach: float = 0.0) -> dict:
@@ -101,15 +119,23 @@ def patch_worth_a_visit(s: Situation, place: dict) -> bool:
     return seen is None or (s.at - seen) * s.scale >= REGROWN
 
 
+def near_home(s: Situation, place: dict) -> bool:
+    """C1: within FORAGE_REACH of home (anywhere before Mimo has one)."""
+    away = from_home(s, place["x"], place["z"])
+    return away is None or away <= FORAGE_REACH
+
+
 def patches(s: Situation) -> list[dict]:
-    """Remembered food patches beyond sight but within 64 blocks that are worth a visit, nearest first."""
+    """Remembered food patches beyond sight but within 64 blocks, and within FORAGE_REACH of home
+    (C1), that are worth a visit, nearest first."""
     found = [place for place in s.places if place["kind"] == "food"
-             and FOOD_SIGHT < s.distance(cell_of(place)) <= PATCH_RANGE and patch_worth_a_visit(s, place)]
+             and FOOD_SIGHT < s.distance(cell_of(place)) <= PATCH_RANGE and near_home(s, place)
+             and patch_worth_a_visit(s, place)]
     return sorted(found, key=lambda place: s.distance(cell_of(place)))
 
 
 def forage_valid(s: Situation) -> bool:
-    return not s.night and food_need(s) > 0 and bool(ripe_food(s) or patches(s))
+    return not s.night and food_need(s) > 0 and room_for_food(s) and bool(ripe_food(s) or patches(s))
 
 
 def forage_facts(s: Situation) -> str:
@@ -118,7 +144,7 @@ def forage_facts(s: Situation) -> str:
 
 
 def plan_forage(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or food_need(s) <= 0 or s.brain["batches"] >= FORAGE_BATCHES:
+    if s.night or food_need(s) <= 0 or s.brain["batches"] >= FORAGE_BATCHES or not room_for_food(s):
         return []
     ripe = ripe_food(s)
     if ripe:
@@ -148,7 +174,7 @@ def fishing_spots(s: Situation) -> list[tuple[Cell, Cell]]:
 
 
 def fish_valid(s: Situation) -> bool:
-    return not s.night and fish_carried(s) < FISH_GOAL and bool(fishing_spots(s))
+    return not s.night and fish_carried(s) < FISH_GOAL and room_for_food(s) and bool(fishing_spots(s))
 
 
 def fish_facts(s: Situation) -> str:
@@ -158,7 +184,7 @@ def fish_facts(s: Situation) -> str:
 
 
 def plan_fish(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or fish_carried(s) >= FISH_GOAL or s.brain["batches"] >= FISH_BATCHES:
+    if s.night or fish_carried(s) >= FISH_GOAL or s.brain["batches"] >= FISH_BATCHES or not room_for_food(s):
         return []
     spots = fishing_spots(s)
     if not spots:

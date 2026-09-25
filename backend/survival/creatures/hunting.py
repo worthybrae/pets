@@ -17,7 +17,8 @@ and then for hides, wool and feathers but never empties the land. It scores like
 work (foraging.hunger_score: higher the less food Mimo carries and the hungrier it is, minus the
 late-day penalty) from a base of 30, and bold pets hunt a little more: bravery above 50 adds up to
 5, below 50 takes up to 5 off. There is no kindness or gentleness trait, so nothing makes a pet
-hunt less for being kind.
+hunt less for being kind. L4a final fix wave, C1: only while the meat would be kept or eaten
+(foraging.room_for_food), never left behind by full arms.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from backend.survival.creatures.combat import ATTACK_REACH
 from backend.survival.creatures.kinds import huntable, kind_of
 from backend.survival.creatures.moves import where
 from backend.survival.creatures.table import dead
-from backend.survival.foraging import food_need, food_points, hunger_score, whole_walk
+from backend.survival.foraging import food_need, food_points, hunger_score, room_for_food, whole_walk
 from backend.survival.purposes import Purpose, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
@@ -89,8 +90,9 @@ HUNT_FOR: list = []
 
 
 def hunt_valid(s: Situation) -> bool:
+    """L4a final fix wave, C1: only while the meat would be kept or eaten (foraging.room_for_food)."""
     wanted = food_need(s) > 0 or not hunted_lately(s) or any(want(s) for want in HUNT_FOR)
-    return not s.night and wanted and bool(prey(s))
+    return not s.night and wanted and room_for_food(s) and bool(prey(s))
 
 
 def hunt_facts(s: Situation) -> str:
@@ -104,7 +106,7 @@ def hunt_score(s: Situation) -> float:
 
 
 def plan_hunt(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or s.brain["batches"] >= HUNT_BATCHES:
+    if s.night or s.brain["batches"] >= HUNT_BATCHES or not room_for_food(s):
         return []
     target = quarry(s)
     s.brain["prey"] = None if target is None else target["id"]

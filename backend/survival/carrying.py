@@ -10,6 +10,15 @@ and cobblestone last), a stack at a time; anything else Mimo already carried is 
 full makes putting things away in a chest and dropping low-value items worth doing
 (backend.survival.storage).
 
+L4a final fix wave, C1: goals load Mimo with gear, ores, leather, feathers and hides, all of them
+kept on hand, so its 16 stacks could fill with no LOW_VALUE block among them; every berry it picked
+was then left behind and one pet starved 536 blocks from home. Food outranks more than blocks now:
+with no LOW_VALUE block left, it pushes out a stack of what GIVES_WAY_TO_FOOD lists (unused plants,
+then spare gear materials, then hides, then extra ores: all of it comes back with the next hunt or
+dig), and food that still does not fit is eaten there and then while Mimo is hungry
+(`eat_what_is_left`: from EAT_BELOW, up to FULL, as a meal eats, never food that can make it sick).
+Food work is offered only while its food would be kept or eaten (foraging.room_for_food).
+
 Crafting, smelting and cooking never make something that would be left behind: their steps do
 not start when the output would not fit once the inputs are used up (`fits`, checked in
 backend.survival.steps and backend.survival.fieldwork), and planners leave out crafts that could
@@ -107,11 +116,38 @@ def valuable(item: str) -> bool:
             or item in AXES or item in TREASURES or item.endswith(("_ore", "_ingot", "_sword")))
 
 
-def least_valuable(inventory: dict[str, int], newcomer: str) -> str | None:
-    """The LOW_VALUE block Mimo carries that gives way to a valuable `newcomer`, or None."""
+# L4a final fix wave, C1: what gives way to food once no LOW_VALUE block is left, the least useful
+# first: plants nothing uses yet, spare gear materials, hides, then extra ores.
+GIVES_WAY_TO_FOOD = ("flower_orange", "flower_pink", "flower_yellow", "cactus", "sugar_cane", "pumpkin", "melon",
+                     "gloom_dust", "wool", "string", "feather", "flint", "rabbit_hide", "leather",
+                     "copper_ore", "copper_ingot", "gold_ore", "gold_ingot")
+
+
+def good_food(item: str) -> bool:
+    """Food that is not poisonous (steps.FOOD_HEALTH): worth carrying."""
+    from backend.survival.steps import FOOD, FOOD_HEALTH  # imported here: steps imports this module
+    return item in FOOD and FOOD_HEALTH.get(item, 0.0) >= 0
+
+
+def keeps_alive(item: str) -> bool:
+    """Good food that cannot make Mimo sick raw either (steps.FOOD_RISK): safe to eat on the spot."""
+    from backend.survival.steps import FOOD_RISK  # imported here: steps imports this module
+    return good_food(item) and item not in FOOD_RISK
+
+
+def gives_way(inventory: dict[str, int], newcomer: str) -> list[str]:
+    """What Mimo carries that gives way to `newcomer`, the first first: a LOW_VALUE block for anything
+    valuable, then (C1) for good food, what GIVES_WAY_TO_FOOD lists."""
     if not valuable(newcomer):
-        return None
-    return next((item for item in LOW_VALUE if inventory.get(item, 0) > 0), None)
+        return []
+    order = LOW_VALUE + (GIVES_WAY_TO_FOOD if good_food(newcomer) else ())
+    return [item for item in order if inventory.get(item, 0) > 0]
+
+
+def least_valuable(inventory: dict[str, int], newcomer: str) -> str | None:
+    """What Mimo carries that gives way to a valuable `newcomer` first (`gives_way`), or None."""
+    found = gives_way(inventory, newcomer)
+    return found[0] if found else None
 
 
 def settle(inventory: dict[str, int], before: dict[str, int]) -> dict[str, int]:
@@ -139,10 +175,35 @@ def settle(inventory: dict[str, int], before: dict[str, int]) -> dict[str, int]:
     return left
 
 
-def after_step(state: dict, before: dict[str, int], at: float) -> None:
-    """Settle the inventory after a finished step. `state["full_at"]` is the time Mimo last found
-    its hands full (something had to stay behind), cleared once it carries less than the limit."""
-    if settle(state["inventory"], before) and state.get("full_at") is None:
+def eat_what_is_left(state: dict, left: dict[str, int], at: float, events: list | None) -> None:
+    """C1: food a step brought in that did not fit is eaten there and then while Mimo is hungry
+    (EAT_BELOW, the eat purpose's own line), best first, until it is FULL, as a meal eats; food that
+    can make it sick is not. What is eaten comes off `left`."""
+    from backend.survival.purposes import EAT_BELOW, FULL  # imported here: purposes imports steps, which imports this
+    from backend.survival.steps import FOOD, label
+
+    vitals = state["vitals"]
+    if vitals["hunger"] >= EAT_BELOW:
+        return
+    for item in sorted((item for item in left if keeps_alive(item)), key=lambda item: (-FOOD[item], item)):
+        eaten = 0
+        while left[item] > 0 and vitals["hunger"] < FULL:
+            vitals["hunger"] = min(100.0, vitals["hunger"] + FOOD[item])
+            left[item] -= 1
+            eaten += 1
+        if not left[item]:
+            del left[item]
+        if eaten and events is not None:
+            events.append((at, "ate", f"{state['name']} ate {eaten} {label(item)} it had no room to carry."))
+
+
+def after_step(state: dict, before: dict[str, int], at: float, events: list | None = None) -> None:
+    """Settle the inventory after a finished step, eating food that did not fit while Mimo is hungry
+    (`eat_what_is_left`, C1). `state["full_at"]` is the time Mimo last found its hands full
+    (something had to stay behind), cleared once it carries less than the limit."""
+    left = settle(state["inventory"], before)
+    eat_what_is_left(state, left, at, events)
+    if left and state.get("full_at") is None:
         state["full_at"] = at
         state["last_thought"] = "My arms are full. I can't carry any more."
     elif not full(state["inventory"]):

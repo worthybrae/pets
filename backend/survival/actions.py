@@ -372,7 +372,7 @@ def finish(state: dict, step: dict, context: ActionContext, at: float) -> bool:
         log_once(logger, "finish_step", error)
         fail(state, step, at, "bad step", "bad_step")
         return False
-    after_step(state, before, at)  # what does not fit stays behind (backend.survival.carrying)
+    after_step(state, before, at, events)  # what does not fit stays behind, or is eaten (carrying)
     record(state, step, at, "done")
     if event:
         events.append((at, *event))

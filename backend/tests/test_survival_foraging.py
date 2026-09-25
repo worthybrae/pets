@@ -3,9 +3,9 @@ import unittest
 from unittest.mock import patch
 
 from backend.survival import foraging  # noqa: F401  (registers forage and fish)
-from backend.survival.actions import ActionContext, ensure_actions
+from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, know, remember, update_place
+from backend.survival.memory import create_memory_tables, know, remember, set_home, update_place
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.vitals import START_VITALS
@@ -93,6 +93,61 @@ class ForageTests(unittest.TestCase):
         self.assertEqual(round(stocked), 55)
         late = situation(clock={**DAY, "seconds_into_day": 2000.0})
         self.assertEqual(round(score(late)), 25)
+
+
+# L4a final fix wave, C1: 16 stacks of things Mimo keeps, nothing of which gives way to food.
+NO_ROOM = {"iron_pickaxe": 1, "iron_sword": 1, "crafting_table": 1, "furnace": 1, "iron_cap": 1, "iron_tunic": 1,
+           "oak_log": 8, "sticks": 4, "coal": 8, "iron_ore": 4, "seeds": 5, "sapling": 3, "wheat": 2, "torch": 2,
+           "campfire": 1, "bow": 1}
+# The same, with a stack of feathers in place of the bow: food pushes them out.
+FEATHERS = {**{item: count for item, count in NO_ROOM.items() if item != "bow"}, "feather": 3}
+
+
+class RoomForFoodTests(unittest.TestCase):
+    """L4a final fix wave, C1: food work is offered only while its food would be kept (a stack is
+    free or one gives way to food) or eaten on the spot (Mimo is hungry), and food patches Mimo goes
+    back to lie within FORAGE_REACH of home as well as of Mimo, so each forage no longer leads
+    farther out than the last."""
+
+    def test_forage_and_fish_wait_while_the_food_could_only_be_left_behind(self):
+        grid = meadow({(3, 1, 0): "berry_bush_ripe"})
+        forage, fish = PURPOSES["forage"], PURPOSES["fish"]
+        with patch("backend.survival.foraging.shores_near", lambda grid, seed, here, radius: [SHORE]):
+            for inventory, hunger, offered in ((NO_ROOM, 100.0, False), (FEATHERS, 100.0, True),
+                                               (NO_ROOM, 50.0, True), ({}, 100.0, True)):
+                state = pet(inventory=dict(inventory), vitals={**START_VITALS, "hunger": hunger})
+                s = situation(state, grid)
+                self.assertEqual((forage.valid(s), fish.valid(s)), (offered, offered), (sorted(inventory), hunger))
+                self.assertEqual(bool(forage.plan(s, context(s))), offered)
+
+    def test_with_16_kept_stacks_and_a_berry_bush_the_berries_are_kept_or_eaten_never_left(self):
+        for inventory, hunger in ((FEATHERS, 100.0), (NO_ROOM, 40.0)):
+            grid = meadow({(1, 1, 0): "berry_bush_ripe"})
+            state = pet(inventory=dict(inventory), vitals={**START_VITALS, "hunger": hunger})
+            s = situation(state, grid)
+            steps = PURPOSES["forage"].plan(s, context(s))
+            self.assertEqual(steps, [pick(1, 1, 0)])
+            events = []
+            state["queue"] = steps
+            advance_actions(state, ActionContext(grid=grid, clock_at=lambda at: DAY, planner=lambda *args: [],
+                                                 events=events), 5.0)
+            self.assertEqual(grid.material(1, 1, 0), "berry_bush")  # picked
+            eaten = state["vitals"]["hunger"] - hunger  # (hunger falls only with time, and no time passed)
+            self.assertEqual(state["inventory"].get("berries", 0) * 8.0 + eaten, 8.0 * 3, sorted(inventory))
+            self.assertNotIn("feather", state["inventory"])  # what gave way to the berries, if anything
+
+    def test_food_patches_stay_within_reach_of_home(self):
+        s = situation(pet(position={"x": 60.0, "y": 1.0, "z": 0.0}), at=10_000.0)
+        set_home(s.db, (0, 1, 0), 0.0)
+        for cell in ((40, 1, 30), (110, 1, 0)):  # both within 64 of Mimo; the second 110 from home
+            remember(s.db, "food", cell, 0.0)
+            update_place(s.db, "food", cell, {"ripe": 3, "seen_at": 9_000.0})
+        self.assertEqual([place["x"] for place in foraging.patches(s)], [40])
+        away = situation(pet(position={"x": 100.0, "y": 1.0, "z": 0.0}), at=10_000.0)
+        set_home(away.db, (0, 1, 0), 0.0)
+        remember(away.db, "food", (110, 1, 0), 0.0)
+        update_place(away.db, "food", (110, 1, 0), {"ripe": 3, "seen_at": 9_000.0})
+        self.assertFalse(PURPOSES["forage"].valid(away))  # it does not lead Mimo on farther out
 
 
 @patch("backend.survival.foraging.shores_near", lambda grid, seed, here, radius: [SHORE])

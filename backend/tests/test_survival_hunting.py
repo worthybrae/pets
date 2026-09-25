@@ -88,6 +88,17 @@ class HuntValidityTests(unittest.TestCase):
         self.assertTrue(HUNT.valid(situation(grid, pet(inventory=fed, hunted_at=50.0), at=50.0 + 3600.0)))
         self.assertTrue(HUNT.valid(situation(grid, pet(hunted_at=50.0), at=100.0)))  # hungry for more
 
+    def test_not_offered_while_the_meat_could_only_be_left_behind(self):
+        """L4a final fix wave, C1: with 16 stacks nothing gives way to (NO_ROOM), a fed pet does not
+        hunt; with feathers to push out, or hungry enough to eat the meat there, it does."""
+        from backend.tests.test_survival_foraging import FEATHERS, NO_ROOM
+        grid = meadow()
+        animal(grid)
+        self.assertFalse(HUNT.valid(situation(grid, pet(inventory=dict(NO_ROOM)))))
+        self.assertEqual(HUNT.plan(situation(grid, pet(inventory=dict(NO_ROOM))), context(grid)), [])
+        self.assertTrue(HUNT.valid(situation(grid, pet(inventory=dict(FEATHERS)))))
+        self.assertTrue(HUNT.valid(situation(grid, pet(inventory=dict(NO_ROOM), vitals={**START_VITALS, "hunger": 50.0}))))
+
     def test_scores_like_food_work_and_bold_pets_hunt_a_little_more(self):
         grid = meadow()
         animal(grid)

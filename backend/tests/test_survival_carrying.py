@@ -2,7 +2,7 @@ import unittest
 
 from backend.services.crafting import RECIPES, craft
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
-from backend.survival.carrying import CARRY_STACKS, after_step, room_for, settle, stacks
+from backend.survival.carrying import CARRY_STACKS, after_step, least_valuable, room_for, settle, stacks
 from backend.survival.grid import Grid
 from backend.survival.vitals import START_VITALS
 
@@ -98,6 +98,71 @@ class WhatGivesWayTests(unittest.TestCase):
         work(state, grid, [{"kind": "pick", "target": [1, 1, 0]}], until=2.0)
         self.assertEqual(state["inventory"], {**self.carried, "dirt": 32, "berries": 3})
         self.assertIn("full", state["last_thought"])
+
+
+class FoodIsNeverLeftTests(unittest.TestCase):
+    """L4a final fix wave, C1: goals filled all 16 stacks with things Mimo keeps (gear, ores,
+    leather, feathers, hides), none of them a LOW_VALUE block, so every berry it picked was left
+    behind and the pet starved. Food now pushes out a spare gear material, hide or extra ore, or is
+    eaten there and then while Mimo is hungry."""
+
+    # 16 stacks of things Mimo keeps: tools, stations, armor, wood, coal, ore, feathers, a hide.
+    kept = {"iron_pickaxe": 1, "iron_sword": 1, "crafting_table": 1, "furnace": 1, "iron_cap": 1, "iron_tunic": 1,
+            "oak_log": 8, "sticks": 4, "coal": 8, "iron_ore": 4, "gold_ore": 2, "seeds": 5, "sapling": 3,
+            "wheat": 2, "feather": 3, "rabbit_hide": 2}
+
+    def test_the_kept_stacks_fill_the_arms_and_hold_no_low_value_block(self):
+        self.assertEqual(stacks(self.kept), CARRY_STACKS)
+        self.assertEqual(least_valuable(self.kept, "iron_ore"), None)  # ore still pushes out only blocks
+
+    def test_food_pushes_out_a_spare_gear_material_first_then_a_hide_then_an_extra_ore(self):
+        inventory = {**self.kept, "berries": 3}
+        self.assertEqual(settle(inventory, self.kept), {"feather": 3})
+        self.assertEqual(inventory, {**{k: v for k, v in self.kept.items() if k != "feather"}, "berries": 3})
+        without = {k: v for k, v in self.kept.items() if k != "feather"} | {"leather": 1}
+        inventory = {**without, "raw_fish": 1}
+        self.assertEqual(settle(inventory, without), {"rabbit_hide": 2})
+        ores = {k: v for k, v in without.items() if k not in ("rabbit_hide", "leather")} | {"string": 1, "flint": 2}
+        inventory = {**ores, "raw_beef": 2}
+        self.assertEqual(settle(inventory, ores), {"string": 1})
+        only_ore = {k: v for k, v in self.kept.items() if k not in ("feather", "rabbit_hide")} | {"cobblestone": 1,
+                                                                                                    "planks": 4}
+        inventory = {**only_ore, "apple": 1}
+        self.assertEqual(settle(inventory, only_ore), {"cobblestone": 1})  # a LOW_VALUE block still goes first
+        no_block = {k: v for k, v in only_ore.items() if k != "cobblestone"} | {"torch": 2}
+        inventory = {**no_block, "apple": 1}
+        self.assertEqual(settle(inventory, no_block), {"gold_ore": 2})
+
+    def test_poisonous_food_or_a_non_food_newcomer_pushes_out_no_gear_material(self):
+        for item in ("red_mushroom", "iron_ingot", "diamond"):
+            inventory = {**self.kept, item: 1}
+            self.assertEqual(settle(inventory, self.kept), {item: 1}, item)
+            self.assertEqual(inventory, self.kept, item)
+
+    def test_with_nothing_to_give_way_a_hungry_pet_eats_it_there_and_a_fed_one_leaves_it(self):
+        hungry = pet(FULL)
+        hungry["vitals"]["hunger"] = 40.0
+        hungry["inventory"]["berries"] = 5
+        events = []
+        after_step(hungry, FULL, 10.0, events)
+        self.assertEqual(hungry["inventory"], FULL)
+        self.assertEqual(hungry["vitals"]["hunger"], 80.0)  # a meal's worth: up to FULL, like a meal
+        self.assertEqual(events, [(10.0, "ate", "Pip ate 5 berries it had no room to carry.")])
+        self.assertIsNone(hungry.get("full_at"))  # nothing was left behind
+        fed = pet(FULL)
+        fed["inventory"]["berries"] = 5
+        after_step(fed, FULL, 10.0, [])
+        self.assertEqual((fed["inventory"], fed["vitals"]["hunger"], fed["full_at"]), (FULL, 100.0, 10.0))
+
+    def test_a_hungry_pet_eats_no_more_than_fills_it_and_no_food_that_makes_it_sick(self):
+        state = pet(FULL)
+        state["vitals"]["hunger"] = 60.0
+        state["inventory"].update(cooked_beef=3, red_mushroom=2, raw_chicken=1)
+        events = []
+        after_step(state, FULL, 5.0, events)
+        self.assertEqual(state["vitals"]["hunger"], 95.0)  # one cooked beef reaches FULL (90)
+        self.assertEqual([text for _, _, text in events], ["Pip ate 1 cooked beef it had no room to carry."])
+        self.assertEqual(state["inventory"], FULL)
 
 
 class SettleCapTests(unittest.TestCase):

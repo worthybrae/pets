@@ -116,6 +116,16 @@ class GearTests(unittest.TestCase):
         short = Home({**ARMOR, "bow": 1, "arrow": 4, "leather": 5, "string": 3, "flint": 4, "feather": 4}, chest={})
         self.assertEqual(dict(storage.to_store(short.situation(), short.chest)), {"leather": 5, "string": 3})
 
+    def test_iron_armor_covers_its_slot_so_the_leather_for_it_is_spare(self):
+        """L4a final fix wave, C1: the leather cap and tunic are dropped once iron replaces them, so
+        materials_wanted kept wanting leather and hides for good and a pet in iron armor carried them
+        in two of its 16 stacks, with nothing left to give way to food."""
+        iron = {"iron_cap": 1, "iron_tunic": 1, "bow": 1, "arrow": 8}
+        home = Home({**iron, "leather": 3, "rabbit_hide": 4}, chest={})
+        self.assertEqual(dict(storage.to_store(home.situation(), home.chest)), {"leather": 3, "rabbit_hide": 4})
+        half = Home({"iron_cap": 1, "bow": 1, "arrow": 8, "leather": 3}, chest={})  # the tunic still wants leather
+        self.assertEqual(dict(storage.to_store(half.situation(), half.chest)), {})
+
 
 if __name__ == "__main__":
     unittest.main()

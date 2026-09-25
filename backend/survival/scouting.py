@@ -34,7 +34,9 @@ from backend.survival.creatures.hunting import prey
 from backend.survival.creatures.kinds import land_kinds
 from backend.survival.creatures.moves import where
 from backend.survival.exploring import FOOD_WORDS
-from backend.survival.foraging import FOOD_WANTED, fishing_spots, food_need, food_points, patches, ripe_food
+from backend.survival.foraging import (
+    FOOD_WANTED, fishing_spots, food_need, food_points, patches, ripe_food, room_for_food,
+)
 from backend.survival.building import building_need
 from backend.survival.goals import ADVANCES
 from backend.survival.memory import SAME_PLACE, cell_of, remember, update_place
@@ -120,7 +122,9 @@ def food_work(s: Situation) -> bool:
 
 
 def food_wanted(s: Situation) -> str | None:
-    if food_points(s) >= FOOD_SHORT or food_need(s) <= 0 or food_work(s):
+    """L4a final fix wave, C1: not while the food it found could only be left behind (full arms,
+    nothing to give way to food and not hungry enough to eat it there: foraging.room_for_food)."""
+    if food_points(s) >= FOOD_SHORT or food_need(s) <= 0 or not room_for_food(s) or food_work(s):
         return None
     if s.vitals["hunger"] < 50:
         return "I am hungry and no food is near"
