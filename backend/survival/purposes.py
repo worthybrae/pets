@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 REST_STEP = 10.0  # game seconds per wait, so a trigger ends a rest promptly
-REST_LONGEST = 600.0  # game seconds
+REST_LONGEST = 120.0  # game seconds (L4: two game minutes, then Mimo looks again for something to do)
 EXPLORE_WALKS = 3
 AT_HOME = 2.0
 HOME_RANGE = 64.0
@@ -210,7 +210,7 @@ def rest_score(s: Situation) -> float:
 
 
 def plan_rest(s: Situation, context: ActionContext) -> list[dict]:
-    """Wait in short steps until a trigger other than idle is pending, at most 10 game minutes.
+    """Wait in short steps until a trigger other than idle is pending, at most two game minutes (L4).
     Followup fix: swims for land first when Mimo is afloat (land_refuge), instead of waiting there."""
     refuge = land_refuge(s)
     if refuge is not None:
@@ -225,7 +225,7 @@ def plan_rest(s: Situation, context: ActionContext) -> list[dict]:
 
 
 register(Purpose(
-    "rest", "rest", "Stay put and rest until something happens, at most ten game minutes.",
+    "rest", "rest", "Stay put and rest until something happens, at most two game minutes.",
     valid=lambda s: True,
     facts=lambda s: f"mood {round(s.vitals['mood'])}, energy {round(s.vitals['energy'])}",
     score=rest_score, plan=plan_rest,

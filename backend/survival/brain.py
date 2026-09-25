@@ -34,7 +34,9 @@ First sightings (home, each ore material, water) are discoveries and ask for a n
 is food or water found on new ground far from home on an explore trip (logged as an explore
 event, one a step; it asks for a choice at most once a game hour).
 L4: after each walk of an explore trip Mimo looks around for what the trip is for
-(backend.survival.trips.look_after); a find that is what it came for ends the trip.
+(backend.survival.trips.look_after); a find that is what it came for ends the trip. Curiosity
+(backend.survival.curiosity) grows after each vitals step and falls with each discovery a
+finished step makes.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's b
 from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, build_pen and stock_pen)
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
+from backend.survival.curiosity import note_discoveries, tend_curiosity
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
@@ -222,6 +225,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     if db is None:
         return
     kind, name = step["kind"], state["name"]
+    mark = len(context.events)  # L4: this step's events, for curiosity
     if kind == "mine":
         cell = as_cell(step["target"])
         if step.get("block") in ORES:
@@ -241,6 +245,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     finds = note_ground(state, step, context, at)
     if finds:
         announce_find(state, step, context, at, *finds[0])  # one a step: the rest are remembered quietly
+    note_discoveries(state, step, context, at, context.events[mark:])
     look_after(state, step, context, at)
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
@@ -258,6 +263,7 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
     if phase:
         mark_trigger(state, phase, at)
     tend_goal(state, context, at, phase)
+    tend_curiosity(state, context, at)
     asleep = (state.get("action") or {}).get("kind") == "sleep"
     if brain["pending"] is None and not asleep and hour_passed(brain, at, clock["time_scale"]):
         mark_trigger(state, "hour", at)

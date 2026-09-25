@@ -1,0 +1,144 @@
+import random
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from backend.survival import curiosity
+from backend.survival.brain import BRAIN
+from backend.survival.curiosity import (
+    CLOCK_HOUR, NEW_BIOME, NEW_BLOCK, NEW_CREATURE, NEW_GROUND, NEW_PLACE, START, curiosity_state, curiosity_view,
+    lift, note_discoveries, tend_curiosity, time_to_wander,
+)
+from backend.survival.goals import GOALS, URGES, Goal, adopt_goal, goal_state
+from backend.survival.hatch import hatch
+from backend.survival.memory import known
+from backend.survival.once import forget_logged
+from backend.survival.registry import LifeRegistry
+from backend.survival.tick import tick_life
+from backend.survival.trips import REASONS
+from backend.tests.test_survival_life_goals import built
+
+BORN = 1_000_000.0
+DAY = 3600.0
+
+
+class Creatures:
+    """A herd that only answers who is near."""
+
+    def __init__(self, *kinds):
+        self.kinds = kinds
+
+    def near(self, x, z, reach):
+        return [{"kind": kind, "state": {}} for kind in self.kinds]
+
+
+class CuriosityTests(unittest.TestCase):
+    def setUp(self):
+        self.world = built()
+        self.state = self.world.state
+        self.context = self.world.context()
+        self.context.events = []
+
+    def value(self):
+        return self.state["brain"]["curiosity"]["value"]
+
+    def test_it_grows_on_known_ground_and_faster_once_needs_are_met(self):
+        tend_curiosity(self.state, self.context, 0.0)  # a newborn's, at START; the home biome is known
+        self.assertEqual(self.value(), START)
+        self.assertEqual(len(known(self.world.db, "biome")), 1)
+        self.state["vitals"]["hunger"] = 30.0  # hungry: needs not met
+        tend_curiosity(self.state, self.context, 3 * CLOCK_HOUR)
+        self.assertEqual(self.value(), START + 6.0)  # 2 an hour of the clock
+        self.state["vitals"]["hunger"] = 100.0  # fed, rested, warm, well, with a home it built
+        tend_curiosity(self.state, self.context, 5 * CLOCK_HOUR)
+        self.assertEqual(self.value(), START + 12.0)  # 3 an hour
+        tend_curiosity(self.state, self.context, 2 * DAY)
+        self.assertEqual(self.value(), 100.0)
+
+    def test_discoveries_lower_it_and_are_remembered(self):
+        tend_curiosity(self.state, self.context, 0.0)
+        curiosity_state(self.state, 0.0)["value"] = 90.0
+        self.state["brain"]["new_ground_at"] = 5.0
+        with patch("backend.survival.curiosity.biome_at", lambda x, z, seed: "taiga"):
+            note_discoveries(self.state, {"kind": "mine", "block": "gravel"}, self.context, 5.0,
+                             [(5.0, "found", "Pip spotted iron ore."), (5.0, "plan", "")])
+        self.assertEqual(self.value(), 90.0 - NEW_PLACE - NEW_GROUND - NEW_BIOME - NEW_BLOCK)
+        self.assertEqual(self.context.events, [(5.0, "found", "Pip saw the taiga for the first time.")])
+        self.assertIn("gravel", known(self.world.db, "block"))
+        self.assertEqual({key: self.state["brain"]["curiosity"][key] for key in ("new_at", "noticed_at", "seen")},
+                         {"new_at": 5.0, "noticed_at": 5.0, "seen": 1})
+        self.state["brain"]["new_ground_at"] = 9.0  # new ground alone: a discovery, but not a notable one
+        note_discoveries(self.state, {"kind": "walk"}, self.context, 9.0, [])
+        self.assertEqual({key: self.state["brain"]["curiosity"][key] for key in ("new_at", "noticed_at", "seen")},
+                         {"new_at": 9.0, "noticed_at": 5.0, "seen": 2})
+
+    def test_creatures_in_sight_are_met_once_a_game_minute(self):
+        tend_curiosity(self.state, self.context, 0.0)
+        self.world.grid.herd = Creatures("sheep", "cow")
+        tend_curiosity(self.state, self.context, 30.0)  # looked over at 0.0 already
+        self.assertEqual(known(self.world.db, "creature"), [])
+        tend_curiosity(self.state, self.context, 61.0)
+        self.assertEqual(sorted(known(self.world.db, "creature")), ["cow", "sheep"])
+        self.assertEqual([text for _, _, text in self.context.events],
+                         ["Pip met its first cow.", "Pip met its first sheep."])
+        self.assertAlmostEqual(self.value(), START + 61.0 / CLOCK_HOUR * 3.0 - 2 * NEW_CREATURE)
+
+    def test_high_curiosity_lifts_explore_makes_it_a_need_and_is_a_reason_to_wander(self):
+        tend_curiosity(self.state, self.context, 0.0)
+        levels = ((10.0, 0.0, False), (50.0, 0.0, False), (65.0, 9.0, False), (90.0, 24.0, True))
+        for value, lifted, urge in levels:
+            curiosity_state(self.state, 0.0)["value"] = value
+            s = self.world.situation()
+            self.assertEqual((lift(s), URGES["explore"](s)), (lifted, urge))
+        self.assertEqual(REASONS["wander"].wanted(self.world.situation()), "I feel very restless; nothing new yet")
+        curiosity_state(self.state, 0.0)["value"] = 10.0  # content, but there is always something new to see
+        self.assertEqual(REASONS["wander"].wanted(self.world.situation()), "there is always more to see")
+        del self.state["brain"]["curiosity"]
+        self.assertIsNone(REASONS["wander"].wanted(self.world.situation()))  # not before the tick tends it
+
+    def test_the_model_and_the_viewer_are_told_how_it_feels(self):
+        brain = {"curiosity": {"value": 80.0, "new_at": 0.0}}
+        self.assertEqual(curiosity_view(brain, 2 * CLOCK_HOUR + 5.0, 1.0),
+                         {"level": 80, "feeling": "restless; nothing new for 2 hours"})
+        self.assertEqual(curiosity_view(brain, 3 * DAY, 1.0)["feeling"], "restless; nothing new for 3 game days")
+        self.assertEqual(curiosity_view({"curiosity": {"value": 10.0, "new_at": 0.0}}, 5.0, 1.0)["feeling"],
+                         "content; just saw something new")
+        self.assertIsNone(curiosity_view({}, 5.0, 1.0))
+
+    def test_once_needs_are_met_the_day_sets_time_aside_to_wander_until_a_discovery(self):
+        tend_curiosity(self.state, self.context, 0.0)
+        adopt_goal(self.state, "iron_tools", "utility", "", 0.0)
+        goal = goal_state(self.state)["goal"]
+        self.assertEqual(time_to_wander(self.world.situation(), GOALS["iron_tools"]),
+                         {"text": "Take time to wander and see something new", "kind": "wander"})
+        wandering = Goal("wandering", "Wandering", "", GOALS["iron_tools"].milestones, score=lambda s: 1.0, thought="",
+                         repeat=True)
+        self.assertIsNone(time_to_wander(self.world.situation(), wandering))  # a discovery goal wanders already
+        goal["plan"] = [{"text": "Take time to wander and see something new", "kind": "wander", "done": False,
+                         "step": None}]
+        curiosity.discovered(self.state, 5.0, NEW_PLACE)
+        self.assertTrue(goal["plan"][0]["done"])
+        curiosity_state(self.state, 0.0)["value"] = 20.0
+        self.assertIsNone(time_to_wander(self.world.situation(), GOALS["iron_tools"]))
+
+    def test_a_crash_is_logged_once_and_the_tick_goes_on(self):
+        forget_logged()
+        with patch("backend.survival.curiosity.needs_met", side_effect=RuntimeError("boom")), \
+                self.assertLogs("backend.survival.curiosity", level="ERROR") as logs:
+            tend_curiosity(self.state, self.context, 0.0)
+            tend_curiosity(self.state, self.context, 5.0)
+        self.assertEqual(len(logs.output), 1)
+
+
+class BrainTests(unittest.TestCase):
+    def test_the_brain_tends_curiosity_after_each_vitals_step(self):
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            hatch(registry, random.Random(8), timestamp=BORN)
+            state = tick_life(registry, BORN + 1, scale=1.0, mind=BRAIN)
+        self.assertIn(state["brain"]["curiosity"]["value"], (START, START - NEW_GROUND))  # it may walk new ground
+
+
+if __name__ == "__main__":
+    unittest.main()
