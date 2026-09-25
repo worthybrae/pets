@@ -16,23 +16,31 @@ A newborn starts at START.
   water are, and each new place a trip finds, trips.FINDS; the first home is its own event, from
   brain.notice_step, outside this count). The biomes, blocks and creatures it met are remembered in
   memory_knowledge (facts "biome", "block" and "creature", with when). The biome it hatched in is
-  known from the start, without a word -- and on an old save (fix round 1), so is everything else
-  it already has: the biome of every patch it explored, the creature kinds in sight and the block
-  kinds it carries or has built with (`old_save`, `learn_quietly`), so upgrading a life never floods
-  the notable feed with false "firsts" or drops curiosity for half a day.
-- High curiosity lifts every explore trip (`lift`, trips.LIFTS), never past SURVIVAL_FLOOR
-  (purposes.py, fix round 1: the same ceiling a goal's own boost respects): from LIFTED on,
-  LIFT_RATE a point, up to 30 more at 100, into the work band but no further. From RESTLESS on,
+  known from the start, without a word -- and on an old save (fix round 1, widened in fix round 2),
+  so is everything else it already has: the biome at the corners and centre of every patch it
+  explored, every creature kind standing in one now (dead or alive, the creatures table, not only
+  those in sight of where Mimo stands), the kinds its carried drops or past hunts and catches imply
+  (`drop_kinds`, `past_creatures`: raw or cooked meat, hides, wool, feathers, string and the like,
+  and the "hunted a sheep" / "caught a fish" events already logged), and the block kinds it carries
+  or has built with (`old_save`, `learn_quietly`), so upgrading a life never floods the notable feed
+  with false "firsts" (fish it already ate, an animal it already hunted, a biome only a patch's edge
+  touches) or drops curiosity for half a day.
+- High curiosity lifts every explore trip (`lift`, trips.LIFTS): nothing at all while Mimo is hungry
+  (HUNGRY_BELOW) or tired (TIRED_BELOW) enough that eating or sleeping matter more (fix round 2: the
+  SURVIVAL_FLOOR cap below only stops it from outscoring a need once that need is already above 80,
+  which left it beating eat and sleep just under that); otherwise LIFT_RATE a point past LIFTED, up
+  to 30 more at 100, and even then never past SURVIVAL_FLOOR (purposes.py, fix round 1: the same
+  ceiling a goal's own boost respects), into the work band but no further. From RESTLESS on,
   exploring meets a need (goals.URGES), so goal work does not crowd it out. Curiosity is always a
   reason of its own, the "wander" trip ("look for something new": land it has never seen, a biome
-  where creatures it never met live, a cave mouth it has not looked into, then new ground (spot
-  likelihood 0.3, fix round 1: it is not a sure thing the way the others are), near or FAR_OUT
-  blocks away, up to WANDER_REACH blocks from home, exempt from the usual cooldown between trips
-  for the same reason since its targets move on their own): when nothing for its goal or a need is
-  on offer, Mimo goes to see something new rather than sit and rest (the trip serves the discovery
-  goals, so it is worked toward one of them meanwhile). Once its needs are met and it is curious
-  (PLAN_FROM), the day plan sets time aside to wander (goals.PLAN_EXTRAS), ticked off by the next
-  discovery.
+  where creatures it never met live, a cave mouth it has not looked into, then new ground, near or
+  FAR_OUT blocks away, up to WANDER_REACH blocks from home, its own shorter cooldown between trips,
+  WANDER_PENALTY_SECONDS, fix round 2: the trade-off ruling, since its targets move on their own and
+  the usual TRIP_PENALTY_SECONDS paced it into most of a rest, but leaving it exempt let the far more
+  frequent trips crowd out goal work): when nothing for its goal or a need is on offer, Mimo goes to
+  see something new rather than sit and rest (the trip serves the discovery goals, so it is worked
+  toward one of them meanwhile). Once its needs are met and it is curious (PLAN_FROM), the day plan
+  sets time aside to wander (goals.PLAN_EXTRAS), ticked off by the next discovery.
 - The model is told how it feels (`feeling`, `curiosity_view`): "restless; nothing new for 2 game
   days".
 The tick tends it (`tend_curiosity`, from brain.notice_step; the creatures in sight are looked over
@@ -44,18 +52,20 @@ from __future__ import annotations
 
 import logging
 import math
+import sqlite3
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import BLOCKS
 from backend.services.worldgen import biome_at
 from backend.survival.clock import DAY_SECONDS
-from backend.survival.creatures.kinds import land_kinds
+from backend.survival.creatures.kinds import KINDS, land_kinds
 from backend.survival.creatures.table import dead
 from backend.survival.exploring import HEADINGS, area_novelty, home_cell, lately
 from backend.survival.goals import PLAN_EXTRAS, URGES
 from backend.survival.life_goals import looked_into, opening_words, openings_near
 from backend.survival.memory import BUILT, PATCH, know, known, patch_of, places
 from backend.survival.once import log_once
+from backend.survival.purposes import HUNGRY_BELOW, TIRED_BELOW
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell, label
 from backend.survival.triggers import ensure_brain
@@ -154,22 +164,78 @@ def old_save(state: dict, context: ActionContext, at: float) -> bool:
     return (at - state.get("born_at", at)) * scale >= NEWBORN_WITHIN
 
 
+def patch_points(rx: int, rz: int) -> list[tuple[int, int]]:
+    """The corners and centre of an 8x8 patch, so a patch a biome only edges into is not missed by
+    sampling its centre alone (fix round 2)."""
+    x0, z0 = rx * PATCH, rz * PATCH
+    x1, z1 = x0 + PATCH - 1, z0 + PATCH - 1
+    return [(x0, z0), (x0, z1), (x1, z0), (x1, z1), (x0 + PATCH // 2, z0 + PATCH // 2)]
+
+
+def drop_kinds() -> dict[str, str]:
+    """Every item a creature kind drops, and what cooking makes from it, back to the kind (fix
+    round 2): raw_mutton and wool to sheep, raw_beef and leather to cow, and so on. Built fresh each
+    call since KINDS keeps filling in as more of L2's hostile kinds import (gloom_dust to gloomling,
+    string to skitter); this only ever runs once per life, on an old save's first tend."""
+    found = {"raw_fish": "fish", "cooked_fish": "fish"}
+    for kind in KINDS.values():
+        for item in kind.drops:
+            found.setdefault(item, kind.name)
+            if item.startswith("raw_"):
+                found.setdefault(f"cooked_{item[4:]}", kind.name)
+    return found
+
+
+def past_creatures(db, name: str) -> set[str]:
+    """Creature kinds this life hunted or fished before (fix round 2), from the event log: a kind
+    long gone from view and never carried leaves no other trace. A world read before mimo_events
+    existed (an archive, or a light test fixture) has none."""
+    found = set()
+    hunted, caught = f"{name} hunted a ", f"{name} caught a fish."
+    try:
+        rows = db.execute("SELECT kind, text FROM mimo_events WHERE kind IN ('hunt', 'fish')").fetchall()
+    except sqlite3.OperationalError as error:
+        if "no such table" not in str(error):
+            raise
+        return found
+    for kind_col, text in rows:
+        if kind_col == "fish" and text == caught:
+            found.add("fish")
+        elif kind_col == "hunt" and text.startswith(hunted) and text.endswith("."):
+            slug = text[len(hunted):-1].replace(" ", "_")
+            if slug in KINDS:
+                found.add(slug)
+    return found
+
+
 def learn_quietly(state: dict, context: ActionContext, at: float) -> None:
-    """An old save's first tend (fix round 1): everything curiosity would otherwise announce as a
-    "first" is already old news to Mimo, so it is learned with no events and no drop -- the biome
-    of every patch it explored, the creature kinds in sight now, and the block kinds it carries or
-    has built with. Without this an upgraded world logged "met its first sheep" and "saw the taiga
-    for the first time" for everything it already knew, crowding the notable feed and dropping
-    curiosity to near 0 for about half a day."""
-    db = context.db
-    for rx, rz in db.execute("SELECT rx, rz FROM memory_explored").fetchall():
-        x, z = rx * PATCH + PATCH // 2, rz * PATCH + PATCH // 2
-        know(db, biome_at(x, z, state["world_seed"]), "biome", at)
+    """An old save's first tend (fix round 1, widened in fix round 2): everything curiosity would
+    otherwise announce as a "first" is already old news to Mimo, so it is learned with no events and
+    no drop -- the biome at the corners and centre of every patch it explored, every creature kind
+    standing in one now (dead or alive: a kind it already hunted there still counts), the kinds its
+    carried drops or logged hunts and catches imply, and the block kinds it carries or has built
+    with. Without this an upgraded world kept logging "met its first sheep" (one it had already
+    hunted), "met its first fish" (one it had already caught 77 times) and "saw a swamp for the
+    first time" (one its patches had always touched) for a game minute or two after the upgrade,
+    crowding the notable feed and dropping curiosity toward 0."""
+    db, seed = context.db, state["world_seed"]
     herd = context.grid.herd
+    for rx, rz in db.execute("SELECT rx, rz FROM memory_explored").fetchall():
+        for x, z in patch_points(rx, rz):
+            know(db, biome_at(x, z, seed), "biome", at)
+        if herd is not None:
+            cx, cz = rx * PATCH + PATCH // 2, rz * PATCH + PATCH // 2
+            for creature in herd.near(cx, cz, PATCH):
+                know(db, creature["kind"], "creature", at)
     if herd is not None:
         x, _, z = as_cell(state["position"])
         for kind in {creature["kind"] for creature in herd.near(x, z, CREATURE_SIGHT) if not dead(creature)}:
             know(db, kind, "creature", at)
+    for item, kind in drop_kinds().items():
+        if state["inventory"].get(item):
+            know(db, kind, "creature", at)
+    for kind in past_creatures(db, state["name"]):
+        know(db, kind, "creature", at)
     for block in set(BLOCKS) & set(state["inventory"]):
         know(db, block, "block", at)
     for (block,) in db.execute("SELECT DISTINCT block FROM structure_cells").fetchall():
@@ -240,7 +306,13 @@ FINDS.append(place_found)
 # What curiosity does ---------------------------------------------------------------------------
 
 def lift(s: Situation) -> float:
-    """What curiosity adds to explore's score: LIFT_RATE a point past LIFTED."""
+    """What curiosity adds to explore's score: LIFT_RATE a point past LIFTED. Fix round 2: nothing
+    at all while Mimo is hungry (HUNGRY_BELOW) or tired (TIRED_BELOW) enough that eat or sleep
+    matter more -- the SURVIVAL_FLOOR cap (purposes.explore_score) only bites once eat or sleep
+    already score above it, so a curiosity-maxed pet still edged out real needs scoring just under
+    80 (hunger 20-28, energy 20-29) until this was zeroed at the source."""
+    if s.vitals["hunger"] < HUNGRY_BELOW or s.vitals["energy"] < TIRED_BELOW:
+        return 0.0
     return max(0.0, value_of(s.brain) - LIFTED) * LIFT_RATE
 
 
@@ -336,7 +408,7 @@ def wander_look(s: Situation, context: ActionContext) -> Find | None:
 register_reason(Reason(
     "wander", "look for something new", wander_wanted, wander_value, lambda s: 35.0,
     goals=("new_land", "new_creature", "cave", "water", "far_hills"), spots=wander_spots, look=wander_look,
-    reach=WANDER_REACH, spot_likely=0.3))
+    reach=WANDER_REACH))
 
 
 def time_to_wander(s: Situation, goal) -> dict | None:

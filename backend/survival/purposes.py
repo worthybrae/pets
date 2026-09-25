@@ -73,6 +73,9 @@ HOME_RANGE = 64.0
 BUILT_HOME_RANGE = 2 * HOME_RANGE
 SLEEP_HOME_REACH = 8.0
 TIRED_BELOW = 30.0
+# L4 fix round 2: shared with curiosity.lift, which returns 0 below it -- hungry enough that eat
+# would be offered soon is hungry enough that curiosity should not compete with it either.
+HUNGRY_BELOW = 30.0
 GO_HOME_BATCHES = 3
 EXPLORE_REACH = 3.0
 LATE_DAY = DUSK - 300.0  # 5 game minutes before dusk

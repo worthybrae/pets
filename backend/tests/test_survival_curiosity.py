@@ -14,6 +14,7 @@ from backend.survival.goals import GOALS, URGES, Goal, adopt_goal, goal_state
 from backend.survival.hatch import hatch
 from backend.survival.memory import known, mark_explored
 from backend.survival.once import forget_logged
+from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.tick import tick_life
 from backend.survival.trips import REASONS
@@ -96,6 +97,34 @@ class CuriosityTests(unittest.TestCase):
         self.assertEqual(REASONS["wander"].wanted(self.world.situation()), "there is always more to see")
         del self.state["brain"]["curiosity"]
         self.assertIsNone(REASONS["wander"].wanted(self.world.situation()))  # not before the tick tends it
+
+    def test_the_lift_is_zero_while_hungry_or_tired_even_at_max_curiosity(self):
+        # Fix round 2: the SURVIVAL_FLOOR cap (purposes.explore_score) only stops the lift once eat
+        # or sleep already score above 80 -- at hunger 20-28 or energy 20-29 explore still won
+        # 49-100% of the time. Zeroing the lift itself while a real need is more urgent fixes it at
+        # the source, whatever explore's own reason score is.
+        tend_curiosity(self.state, self.context, 0.0)
+        curiosity_state(self.state, 0.0)["value"] = 100.0
+        self.assertEqual(lift(self.world.situation()), 30.0)  # fed and rested: the full lift
+        self.state["vitals"]["hunger"] = 25.0
+        self.assertEqual(lift(self.world.situation()), 0.0)
+        self.state["vitals"]["hunger"] = 100.0
+        self.state["vitals"]["energy"] = 25.0
+        self.assertEqual(lift(self.world.situation()), 0.0)
+
+    def test_eat_and_sleep_outrank_explore_at_hunger_and_energy_25(self):
+        # Fix round 2's own repro of the reviewer's numbers: hunger 25 (eat 75) and energy 25
+        # (sleep 75), curiosity maxed, real reasons and real scores throughout (no mocked lift).
+        tend_curiosity(self.state, self.context, 0.0)
+        curiosity_state(self.state, 0.0)["value"] = 100.0
+        self.state["inventory"]["berries"] = 20  # carrying enough that the "food" trip is not wanted
+        self.state["vitals"]["hunger"] = 25.0
+        s = self.world.situation()
+        self.assertGreater(PURPOSES["eat"].score(s), PURPOSES["explore"].score(s))
+        self.state["vitals"]["hunger"] = 100.0
+        self.state["vitals"]["energy"] = 25.0
+        s = self.world.situation()
+        self.assertGreater(PURPOSES["sleep"].score(s), PURPOSES["explore"].score(s))
 
     def test_the_model_and_the_viewer_are_told_how_it_feels(self):
         brain = {"curiosity": {"value": 80.0, "new_at": 0.0}}
