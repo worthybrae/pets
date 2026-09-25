@@ -42,14 +42,20 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import can_harvest
 from backend.services.worldgen import SEA_LEVEL, biome_at, surface_material, terrain_height
 from backend.survival.clock import DAY_SECONDS
-from backend.survival.curiosity import discovered
+from backend.survival.creatures.table import dead
+from backend.survival.curiosity import discovered, seen, value_of
+from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.memory import cell_of, forget, know, places, remember
 from backend.survival.once import log_once
-from backend.survival.senses import natural_plants
+from backend.survival.purposes import Purpose, late_penalty, register
+from backend.survival.senses import natural_plants, near_failure
+from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
+from backend.survival.structures import reserved
 from backend.survival.triggers import ensure_brain, mark_trigger
 
 if TYPE_CHECKING:
@@ -261,3 +267,106 @@ def observe_journal(state: dict, step: dict, context: ActionContext, at: float) 
             journal["studying"] = None
     except Exception as error:
         log_once(logger, "journal", error)
+
+
+# investigate -----------------------------------------------------------------------------------
+
+def note_failure(state: dict, at: float) -> None:
+    """An investigation failed: what it was after is left alone for a while."""
+    journal = journal_state(state)
+    if journal["studying"]:
+        journal["tried"] = {**journal["tried"], journal["studying"]["thing"]: at}
+        journal["studying"] = None
+
+
+@dataclass(frozen=True)
+class Curio:
+    thing: str
+    cell: Cell
+    creature: bool = False
+
+
+def lessons_of(s: Situation) -> set[str]:
+    return set(s.lessons)
+
+
+def tried_lately(s: Situation, thing: str) -> bool:
+    tried = (s.brain.get("journal") or {}).get("tried", {}).get(thing)
+    return tried is not None and (s.at - tried) * s.scale < TRIED_FOR
+
+
+def curios(s: Situation) -> list[Curio]:
+    """What Mimo could go and study now, nearest first: sights within INVESTIGATE_REACH that are
+    still there, and creatures of kinds it met but has not studied, within CREATURE_SIGHT."""
+    def look() -> list[Curio]:
+        known_now = lessons_of(s)
+        found = []
+        for place in s.places:
+            thing, cell = place["note"], cell_of(place)
+            if (place["kind"] != "sight" or thing not in LESSONS or thing in known_now or tried_lately(s, thing)
+                    or s.distance(cell) > INVESTIGATE_REACH or s.grid.material(*cell) != thing
+                    or near_failure(s.state, cell)):
+                continue
+            found.append(Curio(thing, cell))
+        unmet = {kind for kind in seen(s, "creature") if kind in LESSONS and kind not in known_now
+                 and not tried_lately(s, kind)}
+        herd = s.grid.herd
+        if unmet and herd is not None:
+            x, _, z = s.here
+            for creature in herd.near(x, z, CREATURE_SIGHT):
+                if creature["kind"] in unmet and not dead(creature) and "x" in creature:
+                    cell = (round(creature["x"]), round(creature.get("y", s.here[1])), round(creature["z"]))
+                    found.append(Curio(creature["kind"], cell, creature=True))
+                    unmet.discard(creature["kind"])
+        return sorted(found, key=lambda curio: (s.distance(curio.cell), curio.thing))
+    return s.sensed("curios", look)
+
+
+def diggable(s: Situation, cell: Cell) -> bool:
+    """A block Mimo may take a sample of: one it can harvest with what it carries, with no water
+    over it, that it neither built nor tends."""
+    x, y, z = cell
+    material = s.grid.material(*cell)
+    return (can_harvest(material, s.inventory) and s.grid.material(x, y + 1, z) != "water"
+            and not reserved(s.grid, cell))
+
+
+def investigate_valid(s: Situation) -> bool:
+    return not s.night and bool(curios(s))
+
+
+def investigate_score(s: Situation) -> float:
+    return max(0.0, 40.0 + value_of(s.brain) / 4 - late_penalty(s))
+
+
+def plan_investigate(s: Situation, context: ActionContext) -> list[dict]:
+    """Walk up to the nearest curio, sample it and look it over. One batch: once it is done the
+    lesson is learned (observe_journal) and the purpose ends."""
+    if s.brain["replans"] > 0:  # the walk or the sample failed: leave that thing alone for a while
+        note_failure(s.state, s.at)
+        return []
+    if s.brain["batches"] > 0 or not curios(s):
+        return []
+    curio = curios(s)[0]
+    journal_state(s.state)["studying"] = {"thing": curio.thing, "cell": list(curio.cell)}
+    if curio.creature:
+        walk = [whole_walk(curio.cell, WATCH_REACH)] if s.distance(curio.cell) > WATCH_REACH else []
+        return [*walk, {"kind": "wait", "seconds": max(1.0, WATCH_SECONDS / s.scale)}]
+    look = {"kind": "wait", "seconds": max(1.0, LOOK_SECONDS / s.scale)}
+    sample = [{"kind": "mine", "target": list(curio.cell)}] if LESSONS[curio.thing].kind == "block" and diggable(
+        s, curio.cell) else []
+    return reach_steps(s, [(curio.cell, [*sample, look])])
+
+
+def investigate_facts(s: Situation) -> str:
+    found = curios(s)
+    nearest = found[0]
+    return (f"{len(found)} things it has never studied nearby; the nearest is {LESSONS[nearest.thing].words} "
+            f"{round(s.distance(nearest.cell))} blocks away; {len(lessons_of(s))} lessons learned")
+
+
+register(Purpose(
+    "investigate", "take a closer look",
+    "Walk up to something new nearby, look it over and take a sample, to learn what it is good for.",
+    valid=investigate_valid, facts=investigate_facts, score=investigate_score, plan=plan_investigate,
+    thoughts=("What is that? I have to look closer.", "I've never seen one of those before.")))

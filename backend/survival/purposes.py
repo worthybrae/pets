@@ -41,6 +41,7 @@ dusk:
   with hunger, 5 more or less with bravery, minus late.
 - L2's make_gear sits in the work band: 55-75, 55 plus a tenth of caution and 10 more when a
   creature hurt Mimo in the last game day.
+- L4b: investigate (backend.survival.journal) sits in the work band, 40-65 by curiosity, minus late.
 """
 
 from __future__ import annotations
