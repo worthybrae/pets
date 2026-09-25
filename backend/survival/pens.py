@@ -232,8 +232,17 @@ def open_plots(s: Situation, blueprint: Blueprint) -> list[Cell]:
     return found
 
 
+def seeds_within_reach(s: Situation) -> int:
+    """Fix round 1, Important 1: seeds carried, plus those in a chest Mimo can get to now
+    (storage.reachable_chests), not every chest it built (seeds_at_hand). stock_valid used to count
+    a chest whose stand a step just failed near, while plan_stock_pen (item 3) already left it out
+    of the plan -- a stall: valid but empty, so utility_pick picked stock_pen again every tick with
+    nothing to show for it."""
+    return s.count(SEED) + sum(chest_contents(s, cell).get(SEED, 0) for cell, _ in reachable_chests(s))
+
+
 def stock_valid(s: Situation) -> bool:
-    if s.night or seeds_at_hand(s) < 1:
+    if s.night or seeds_within_reach(s) < 1:
         return False
     blueprint = finished_pen(s)
     return blueprint is not None and pen_life(s, blueprint) < PEN_ANIMALS and bool(open_plots(s, blueprint))

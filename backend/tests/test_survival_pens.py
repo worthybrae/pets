@@ -154,6 +154,29 @@ class PenTests(unittest.TestCase):
         self.assertTrue(takes)
         self.assertEqual([take["target"] for take in takes], [list(old_chest)])
 
+    def test_not_valid_while_its_only_seeds_are_in_a_chest_a_step_just_failed_near(self):
+        """Fix round 1, Important 1: stock_valid counted every built chest (seeds_at_hand ->
+        chests_built), unfiltered, while plan_stock_pen (item 3) takes only from reachable_chests.
+        With seeds only in a chest a step just failed near, stock_valid stayed True but the plan
+        was [] -- a stall: plan_done with no penalty, so utility_pick picked stock_pen again every
+        tick and Mimo stood idle until something else broke in. Validity must match the plan."""
+        design = pens.design_pen(self.grid, (12, 1, 1), "Pip")
+        finish_structure(self.db, start(self.db, self.grid, design, 0.0), 1.0)
+        for planned in design.parts("fence"):
+            self.grid.put(*planned.cell, "fence")
+        home_chest = storage.chest_spot(self.situation({}))
+        self.grid.put(*home_chest, "chest")
+        s = self.situation({})
+        s.state["chests"] = {chest_key(home_chest): {"creature_seed": 2}}
+        s.state["recent_actions"] = [{"target": {"x": 1, "y": 1, "z": 1}, "result": "failed"}]  # home's own stand
+        self.assertFalse(PURPOSES["stock_pen"].valid(s))
+        self.assertEqual(PURPOSES["stock_pen"].plan(s, self.context()), [])
+        s.state["recent_actions"] = []  # the failure ages out of the window: worth trying again
+        s = self.situation({})
+        s.state["chests"] = {chest_key(home_chest): {"creature_seed": 2}}
+        self.assertTrue(PURPOSES["stock_pen"].valid(s))
+        self.assertTrue(PURPOSES["stock_pen"].plan(s, self.context()))
+
 
 class PenByHomeTests(unittest.TestCase):
     """L4a final fix wave, I1: pens resolve from home (home.py), never from where Mimo stands. The
