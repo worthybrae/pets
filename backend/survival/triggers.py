@@ -10,6 +10,8 @@ Everything the brain keeps lives in state["brain"], saved as JSON with the rest 
   and the last `state["last_failure"]` the brain already dealt with
 - pending: a choice Mimo is waiting for, {"id", "reasons", "since", "urgent"}, or None; next_id
 - penalties: {purpose: server time until which it scores lower, after it failed twice}
+- trip_penalties: {reason: server time until which an explore trip for it is not offered, after
+  one failed to find what it came for (L4 fix round 1); set by trips.cool_down}
 - reflex, set_aside, reflex_ends: the reflex running now (or None), the purpose's steps it set
   aside, and {reflex: server time it last ended} for cooldowns
 - calls, last_call_at, jev_calls, luna_calls: today's model-call counters {"day", "model", "luna",

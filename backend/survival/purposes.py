@@ -29,8 +29,9 @@ dusk:
   mine_ore 50-80 (65 and up for iron); farm 40-80 (ripe crops add up to 25 as far as Mimo lacks
   food, capped at 80). Late takes 30 off the outdoor ones, down to 10.
 - leisure, 0-65: rest 10-40, and explore, which L4 offers only for a reason (backend.survival.trips):
-  it scores its reason's score, 30-65 (looking for food scores like food work), minus late, never
-  below 0.
+  it scores its reason's score, minus late, never below 0 -- 30-65 ordinarily, but looking for food
+  scores like food work and can reach 83, into the needs band, when Mimo has none stored and none
+  on hand (fix round 1: this used to say 30-65 outright).
 - M5's building purposes sit in the same bands. build_shelter 60-80 while Mimo has no shelter of
   its own (70 and up from the afternoon on), 75 to repair one and 45-55 to furnish it; light_up
   72 in the evening at home, so the torches go up before sleep; build_storage 50-70, rising as

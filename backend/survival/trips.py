@@ -44,7 +44,11 @@ all. After each walk (`look_after`, from brain.observe_step) Mimo looks around. 
 one), and a find that is what the trip was for ends it (`done`) and asks for a new choice (a
 "discovery"), so the purpose that follows up on it comes next: gather_wood for trees, mine_ore for
 ore, hunt for animals, build_pen for a seed, improve_home for a site. A trip also ends when its
-reason is no longer wanted or after three walks.
+reason is no longer wanted or after three walks with nothing found. However it ends, that reason
+is not offered again for a while (`cool_down`, fix round 1), the same cooldown a purpose gets after
+a step fails twice: a find still needs its follow-up purpose to run before Mimo looks for the same
+thing again, and a target that disappointed it needs to stop coming straight back too. A walk step
+that fails outright while exploring cools its trip's reason down the same way (brain.report).
 """
 
 from __future__ import annotations
@@ -76,6 +80,11 @@ NEW = 1.0  # ...and this much for land Mimo never saw (area novelty over 9)
 SPOT_SLACK = 3  # a spot's column may be this far from the dry cell Mimo stands on to see it
 SHOWN = 3  # targets kept per offer: the facts and the model payload name them
 OFFERED = 4  # reasons offered at a choice
+# Fix round 1: a trip whose reason failed to find what it needed (its walk failed, or it used up
+# every walk without a find) is not offered again this soon -- the same cooldown pattern purposes
+# use after a step fails twice (brain.report, PENALTY_GAME_SECONDS), so a target that keeps
+# disappointing does not send Mimo straight back to it.
+TRIP_PENALTY_SECONDS = 300.0
 
 
 @dataclass(frozen=True)
@@ -165,8 +174,19 @@ def guarded(reason: Reason, part: str, call: Callable, fallback):
 
 
 def wanted_now(s: Situation, reason: Reason) -> str | None:
-    """Why Mimo wants what the reason looks for, read once per Situation; None when it does not."""
-    return s.sensed(f"trip wanted {reason.name}", lambda: guarded(reason, "wanted", lambda: reason.wanted(s), None))
+    """Why Mimo wants what the reason looks for, read once per Situation; None when it does not, or
+    while a trip for it failed to find what it needed lately (`cool_down`)."""
+    def check() -> str | None:
+        if s.brain.get("trip_penalties", {}).get(reason.name, -math.inf) > s.at:
+            return None
+        return guarded(reason, "wanted", lambda: reason.wanted(s), None)
+    return s.sensed(f"trip wanted {reason.name}", check)
+
+
+def cool_down(brain: dict, reason: str, at: float, scale: float) -> None:
+    """A trip for `reason` failed to find what it needed: it is not offered again for a while (fix
+    round 1; the same pattern purposes use after a step fails twice, brain.report)."""
+    brain.setdefault("trip_penalties", {})[reason] = at + TRIP_PENALTY_SECONDS / scale
 
 
 def beyond(s: Situation, reason: Reason, home: Cell | None, cell: Cell) -> bool:
@@ -271,6 +291,11 @@ def trip_thought(offer: Offer) -> str:
 
 
 def start_trip(brain: dict, offer: Offer, at: float, picker: str) -> dict:
+    # Fix round 1: an explore choice that picks a fresh reason while Mimo is already exploring
+    # (explore -> explore) does not change `purpose`, so apply_choice never resets `batches` --
+    # without this, a fresh trip inherited the old trip's batch count and could see it already at
+    # or past EXPLORE_WALKS, ending at once with nothing tried ("fails at once").
+    brain["batches"] = 0
     brain["trip"] = {"reason": offer.reason, "words": offer.words, "why": offer.why,
                      "direction": offer.targets[0].direction, "since": at, "picker": picker, "found": None,
                      "done": False}
@@ -289,6 +314,8 @@ def next_stop(s: Situation, walks: int) -> tuple[list[dict], Cell] | None:
             return None
         trip, reason = start_trip(brain, offer, s.at, "rules"), REASONS[offer.reason]
     if reason is None or trip.get("done") or brain["batches"] >= walks or wanted_now(s, reason) is None:
+        if reason is not None and not trip.get("done") and brain["batches"] >= walks:
+            cool_down(brain, trip["reason"], s.at, s.scale)  # every walk spent, nothing found
         return None
     aims = targets(s, reason)
     if not aims:
@@ -303,7 +330,8 @@ def look_after(state: dict, step: dict, context: ActionContext, at: float) -> No
     """After a walk of an explore trip: what Mimo sees there for the trip's reason (brain.observe_step)."""
     if step.get("purpose") != "explore" or step["kind"] not in ("walk", "swim") or context.db is None:
         return
-    trip = ensure_brain(state).get("trip")
+    brain = ensure_brain(state)
+    trip = brain.get("trip")
     reason = REASONS.get(trip["reason"]) if trip else None
     if reason is None or trip.get("done"):
         return
@@ -317,6 +345,12 @@ def look_after(state: dict, step: dict, context: ActionContext, at: float) -> No
     if find.done:
         trip["done"] = True
         mark_trigger(state, "discovery", at)
+        # Fix round 1: a find that ends the trip cools its reason down too, not only a trip that
+        # comes up empty -- the follow-up purpose it asks for (gather_wood for trees, and so on)
+        # needs room to run once before Mimo can be sent straight back to look for the same thing
+        # again, or a picker that does not always take that follow-up (a random one, or a rules
+        # score it loses to something else) sends it right back on the very next choice.
+        cool_down(brain, trip["reason"], at, context.clock_at(at)["time_scale"])
 
 
 # What the chooser, the model and the viewer are told ---------------------------------------------

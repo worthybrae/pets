@@ -212,6 +212,26 @@ class NoticeAndObserveTests(unittest.TestCase):
         self.assertEqual([(place["kind"], place["x"]) for place in places(ctx.db)], [("home", 0), ("shelter", 20)])
         self.assertEqual(len(ctx.events), 1)
 
+    def test_a_trip_walk_looks_around_for_its_reason_and_marks_a_discovery(self):
+        # Fix round 1 (Task 4 review, minor 2): brain.py's scouting import and its observe_step ->
+        # look_after wiring had no test through BRAIN of their own; mutating either still passed
+        # every survival test. This exercises the real "trees" reason (backend.survival.scouting),
+        # not a fake one, the way brain.py actually registers and calls it.
+        tree = {(5, y, 0): "oak_log" for y in range(1, 5)}
+        state = pet(position={"x": 5.0, "y": 1.0, "z": 0.0})
+        ensure_brain(state).update(pending=None, purpose="explore",
+                                   trip={"reason": "trees", "words": "look for trees",
+                                         "why": "I am out of wood and no tree stands near",
+                                         "direction": "east", "since": 0.0, "picker": "rules",
+                                         "found": None, "done": False})
+        ctx = brainy(flat(tree))
+        walk = {"kind": "walk", "purpose": "explore", "path": [], "target": {"x": 5, "y": 1, "z": 0}}
+        with patch("backend.survival.senses.trees_near", lambda seed, x, z, radius: [(5, 0, 0)]):
+            observe_step(state, walk, ctx, 5.0)
+        self.assertEqual(ctx.events[-1][1:], ("found", "Pip found oak trees."))
+        self.assertTrue(state["brain"]["trip"]["done"])
+        self.assertIn("discovery", state["brain"]["pending"]["reasons"])
+
     def test_observe_remembers_ores_recipes_and_water_and_forgets_mined_ore(self):
         state = pet()
         ensure_brain(state)["pending"] = None

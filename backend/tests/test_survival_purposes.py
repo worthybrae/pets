@@ -180,10 +180,16 @@ class SimplePurposeTests(unittest.TestCase):
         fed = pet(inventory={"berries": 10}, traits={"curiosity": 0})
         late = {**DAY, "seconds_into_day": 2100.0}
         stocked = pet(inventory={"oak_log": 20, "berries": 10})  # wood and food enough: no reason to go
+        # Fix round 1: trees_value checks the grid too, not worldgen alone, so a real standing tree
+        # is needed here -- a few blocks off (32, 0), the default pet's east candidate at distance
+        # 32, since a trunk cannot stand on the candidate's own column (Mimo could never stand there).
+        tree = {(36, y, 0): "oak_log" for y in range(1, 5)}
+        grid = Grid(lambda x, y, z: tree.get((x, y, z)) or ("stone" if y <= 0 else "air"))
         with patch("backend.survival.exploring.terrain_height", lambda x, z, seed: 0), \
-                patch("backend.survival.scouting.trees_near", lambda seed, x, z, radius: [(x, z, 0)]):
-            self.assertEqual(PURPOSES["explore"].score(situation(fed)), 45.0)
-            self.assertEqual(PURPOSES["explore"].score(situation(fed, clock=late)), 15.0)
+                patch("backend.survival.scouting.trees_near",
+                      lambda seed, x, z, radius: [(36, 0, 0)] if math.hypot(36 - x, -z) <= radius else []):
+            self.assertEqual(PURPOSES["explore"].score(situation(fed, grid=grid)), 45.0)
+            self.assertEqual(PURPOSES["explore"].score(situation(fed, clock=late, grid=grid)), 15.0)
             self.assertNotIn("explore", names(situation(stocked)))
 
     def test_eat_is_offered_with_food_and_eats_the_best_first(self):

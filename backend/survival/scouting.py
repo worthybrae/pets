@@ -3,9 +3,10 @@
 - trees, "look for trees": Mimo is low on wood (under 3 logs' worth, when gather_wood hurries), or
   its home needs wood (a shelter it started waits for blocks, or a home of its own or a bigger one
   is its goal), it carries less than work.wood_goal, and no tree stands within 24 blocks, so
-  gather_wood is not on offer. The more trees worldgen grew within 12 blocks
-  of a spot, the likelier (3 or more is sure); a wood it found before is a spot of its own. Found
-  once a tree stands in sight: remembered as a "grove" landmark with its wood ("Pip found birch
+  gather_wood is not on offer. The more trees worldgen grew within 12 blocks of a spot that still
+  stand on the grid, the likelier (3 or more is sure; fix round 1 -- worldgen never forgets a tree
+  once it is cut, so a candidate is checked there too); a wood it found before is a spot of its
+  own. Found once a tree stands in sight: remembered as a "grove" landmark with its wood ("Pip found birch
   trees."), and gather_wood follows. 45 plus a fifth of curiosity, as explore scored with no tree
   in sight before L4. It serves the goals wood is for: a home, iron tools and a bigger home.
 - food, "look for food": Mimo carries less than half a day's food and no food work is on offer: no
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import LOGS
 from backend.services.worldgen import SEA_LEVEL, biome_at, terrain_height, tree_kind
 from backend.survival.creatures.hunting import prey
 from backend.survival.creatures.kinds import land_kinds
@@ -36,7 +38,7 @@ from backend.survival.foraging import FOOD_WANTED, fishing_spots, food_need, foo
 from backend.survival.building import building_need
 from backend.survival.goals import ADVANCES
 from backend.survival.memory import SAME_PLACE, cell_of, remember, update_place
-from backend.survival.senses import PICKABLE, TREE_SEARCH, natural_plants, trees_near
+from backend.survival.senses import PICKABLE, TREE_SEARCH, TRUNK_HEIGHT, natural_plants, trees_near
 from backend.survival.situation import Situation
 from backend.survival.steps import label
 from backend.survival.trips import Find, Reason, register_reason, serving
@@ -76,8 +78,16 @@ def trees_wanted(s: Situation) -> str | None:
     return None
 
 
+def standing_near(s: Situation, x: int, z: int, radius: int) -> list[tuple[int, int, int]]:
+    """Worldgen's generated trees within `radius` of (x, z) that still have logs on the grid: fix
+    round 1 -- worldgen never forgets a tree once it is cut, so a chopped grove must not keep
+    scoring as sure (senses.standing_logs does the same check, from where Mimo stands)."""
+    return [(tx, tz, base) for tx, tz, base in trees_near(s.seed, x, z, radius)
+            if any(s.grid.material(tx, y, tz) in LOGS for y in range(base + 1, base + TRUNK_HEIGHT + 1))]
+
+
 def trees_value(s: Situation, x: int, z: int) -> tuple[float, str]:
-    near = trees_near(s.seed, x, z, TREE_GROVE)
+    near = standing_near(s, x, z, TREE_GROVE)
     if not near:
         return 0.0, ""
     return min(1.0, len(near) / SURE_TREES), f"{tree_kind(near[0][0], near[0][1], s.seed)} trees"

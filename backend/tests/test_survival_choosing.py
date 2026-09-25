@@ -12,10 +12,12 @@ from backend.survival.choosing import (
 from backend.survival.hatch import hatch
 from backend.survival.models import ModelError
 from backend.survival.once import forget_logged
+from backend.survival.pickers import Option
 from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.tick import tick_life
 from backend.survival.triggers import ensure_brain, mark_trigger
+from backend.survival.trips import Offer, Target, trip_thought
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.workers.mimo_worker import run_once
 
@@ -228,6 +230,24 @@ class ChoosingTests(unittest.TestCase):
         self.edit(lambda state: mark_trigger(state, "hello", BORN + 200))
         self.assertEqual(chooser.poll(self.registry, BORN + 200), "gather_wood")  # new work skips the stuck thread
         self.assertEqual(self.brain()["picker"], "jev")
+
+    def test_a_hung_call_that_falls_back_to_explore_says_what_for(self):
+        # Fix round 1 (Task 4 review, minor 1): give_up built its fallback Choice with no trip and
+        # answer_thought's generic explore line, even when the fallback purpose was explore.
+        offer = Offer("iron", "look for iron", "my pickaxe needs it", 50.0,
+                      (Target((40, 1, 0), 5.0, "a cave mouth", "north", 40),))
+        option = Option("explore", "explore", "Go looking for something it needs.", "facts", 50.0, reasons=(offer,))
+        ask = Ask(1, "jev", False, (option,), {}, 0.0)
+        stuck = HeldExecutor()
+        chooser = Chooser(env={"TYPESAFE_API_KEY": "k"}, http=FakeHttp({}), executor=stuck, rng=random.Random(1),
+                          scale=1.0)
+        chooser.asked = (self.path, ask)
+        chooser.future = stuck.submit(lambda: None)
+        captured = []
+        chooser.store = lambda path, given_ask, choice, now: captured.append(choice)
+        chooser.give_up(BORN + 100)
+        self.assertEqual((captured[0].purpose, captured[0].trip, captured[0].thought),
+                         ("explore", offer, trip_thought(offer)))
 
     def test_the_wait_for_a_model_covers_its_timeouts_and_a_reflection(self):
         def ask(route, reflect=False):

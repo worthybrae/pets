@@ -515,8 +515,11 @@ class Chooser:
         purpose = utility_pick(list(ask.options), self.rng)
         calls = {"model": 1, "luna": 1 if ask.route == "luna" else 0, "reflections": 0}
         error = f"{ask.route}: no answer after {deadline(ask):g} s, gave up"
-        thought = answer_thought(ask, purpose, self.rng)
-        return self.store(path, ask, Choice(purpose, "utility", thought, calls, error), now)
+        # Fix round 1: a hung call that falls back to explore said what for in its event ("to look
+        # for iron") but never in the thought, since it went through answer_thought alone.
+        trip = trip_for(ask, purpose)
+        thought = trip_thought(trip) if trip is not None else answer_thought(ask, purpose, self.rng)
+        return self.store(path, ask, Choice(purpose, "utility", thought, calls, error, trip), now)
 
     def store(self, path: Path, ask: Ask, choice: Choice, now: float) -> str | None:
         if choice.error:

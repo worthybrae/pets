@@ -61,7 +61,7 @@ from backend.survival.senses import ORES, afloat, ores_around
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell, label
 from backend.survival.tick import Mind
-from backend.survival.trips import look_after
+from backend.survival.trips import cool_down, look_after
 from backend.survival.triggers import HOUR, crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
 from backend.survival.vitals import Surroundings
 
@@ -98,9 +98,16 @@ def finish_purpose(state: dict, at: float, reason: str) -> None:
 
 
 def report(state: dict, context: ActionContext, purpose_name: str, at: float, why: str) -> None:
-    """Give up on a purpose: it scores lower for 10 game minutes and a new choice is asked for."""
+    """Give up on a purpose: it scores lower for 10 game minutes and a new choice is asked for. Fix
+    round 1: a step that failed while exploring also cools down the trip's own reason
+    (trips.cool_down), tying the walk's failure to it so the same reason is not offered again at
+    once."""
     brain = ensure_brain(state)
     brain["penalties"][purpose_name] = at + PENALTY_GAME_SECONDS / context.clock_at(at)["time_scale"]
+    if purpose_name == "explore":
+        trip = brain.get("trip")
+        if trip and not trip.get("done"):
+            cool_down(brain, trip["reason"], at, context.clock_at(at)["time_scale"])
     purpose = PURPOSES.get(purpose_name)
     phrase = purpose.phrase if purpose else purpose_name.replace("_", " ")
     context.events.append((at, "plan", f"{state['name']} gave up trying to {phrase} ({why})."))

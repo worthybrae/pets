@@ -5,16 +5,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+from backend.services.worldgen import SEA_LEVEL
 from backend.survival import brain  # noqa: F401  (registers every purpose and reason)
 from backend.survival.choosing import Ask, Choice, decide, store_choice
+from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
 from backend.survival.pickers import options
 from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
+from backend.survival.situation import Situation
 from backend.survival.triggers import ensure_brain
 from backend.survival.trips import (
-    REASONS, Find, Reason, best_trip, look_after, offers, register_reason, serving, targets, trip_facts, trip_thought,
-    trip_view,
+    REASONS, Find, Offer, Reason, Target, best_trip, look_after, offers, register_reason, serving, stand_near,
+    start_trip, targets, trip_facts, trip_thought, trip_view,
 )
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.tests.test_survival_purposes import DAY, context, pet, situation
@@ -82,7 +85,28 @@ class ReasonTests(unittest.TestCase):
             self.assertEqual(targets(s, REASONS["things"]), [])  # every target is 32 or more away
         with only_reasons(test_reason(reach=40.0)):
             s = situation(places=[("home", (0, 1, 0))])
-            self.assertLessEqual({t.distance for t in targets(s, REASONS["things"])}, {32, 33})  # none at 48 or 64
+            found = targets(s, REASONS["things"])
+            self.assertTrue(found)  # fix round 1: this used to pass on an empty set too
+            self.assertLessEqual({t.distance for t in found}, {32, 33})  # none at 48 or 64
+
+    def test_targets_and_stand_near_never_pick_a_water_cell(self):
+        # Fix round 1: there was no lake case for the trips tests. flat_ground (setUp) keeps every
+        # column's ground at 0, so a lake here is just water sitting on top of it.
+        lake = lambda x, z: x > 20  # noqa: E731
+
+        def natural(x, y, z):
+            if y < 0:
+                return "stone"
+            if y == 0:
+                return "grass"
+            return "water" if lake(x, z) and y <= SEA_LEVEL else "air"
+
+        grid = Grid(natural)
+        self.assertIsNone(stand_near(situation(grid=grid), 30, 0))  # only water within SPOT_SLACK
+        with only_reasons(test_reason(value=lambda s, x, z: (1.0, "east land"))):
+            found = targets(situation(grid=grid), REASONS["things"])
+            self.assertTrue(found)  # dry land on the near side is still offered
+            self.assertTrue(all(target.cell[0] <= 20 for target in found))  # never a target on the water
 
     def test_a_reason_that_serves_the_goal_comes_first_then_the_higher_score(self):
         wood = test_reason("wood", score=60.0)
@@ -139,6 +163,33 @@ class TripTests(unittest.TestCase):
             s.brain["batches"] = 3
             self.assertEqual(PURPOSES["explore"].plan(s, context()), [])
             self.assertEqual(s.brain["explored"], 2)
+
+    def test_a_fresh_trip_resets_batches_even_when_the_old_one_used_up_its_walks(self):
+        # Fix round 1: an explore -> explore choice that picks a new reason does not change
+        # `purpose`, so apply_choice never resets batches on its own; without start_trip doing it,
+        # a fresh trip inherited the old one's count and, once that had reached EXPLORE_WALKS,
+        # ended at once with nothing tried ("fails at once").
+        with only_reasons(test_reason()):
+            offer = best_trip(situation())
+        brain = ensure_brain({})
+        brain["batches"] = 3
+        start_trip(brain, offer, 0.0, "rules")
+        self.assertEqual(brain["batches"], 0)
+
+    def test_a_trip_that_finds_nothing_in_three_walks_cools_its_reason_down(self):
+        # Fix round 1: nothing used to stop the same reason from being offered again at once after
+        # a trip spent every walk without finding what it came for.
+        with only_reasons(test_reason()):
+            s = situation()
+            PURPOSES["explore"].plan(s, context())
+            s.brain["batches"] = 3
+            self.assertEqual(PURPOSES["explore"].plan(s, context()), [])  # every walk spent, nothing found
+            self.assertGreater(s.brain["trip_penalties"]["things"], s.at)
+        with only_reasons(test_reason(), test_reason("other")):
+            cooled = situation(s.state)
+            self.assertEqual([offer.reason for offer in offers(cooled)], ["other"])  # not offered for a while
+            later = Situation(s.state, s.grid, s.clock, 301.0, s.db)  # the 300-second cooldown has passed
+            self.assertEqual([offer.reason for offer in offers(later)], ["other", "things"])  # cooled down, not gone
 
     def test_a_trip_ends_when_its_reason_is_no_longer_wanted(self):
         with only_reasons(test_reason()):
