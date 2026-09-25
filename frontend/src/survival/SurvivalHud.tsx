@@ -4,6 +4,7 @@ import { dialPosition } from './clock'
 import {
   actionText, careLabel, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay, purposeText, vitalBars, type VitalLevel,
 } from './hud'
+import { curiosityBar, goalHint, goalLine, planSteps, tripLines } from './goals'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -77,6 +78,10 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const home = homeText(state.structures)
   const danger = dangerText(state.creatures, state.position, state.sheltered)
   const flash = hurtFlashDelay(state.hurt_at, state.server_time)
+  const goal = goalLine(state.goal)
+  const plan = planSteps(state.goal)
+  const trip = state.reflex ? null : tripLines(state.trip)
+  const curious = curiosityBar(state.curiosity)
   return (
     <>
       {flash !== null && <HurtFlash key={state.hurt_at ?? 0} delay={flash} />}
@@ -89,8 +94,30 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
             </div>
             <SkyDial secondsIntoDay={clock.seconds_into_day} />
           </div>
-          <p className="mt-2 text-sm font-medium leading-5 text-[#315e58]">{purposeText(state)}</p>
+          <p className="mt-2 text-sm font-medium leading-5 text-[#315e58]">{trip ? trip.label : purposeText(state)}</p>
+          {trip && <p className="truncate text-xs text-[#54726e]">{trip.detail}</p>}
           {danger && <p className="mt-0.5 text-sm font-semibold text-[#b5473a]" role="status">{danger}</p>}
+          {goal && (
+            <div className="mt-1.5" title={goalHint(state.goal)}>
+              <div className="flex items-baseline justify-between gap-2 text-xs text-[#315e58]">
+                <span className="truncate font-semibold">{goal.label}</span>
+                <span className="tabular-nums">{goal.percent}%</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#d9e8df]" role="progressbar"
+                aria-valuenow={goal.percent} aria-valuemin={0} aria-valuemax={100} aria-label={goal.label}>
+                <div className="h-full rounded-full bg-[#6b8fb5] transition-[width] duration-700" style={{ width: `${goal.percent}%` }} />
+              </div>
+              {plan.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs text-[#54726e]" aria-label="Today's plan">
+                  {plan.map((step) => (
+                    <li key={step.text} className={step.done ? 'text-[#8aa39d] line-through' : undefined}>
+                      {step.done ? '✓' : '·'} {step.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {home && <p className="mt-0.5 truncate text-xs text-[#54726e]">{home}</p>}
           <p className="mt-0.5 text-xs text-[#54726e]">
             <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}
@@ -107,6 +134,15 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
               </div>
             </div>
           ))}
+          {curious && (
+            <div title={curious.hint}>
+              <div className="flex justify-between"><span>Curiosity</span><span className="tabular-nums">{curious.percent}</span></div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#d9e8df]" role="progressbar"
+                aria-valuenow={curious.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Curiosity">
+                <div className="h-full rounded-full bg-[#b58a3c] transition-[width] duration-700" style={{ width: `${curious.percent}%` }} />
+              </div>
+            </div>
+          )}
         </section>
       </div>
 

@@ -1,3 +1,4 @@
+import { otherEvents, reachedLine } from './goals'
 import { lifeLine } from './hud'
 import type { LifeSummary } from './types'
 
@@ -13,10 +14,18 @@ export default function Memorial({ life, onViewWorld, onNextEgg }: {
         <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">In memory of</p>
         <h1 className="mt-1 text-4xl font-semibold tracking-tight">{life.name}</h1>
         <p className="mt-3 text-sm text-[#54726e]">{lifeLine(life)}.</p>
-        {life.notable_events.length > 0 && (
+        {otherEvents(life.notable_events).length > 0 && (
           <ul className="mt-5 space-y-2 border-l-2 border-[#d6e5dc] pl-4 text-sm text-[#54726e]">
-            {life.notable_events.map((event) => <li key={event.id}>{event.text}</li>)}
+            {otherEvents(life.notable_events).map((event) => <li key={event.id}>{event.text}</li>)}
           </ul>
+        )}
+        {(life.goals_reached ?? []).length > 0 && (
+          <div className="mt-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">Goals reached</p>
+            <ul className="mt-2 space-y-1 text-sm text-[#54726e]">
+              {(life.goals_reached ?? []).map((goal) => <li key={goal.name}>{reachedLine(goal)}</li>)}
+            </ul>
+          </div>
         )}
         <div className="mt-7 flex flex-col gap-2 sm:flex-row">
           <button type="button" onClick={onViewWorld}

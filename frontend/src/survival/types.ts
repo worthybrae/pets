@@ -182,6 +182,59 @@ export interface LifeRow {
 
 export interface LifeSummary extends LifeRow {
   notable_events: MimoEvent[]
+  /** L4: the goals the life reached, first first (an older API sends none). */
+  goals_reached?: GoalReached[]
+}
+
+/** One step of the day plan toward the goal (L4). */
+export interface PlanStep {
+  text: string
+  done: boolean
+}
+
+/** The goal Mimo works toward for days (backend/survival/goals.py goal_view). */
+export interface Goal {
+  name: string
+  title: string
+  /** Why Mimo wants it, in one sentence. */
+  why: string
+  /** How far along it is, 0..1. */
+  progress: number
+  /** The next steps toward it, written at dawn and when the goal is chosen. */
+  plan: PlanStep[]
+  /** Who chose it: Jev, or the rules ("utility"). */
+  picker: PickerName | null
+  /** Server time it was chosen. */
+  since: number
+}
+
+/** Why Mimo is exploring (L4, backend/survival/trips.py trip_view): every trip has a reason. */
+export interface Trip {
+  /** The reason's name, like "iron". */
+  reason: string
+  /** What it looks for, like "look for iron". */
+  words: string
+  /** Why, like "my pickaxe needs it". */
+  why: string
+  /** The way it is heading, like "north". */
+  direction: string
+  /** What it found on the way, if anything. */
+  found: string | null
+}
+
+/** How curious Mimo is (L4, backend/survival/curiosity.py curiosity_view). */
+export interface Curiosity {
+  /** 0..100: it grows on known ground and falls with each discovery. */
+  level: number
+  /** How it feels, like "restless; nothing new for 2 game days". */
+  feeling: string
+}
+
+/** A goal a life reached, and the game day it did. */
+export interface GoalReached {
+  name: string
+  title: string
+  day: number
 }
 
 export interface SurvivalState {
@@ -228,6 +281,12 @@ export interface SurvivalState {
   picker: PickerName | null
   /** True while Mimo waits for its next choice. */
   choosing: boolean
+  /** L4: the goal Mimo works toward for days, with today's plan; null without one (an older API sends none). */
+  goal?: Goal | null
+  /** L4: while Mimo explores, what for; null otherwise (an older API sends none). */
+  trip?: Trip | null
+  /** L4: how curious Mimo is and how it feels; null before its first tick (an older API sends none). */
+  curiosity?: Curiosity | null
 }
 
 export interface AliveResponse extends SurvivalState {
@@ -261,4 +320,6 @@ export interface LifeDetail {
   life: LifeRow
   notable_events: MimoEvent[]
   state: LegacyState | SurvivalState
+  /** L4: the goals the life reached (none for the legacy life; an older API sends none). */
+  goals_reached?: GoalReached[]
 }
