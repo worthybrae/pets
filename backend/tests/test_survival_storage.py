@@ -92,6 +92,22 @@ class StorageTests(unittest.TestCase):
             {"kind": "walk", "target": [1, 1, 1], "reach": 0.0, "whole": True},
             {"kind": "take", "target": [2, 1, 2], "item": "bread", "amount": 3}])
 
+    def test_a_chest_with_no_path_is_not_retried_until_its_penalty_passes(self):
+        # Fix round 2: the repeating "gave up trying to put things away (no way there)" bug -- a
+        # step that just failed near home's anchor (1, 1, 1) is not retried at once, the same guard
+        # every explore target gets (near_failure).
+        home = Home({"cobblestone": 1}, chest={"bread": 4, "berries": 9}, position=(9, 1, 9))
+        s = home.situation()
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        home.state["recent_actions"] = [{"target": {"x": 1, "y": 1, "z": 1}, "result": "failed"}]
+        self.assertFalse(PURPOSES["build_storage"].valid(home.situation()))
+        home.state["recent_actions"] = []  # the failure ages out of the window: worth trying again
+        self.assertTrue(PURPOSES["build_storage"].valid(home.situation()))
+        # Already at home (no walk needed): an unrelated failure near the anchor does not block it.
+        home.state["position"] = {"x": 1.0, "y": 1.0, "z": 1.0}
+        home.state["recent_actions"] = [{"target": {"x": 1, "y": 1, "z": 1}, "result": "failed"}]
+        self.assertTrue(PURPOSES["build_storage"].valid(home.situation()))
+
     def test_more_food_than_a_days_worth_goes_in_the_chest(self):
         home = Home({**LOOSE, "bread": 4, "berries": 10}, chest={})
         steps = home.plan("build_storage")

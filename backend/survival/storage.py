@@ -42,6 +42,7 @@ from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
 from backend.survival.life_goals import home_structure
 from backend.survival.purposes import Purpose, foods, register
+from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
 from backend.survival.structures import blueprint_of, clearing, todo
@@ -222,9 +223,22 @@ def chest_crafting(s: Situation) -> list[dict] | None:
 
 
 def storage_valid(s: Situation) -> bool:
+    """Fix round 2: not while a step just failed near home and Mimo would have to walk there --
+    without this, a home whose anchor has no path (an old chest a bigger home left stranded behind
+    dug-out ground, or the like) kept being chosen, walking, failing and being chosen again the
+    moment its 30-point penalty (pickers.options) wore off, "gave up trying to put things away (no
+    way there)" every PENALTY_GAME_SECONDS / scale. near_failure is the same guard every explore
+    target already gets (trips.targets); here it holds off a fresh attempt until other work has
+    moved the failure out of state["recent_actions"]'s window, not just a fixed cooldown."""
     cell = chest_spot(s)
     if cell is None or s.night:
         return False
+    structure = home_structure(s)
+    if structure is not None:
+        blueprint = blueprint_of(structure)
+        walking = not (s.distance(cell) <= REACH and s.here in blueprint.stands)
+        if walking and near_failure(s.state, blueprint.anchor):
+            return False
     if not chest_placed(s, cell):
         can_have = s.count("chest") > 0 or chest_crafting(s) is not None
         return can_have and stacks(s.inventory) >= STORE_FROM
