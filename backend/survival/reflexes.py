@@ -45,7 +45,9 @@ from backend.survival.grid import Cell, Grid, supports
 from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
-from backend.survival.purposes import AT_HOME, HOME_RANGE, HOMEWARD, foods, home_of, land_refuge, meal, walk_to
+from backend.survival.purposes import (
+    AT_HOME, GO_HOME_RANGE, HOME_RANGE, HOMEWARD, foods, home_of, land_refuge, meal, walk_to,
+)
 from backend.survival.senses import near_failure
 from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
@@ -324,7 +326,7 @@ def head_home_due(s: Situation) -> bool:
         return False
     if s.brain["purpose"] in ("go_home", "sleep", *AT_HOME_WORK):
         return False
-    home = home_of(s)
+    home = home_of(s, GO_HOME_RANGE)  # L4a final fix wave, I4: from as far as a day trip goes
     if home is None or s.distance(cell_of(home)) <= AT_HOME:
         return False
     x, y, z = s.here
@@ -332,7 +334,7 @@ def head_home_due(s: Situation) -> bool:
 
 
 register(Reflex("head_home", 60, trigger=head_home_due,
-                plan=lambda s, context: [walk_to(cell_of(home_of(s)))],
+                plan=lambda s, context: [walk_to(cell_of(home_of(s, GO_HOME_RANGE)))],
                 thought="It's getting dark. Home, quickly.", event="{name} hurried home before dark.",
                 cooldown=60.0, ends_purpose=True))
 

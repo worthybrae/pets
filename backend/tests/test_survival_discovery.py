@@ -44,7 +44,7 @@ class DiscoveryGoalTests(unittest.TestCase):
         world = built()
         for value, score in ((0.0, 30.0), (50.0, 65.0), (80.0, 186.0)):
             curiosity_state(world.state, 0.0)["value"] = value
-            self.assertAlmostEqual(pull(world.situation()), score)
+            self.assertAlmostEqual(pull(world.situation(), "far_hills"), score)  # (with a target: I4)
 
     def test_they_count_only_what_is_found_after_they_were_set(self):
         world = built()

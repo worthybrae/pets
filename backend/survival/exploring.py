@@ -26,6 +26,7 @@ end with it in words, and the model payload (`exploration_payload`) says the sam
 
 from __future__ import annotations
 
+import functools
 import math
 from dataclasses import dataclass, field
 
@@ -231,13 +232,36 @@ def compass(dx: float, dz: float) -> str:
     return COMPASS[round(math.atan2(dz, dx) / (math.pi / 4)) % 8]
 
 
-def dry_blocks(seed: str, rx: int, rz: int) -> int:
-    """About how many dry columns a patch has, from a few natural samples (no block reads)."""
+def dry_blocks(seed: str, rx: int, rz: int, height=None) -> int:
+    """About how many dry columns a patch has, from a few natural samples (no block reads). `height`
+    is the terrain's height function (terrain_height unless given)."""
+    height = height or terrain_height
     dry = 0
     for dx, dz in SAMPLES:
         x, z = rx * PATCH + dx, rz * PATCH + dz
-        dry += terrain_height(x, z, seed) >= SEA_LEVEL or math.hypot(x, z) <= LEGACY_RADIUS
+        dry += height(x, z, seed) >= SEA_LEVEL or math.hypot(x, z) <= LEGACY_RADIUS
     return dry * PATCH * PATCH // len(SAMPLES)
+
+
+def dry_patches(seed: str, x: int, z: int, near: float, far: float) -> tuple[tuple[int, int], ...]:
+    """The patches with dry land (dry_blocks) whose middle lies more than `near` and at most `far`
+    blocks from (x, z), nearest first (L4a final fix wave, I4: the rings of land around home that
+    curiosity.trip_reach and the trips toward new land read). The land never changes, so the answer
+    is kept (keyed by the terrain function too, so a test's stand-in terrain is never mixed up)."""
+    return _dry_patches(seed, x, z, float(near), float(far), terrain_height)
+
+
+@functools.lru_cache(maxsize=256)
+def _dry_patches(seed: str, x: int, z: int, near: float, far: float, height) -> tuple[tuple[int, int], ...]:
+    low_x, low_z = patch_of(math.floor(x - far), math.floor(z - far))
+    high_x, high_z = patch_of(math.ceil(x + far), math.ceil(z + far))
+    found = []
+    for rx in range(low_x, high_x + 1):
+        for rz in range(low_z, high_z + 1):
+            away = math.hypot(rx * PATCH + PATCH / 2 - x, rz * PATCH + PATCH / 2 - z)
+            if near < away <= far and dry_blocks(seed, rx, rz, height) > 0:
+                found.append((away, rx, rz))
+    return tuple((rx, rz) for _, rx, rz in sorted(found))
 
 
 @dataclass(frozen=True)

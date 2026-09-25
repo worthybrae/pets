@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, Callable
 
 from backend.services.worldgen import terrain_height
 from backend.survival.beds import to_bed
-from backend.survival.home import home_place
+from backend.survival.home import FARTHEST_TRIP, home_place
 from backend.survival.memory import BUILT, SHELTER_KINDS, cell_of, nearest
 from backend.survival.once import log_once
 from backend.survival.senses import WATER_SIGHT, afloat, shores_near
@@ -72,6 +72,10 @@ HOME_RANGE = 64.0
 # L2: a shelter Mimo built, with its door, is the safe place at night, so Mimo goes back to it from
 # twice as far as to any other home or shelter it remembers.
 BUILT_HOME_RANGE = 2 * HOME_RANGE
+# L4a final fix wave, I4: a day trip may end up to home.FARTHEST_TRIP blocks out now, so going home
+# (go_home, the head_home reflex) looks that far, and a little farther, for the home Mimo built. A
+# flee or a swim for land still looks only BUILT_HOME_RANGE for it.
+GO_HOME_RANGE = FARTHEST_TRIP + HOME_RANGE / 4
 SLEEP_HOME_REACH = 8.0
 TIRED_BELOW = 30.0
 # L4 fix round 2: shared with curiosity.lift, which returns 0 below it -- hungry enough that eat
@@ -134,12 +138,13 @@ def walk_to(cell, reach: float = 0.0) -> dict:
     return {"kind": "walk", "target": [int(cell[0]), int(cell[1]), int(cell[2])], "reach": reach}
 
 
-def home_of(s: Situation) -> dict | None:
-    """The home Mimo built, when it is within BUILT_HOME_RANGE blocks (M5, doubled in L2); else the
-    nearest remembered home or shelter within HOME_RANGE. L4a final fix wave, I1: the built home is
-    read through the one home lookup (backend.survival.home), not only from the places in sight."""
+def home_of(s: Situation, reach: float = BUILT_HOME_RANGE) -> dict | None:
+    """The home Mimo built, when it is within `reach` blocks (BUILT_HOME_RANGE: M5, doubled in L2;
+    going home looks GO_HOME_RANGE, the final fix wave); else the nearest remembered home or shelter
+    within HOME_RANGE. L4a final fix wave, I1: the built home is read through the one home lookup
+    (backend.survival.home), not only from the places in sight."""
     home = home_place(s)
-    if home is not None and home["note"] == BUILT and s.distance(cell_of(home)) <= BUILT_HOME_RANGE:
+    if home is not None and home["note"] == BUILT and s.distance(cell_of(home)) <= reach:
         return home
     return nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)
 
@@ -329,7 +334,7 @@ register(Purpose(
 # go_home ---------------------------------------------------------------------------------------
 
 def go_home_valid(s: Situation) -> bool:
-    home = home_of(s)
+    home = home_of(s, GO_HOME_RANGE)
     return home is not None and s.distance(cell_of(home)) > AT_HOME
 
 
@@ -342,7 +347,7 @@ def go_home_score(s: Situation) -> float:
 
 
 def plan_go_home(s: Situation, context: ActionContext) -> list[dict]:
-    home = home_of(s)
+    home = home_of(s, GO_HOME_RANGE)
     if home is None or s.distance(cell_of(home)) <= AT_HOME or s.brain["batches"] >= GO_HOME_BATCHES:
         return []
     return [walk_to(cell_of(home))]
@@ -351,7 +356,7 @@ def plan_go_home(s: Situation, context: ActionContext) -> list[dict]:
 register(Purpose(
     "go_home", "go home", "Walk back to the nearest known shelter.",
     valid=go_home_valid,
-    facts=lambda s: f"a shelter {round(s.distance(cell_of(home_of(s))))} blocks away",
+    facts=lambda s: f"a shelter {round(s.distance(cell_of(home_of(s, GO_HOME_RANGE))))} blocks away",
     score=go_home_score, plan=plan_go_home,
     thoughts=("I should head back to my shelter.", "Home is the safest place to be.")))
 

@@ -14,6 +14,7 @@ to 86 blocks out, and the herd goal never counted them.
 - from_home(s, x, z): blocks from home to a column, level (None without a home).
 - by_home(s, kind, reach): the structures of a kind Mimo started whose anchor lies within `reach`
   blocks of home, oldest first.
+- walked_near_home(s): the patches Mimo walked within FARTHEST_TRIP of home (I4).
 """
 
 from __future__ import annotations
@@ -21,10 +22,14 @@ from __future__ import annotations
 import math
 
 from backend.survival.grid import Cell
-from backend.survival.memory import BUILT, cell_of, places, structures
+from backend.survival.memory import BUILT, PATCH, cell_of, explored, places, structures
 from backend.survival.situation import Situation
 
 YARD = 32.0  # blocks from home within which a pen is home's own (pens.design_pen puts one within 10)
+# I4: the farthest from home a day trip goes (curiosity.trip_reach grows up to it as the land near
+# home is walked); going home at dusk looks this far for the home Mimo built (purposes.GO_HOME_RANGE).
+# Overnight expeditions, farther still, are L4b's.
+FARTHEST_TRIP = 240.0
 
 
 def home_place(s: Situation) -> dict | None:
@@ -65,6 +70,15 @@ def from_home(s: Situation, x: float, z: float) -> float | None:
     """Blocks from home to the column (x, z), level; None without a home."""
     home = home_place(s)
     return None if home is None else math.hypot(x - home["x"], z - home["z"])
+
+
+def walked_near_home(s: Situation) -> dict[tuple[int, int], tuple[int, float]]:
+    """{(rx, rz): (visits, last_at)} for the patches Mimo walked within FARTHEST_TRIP (and a patch)
+    of home, read once per Situation ({} without a home)."""
+    def look() -> dict:
+        home = home_cell(s)
+        return {} if home is None or s.db is None else explored(s.db, home, FARTHEST_TRIP + PATCH)
+    return s.sensed("walked near home", look)
 
 
 def by_home(s: Situation, kind: str, reach: float = YARD) -> list[dict]:

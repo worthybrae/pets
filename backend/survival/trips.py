@@ -20,9 +20,14 @@ their goals'). A Reason has:
 - `goals`: the goals it serves; `score(s)`: explore's score with it, in the leisure band;
 - `urgent(s)`: it goes first now, before the reasons that serve Mimo's goal (L4a final fix wave,
   I3: food while Mimo is hungry);
-- `reach`: how far from home its targets may lie, LEASH (60) like every trip. L5's frontier
-  hooks in here: its "seek riches farther out" will be a reason with a longer reach, offered only
-  to a pet geared for the ring it leads into. L4 does not build it.
+- `reach`: how far from home its targets may lie, LEASH (60) like every trip, or a function of the
+  Situation (the final fix wave, I4: wander and the discovery goals' trips reach farther as the land
+  near home is walked, curiosity.trip_reach; `reach_of`). L5's frontier hooks in here: its "seek
+  riches farther out" will be a reason with a longer reach, offered only to a pet geared for the
+  ring it leads into. L4 does not build it;
+- `cooldown`: game seconds it is not offered again after a trip for it ends (`cool_down`, the final
+  fix wave: a field of its own, TRIP_PENALTY_SECONDS unless the reason says otherwise; wander's is
+  WANDER_PENALTY_SECONDS, and L4b's expedition trip will set its own).
 
 Targets (`targets`) are the reason's spots and the dry columns at 16 headings 32, 48 and 64 blocks
 away whose land may hold what it needs. Each scores LIKELY times that likelihood (1 for a spot)
@@ -48,13 +53,13 @@ one), and a find that is what the trip was for ends it (`done`) and asks for a n
 "discovery"), so the purpose that follows up on it comes next: gather_wood for trees, mine_ore for
 ore, hunt for animals, build_pen for a seed, improve_home for a site. A trip also ends when its
 reason is no longer wanted or after three walks with nothing found. However it ends, that reason
-is not offered again for a while (`cool_down`, fix round 1): TRIP_PENALTY_SECONDS, the same cooldown
-a purpose gets after a step fails twice, for every reason but wander, WANDER_PENALTY_SECONDS instead
-(fix round 2, the curiosity review's trade-off ruling: wander's targets move on their own, so a find
-still needing its follow-up purpose to run and a disappointing target needing to stop coming straight
-back barely apply to it, but pacing it as slowly as every other reason crowded out goal work and rest
-alike). A walk step that fails outright while exploring cools its trip's reason down the same way
-(brain.report).
+is not offered again for a while (`cool_down`, fix round 1): its own `cooldown`, by default
+TRIP_PENALTY_SECONDS, the same cooldown a purpose gets after a step fails twice; wander's is
+WANDER_PENALTY_SECONDS (fix round 2, the curiosity review's trade-off ruling: wander's targets move on
+their own, so a find still needing its follow-up purpose to run and a disappointing target needing to
+stop coming straight back barely apply to it, but pacing it as slowly as every other reason crowded
+out goal work and rest alike). A walk step that fails outright while exploring cools its trip's
+reason down the same way (brain.report).
 """
 
 from __future__ import annotations
@@ -131,8 +136,9 @@ class Reason:
     spots: Callable[[Situation], list[tuple[int, int, str]]] = no_spots
     look: Callable[[Situation, "ActionContext"], Find | None] = no_look
     work: Callable[[Situation], list[dict]] = no_work
-    reach: float = LEASH
+    reach: float | Callable[[Situation], float] = LEASH  # blocks from home, or a function of the Situation
     urgent: Callable[[Situation], bool] = never  # goes first now, before the goal's reasons (food when hungry)
+    cooldown: float = TRIP_PENALTY_SECONDS  # game seconds a trip for it is not offered again once it ends
 
 
 REASONS: dict[str, Reason] = {}
@@ -199,16 +205,25 @@ def wanted_now(s: Situation, reason: Reason) -> str | None:
 
 
 def cool_down(brain: dict, reason: str, at: float, scale: float) -> None:
-    """A trip for `reason` failed to find what it needed: it is not offered again for a while (fix
-    round 1; the same pattern purposes use after a step fails twice, brain.report) -- a much shorter
-    while for wander (WANDER_PENALTY_SECONDS, fix round 2, the curiosity review's trade-off ruling).
-    Exempting wander outright (fix round 1) let it crowd out goal work and rest; the full
-    TRIP_PENALTY_SECONDS paced it back down (fix round 1's re-review) but then most of a rest went
-    to it too. WANDER_PENALTY_SECONDS split the difference: still much shorter than every other
-    reason's cooldown, since wander's targets move on their own and the usual reasons for a cooldown
-    barely apply to it, but long enough that it no longer dominates the choice between trips."""
-    seconds = WANDER_PENALTY_SECONDS if reason == "wander" else TRIP_PENALTY_SECONDS
+    """A trip for `reason` ended (found what it needed or not): it is not offered again for the
+    reason's own `cooldown` (fix round 1; the same pattern purposes use after a step fails twice,
+    brain.report). The final fix wave made it a field of each Reason: TRIP_PENALTY_SECONDS unless the
+    reason says otherwise; wander's is WANDER_PENALTY_SECONDS (fix round 2, the curiosity review's
+    trade-off ruling: exempting wander outright let it crowd out goal work and rest, the full
+    TRIP_PENALTY_SECONDS then gave most of a rest to it too; its targets move on their own, so the
+    usual reasons for a long cooldown barely apply to it). A reason no longer registered gets
+    TRIP_PENALTY_SECONDS."""
+    known = REASONS.get(reason)
+    seconds = known.cooldown if known is not None else TRIP_PENALTY_SECONDS
     brain.setdefault("trip_penalties", {})[reason] = at + seconds / scale
+
+
+def reach_of(s: Situation, reason: Reason) -> float:
+    """How far from home the reason's targets may lie now (a function that crashes gives LEASH,
+    logged once), read once per Situation."""
+    if not callable(reason.reach):
+        return reason.reach
+    return s.sensed(f"trip reach {reason.name}", lambda: float(guarded(reason, "reach", lambda: reason.reach(s), LEASH)))
 
 
 def beyond(s: Situation, reason: Reason, home: Cell | None, cell: Cell) -> bool:
@@ -216,7 +231,7 @@ def beyond(s: Situation, reason: Reason, home: Cell | None, cell: Cell) -> bool:
     if home is None:
         return False
     away = math.hypot(cell[0] - home[0], cell[2] - home[2])
-    return away > reason.reach and away >= math.hypot(s.here[0] - home[0], s.here[2] - home[2])
+    return away > reach_of(s, reason) and away >= math.hypot(s.here[0] - home[0], s.here[2] - home[2])
 
 
 def stand_near(s: Situation, x: int, z: int) -> Cell | None:

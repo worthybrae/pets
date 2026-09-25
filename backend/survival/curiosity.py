@@ -34,12 +34,17 @@ A newborn starts at START.
   exploring meets a need (goals.URGES), so goal work does not crowd it out. Curiosity is always a
   reason of its own, the "wander" trip ("look for something new": land it has never seen, a biome
   where creatures it never met live, a cave mouth it has not looked into, then new ground, near or
-  FAR_OUT blocks away, up to WANDER_REACH blocks from home, its own shorter cooldown between trips,
-  WANDER_PENALTY_SECONDS, fix round 2: the trade-off ruling, since its targets move on their own and
-  the usual TRIP_PENALTY_SECONDS paced it into most of a rest, but leaving it exempt let the far more
-  frequent trips crowd out goal work): when nothing for its goal or a need is on offer, Mimo goes to
-  see something new rather than sit and rest (the trip serves the discovery goals, so it is worked
-  toward one of them meanwhile). Once its needs are met and it is curious (PLAN_FROM), the day plan
+  FAR_OUT blocks away, its own shorter cooldown between trips, WANDER_PENALTY_SECONDS, fix round 2:
+  the trade-off ruling, since its targets move on their own and the usual TRIP_PENALTY_SECONDS paced
+  it into most of a rest, but leaving it exempt let the far more frequent trips crowd out goal
+  work): when nothing for its goal or a need is on offer, Mimo goes to see something new rather than
+  sit and rest (the trip serves the discovery goals, so it is worked toward one of them meanwhile).
+  L4a final fix wave, I4: a wander (and a discovery goal's trip, backend.survival.discovery) reaches
+  `trip_reach` blocks from home, WANDER_REACH at first and RING more for each ring of land out from
+  there Mimo has mostly walked (RING_WALKED of its dry patches), up to home.FARTHEST_TRIP, so a pet
+  that has walked the land near home still finds new land after day 3; and it heads for ground it
+  never walked (a heading counts as new ground only with NEW_PATCHES of its 9 patches unwalked, and
+  `toward` gives spots on the way to the nearest unwalked land within reach, a walk at a time). Once its needs are met and it is curious (PLAN_FROM), the day plan
   sets time aside to wander (goals.PLAN_EXTRAS), ticked off by the next discovery.
 - The model is told how it feels (`feeling`, `curiosity_view`): "restless; nothing new for 2 game
   days".
@@ -60,8 +65,9 @@ from backend.services.worldgen import biome_at
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.creatures.kinds import KINDS, land_kinds
 from backend.survival.creatures.table import dead
-from backend.survival.exploring import HEADINGS, area_novelty, home_cell, lately
+from backend.survival.exploring import HEADINGS, area_novelty, dry_patches, home_cell, lately, visited
 from backend.survival.goals import PLAN_EXTRAS, add_urge
+from backend.survival.home import FARTHEST_TRIP, walked_near_home
 from backend.survival.life_goals import looked_into, opening_words, openings_near
 from backend.survival.memory import BUILT, PATCH, know, known, patch_of, places
 from backend.survival.once import log_once
@@ -69,7 +75,7 @@ from backend.survival.purposes import HUNGRY_BELOW, TIRED_BELOW
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell, label
 from backend.survival.triggers import ensure_brain
-from backend.survival.trips import FINDS, LIFTS, Find, Reason, register_reason
+from backend.survival.trips import FINDS, LIFTS, WANDER_PENALTY_SECONDS, Find, Reason, register_reason
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -88,9 +94,16 @@ NEW_PLACE = 10.0
 LIFTED = 50.0  # curiosity past this lifts explore...
 LIFT_RATE = 0.6  # ...this much a point
 CURIOUS = 60.0  # it feels restless from here on
-WANDER_REACH = 90.0  # blocks from home a wander trip may go, as far as the discovery goals look
+WANDER_REACH = 90.0  # blocks from home a wander trip may go, as far as the discovery goals look...
+# ...and I4 (the final fix wave): RING more for each ring of land out from there that Mimo has mostly
+# walked (RING_WALKED of its dry patches), up to home.FARTHEST_TRIP; the numbers are the final fix
+# wave's measure over 6-day lives (its report).
+RING = 30.0
+RING_WALKED = 0.6
 NEW_ENOUGH = 0.25  # ground this new (exploring.area_novelty over 9) is worth a wander
+NEW_PATCHES = 3  # I4: of the 9 patches round a heading's column, this many never walked make it new ground
 FAR_OUT = 72  # blocks away a wander also heads for new ground, past what explore's targets reach
+TOWARD = 3  # I4: spots a trip heads for on the way to land farther out, the nearest first
 RESTLESS = 75.0  # exploring meets a need
 PLAN_FROM = 40.0  # the day plan sets time aside to wander
 CREATURE_SIGHT = 24.0
@@ -384,21 +397,83 @@ def wander_value(s: Situation, x: int, z: int) -> tuple[float, str]:
     return (0.3, "new ground") if new >= NEW_ENOUGH else (0.0, "")
 
 
+def trip_reach(s: Situation) -> float:
+    """How far from home a wander or discovery trip may go now (I4, the final fix wave): WANDER_REACH,
+    and RING more for each ring of land out from there Mimo has mostly walked (RING_WALKED of the
+    ring's dry patches; a ring with no dry land counts as walked), up to FARTHEST_TRIP. By day 3 or 4
+    a pet had walked all the land within a fixed 90 blocks and settled back into resting; now the
+    reach follows the land it has used up. Read once per Situation."""
+    def look() -> float:
+        home = home_cell(s)
+        if home is None:
+            return WANDER_REACH
+        walked, reach = walked_near_home(s), WANDER_REACH
+        while reach < FARTHEST_TRIP:
+            ring = dry_patches(s.seed, home[0], home[2], reach - RING, reach)
+            if ring and sum(patch in walked for patch in ring) < RING_WALKED * len(ring):
+                break
+            reach += RING
+        return min(reach, FARTHEST_TRIP)
+    return s.sensed("trip reach", look)
+
+
+def toward(s: Situation, columns, short: float = 0.0) -> list[tuple[int, int, str]]:
+    """Spots on the way to `columns`, (x, z, words) (I4): for the TOWARD of them nearest Mimo, the
+    column itself when it lies within FAR_OUT, else the point FAR_OUT blocks along the way there (a
+    trip's walks go all the way or not at all, and a walk that long is as far as one goes), so land
+    farther out than one walk is reached a walk at a time. `short`: stop that many blocks before the
+    column (at a lake's shore). One spot per patch."""
+    x, _, z = s.here
+    found, patches = [], set()
+    for cx, cz, words in sorted(columns, key=lambda column: (math.hypot(column[0] - x, column[1] - z), column)):
+        away = math.hypot(cx - x, cz - z)
+        step = min(FAR_OUT, away - short)
+        if step <= 0:
+            continue
+        tx, tz = x + round((cx - x) * step / away), z + round((cz - z) * step / away)
+        if patch_of(tx, tz) in patches:
+            continue
+        patches.add(patch_of(tx, tz))
+        found.append((tx, tz, words if step >= away else f"the way to {words}"))
+        if len(found) >= TOWARD:
+            break
+    return found
+
+
+def unwalked(s: Situation, beyond: float = 0.0) -> list[tuple[int, int]]:
+    """The middles of the dry patches Mimo never walked farther than `beyond` and within trip_reach of
+    home (I4), nearest home first ([] without a home)."""
+    home = home_cell(s)
+    if home is None:
+        return []
+    walked = walked_near_home(s)
+    return [(rx * PATCH + PATCH // 2, rz * PATCH + PATCH // 2)
+            for rx, rz in dry_patches(s.seed, home[0], home[2], beyond, trip_reach(s)) if (rx, rz) not in walked]
+
+
+def new_patches(s: Situation, patch: tuple[int, int]) -> int:
+    """How many of a patch and its 8 neighbours Mimo never walked."""
+    known, (rx, rz) = visited(s), patch
+    return sum((rx + dx, rz + dz) not in known for dx in (-1, 0, 1) for dz in (-1, 0, 1))
+
+
 def wander_spots(s: Situation) -> list[tuple[int, int, str]]:
-    """New ground farther out: columns FAR_OUT blocks away at 16 headings, within WANDER_REACH of
-    home, in patches Mimo did not visit lately and whose area is new enough, so a pet that walked
-    all the land near it lately still finds somewhere new to go."""
+    """New ground farther out: columns FAR_OUT blocks away at 16 headings, within trip_reach of
+    home, in patches Mimo did not visit lately and whose area holds ground it never walked
+    (NEW_PATCHES of its 9; I4: "new enough" by novelty alone let a pet circle ground it walked a day
+    before); and (I4) on the way to the ground it never walked within that reach (`toward`,
+    `unwalked`), so once the land near home is walked a trip still heads out to new land."""
     home, (x, _, z) = home_cell(s), s.here
-    found = []
+    reach, found = trip_reach(s), []
     for heading in range(HEADINGS):
         angle = heading * 2 * math.pi / HEADINGS
         tx, tz = x + round(math.cos(angle) * FAR_OUT), z + round(math.sin(angle) * FAR_OUT)
-        if home is not None and math.hypot(tx - home[0], tz - home[2]) > WANDER_REACH:
+        if home is not None and math.hypot(tx - home[0], tz - home[2]) > reach:
             continue
         patch = patch_of(tx, tz)
-        if not lately(s, patch) and area_novelty(s, patch) / 9 >= NEW_ENOUGH:
+        if not lately(s, patch) and area_novelty(s, patch) / 9 >= NEW_ENOUGH and new_patches(s, patch) >= NEW_PATCHES:
             found.append((tx, tz, "new ground farther out"))
-    return found
+    return found + toward(s, [(x, z, "land it never walked") for x, z in unwalked(s)])
 
 
 def wander_look(s: Situation, context: ActionContext) -> Find | None:
@@ -410,10 +485,11 @@ def wander_look(s: Situation, context: ActionContext) -> Find | None:
     return Find("something new", True, new=False)
 
 
+# The discovery goals it serves are named by backend.survival.discovery (GOAL_NAMES), which
+# registers it again with them.
 register_reason(Reason(
     "wander", "look for something new", wander_wanted, wander_value, lambda s: 35.0,
-    goals=("new_land", "new_creature", "cave", "water", "far_hills"), spots=wander_spots, look=wander_look,
-    reach=WANDER_REACH))
+    spots=wander_spots, look=wander_look, reach=trip_reach, cooldown=WANDER_PENALTY_SECONDS))
 
 
 def time_to_wander(s: Situation, goal) -> dict | None:
