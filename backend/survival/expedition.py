@@ -50,6 +50,7 @@ from backend.services.worldgen import SEA_LEVEL, terrain_height
 from backend.survival import foraging, purposes, storage
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.carrying import GIVES_WAY_TO_FOOD, crafts_fit, full
+from backend.survival.creatures.gear import materials_wanted
 from backend.survival.curiosity import GROUND_FLOOR, RESTLESS, needs_met, value_of
 from backend.survival.exploring import COMPASS
 from backend.survival.goals import Goal, Milestone, active, register_goal
@@ -291,12 +292,12 @@ def should_turn(s: Situation, found: dict) -> bool:
 def observe_expedition(state: dict, step: dict, context: ActionContext, at: float) -> None:
     """After a finished step (brain.observe_step): walks onto new ground, nights slept out, and the
     camp's roof going on."""
-    brain = ensure_brain(state)
-    found = brain.get("expedition")
-    goal = brain.get("goal")
-    if not found or not goal or goal["name"] != GOAL or found.get("phase") not in ("out", "homeward"):
-        return
     try:
+        brain = ensure_brain(state)
+        found = brain.get("expedition")
+        goal = brain.get("goal")
+        if not found or not goal or goal["name"] != GOAL or found.get("phase") not in ("out", "homeward"):
+            return
         kind = step["kind"]
         if kind in ("walk", "swim") and brain.get("new_ground_at") == at:
             found["walks"] += 1
@@ -350,6 +351,9 @@ def pack_share(s: Situation) -> float:
 
 
 def travel_share(s: Situation) -> float:
+    # Fix round 1, Important 1: home, the goal is done however far it got (as pack_share already is).
+    if phase_of(s) == "home":
+        return 1.0
     found = trek(s)
     if not found or not found["target"]:
         return 0.0
@@ -357,11 +361,15 @@ def travel_share(s: Situation) -> float:
 
 
 def camp_share(s: Situation) -> float:
+    if phase_of(s) == "home":
+        return 1.0
     found = trek(s)
     return 1.0 if found and found["nights"] >= 1 else 0.0
 
 
 def map_share(s: Situation) -> float:
+    if phase_of(s) == "home":
+        return 1.0
     found = trek(s)
     return min(1.0, found["walks"] / MAP_WALKS) if found else 0.0
 
@@ -395,12 +403,16 @@ def packed_kept(s: Situation, item: str) -> float:
     """What an expedition keeps on Mimo (storage.KEEPS_MORE): its torches and its food, from packing
     until it is home again. While it packs it keeps none of what gives way to food
     (carrying.GIVES_WAY_TO_FOOD: plants, gloom dust, wool, string, feathers, flint, hides, leather,
-    copper and gold), so build_storage puts that in the chest at home and the pack has room: the
-    pre-flight found arms full on 97-100 % of the packing ticks of three of five packing pets."""
+    copper and gold) and gear does not still want (creatures.gear.materials_wanted: leather and
+    hides for armor, string for a bow, flint and feathers for arrows), so build_storage puts the
+    rest in the chest at home and the pack has room: the pre-flight found arms full on 97-100 % of
+    the packing ticks of three of five packing pets. Fix round 1, Important 3: packing must never
+    give away what gear still wants -- armor_up's "Gather 5 leather" counts what Mimo carries, so a
+    chest full of leather it still needs would count as none."""
     phase = phase_of(s)
     if phase not in ("packing", "out", "homeward"):
         return 0.0
-    if phase == "packing" and item in GIVES_WAY_TO_FOOD:
+    if phase == "packing" and item in GIVES_WAY_TO_FOOD and item not in materials_wanted(s.inventory):
         return -float(storage.KEEP.get(item, 0))
     return {"torch": PACK_TORCHES, "food": PACK_FOOD - foraging.FOOD_WANTED}.get(item, 0.0)
 
