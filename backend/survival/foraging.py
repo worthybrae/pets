@@ -25,6 +25,7 @@ berry behind, each forage used to lead on to the next patch from where Mimo stoo
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING
 
@@ -34,6 +35,7 @@ from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell
 from backend.survival.home import from_home
 from backend.survival.memory import cell_of
+from backend.survival.once import log_once
 from backend.survival.purposes import EAT_BELOW, HOME_RANGE, Purpose, foods, late_penalty, register, walk_to
 from backend.survival.senses import FOOD_SIGHT, WATER_SIGHT, food_near, near_failure, shores_near
 from backend.survival.situation import Situation
@@ -41,6 +43,8 @@ from backend.survival.steps import FOOD, REACH
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
 
 FOOD_WANTED = 60.0  # hunger points of food Mimo likes to carry: about a game day's worth
 PICKS_PER_BATCH = 4
@@ -65,8 +69,20 @@ def food_points(s: Situation) -> float:
 MORE_FOOD: list = []
 
 
+def more_wanted(s: Situation) -> float:
+    """What MORE_FOOD adds; one that crashes adds nothing (logged once; the final fix wave guards it
+    like harm.ARMOR_WANTED and work.EAGER)."""
+    total = 0.0
+    for more in MORE_FOOD:
+        try:
+            total += float(more(s))
+        except Exception as error:
+            log_once(logger, "more food", error)
+    return total
+
+
 def food_need(s: Situation) -> float:
-    return max(0.0, FOOD_WANTED + sum(more(s) for more in MORE_FOOD) - food_points(s))
+    return max(0.0, FOOD_WANTED + more_wanted(s) - food_points(s))
 
 
 def hunger_score(s: Situation, base: float) -> float:

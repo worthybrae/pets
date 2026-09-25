@@ -23,6 +23,7 @@ hunt less for being kind. L4a final fix wave, C1: only while the meat would be k
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from backend.services.worldgen import terrain_height
@@ -32,6 +33,7 @@ from backend.survival.creatures.kinds import huntable, kind_of
 from backend.survival.creatures.moves import where
 from backend.survival.creatures.table import dead
 from backend.survival.foraging import food_need, food_points, hunger_score, room_for_food, whole_walk
+from backend.survival.once import log_once
 from backend.survival.purposes import Purpose, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
@@ -39,6 +41,8 @@ from backend.survival.steps import label
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
 
 HUNT_SIGHT = 32.0
 CAVE_DEPTH = 2  # an animal more than this far below its column's natural surface is in a cave: not prey
@@ -89,9 +93,21 @@ def hunted_lately(s: Situation) -> bool:
 HUNT_FOR: list = []
 
 
+def hunt_for(s: Situation) -> bool:
+    """One of HUNT_FOR wants a hunt now; one that crashes counts as no (logged once; the final fix
+    wave guards it like harm.ARMOR_WANTED and work.EAGER)."""
+    for wants in HUNT_FOR:
+        try:
+            if wants(s):
+                return True
+        except Exception as error:
+            log_once(logger, "hunt for", error)
+    return False
+
+
 def hunt_valid(s: Situation) -> bool:
     """L4a final fix wave, C1: only while the meat would be kept or eaten (foraging.room_for_food)."""
-    wanted = food_need(s) > 0 or not hunted_lately(s) or any(want(s) for want in HUNT_FOR)
+    wanted = food_need(s) > 0 or not hunted_lately(s) or hunt_for(s)
     return not s.night and wanted and room_for_food(s) and bool(prey(s))
 
 

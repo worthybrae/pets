@@ -15,10 +15,11 @@ Modules register goals on import (backend.survival.life_goals registers the ones
 
 The brain keeps its goal in state["brain"]:
 - goal: {"name", "since", "picker", "progress", "best", "best_at", "plan", "plan_day",
-  "checked_at", "day_start"} or None. `plan` is the day plan, [{"text", "done", "step"}]: the next
+  "checked_at", "day_start", "told"} or None. `plan` is the day plan, [{"text", "done", "step"}]: the next
   milestones toward the goal (step is the milestone's index), written at dawn and when a goal is
   chosen. `day_start` is when the current game day began (set at dawn): `idle` measures no-progress
-  time from there, not from midnight-crossing best_at, so only daylight counts.
+  time from there, not from midnight-crossing best_at, so only daylight counts. `told` lists the
+  plan's steps whose finishing was logged (the final fix wave).
 - goal_due: a goal choice Mimo waits for, {"id", "reasons", "since"}, or None (ids come from
   the brain's next_id, like pending purpose choices).
 - goal_penalties: {goal: server time until which it is not offered, after it was given up}.
@@ -32,7 +33,9 @@ is one whose progress has not risen for IDLE game seconds of daylight while noth
 it is on offer (`workable`). At dawn it writes the day plan (a routine "plan" event) and asks for a
 goal choice: Jev may keep the goal or pick another, the rules picker keeps it. A goal whose
 progress has not risen for a game day is given up at dawn instead. A goal given up is not offered
-again for a game day. With no goal, a goal choice is asked for at once, then every IDLE_RETRY game
+again for a game day. A step of the day's plan Mimo finishes is a routine "plan" event too, once a
+plan (the final fix wave, for Bond to read: "Pip finished a step toward iron tools: mine 3 iron
+ore."; `told`). With no goal, a goal choice is asked for at once, then every IDLE_RETRY game
 seconds while none is open. The worker's Chooser answers goal choices (backend.survival.choosing).
 
 Purposes follow the goal (`toward`, used by pickers.steer): the purposes on offer that advance
@@ -417,6 +420,11 @@ def plan_sentence(name: str, plan: list[dict]) -> str:
     return f"{name}'s plan for today: {listed}."
 
 
+def step_sentence(name: str, goal: Goal, milestone: Milestone) -> str:
+    """"Pip finished a step toward iron tools: mine 3 iron ore." (the final fix wave)."""
+    return f"{name} finished a step toward {lower(goal.title)}: {lower(milestone.text)}."
+
+
 def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float) -> None:
     """A notable "goal" event, the goal's mood reward, the goal remembered, and new choices. A
     non-repeating goal already known as reached (a stale answer re-adopted it and it completed
@@ -472,13 +480,18 @@ def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> No
     if dawn or current["plan"] is None:
         current["plan"] = day_plan(s, goal)
         current["plan_day"] = s.clock["day_number"]
+        current["told"] = []
         if current["plan"]:
             context.events.append((at, "plan", plan_sentence(state["name"], current["plan"])))
     else:
+        told = current.setdefault("told", [])
         for entry in current["plan"]:
             step = entry.get("step")
             if isinstance(step, int) and 0 <= step < len(goal.milestones):
                 entry["done"] = share_of(s, goal.milestones[step]) >= 1.0
+                if entry["done"] and step not in told:  # the final fix wave: a routine event, once a plan
+                    told.append(step)
+                    context.events.append((at, "plan", step_sentence(state["name"], goal, goal.milestones[step])))
     if dawn:
         ask_for_goal(state, "dawn", at)
 
@@ -507,22 +520,25 @@ def tend_goal(state: dict, context: ActionContext, at: float, phase: str | None)
 
 # Offering goals --------------------------------------------------------------------------------
 
-def goal_facts(s: Situation, goal: Goal) -> str:
-    """Progress and the next milestones in words: "40% done; next: find iron ore, mine 3 iron ore"."""
+def goal_facts(s: Situation, goal: Goal, can: bool | None = None) -> str:
+    """Progress and the next milestones in words: "40% done; next: find iron ore, mine 3 iron ore".
+    `can`: whether something can be done for it now, when the caller already knows (workable)."""
     words = [lower(milestone.text) for _, milestone in ahead(s, goal)[:NEXT_SHOWN]]
     current = active(s)
     mine = " (its goal now)" if current is not None and current.name == goal.name else ""
-    later = "" if workable(s, goal) else "; nothing to do for it right now"
+    can = workable(s, goal) if can is None else can
+    later = "" if can else "; nothing to do for it right now"
     return f"{round(progress_of(s, goal) * 100)}% done{mine}; next: {', '.join(words) or 'nothing'}{later}"
 
 
-def rules_score(s: Situation, goal: Goal) -> float:
-    """The goal's own score, WORKABLE more when something can be done for it now, and STICK more
-    for the current goal unless it stalled: the rules keep a goal for as long as it moves."""
+def rules_score(s: Situation, goal: Goal, can: bool | None = None) -> float:
+    """The goal's own score, WORKABLE more when something can be done for it now (`can`, when the
+    caller already knows: workable), and STICK more for the current goal unless it stalled: the rules
+    keep a goal for as long as it moves."""
     score = own_score(s, goal)
     if score is None:
         return 0.0
-    if workable(s, goal):
+    if workable(s, goal) if can is None else can:
         score += WORKABLE
     current = active(s)
     if current is not None and current.name == goal.name and not stalled(s):
@@ -534,8 +550,11 @@ def offers(s: Situation) -> list[tuple[Goal, str, float]]:
     """The goals on offer as (goal, facts, rules score), best first: the current one while it is
     open, the best goal that repeats (L4's discovery goals are always on offer), and the best
     others, OFFERED in all. Goals given up lately are left out."""
-    found = [(goal, goal_facts(s, goal), rules_score(s, goal)) for _, goal in sorted(GOALS.items())
-             if is_open(s, goal) and not penalized(s, goal.name)]
+    found = []
+    for _, goal in sorted(GOALS.items()):
+        if is_open(s, goal) and not penalized(s, goal.name):
+            can = workable(s, goal)  # the final fix wave: once per goal, for its facts and its score both
+            found.append((goal, goal_facts(s, goal, can), rules_score(s, goal, can)))
     found.sort(key=lambda entry: -entry[2])
     current = active(s)
     kept = [entry for entry in found if current is not None and entry[0].name == current.name]

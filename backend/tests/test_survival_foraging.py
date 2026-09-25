@@ -6,6 +6,7 @@ from backend.survival import foraging  # noqa: F401  (registers forage and fish)
 from backend.survival.actions import ActionContext, advance_actions, ensure_actions
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, know, remember, set_home, update_place
+from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.vitals import START_VITALS
@@ -82,6 +83,16 @@ class ForageTests(unittest.TestCase):
         remember(recent.db, "food", (60, 1, 0), 0.0)
         update_place(recent.db, "food", (60, 1, 0), {"ripe": 0, "seen_at": 9_000.0})
         self.assertFalse(PURPOSES["forage"].valid(recent))
+
+    def test_a_crashing_want_for_more_food_counts_nothing_and_is_logged_once(self):
+        """L4a final fix wave, minor: MORE_FOOD is crash-guarded like harm.ARMOR_WANTED and work.EAGER."""
+        forget_logged()
+        boom = lambda s: 1 / 0  # noqa: E731
+        with patch("backend.survival.foraging.MORE_FOOD", [boom, lambda s: 20.0]), \
+                self.assertLogs("backend.survival.foraging", level="ERROR") as logs:
+            self.assertEqual(foraging.food_need(situation()), foraging.FOOD_WANTED + 20.0)
+            self.assertEqual(foraging.food_need(situation()), foraging.FOOD_WANTED + 20.0)
+        self.assertEqual(len(logs.output), 1)
 
     def test_the_hungrier_and_emptier_handed_the_higher_it_scores(self):
         score = PURPOSES["forage"].score

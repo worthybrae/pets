@@ -169,6 +169,18 @@ class CuriosityTests(unittest.TestCase):
         self.assertIn("cobblestone", known(self.world.db, "block"))  # built with it, per structure_cells
         self.assertTrue(known(self.world.db, "biome"))
 
+    def test_an_old_save_learns_the_creatures_it_saw_coming_or_fought_off_too(self):
+        """L4a final fix wave, minor: one upgrade logged a false "met its first skitter" -- a kind
+        Mimo had already seen coming at it (a "threat" event) or fought off (a "fight" event)."""
+        db = self.world.db
+        db.execute("CREATE TABLE mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, "
+                   "kind TEXT NOT NULL, text TEXT NOT NULL)")
+        for kind, text in (("hunt", "Pip hunted a sheep."), ("fish", "Pip caught a fish."),
+                           ("threat", "Pip saw a skitter coming."), ("fight", "Pip fought off a gloomling."),
+                           ("threat", "Pip saw a dragon coming."), ("fight", "Wren fought off a cow.")):
+            db.execute("INSERT INTO mimo_events(at, kind, text) VALUES (0, ?, ?)", (kind, text))
+        self.assertEqual(curiosity.past_creatures(db, "Pip"), {"sheep", "fish", "skitter", "gloomling"})
+
     def test_a_crash_is_logged_once_and_the_tick_goes_on(self):
         forget_logged()
         with patch("backend.survival.curiosity.needs_met", side_effect=RuntimeError("boom")), \

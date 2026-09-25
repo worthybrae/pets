@@ -17,7 +17,7 @@ from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, Purpose
 from backend.survival.registry import LifeRegistry
 from backend.survival.tick import tick_life
-from backend.survival.world import SurvivalWorld, read_state, write_state
+from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, write_state
 from backend.tests.test_survival_goals import LATER, STONE, WOOD, only_goals
 from backend.tests.test_survival_pickers import DAY, NIGHT, forest, situation
 
@@ -71,7 +71,25 @@ class TendTests(unittest.TestCase):
             self.assertEqual(self.tend(30.0)["goal"]["progress"], 0.0)  # read at most once a game minute
             brain = self.tend(61.0)
             self.assertEqual((brain["goal"]["progress"], brain["goal"]["plan"][0]["done"]), (0.5, True))
-            self.assertEqual(len(self.events), 1)
+            # the final fix wave: the step it finished is a routine event (see the next test)
+            self.assertEqual([text for _, _, text in self.events[1:]],
+                             ["Pip finished a step toward a woodpile: carry 4 logs."])
+
+    def test_a_step_of_the_plan_it_finishes_is_a_routine_event_told_once(self):
+        """L4a final fix wave, minor: "Pip finished a step toward iron tools: mine 3 iron ore.", a
+        routine "plan" event (Bond reads it), once per step of the day's plan."""
+        with only_goals(WOOD):
+            adopt_goal(self.state, "woodpile", "jev", "Wood first.", 0.0)
+            self.tend(1.0)
+            self.state["inventory"]["oak_log"] = 4
+            self.tend(61.0)
+            self.assertEqual(self.events[-1], (61.0, "plan", "Pip finished a step toward a woodpile: carry 4 logs."))
+            self.assertIn("plan", ROUTINE_EVENTS)
+            self.state["inventory"]["oak_log"] = 2  # used some: not done any more...
+            self.assertFalse(self.tend(122.0)["goal"]["plan"][0]["done"])
+            self.state["inventory"]["oak_log"] = 4  # ...and done again: told once is enough
+            self.assertTrue(self.tend(183.0)["goal"]["plan"][0]["done"])
+            self.assertEqual(sum("finished a step" in text for _, _, text in self.events), 1)
 
     def test_the_day_plan_sets_time_aside_for_what_else_the_day_calls_for(self):
         extras = [lambda s, goal: {"text": "Take time to wander", "kind": "wander"}, lambda s, goal: None]

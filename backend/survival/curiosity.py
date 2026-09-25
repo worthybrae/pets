@@ -21,7 +21,8 @@ A newborn starts at START.
   explored, every creature kind standing in one now (dead or alive, the creatures table, not only
   those in sight of where Mimo stands), the kinds its carried drops or past hunts and catches imply
   (`drop_kinds`, `past_creatures`: raw or cooked meat, hides, wool, feathers, string and the like,
-  and the "hunted a sheep" / "caught a fish" events already logged), and the block kinds it carries
+  and the "hunted a sheep" / "caught a fish" events already logged, and, the final fix wave, "saw a
+  skitter coming" / "fought off a gloomling"), and the block kinds it carries
   or has built with (`old_save`, `learn_quietly`), so upgrading a life never floods the notable feed
   with false "firsts" (fish it already ate, an animal it already hunted, a biome only a patch's edge
   touches) or drops curiosity for half a day.
@@ -199,25 +200,37 @@ def drop_kinds() -> dict[str, str]:
     return found
 
 
+# (event kind, what its text starts with, what it ends with) for the events that name a creature Mimo
+# met: a hunt ("Pip hunted a sheep."), and (L4a final fix wave) a hostile it saw coming ("Pip saw a
+# skitter coming.") or fought off ("Pip fought off a gloomling."), which one upgrade otherwise
+# announced as a false "met its first skitter".
+MET_IN_EVENTS = (("hunt", "hunted a ", "."), ("threat", "saw a ", " coming."), ("fight", "fought off a ", "."))
+
+
 def past_creatures(db, name: str) -> set[str]:
-    """Creature kinds this life hunted or fished before (fix round 2), from the event log: a kind
-    long gone from view and never carried leaves no other trace. A world read before mimo_events
-    existed (an archive, or a light test fixture) has none."""
+    """Creature kinds this life hunted, fished, saw coming or fought off before (fix round 2, and
+    the final fix wave for the last two), from the event log: a kind long gone from view and never
+    carried leaves no other trace. A world read before mimo_events existed (an archive, or a light
+    test fixture) has none."""
     found = set()
-    hunted, caught = f"{name} hunted a ", f"{name} caught a fish."
+    kinds = ("fish", *(kind for kind, _, _ in MET_IN_EVENTS))
     try:
-        rows = db.execute("SELECT kind, text FROM mimo_events WHERE kind IN ('hunt', 'fish')").fetchall()
+        rows = db.execute(f"SELECT kind, text FROM mimo_events WHERE kind IN ({','.join('?' * len(kinds))})",
+                          kinds).fetchall()
     except sqlite3.OperationalError as error:
         if "no such table" not in str(error):
             raise
         return found
     for kind_col, text in rows:
-        if kind_col == "fish" and text == caught:
+        if kind_col == "fish" and text == f"{name} caught a fish.":
             found.add("fish")
-        elif kind_col == "hunt" and text.startswith(hunted) and text.endswith("."):
-            slug = text[len(hunted):-1].replace(" ", "_")
-            if slug in KINDS:
-                found.add(slug)
+            continue
+        for kind, start, end in MET_IN_EVENTS:
+            opening = f"{name} {start}"
+            if kind_col == kind and text.startswith(opening) and text.endswith(end):
+                slug = text[len(opening):len(text) - len(end)].replace(" ", "_")
+                if slug in KINDS:
+                    found.add(slug)
     return found
 
 

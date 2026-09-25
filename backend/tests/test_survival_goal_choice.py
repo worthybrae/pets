@@ -3,6 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+
+from backend.survival import goals
 
 from backend.survival.choosing import (
     Ask, Choice, Chooser, InlineExecutor, prepare, prepare_goal, store_choice, store_goal,
@@ -199,6 +202,20 @@ class GoalChoiceTests(unittest.TestCase):
         with only_goals(*many, again):
             names = [goal.name for goal, _, _ in offers(goal_situation())]
         self.assertEqual(names, ["g4", "g3", "g2", "again"])  # L4's discovery goals are always on offer
+
+    def test_offers_works_out_what_can_be_done_for_each_goal_once(self):
+        """L4a final fix wave, minor: offers() asked workable() twice per goal (its facts and its
+        score, 58-505 ms cold); once per goal per call now, with the same facts and scores."""
+        many = [Goal(f"g{n}", f"G{n}", "", WOOD.milestones, score=lambda s, n=n: 60.0 + n, thought="") for n in range(3)]
+        with only_goals(*many):
+            s = goal_situation()
+            asked = []
+            real = goals.workable
+            with patch("backend.survival.goals.workable", lambda s, goal: asked.append(goal.name) or real(s, goal)):
+                found = offers(s)
+            self.assertEqual(sorted(asked), ["g0", "g1", "g2"])
+            self.assertEqual([(goal.name, facts, score) for goal, facts, score in found],
+                             [(goal.name, goals.goal_facts(s, goal), goals.rules_score(s, goal)) for goal, _, _ in found])
 
     def test_a_tie_in_score_is_broken_by_name_not_registration_order(self):
         first = Goal("aaa", "First", "", WOOD.milestones, score=lambda s: 40.0, thought="")

@@ -11,6 +11,7 @@ from backend.survival.creatures.table import Herd, create_creature_tables, dead
 from backend.survival.foraging import hunger_score
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables
+from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.triggers import new_brain
@@ -98,6 +99,21 @@ class HuntValidityTests(unittest.TestCase):
         self.assertEqual(HUNT.plan(situation(grid, pet(inventory=dict(NO_ROOM))), context(grid)), [])
         self.assertTrue(HUNT.valid(situation(grid, pet(inventory=dict(FEATHERS)))))
         self.assertTrue(HUNT.valid(situation(grid, pet(inventory=dict(NO_ROOM), vitals={**START_VITALS, "hunger": 50.0}))))
+
+    def test_a_crashing_reason_to_hunt_counts_as_no_and_is_logged_once(self):
+        """L4a final fix wave, minor: HUNT_FOR is crash-guarded like harm.ARMOR_WANTED and work.EAGER."""
+        forget_logged()
+        grid = meadow()
+        animal(grid)
+        fed = pet(inventory={"cooked_beef": 2}, hunted_at=50.0)  # fed and hunted lately: only HUNT_FOR could say so
+        boom = lambda s: 1 / 0  # noqa: E731
+        with patch("backend.survival.creatures.hunting.HUNT_FOR", [boom, lambda s: True]), \
+                self.assertLogs("backend.survival.creatures.hunting", level="ERROR") as logs:
+            self.assertTrue(HUNT.valid(situation(grid, fed)))
+            self.assertTrue(HUNT.valid(situation(grid, fed)))
+        self.assertEqual(len(logs.output), 1)
+        with patch("backend.survival.creatures.hunting.HUNT_FOR", [boom]):
+            self.assertFalse(HUNT.valid(situation(grid, fed)))
 
     def test_scores_like_food_work_and_bold_pets_hunt_a_little_more(self):
         grid = meadow()
