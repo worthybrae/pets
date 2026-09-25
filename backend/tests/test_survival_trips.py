@@ -15,9 +15,10 @@ from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import Situation
 from backend.survival.triggers import ensure_brain
+from backend.survival.curiosity import curiosity_state
 from backend.survival.trips import (
     REASONS, Find, Offer, Reason, Target, best_trip, look_after, offers, register_reason, serving, stand_near,
-    start_trip, targets, trip_facts, trip_thought, trip_view,
+    start_trip, targets, trip_facts, trip_thought, trip_view, wanted_now,
 )
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.tests.test_survival_purposes import DAY, context, pet, situation
@@ -249,6 +250,29 @@ class TripTests(unittest.TestCase):
         choice = decide(ask, {}, lambda *args: {}, random.Random(1))
         self.assertEqual((choice.purpose, choice.trip.reason), ("explore", "wood"))
         self.assertEqual(choice.thought, "Heading east to look for wood. I need them.")
+
+
+class RoamingTests(unittest.TestCase):
+    """Follow-up fix, item 2 (the measured bundle): wander's own cooldown held even while a day trip
+    had taken Mimo far from home, so once GO_HOME_RANGE let a trip run to home.FARTHEST_TRIP a spent
+    wander could leave nothing offered for the rest of the trip out. roaming() ignores the cooldown
+    while Mimo is out past ROAM_FROM (HOME_RANGE) blocks from home."""
+
+    def setUp(self):
+        flat_ground(self)
+
+    def cooling(self, x):
+        state = pet(position={"x": float(x), "y": 1.0, "z": 0.0})
+        curiosity_state(state, 0.0)
+        s = situation(state, places=[("home", (0, 1, 0))])
+        s.brain["trip_penalties"] = {"wander": 1e9}  # far in the future: on cooldown
+        return s
+
+    def test_wander_on_cooldown_is_offered_100_blocks_out_and_not_30(self):
+        far = self.cooling(100)
+        self.assertIsNotNone(wanted_now(far, REASONS["wander"]))
+        near = self.cooling(30)
+        self.assertIsNone(wanted_now(near, REASONS["wander"]))
 
 
 class StoreTests(unittest.TestCase):

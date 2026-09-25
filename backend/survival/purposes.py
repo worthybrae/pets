@@ -74,8 +74,9 @@ HOME_RANGE = 64.0
 BUILT_HOME_RANGE = 2 * HOME_RANGE
 # L4a final fix wave, I4: a day trip may end up to home.FARTHEST_TRIP blocks out now, so going home
 # (go_home, the head_home reflex) looks that far, and a little farther, for the home Mimo built. A
-# flee or a swim for land still looks only BUILT_HOME_RANGE for it.
-GO_HOME_RANGE = FARTHEST_TRIP + HOME_RANGE / 4
+# flee or a swim for land still looks only BUILT_HOME_RANGE for it. Follow-up fix, item 2: a day
+# trip could still end up beyond that, so going home now finds the built home from any distance.
+GO_HOME_RANGE = float("inf")
 SLEEP_HOME_REACH = 8.0
 TIRED_BELOW = 30.0
 # L4 fix round 2: shared with curiosity.lift, which returns 0 below it -- hungry enough that eat
