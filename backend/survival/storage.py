@@ -30,6 +30,7 @@ first and cobblestone last -- to clear room, then tries again.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import LOGS, PLANKS, TOOL_RANK
@@ -39,6 +40,7 @@ from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STA
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
+from backend.survival.life_goals import home_structure
 from backend.survival.purposes import Purpose, foods, register
 from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
@@ -79,11 +81,28 @@ LAST_RESORT = ("dirt", "cobblestone")
 
 
 def chest_spot(s: Situation) -> tuple[int, int, int] | None:
-    """The chest corner of the shelter Mimo built, or None before it has one."""
-    structure = current_shelter(s)
+    """The chest corner of the shelter Mimo lives in (fix round 1: home, not `current_shelter`'s
+    newest shelter, which is a second one still rising while a bigger home is under way), or None
+    before it has one."""
+    structure = home_structure(s)
     if structure is None or structure["status"] != "done":
         return None
     return blueprint_of(structure).one("chest")
+
+
+def built_chests(s: Situation) -> list[tuple[int, int, int]]:
+    """Every chest Mimo built and placed, home's own first (fix round 1): once Mimo moves into a
+    bigger home, an older one's chest still holds what was stored there, so `to_take` looks there
+    too rather than stranding it."""
+    home = chest_spot(s)
+    found = [home] if home is not None and chest_placed(s, home) else []
+    for structure in structures_near(s, "shelter", math.inf):
+        if structure["status"] != "done":
+            continue
+        cell = blueprint_of(structure).one("chest")
+        if cell is not None and cell not in found and chest_placed(s, cell):
+            found.append(cell)
+    return found
 
 
 def chest_placed(s: Situation, cell) -> bool:
@@ -161,18 +180,24 @@ def carried_food(s: Situation) -> float:
     return sum(FOOD[item] * s.inventory[item] for item in foods(s.inventory, s.poisons))
 
 
-def to_take(s: Situation, cell) -> list[tuple[str, int]]:
-    """Food to take out of the chest when Mimo carries less than a meal's worth, best first."""
+def to_take(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(cell, item, amount) to take out of a chest when Mimo carries less than a meal's worth, best
+    first: home's own chest first, then (fix round 1) any other chest Mimo built, so an older
+    home's chest is never stranded once a bigger one takes over."""
     if carried_food(s) >= TAKE_BELOW:
         return []
-    chest, have, found = chest_contents(s, cell), carried_food(s), []
-    for item in foods(chest, s.poisons):
-        amount = 0
-        while amount < chest[item] and have < FOOD_WANTED:
-            amount += 1
-            have += FOOD[item]
-        if amount:
-            found.append((item, amount))
+    have, found = carried_food(s), []
+    for chest_cell in built_chests(s):
+        chest = chest_contents(s, chest_cell)
+        for item in foods(chest, s.poisons):
+            amount = 0
+            while amount < chest[item] and have < FOOD_WANTED:
+                amount += 1
+                have += FOOD[item]
+            if amount:
+                found.append((chest_cell, item, amount))
+        if have >= FOOD_WANTED:
+            break
     return found
 
 
@@ -203,7 +228,7 @@ def storage_valid(s: Situation) -> bool:
     if not chest_placed(s, cell):
         can_have = s.count("chest") > 0 or chest_crafting(s) is not None
         return can_have and stacks(s.inventory) >= STORE_FROM
-    return (stacks(s.inventory) >= STORE_FROM and bool(to_store(s, cell))) or bool(to_take(s, cell))
+    return (stacks(s.inventory) >= STORE_FROM and bool(to_store(s, cell))) or bool(to_take(s))
 
 
 def storage_facts(s: Situation) -> str:
@@ -216,17 +241,19 @@ def storage_facts(s: Situation) -> str:
 
 def storage_score(s: Situation) -> float:
     cell = chest_spot(s)
-    if chest_placed(s, cell) and to_take(s, cell) and stacks(s.inventory) < STORE_FROM:
+    if chest_placed(s, cell) and to_take(s) and stacks(s.inventory) < STORE_FROM:
         return 55.0
     return 50.0 + 5.0 * max(0, stacks(s.inventory) - STORE_FROM) + (5.0 if s.state.get("full_at") else 0.0)
 
 
 def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
-    """Walk home, make and place the chest if it is not there, put things away and take food out."""
+    """Walk home, make and place the chest if it is not there, put things away, and take food out
+    -- home's own chest first, then (fix round 1) walk on to any other chest Mimo built that still
+    holds some, so an older home's chest is never stranded once a bigger one takes over."""
     cell = chest_spot(s)
     if cell is None or s.brain["batches"] > 0:
         return []
-    structure = current_shelter(s)
+    structure = home_structure(s)
     home = blueprint_of(structure).anchor
     steps = [] if s.distance(cell) <= REACH and s.here in blueprint_of(structure).stands else [whole_walk(home)]
     if not chest_placed(s, cell):
@@ -237,8 +264,14 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
             steps.extend(crafting)
         steps.extend(clearing(s.grid, cell))
         steps.append({"kind": "place", "target": list(cell), "block": "chest"})
-    for kind, moves in (("store", to_store(s, cell)), ("take", to_take(s, cell))):
-        steps.extend({"kind": kind, "target": list(cell), "item": item, "amount": amount} for item, amount in moves)
+    steps.extend({"kind": "store", "target": list(cell), "item": item, "amount": amount}
+                 for item, amount in to_store(s, cell))
+    at = cell
+    for chest_cell, item, amount in to_take(s):
+        if chest_cell != at:
+            steps.append(whole_walk(chest_cell))
+            at = chest_cell
+        steps.append({"kind": "take", "target": list(chest_cell), "item": item, "amount": amount})
     return steps
 
 

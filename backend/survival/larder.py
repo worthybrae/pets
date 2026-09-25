@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from backend.survival import foraging
-from backend.survival.building import current_shelter
 from backend.survival.carrying import CHEST_STACKS, crafts_fit, room_for
 from backend.survival.cooking import made
 from backend.survival.foraging import whole_walk
@@ -99,7 +98,7 @@ def plan_stock(s: Situation, context: ActionContext) -> list[dict]:
     if s.brain["batches"] > 0 or not stock_valid(s):
         return []
     cell = chest_spot(s)
-    home = blueprint_of(current_shelter(s))
+    home = blueprint_of(home_structure(s))
     steps = [] if s.distance(cell) <= REACH and s.here in home.stands else [whole_walk(home.anchor)]
     return steps + chest_steps(s) + [{"kind": "store", "target": list(cell), "item": item, "amount": amount}
                                      for item, amount in larder_moves(s)]

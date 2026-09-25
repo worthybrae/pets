@@ -24,13 +24,14 @@ from typing import TYPE_CHECKING
 
 from backend.services.blocks import is_replaceable
 from backend.survival.blueprints import Blueprint, Planned, Survey
-from backend.survival.building import current_shelter, site_center, structures_near
+from backend.survival.building import site_center, structures_near
 from backend.survival.carrying import crafts_fit
 from backend.survival.creatures.seeds import SEED, SPROUT
 from backend.survival.creatures.table import cell_of as creature_cell
 from backend.survival.creatures.table import dead
 from backend.survival.foraging import whole_walk
 from backend.survival.grid import Cell, Grid
+from backend.survival.life_goals import home_structure
 from backend.survival.purposes import HOME_RANGE, Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
@@ -86,7 +87,9 @@ def current_pen(s: Situation) -> dict | None:
 
 
 def home_done(s: Situation) -> bool:
-    shelter = current_shelter(s)
+    """Fix round 1: home, not `current_shelter`'s newest shelter, which is a second one still
+    rising while a bigger home is under way."""
+    shelter = home_structure(s)
     return shelter is not None and shelter["status"] == "done"
 
 
@@ -234,7 +237,7 @@ def plan_stock_pen(s: Situation, context: ActionContext) -> list[dict]:
         cell = chest_spot(s)
         take = min(room - carried, chest_contents(s, cell).get(SEED, 0)) if chest_placed(s, cell) else 0
         if take:
-            at = blueprint_of(current_shelter(s)).anchor
+            at = blueprint_of(home_structure(s)).anchor
             steps += [whole_walk(at), {"kind": "take", "target": list(cell), "item": SEED, "amount": take}]
             carried += take
     jobs = [(cell, [{"kind": "plant", "target": list(cell), "item": SEED}])

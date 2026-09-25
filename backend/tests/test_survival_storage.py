@@ -7,7 +7,7 @@ from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter, supplies
 from backend.survival.carrying import stacks
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, finish_structure, know
+from backend.survival.memory import create_memory_tables, finish_structure, know, set_home
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.structures import start
@@ -35,6 +35,7 @@ class Home:
         for planned in design.parts("floor", "wall", "roof"):
             self.grid.put(*planned.cell, "cobblestone")
         finish_structure(self.db, start(self.db, self.grid, design, 0.0), 1.0)
+        set_home(self.db, design.anchor, 1.0)  # fix round 1: chest_spot now reads the home place
         self.chest = design.one("chest")
         self.torches = [planned.cell for planned in design.parts("torch")]
         self.state = {"name": "Pip", "world_seed": "1", "position": dict(zip("xyz", map(float, position))),

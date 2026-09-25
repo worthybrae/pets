@@ -6,7 +6,7 @@ from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter
 from backend.survival.grid import Grid
 from backend.survival.lighting import plural
-from backend.survival.memory import create_memory_tables, finish_structure
+from backend.survival.memory import create_memory_tables, finish_structure, set_home
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.structures import start
@@ -28,6 +28,7 @@ class LightTests(unittest.TestCase):
         for planned in design.parts("floor", "wall", "roof"):
             self.grid.put(*planned.cell, "cobblestone")
         finish_structure(self.db, start(self.db, self.grid, design, 0.0), 1.0)
+        set_home(self.db, design.anchor, 1.0)  # fix round 1: home_blueprint now reads the home place
 
     def situation(self, inventory, clock=EVENING, position=(1, 1, 1)):
         state = {"name": "Pip", "world_seed": "1", "position": dict(zip("xyz", map(float, position))),

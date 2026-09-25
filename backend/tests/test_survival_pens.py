@@ -9,7 +9,7 @@ from backend.survival.creatures.moves import steps as creature_steps
 from backend.survival.creatures.table import Herd, create_creature_tables
 from backend.survival.grid import Grid
 from backend.survival.housework import chest_key
-from backend.survival.memory import create_memory_tables, finish_structure, structures
+from backend.survival.memory import create_memory_tables, finish_structure, set_home, structures
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.structures import start
@@ -32,6 +32,7 @@ class PenTests(unittest.TestCase):
         for planned in home.parts("floor", "wall", "roof"):
             self.grid.put(*planned.cell, "cobblestone")
         finish_structure(self.db, start(self.db, self.grid, home, 0.0), 1.0)
+        set_home(self.db, home.anchor, 1.0)  # fix round 1: home_done and the seed chest now read the home place
 
     def situation(self, inventory, clock=DAY, position=(12, 1, 1)):
         state = {"name": "Pip", "world_seed": "1", "position": dict(zip("xyz", map(float, position))),
@@ -66,13 +67,16 @@ class PenTests(unittest.TestCase):
         steps = PURPOSES["build_pen"].plan(s, self.context())
         (pen,) = structures(self.db, ("pen",))
         design = pens.design_pen  # the pen now claims its ring and inside
-        self.assertTrue(self.grid.claimed((12, 1, 1)) and self.grid.claimed((10, 1, -1)))
+        blueprint = pens.blueprint_of(pen)
+        # fix round 1: home is now set (see setUp), so pen_design's site_center is home, not
+        # Mimo's own position -- check the ring and inside the pen actually claimed, not a
+        # position that assumed the pen sat where Mimo stood.
+        self.assertTrue(self.grid.claimed(blueprint.anchor) and self.grid.claimed(blueprint.parts("fence")[0].cell))
         self.assertEqual([step["recipe"] for step in steps if step["kind"] == "craft"].count("fence"), 3)
         placed = [step["target"] for step in steps if step["kind"] == "place"]
         self.assertEqual(len(placed), 8)
         walks = [step["target"] for step in steps if step["kind"] == "walk"]
-        self.assertTrue(walks and all(not pens.inside(pens.blueprint_of(pen), tuple(cell)) for cell in walks))
-        blueprint = pens.blueprint_of(pen)
+        self.assertTrue(walks and all(not pens.inside(blueprint, tuple(cell)) for cell in walks))
         for planned in blueprint.parts("fence"):
             self.grid.put(*planned.cell, "fence")
         ctx = self.context()

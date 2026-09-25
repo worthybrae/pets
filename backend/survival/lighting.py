@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from backend.survival.building import current_shelter
 from backend.survival.carrying import crafts_fit
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
+from backend.survival.life_goals import home_structure
 from backend.survival.purposes import LATE_DAY, Purpose, register
 from backend.survival.situation import NIGHTFALL, Situation
 from backend.survival.structures import blueprint_of, clearing, todo
@@ -34,8 +34,10 @@ HOME_REACH = 16.0  # light_up is offered this close to the shelter
 
 
 def home_blueprint(s: Situation):
-    """The design of the finished shelter Mimo stands near, or None."""
-    structure = current_shelter(s)
+    """The design of the shelter Mimo lives in, when Mimo stands near it, or None (fix round 1:
+    home, not `current_shelter`'s newest shelter, which is a second one still rising while a
+    bigger home is under way)."""
+    structure = home_structure(s)
     if structure is None or structure["status"] != "done":
         return None
     blueprint = blueprint_of(structure)
@@ -123,7 +125,7 @@ def plan_light(s: Situation, context: ActionContext) -> list[dict]:
              for cell in torch_corners(s)[:spare]]
     if not jobs:
         return []
-    home = blueprint_of(current_shelter(s)).anchor
+    home = blueprint_of(home_structure(s)).anchor
     return crafting + reach_steps(s, jobs) + [whole_walk(home)]  # and back inside for the night
 
 
