@@ -41,6 +41,7 @@ from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
 from backend.survival.home import by_home, home_structure
+from backend.survival.pathing import MAX_RANGE
 from backend.survival.purposes import Purpose, foods, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
@@ -238,6 +239,13 @@ def chest_crafting(s: Situation) -> list[dict] | None:
     return None if steps is None else [{"kind": "drop", "item": spare, "amount": drop}, *steps]
 
 
+def beyond_one_walk(s: Situation, cell) -> bool:
+    """Follow-up fix, item 1: `cell` lies past what one whole walk can reach (pathing.route only
+    ever hands back one segment toward a target more than MAX_RANGE blocks away on an axis, so
+    whole_walk(cell) fails there at once, not just when a walk there just failed)."""
+    return max(abs(s.here[0] - cell[0]), abs(s.here[2] - cell[2])) > MAX_RANGE
+
+
 def storage_valid(s: Situation) -> bool:
     """Fix round 2: not while a step just failed near home and Mimo would have to walk there --
     without this, a home whose anchor has no path (an old chest a bigger home left stranded behind
@@ -253,7 +261,7 @@ def storage_valid(s: Situation) -> bool:
     if structure is not None:
         blueprint = blueprint_of(structure)
         walking = not (s.distance(cell) <= REACH and s.here in blueprint.stands)
-        if walking and near_failure(s.state, blueprint.anchor):
+        if walking and (near_failure(s.state, blueprint.anchor) or beyond_one_walk(s, blueprint.anchor)):
             return False
     if not chest_placed(s, cell):
         can_have = s.count("chest") > 0 or chest_crafting(s) is not None

@@ -108,6 +108,17 @@ class StorageTests(unittest.TestCase):
         home.state["recent_actions"] = [{"target": {"x": 1, "y": 1, "z": 1}, "result": "failed"}]
         self.assertTrue(PURPOSES["build_storage"].valid(home.situation()))
 
+    def test_full_arms_too_far_to_walk_home_in_one_go_do_not_pick_build_storage(self):
+        """Follow-up fix, item 1: storage_valid stayed true 100-240 blocks from home (a day trip's
+        range) with full arms, but whole_walk(home) always fails once home is more than
+        pathing.MAX_RANGE (96) blocks away on either axis -- pathing.route only ever hands back one
+        segment there. build_storage was chosen, failed within about a second, and farm was picked
+        again: a phantom purpose that never gets Mimo home."""
+        far = Home({**LOOSE, "planks": 8}, position=(151, 1, 1))
+        self.assertFalse(PURPOSES["build_storage"].valid(far.situation()))
+        near = Home({**LOOSE, "planks": 8}, position=(51, 1, 1))
+        self.assertTrue(PURPOSES["build_storage"].valid(near.situation()))
+
     def test_more_food_than_a_days_worth_goes_in_the_chest(self):
         home = Home({**LOOSE, "bread": 4, "berries": 10}, chest={})
         steps = home.plan("build_storage")
