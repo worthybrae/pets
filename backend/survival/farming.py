@@ -14,10 +14,7 @@ at most 4 plots:
    something Mimo built keeps its ground (structures.reserved);
 4. with nothing to plant, break tall grass within 16 blocks for seeds (1 in 5 gives some, and 1
    in 20 a carrot).
-The purpose ends when none of these is left, or after 6 batches. It is day work. L4a final fix
-wave (I1): once Mimo has a home (backend.survival.home), farm work is done within FARM_TRAVEL of
-it only -- a day trip reaches far out now, and with no farm within 64 blocks the first plot went
-where Mimo stood, starting a farm 200 blocks from home. Plots, grass
+The purpose ends when none of these is left, or after 6 batches. It is day work. Plots, grass
 and a farm within 4 blocks of where a step just failed are left alone for a while
 (senses.near_failure). It scores as work, and ripe crops lift it toward the needs band as far as
 Mimo lacks food, never past 80 (farm_score).
@@ -31,7 +28,6 @@ from backend.services.blocks import is_replaceable
 from backend.services.worldgen import terrain_height
 from backend.survival.foraging import FOOD_WANTED, food_need, reach_steps, whole_walk
 from backend.survival.grid import Cell
-from backend.survival.home import from_home
 from backend.survival.memory import cell_of, nearest
 from backend.survival.nature import CROP_BLOCKS, HARVESTS, RIPE_CROPS, TILLABLE, crop_stage
 from backend.survival.purposes import Purpose, late_penalty, register
@@ -181,14 +177,8 @@ def farm_trip(s: Situation) -> bool:
     return farm is not None and bool(reachable(s, [cell_of(farm)])) and work_waiting(s, farm)
 
 
-def out_from_home(s: Situation) -> bool:
-    """Mimo stands farther than FARM_TRAVEL from its home (never before it has one)."""
-    away = from_home(s, s.here[0], s.here[2])
-    return away is not None and away > FARM_TRAVEL
-
-
 def farm_valid(s: Situation) -> bool:
-    if s.night or out_from_home(s):
+    if s.night:
         return False
     return farm_trip(s) if far_farm(s) is not None else bool(farm_work(s))
 
@@ -214,7 +204,7 @@ def farm_score(s: Situation) -> float:
 
 
 def plan_farm(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or s.brain["batches"] >= FARM_BATCHES or out_from_home(s):
+    if s.night or s.brain["batches"] >= FARM_BATCHES:
         return []
     if far_farm(s) is not None:
         return [whole_walk(above(cell_of(far_farm(s))), STAND)] if farm_trip(s) else []

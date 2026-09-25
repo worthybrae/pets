@@ -6,7 +6,7 @@ from unittest.mock import patch
 from backend.survival import farming  # noqa: F401  (registers farm)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, remember, set_home
+from backend.survival.memory import create_memory_tables, remember
 from backend.survival.pickers import JITTER, options, utility_pick
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
@@ -61,20 +61,6 @@ class FarmTests(unittest.TestCase):
         s = situation(pet(inventory={"seeds": 2}))
         self.assertTrue(PURPOSES["farm"].valid(s))
         self.assertEqual(plan(s), [till(2, 0, 0), sow(2, 1, 0, "seeds"), till(1, 0, 0), sow(1, 1, 0, "seeds")])
-
-    @patch("backend.survival.farming.shores_near", lambda grid, seed, here, radius: [((2, 1, 0), (3, 0, 0))])
-    def test_with_a_home_no_farm_is_started_or_tended_out_on_a_day_trip(self):
-        """L4a final fix wave (I1, with I4's longer day trips): with no farm within 64 blocks the first
-        plot went where Mimo stood, so a trip 200 blocks out started a farm there. With a home known
-        (backend.survival.home), farm work is done within FARM_TRAVEL of it only."""
-        far = situation(pet(inventory={"seeds": 2}))
-        set_home(far.db, (200, 1, 0), 0.0)
-        self.assertFalse(PURPOSES["farm"].valid(far))
-        self.assertEqual(plan(far), [])
-        near = situation(pet(inventory={"seeds": 2}))
-        set_home(near.db, (40, 1, 0), 0.0)
-        self.assertTrue(PURPOSES["farm"].valid(near))
-        self.assertTrue(plan(near))
 
     @patch("backend.survival.farming.shores_near", lambda grid, seed, here, radius: [])
     def test_with_no_shore_the_first_plot_goes_on_the_natural_surface_never_in_a_pit(self):
