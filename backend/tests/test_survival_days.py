@@ -58,8 +58,8 @@ class LivingDaysTests(unittest.TestCase):
                 if action.get("kind") == "sleep" and action.get("bed"):
                     in_bed.add(night)
         built = [event for event in self.world.events(5000) if event["kind"] == "built" and "moved in" in event["text"]]
-        self.assertEqual(len(built), 1)
-        self.assertLess(built[0]["at"], BORN + 60 + 40)  # before the second night falls
+        self.assertIn(len(built), (1, 2))  # L4: a bigger stone home (the better_home goal) may follow the first
+        self.assertLess(built[-1]["at"], BORN + 60 + 40)  # the first, before the second night falls
         # L4: reached goals are notable too, so "built" may be older than the newest few notable
         # events in snapshot.notable()'s NOTABLE_LIMIT-trimmed highlight window. The world's own
         # notable_events query has no such small trim (it is bounded only by the limit we pass, far
@@ -67,7 +67,7 @@ class LivingDaysTests(unittest.TestCase):
         self.assertIn("built", [event["kind"] for event in self.world.notable_events(5000)])
         with self.world.connect() as db:
             home = places(db, ("home",))[0]
-            shelter = blueprint_of(structures(db, ("shelter",))[0])
+            shelter = blueprint_of([found for found in structures(db, ("shelter",)) if found["status"] == "done"][-1])
         self.assertEqual((home["note"], (home["x"], home["y"], home["z"])), ("built", shelter.anchor))
         self.assertGreaterEqual(len(in_bed), 2)
         # light_up only fires once coal turns up to make torches from (or iron for a lantern), and
