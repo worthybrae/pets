@@ -5,6 +5,7 @@ from backend.services.crafting import RECIPES
 from backend.survival import brain  # noqa: F401  (registers every purpose and goal)
 from backend.survival.creatures import hunting
 from backend.survival.creatures.harm import armor_wanted
+from backend.survival.curiosity import curiosity_state
 from backend.survival.goals import GOALS, adopt_goal, advances, complete, counted, is_open, progress_of, share_of
 from backend.survival.life_goals import DAY_SECONDS, hides_wanted, land_seen
 from backend.survival.memory import know, mark_explored, places, remember, structures
@@ -167,6 +168,24 @@ class TripTests(unittest.TestCase):
         self.assertEqual([(place["kind"], place["x"], place["note"]) for place in places(world.db, ("cave", "ore"))],
                          [("cave", 40, "sinkhole"), ("ore", 42, "iron_ore")])
         self.assertIsNone(REASONS["iron"].look(world.situation(), world.context()))  # nothing new to look into
+
+    def test_ore_seen_through_a_cave_opening_teaches_its_lesson(self):
+        """L4b fix round 1: seeing ore in a cave wall is seeing it (resolution 5), so it teaches the
+        lesson too -- without this, work.wanted_ores' L4b gate (Task 3) would exclude an ore Mimo
+        only ever saw at a distance forever, and better_tools could never complete."""
+        world = built({"iron_pickaxe": 1, "coal": 8})
+        curiosity_state(world.state, 0.0)  # the journal does nothing before the tick tends it
+        world.grid.put(42, 0, 0, "diamond_ore")  # in the sinkhole wall, 1 below the rim
+        world.state["position"] = {"x": 44.0, "y": 1.0, "z": 0.0}
+        context = world.context()
+        find = REASONS["iron"].look(world.situation(), context)
+        self.assertEqual(find.words, "a sinkhole with diamond ore in its walls")
+        self.assertIn("diamond_ore", world.situation().lessons)
+        self.assertEqual([text for _, kind, text in context.events if kind == "learned"],
+                         ["Pip learned that diamonds lie deepest of all, and an iron pickaxe digs them."])
+        self.assertNotIn("diamond_ore", wanted_ores(world.situation()))  # not enough known yet (enough_known)
+        adopt_goal(world.state, "better_tools", "utility", "", 0.0)
+        self.assertIn("diamond_ore", wanted_ores(world.situation()))  # eager: one known is enough
 
     def test_armor_looks_for_leather_where_cows_graze(self):
         world = built({"iron_pickaxe": 1})

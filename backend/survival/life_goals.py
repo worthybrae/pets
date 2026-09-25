@@ -275,7 +275,11 @@ def exposed_ores(s: Situation, kind: str, spans) -> list[tuple[tuple[int, int, i
 
 def iron_look(s: Situation, context) -> Find | None:
     """Look into the openings near that Mimo has not seen: remember each as a cave landmark and the
-    ore in its walls as ore places. Iron among them is what the trip was for."""
+    ore in its walls as ore places, and (L4b fix round 1) teach the lesson of every ore it saw there
+    -- seeing ore in a cave wall is seeing it (backend.survival.journal), same as ore a mined cell
+    lays bare, so the gate in work.wanted_ores does not strand better_tools on ore Mimo only ever
+    looked at from a distance. Iron among them is what the trip was for."""
+    from backend.survival.journal import journal_ready, learn_lesson  # local: avoids a journal/curiosity/life_goals cycle
     x, _, z = s.here
     words, iron = [], False
     for kind, ox, oz in openings_near(s.seed, x, z, CAVE_LOOK):
@@ -287,6 +291,9 @@ def iron_look(s: Situation, context) -> Find | None:
         for cell, ore in ores:
             remember(s.db, "ore", cell, s.at, ore)
         seen = sorted({ore for _, ore in ores}, key=ORES.index)
+        if journal_ready(s.state, s.db):
+            for ore in seen:
+                learn_lesson(s.state, context, s.at, ore)
         iron = iron or "iron_ore" in seen
         words.append(opening_words(kind) + (f" with {' and '.join(label(ore) for ore in seen)} in its walls"
                                            if seen else ""))

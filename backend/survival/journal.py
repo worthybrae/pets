@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import math
+import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -236,12 +237,20 @@ def note_sights(state: dict, context: ActionContext, at: float) -> None:
             remember(db, "sight", cell, at, thing)
 
 
+def journal_ready(state: dict, db: sqlite3.Connection | None) -> bool:
+    """Whether the journal does anything yet: not before there is memory to write to, and not
+    before the tick first tends curiosity (curiosity.tend_curiosity). The guard observe_journal
+    uses, shared with any other path that teaches a lesson outside a finished step (life_goals'
+    iron_look, fix round 1: ore seen through a cave opening)."""
+    return db is not None and "curiosity" in ensure_brain(state)
+
+
 def observe_journal(state: dict, step: dict, context: ActionContext, at: float) -> None:
     """After a finished step (brain.observe_step): what Mimo learns there and then, what it sees to
     study later, and the end of a look or a watch. The journal starts with curiosity, once the tick
     first tends it (curiosity.tend_curiosity)."""
     db = context.db
-    if db is None or "curiosity" not in ensure_brain(state):
+    if not journal_ready(state, db):
         return
     try:
         kind = step["kind"]
