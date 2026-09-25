@@ -46,7 +46,7 @@ from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
 from backend.survival.purposes import (
-    AT_HOME, GO_HOME_RANGE, HOME_RANGE, HOMEWARD, foods, home_of, land_refuge, meal, walk_to,
+    AT_HOME, GO_HOME_RANGE, HOME_RANGE, HOMEWARD, away, foods, home_of, land_refuge, meal, walk_to,
 )
 from backend.survival.senses import near_failure
 from backend.survival.situation import NIGHTFALL, Situation, in_tick
@@ -324,7 +324,7 @@ register(Reflex("warm_up", 50, trigger=lambda s: s.vitals["warmth"] < WARM_UP_BE
 def head_home_due(s: Situation) -> bool:
     if not HOMEWARD <= s.clock["seconds_into_day"] < NIGHTFALL:
         return False
-    if s.brain["purpose"] in ("go_home", "sleep", *AT_HOME_WORK):
+    if s.brain["purpose"] in ("go_home", "sleep", *AT_HOME_WORK) or away(s):  # L4b: an expedition stays out
         return False
     home = home_of(s, GO_HOME_RANGE)  # L4a final fix wave, I4: from as far as a day trip goes
     if home is None or s.distance(cell_of(home)) <= AT_HOME:

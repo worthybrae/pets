@@ -42,6 +42,8 @@ dusk:
 - L2's make_gear sits in the work band: 55-75, 55 plus a tenth of caution and 10 more when a
   creature hurt Mimo in the last game day.
 - L4b: investigate (backend.survival.journal) sits in the work band, 40-65 by curiosity, minus late.
+- L4b: an expedition's pack is 60 and come_home 75 (backend.survival.expedition). While Mimo means
+  to stay out (`AWAY`), go_home is not on offer.
 """
 
 from __future__ import annotations
@@ -149,6 +151,22 @@ def home_of(s: Situation, reach: float = BUILT_HOME_RANGE) -> dict | None:
     if home is not None and home["note"] == BUILT and s.distance(cell_of(home)) <= reach:
         return home
     return nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)
+
+
+# L4b: functions of the Situation that say Mimo means to stay out tonight (an expedition,
+# backend.survival.expedition): go_home and the head_home reflex leave it be, and it builds no new home.
+AWAY: list = []
+
+
+def away(s: Situation) -> bool:
+    """Mimo means to stay away from home (AWAY); one that crashes counts as no (logged once)."""
+    for check in AWAY:
+        try:
+            if check(s):
+                return True
+        except Exception as error:
+            log_once(logger, "away", error)
+    return False
 
 
 def at_home(s: Situation, reach: float = AT_HOME) -> bool:
@@ -336,8 +354,9 @@ register(Purpose(
 # go_home ---------------------------------------------------------------------------------------
 
 def go_home_valid(s: Situation) -> bool:
+    """Home is known and Mimo is not there, nor means to stay away (L4b: AWAY)."""
     home = home_of(s, GO_HOME_RANGE)
-    return home is not None and s.distance(cell_of(home)) > AT_HOME
+    return home is not None and s.distance(cell_of(home)) > AT_HOME and not away(s)
 
 
 def go_home_score(s: Situation) -> float:

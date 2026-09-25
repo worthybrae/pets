@@ -7,7 +7,8 @@ from unittest.mock import patch
 from backend.survival import curiosity
 from backend.survival.brain import BRAIN, observe_step
 from backend.survival.curiosity import (
-    CLOCK_HOUR, NEW_BIOME, NEW_BLOCK, NEW_CREATURE, NEW_GROUND, NEW_PLACE, START, curiosity_state, curiosity_view,
+    CLOCK_HOUR, GROUND_FLOOR, NEW_BIOME, NEW_BLOCK, NEW_CREATURE, NEW_GROUND, NEW_PLACE, START, curiosity_state,
+    curiosity_view,
     lift, note_discoveries, tend_curiosity, time_to_wander,
 )
 from backend.survival.goals import GOALS, URGES, Goal, adopt_goal, goal_state
@@ -73,6 +74,20 @@ class CuriosityTests(unittest.TestCase):
         note_discoveries(self.state, {"kind": "walk"}, self.context, 9.0, [])
         self.assertEqual({key: self.state["brain"]["curiosity"][key] for key in ("new_at", "noticed_at", "seen")},
                          {"new_at": 9.0, "noticed_at": 5.0, "seen": 2})
+
+    def test_new_ground_alone_never_takes_it_below_the_floor(self):
+        # L4b: walking new ground lowers curiosity by NEW_GROUND but never below GROUND_FLOOR, and it
+        # is still a discovery; a place found still takes it lower.
+        tend_curiosity(self.state, self.context, 0.0)
+        curiosity_state(self.state, 0.0)["value"] = GROUND_FLOOR + 0.5
+        for at in (5.0, 6.0):
+            self.state["brain"]["new_ground_at"] = at
+            note_discoveries(self.state, {"kind": "walk"}, self.context, at, [])
+        self.assertEqual(self.value(), GROUND_FLOOR)
+        self.assertEqual(self.state["brain"]["curiosity"]["new_at"], 6.0)
+        self.state["brain"]["new_ground_at"] = 7.0
+        note_discoveries(self.state, {"kind": "walk"}, self.context, 7.0, [(7.0, "found", "Pip spotted iron ore.")])
+        self.assertEqual(self.value(), GROUND_FLOOR - NEW_PLACE)
 
     def test_creatures_in_sight_are_met_once_a_game_minute(self):
         tend_curiosity(self.state, self.context, 0.0)

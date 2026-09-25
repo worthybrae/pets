@@ -19,6 +19,9 @@ moss, gravel, sand and clay; with none of those, dirt; with no dirt either, cobb
 cobblestone that a shelter Mimo started still needs stay, and cobblestone never drops below
 gather_stone's own goal (work.STONE_GOAL), so the two do not dig up and drop the same stone
 forever. It scores low while Mimo has room and high when it is full.
+L4b: an expedition keeps what it packed (`KEEPS_MORE`, backend.survival.expedition): its torches
+and a day and a half of food stay with Mimo, neither put away nor dropped; and while it packs, what
+gives way to food is put away, to make room for the pack.
 
 When Mimo has no chest yet and the planks it would make for one need a stack of their own, a full
 16 stacks leaves no room to craft it at all: no block is junk while STONE_GOAL keeps a floor under
@@ -31,6 +34,7 @@ first and cobblestone last -- to clear room, then tries again.
 from __future__ import annotations
 
 import math
+import logging
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import LOGS, PLANKS, TOOL_RANK
@@ -40,6 +44,7 @@ from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STA
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
 from backend.survival.housework import chest_key
+from backend.survival.once import log_once
 from backend.survival.home import by_home, home_structure
 from backend.survival.pathing import MAX_RANGE
 from backend.survival.purposes import Purpose, foods, register
@@ -51,6 +56,8 @@ from backend.survival.toolmaking import SWORD_LADDER
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
 
 STORE_FROM = 13  # stacks from which putting things away is worth a trip home
 DROP_FROM = 10
@@ -80,6 +87,23 @@ LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
 # With full arms and no chest to use, what goes after LEAST_USEFUL, each only when nothing before it
 # is left to drop.
 LAST_RESORT = ("dirt", "cobblestone")
+
+
+# L4b: functions of (Situation, item) giving how many more of an item Mimo keeps on it now, beyond
+# what the rules below keep ("food" for hunger points of food): an expedition's torches and food.
+# Fewer when negative (what a packing expedition leaves at home), but never fewer than none.
+KEEPS_MORE: list = []
+
+
+def more_kept(s: Situation, item: str) -> float:
+    """What KEEPS_MORE add for `item`; one that crashes adds nothing (logged once)."""
+    total = 0.0
+    for extra in KEEPS_MORE:
+        try:
+            total += float(extra(s, item))
+        except Exception as error:
+            log_once(logger, "keeps more", error)
+    return total
 
 
 def chest_spot(s: Situation) -> tuple[int, int, int] | None:
@@ -125,13 +149,13 @@ def chest_contents(s: Situation, cell) -> dict[str, int]:
 def spare_food(s: Situation) -> list[tuple[str, int]]:
     """Food beyond a day's worth (60 hunger), the least filling first. Raw food Mimo can cook
     (cooking.RAW_FOODS) is neither: it waits for the fire, since cook only uses what Mimo carries."""
-    kept, spare = 0.0, []
+    kept, spare, wanted = 0.0, [], FOOD_WANTED + more_kept(s, "food")
     for item in foods(s.inventory, s.poisons):
         if item in RAW_FOODS:
             continue
         count = s.inventory[item]
         keep = 0
-        while keep < count and kept < FOOD_WANTED:
+        while keep < count and kept < wanted:
             keep += 1
             kept += FOOD[item]
         if count > keep:
@@ -161,14 +185,15 @@ def kept(s: Situation, item: str) -> int:
     from backend.survival.creatures.gear import GEAR_MATERIALS, materials_wanted  # here: keeps purpose order
     from backend.survival.lighting import dark_corners  # here: lighting imports building; keeps purpose order
 
+    more = round(more_kept(s, item))
     if item == "torch":
-        return max(0, len(dark_corners(s)) - s.count("lantern"))
+        return max(0, len(dark_corners(s)) - s.count("lantern")) + more
     if item in BUILDING and full(s.inventory):
-        return 0
+        return max(0, more)
     if item in GEAR_MATERIALS and item not in materials_wanted(s.inventory):
-        return 0
+        return max(0, more)
     pool = next((pool for pool in WOOD_POOLS if item in pool), None)
-    return pooled(s, item, pool) if pool else KEEP[item]
+    return max(0, (pooled(s, item, pool) if pool else KEEP[item]) + more)
 
 
 def to_store(s: Situation, cell) -> list[tuple[str, int]]:

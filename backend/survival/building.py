@@ -46,7 +46,7 @@ from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.home import built_home, home_place
 from backend.survival.memory import cell_of, finish_structure, remember, set_home, structures
-from backend.survival.purposes import HOME_RANGE, Purpose, register
+from backend.survival.purposes import HOME_RANGE, Purpose, away, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH, as_cell
 from backend.survival.structures import blocked, blueprint_of, clearing, start, structure_at, todo
@@ -151,7 +151,7 @@ def shelter_valid(s: Situation) -> bool:
         return False
     structure = current_shelter(s)
     if structure is None:
-        design = None if shelter_elsewhere(s) else shelter_design(s)
+        design = None if shelter_elsewhere(s) or away(s) else shelter_design(s)  # L4b: no new home on an expedition
         return design is not None and carried_blocks(s) >= START_SHARE * bill(design, s.grid)
     blueprint = blueprint_of(structure)
     remaining = todo(s.grid, blueprint)

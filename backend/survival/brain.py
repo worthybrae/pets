@@ -38,7 +38,9 @@ L4: after each walk of an explore trip Mimo looks around for what the trip is fo
 (backend.survival.curiosity) grows after each vitals step and falls with each discovery a
 finished step makes.
 L4b: each finished step also feeds the knowledge journal (backend.survival.journal): what Mimo
-learns there and then, the things it sees to study later, and the end of a look.
+learns there and then, the things it sees to study later, and the end of a look; and an
+expedition (backend.survival.expedition: its walks onto new ground and its nights out).
+`notice_step` moves the expedition on.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival.curiosity import note_discoveries, tend_curiosity
 from backend.survival.journal import observe_journal
+from backend.survival.expedition import observe_expedition, tend_expedition
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
@@ -252,6 +255,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     note_discoveries(state, step, context, at, context.events[mark:])
     look_after(state, step, context, at)
     observe_journal(state, step, context, at)
+    observe_expedition(state, step, context, at)
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
 
@@ -269,6 +273,7 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
         mark_trigger(state, phase, at)
     tend_goal(state, context, at, phase)
     tend_curiosity(state, context, at)
+    tend_expedition(state, context, at)
     asleep = (state.get("action") or {}).get("kind") == "sleep"
     if brain["pending"] is None and not asleep and hour_passed(brain, at, clock["time_scale"]):
         mark_trigger(state, "hour", at)

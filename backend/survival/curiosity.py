@@ -9,7 +9,8 @@ A newborn starts at START.
 - It grows while Mimo lives on ground it knows: GROWTH an hour of the day's clock (CLOCK_HOUR, a
   24th of a game day, as the HUD's clock counts), NEEDS_MET times that once its needs are met
   (`needs_met`: fed, rested, warm and healthy, with a home it built).
-- Discoveries lower it (`discovered`): ground it never walked (NEW_GROUND, once a step), a biome it
+- Discoveries lower it (`discovered`): ground it never walked (NEW_GROUND, once a step; L4b: never
+  below GROUND_FLOOR, though it still counts as a discovery), a biome it
   never saw (NEW_BIOME: "Pip saw the taiga for the first time."), a kind of block it never dug
   (NEW_BLOCK), a kind of creature it never met (NEW_CREATURE: "Pip met its first sheep."), and a
   place new to it (NEW_PLACE: each "found" or "discovered" event of the step, as first ores and
@@ -87,7 +88,8 @@ START = 40.0
 CLOCK_HOUR = DAY_SECONDS / 24  # game seconds in an hour of the day's clock
 GROWTH = 2.0  # points a clock hour
 NEEDS_MET = 1.5  # times faster once needs are met
-NEW_GROUND = 3.0
+NEW_GROUND = 1.0  # L4b (was 3): walking its own land is a small discovery, so a pet grows restless and sets out
+GROUND_FLOOR = 40.0  # L4b: new ground alone never takes curiosity below this; the other discoveries still can
 NEW_BIOME = 30.0
 NEW_BLOCK = 6.0
 NEW_CREATURE = 20.0
@@ -304,7 +306,9 @@ def note_discoveries(state: dict, step: dict, context: ActionContext, at: float,
         return
     try:
         drop = NEW_PLACE * sum(1 for event in events if event[1] in ("found", "discovered"))
-        ground = NEW_GROUND if ensure_brain(state).get("new_ground_at") == at else 0.0
+        walked = ensure_brain(state).get("new_ground_at") == at
+        # L4b: new ground alone never takes curiosity below GROUND_FLOOR (it is still a discovery).
+        ground = min(NEW_GROUND, max(0.0, value_of(state["brain"]) - GROUND_FLOOR)) if walked else 0.0
         x, _, z = as_cell(state["position"])
         biome = biome_at(x, z, state["world_seed"])
         if biome not in known(db, "biome"):
@@ -315,7 +319,7 @@ def note_discoveries(state: dict, step: dict, context: ActionContext, at: float,
         if block and block not in known(db, "block"):
             know(db, block, "block", at)
             drop += NEW_BLOCK
-        if drop or ground:
+        if drop or walked:
             discovered(state, at, drop + ground, ground_only=not drop)
     except Exception as error:
         log_once(logger, "curiosity discoveries", error)
