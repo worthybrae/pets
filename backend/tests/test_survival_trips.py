@@ -11,11 +11,10 @@ from backend.survival.choosing import Ask, Choice, decide, store_choice
 from backend.survival.grid import Grid
 from backend.survival.hatch import hatch
 from backend.survival.pickers import options
-from backend.survival.purposes import PURPOSES
+from backend.survival.purposes import HOME_RANGE, PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import Situation
 from backend.survival.triggers import ensure_brain
-from backend.survival.curiosity import curiosity_state
 from backend.survival.trips import (
     REASONS, Find, Offer, Reason, Target, best_trip, look_after, offers, register_reason, serving, stand_near,
     start_trip, targets, trip_facts, trip_thought, trip_view, wanted_now,
@@ -253,26 +252,36 @@ class TripTests(unittest.TestCase):
 
 
 class RoamingTests(unittest.TestCase):
-    """Follow-up fix, item 2 (the measured bundle): wander's own cooldown held even while a day trip
-    had taken Mimo far from home, so once GO_HOME_RANGE let a trip run to home.FARTHEST_TRIP a spent
-    wander could leave nothing offered for the rest of the trip out. roaming() ignores the cooldown
-    while Mimo is out past ROAM_FROM (HOME_RANGE) blocks from home."""
+    """Follow-up fix, item 2 (the measured bundle), made a field of Reason in fix round 1 (Minor 1):
+    a reason's own cooldown held even while a day trip had taken Mimo far from home, so once
+    GO_HOME_RANGE let a trip run far out, a spent reason could leave nothing offered for the rest of
+    the trip. Reason.roams_from is the distance from home past which the cooldown does not hold it
+    back; wander's is HOME_RANGE (curiosity.py, where it registers), and every other reason keeps
+    the default (math.inf: never lifted). L4b's expedition trip will set its own."""
 
     def setUp(self):
         flat_ground(self)
 
-    def cooling(self, x):
+    def cooling(self, x, name):
         state = pet(position={"x": float(x), "y": 1.0, "z": 0.0})
-        curiosity_state(state, 0.0)
         s = situation(state, places=[("home", (0, 1, 0))])
-        s.brain["trip_penalties"] = {"wander": 1e9}  # far in the future: on cooldown
+        s.brain["trip_penalties"] = {name: 1e9}  # far in the future: on cooldown
         return s
 
-    def test_wander_on_cooldown_is_offered_100_blocks_out_and_not_30(self):
-        far = self.cooling(100)
-        self.assertIsNotNone(wanted_now(far, REASONS["wander"]))
-        near = self.cooling(30)
-        self.assertIsNone(wanted_now(near, REASONS["wander"]))
+    def test_a_reasons_cooldown_does_not_hold_past_its_own_roams_from(self):
+        with only_reasons(test_reason(name="far", roams_from=64.0)):
+            far = self.cooling(100, "far")
+            self.assertIsNotNone(wanted_now(far, REASONS["far"]))
+            near = self.cooling(30, "far")
+            self.assertIsNone(wanted_now(near, REASONS["far"]))
+
+    def test_the_default_roams_from_never_lifts_the_cooldown(self):
+        with only_reasons(test_reason(name="leashed")):  # roams_from defaults to math.inf
+            far = self.cooling(1_000, "leashed")
+            self.assertIsNone(wanted_now(far, REASONS["leashed"]))
+
+    def test_wanders_own_roams_from_is_home_range(self):
+        self.assertEqual(REASONS["wander"].roams_from, HOME_RANGE)
 
 
 class StoreTests(unittest.TestCase):

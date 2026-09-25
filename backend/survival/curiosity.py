@@ -72,7 +72,7 @@ from backend.survival.home import FARTHEST_TRIP, walked_near_home
 from backend.survival.life_goals import looked_into, opening_words, openings_near
 from backend.survival.memory import BUILT, PATCH, know, known, patch_of, places
 from backend.survival.once import log_once
-from backend.survival.purposes import HUNGRY_BELOW, TIRED_BELOW
+from backend.survival.purposes import HOME_RANGE, HUNGRY_BELOW, TIRED_BELOW
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell, label
 from backend.survival.triggers import ensure_brain
@@ -502,7 +502,8 @@ def wander_look(s: Situation, context: ActionContext) -> Find | None:
 # registers it again with them.
 register_reason(Reason(
     "wander", "look for something new", wander_wanted, wander_value, lambda s: 35.0,
-    spots=wander_spots, look=wander_look, reach=trip_reach, cooldown=WANDER_PENALTY_SECONDS))
+    spots=wander_spots, look=wander_look, reach=trip_reach, cooldown=WANDER_PENALTY_SECONDS,
+    roams_from=HOME_RANGE))
 
 
 def time_to_wander(s: Situation, goal) -> dict | None:

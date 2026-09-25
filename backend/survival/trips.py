@@ -139,6 +139,10 @@ class Reason:
     reach: float | Callable[[Situation], float] = LEASH  # blocks from home, or a function of the Situation
     urgent: Callable[[Situation], bool] = never  # goes first now, before the goal's reasons (food when hungry)
     cooldown: float = TRIP_PENALTY_SECONDS  # game seconds a trip for it is not offered again once it ends
+    # Fix round 1, Minor 1: blocks from home past which the cooldown above does not hold it back (a
+    # day trip out that far still has something purposeful on offer). math.inf for every reason but
+    # wander, which sets it to HOME_RANGE; L4b's expedition trip will set its own.
+    roams_from: float = math.inf
 
 
 REASONS: dict[str, Reason] = {}
@@ -194,24 +198,20 @@ def guarded(reason: Reason, part: str, call: Callable, fallback):
         return fallback
 
 
-ROAM_FROM = 64.0  # Follow-up fix, item 2: purposes.HOME_RANGE, out past this wander has no cooldown
-
-
-def roaming(s: Situation, reason: Reason) -> bool:
-    """Follow-up fix, item 2: with GO_HOME_RANGE letting a day trip run far from home, wander's own
-    cooldown (`cool_down`) could still leave nothing offered for the rest of the trip out -- it does
-    not hold while Mimo is out past ROAM_FROM (HOME_RANGE) blocks from home."""
-    if reason.name != "wander":
-        return False
+def past_roam(s: Situation, reason: Reason) -> bool:
+    """Follow-up fix, item 2, made a field in fix round 1 (Minor 1): Mimo is out past
+    `reason.roams_from` blocks from home. With GO_HOME_RANGE letting a day trip run far from home, a
+    reason's own cooldown (`cool_down`) could otherwise leave nothing offered for the rest of the
+    trip out."""
     home = home_cell(s)
-    return home is not None and math.hypot(s.here[0] - home[0], s.here[2] - home[2]) > ROAM_FROM
+    return home is not None and math.hypot(s.here[0] - home[0], s.here[2] - home[2]) > reason.roams_from
 
 
 def wanted_now(s: Situation, reason: Reason) -> str | None:
     """Why Mimo wants what the reason looks for, read once per Situation; None when it does not, or
     while a trip for it failed to find what it needed lately (`cool_down`)."""
     def check() -> str | None:
-        if s.brain.get("trip_penalties", {}).get(reason.name, -math.inf) > s.at and not roaming(s, reason):
+        if s.brain.get("trip_penalties", {}).get(reason.name, -math.inf) > s.at and not past_roam(s, reason):
             return None
         return guarded(reason, "wanted", lambda: reason.wanted(s), None)
     return s.sensed(f"trip wanted {reason.name}", check)
