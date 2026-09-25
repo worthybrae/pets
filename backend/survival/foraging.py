@@ -50,8 +50,13 @@ def food_points(s: Situation) -> float:
     return sum(FOOD[item] * s.inventory[item] for item in foods(s.inventory, s.poisons))
 
 
+# L4: more food a goal wants on hand, as functions of the Situation (backend.survival.larder adds
+# the larder's while a full larder is Mimo's goal).
+MORE_FOOD: list = []
+
+
 def food_need(s: Situation) -> float:
-    return max(0.0, FOOD_WANTED - food_points(s))
+    return max(0.0, FOOD_WANTED + sum(more(s) for more in MORE_FOOD) - food_points(s))
 
 
 def hunger_score(s: Situation, base: float) -> float:
