@@ -42,7 +42,7 @@ from backend.survival.home import YARD, by_home, from_home, home_structure
 from backend.survival.purposes import HOME_RANGE, Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
-from backend.survival.storage import chest_contents, chests_built
+from backend.survival.storage import chest_contents, chests_built, reachable_chests
 from backend.survival.structures import blueprint_of, clearing, start, todo
 from backend.survival.toolmaking import Short, make
 
@@ -245,7 +245,10 @@ def plan_stock_pen(s: Situation, context: ActionContext) -> list[dict]:
         return []
     room = PEN_ANIMALS - pen_life(s, blueprint)
     steps, carried, at = [], s.count(SEED), s.here
-    for cell, stand in chests_built(s):
+    # Follow-up fix, item 3: the same near_failure guard storage's reachable_chests already has --
+    # without it, a chest whose stand a step just failed near (an old home's chest behind dug-out
+    # ground, or the like) kept being walked to and failing again.
+    for cell, stand in reachable_chests(s):
         take = min(room - carried, chest_contents(s, cell).get(SEED, 0))
         if take > 0:
             if at != stand:

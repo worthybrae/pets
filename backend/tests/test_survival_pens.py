@@ -128,6 +128,32 @@ class PenTests(unittest.TestCase):
         self.assertEqual(steps[1], {"kind": "take", "target": list(chest), "item": "creature_seed", "amount": 2})
         self.assertEqual(len([step for step in steps if step["kind"] == "plant"]), 2)
 
+    def test_a_chest_a_step_just_failed_near_is_skipped_for_one_still_reachable(self):
+        """Follow-up fix, item 3: plan_stock_pen looped chests_built unfiltered, so a chest whose
+        stand a step just failed near (an old home's chest behind dug-out ground, or the like) kept
+        being walked to and failing again, even with another built chest's seeds just as reachable.
+        The same near_failure guard storage's reachable_chests already has."""
+        design = pens.design_pen(self.grid, (12, 1, 1), "Pip")
+        finish_structure(self.db, start(self.db, self.grid, design, 0.0), 1.0)
+        for planned in design.parts("fence"):
+            self.grid.put(*planned.cell, "fence")
+        site = find_site(self.grid, (1, 1, 20), (3, 3), ("north",), "flat", reach=0)
+        old = shelter(site, Style("flat", "cobblestone", "planks", "none", ("north",)), "Pip's Old Cottage")
+        for planned in old.parts("floor", "wall", "roof"):
+            self.grid.put(*planned.cell, "cobblestone")
+        finish_structure(self.db, start(self.db, self.grid, old, 0.0), 1.0)
+        home_chest, old_chest = storage.chest_spot(self.situation({})), old.one("chest")
+        self.grid.put(*home_chest, "chest")
+        self.grid.put(*old_chest, "chest")
+        s = self.situation({})
+        s.state["chests"] = {chest_key(home_chest): {"creature_seed": 2}, chest_key(old_chest): {"creature_seed": 2}}
+        s.state["recent_actions"] = [{"target": {"x": 1, "y": 1, "z": 1}, "result": "failed"}]  # home's own stand
+        self.assertTrue(PURPOSES["stock_pen"].valid(s))
+        steps = PURPOSES["stock_pen"].plan(s, self.context())
+        takes = [step for step in steps if step["kind"] == "take"]
+        self.assertTrue(takes)
+        self.assertEqual([take["target"] for take in takes], [list(old_chest)])
+
 
 class PenByHomeTests(unittest.TestCase):
     """L4a final fix wave, I1: pens resolve from home (home.py), never from where Mimo stands. The
