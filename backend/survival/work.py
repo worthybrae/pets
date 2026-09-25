@@ -22,7 +22,7 @@ unless the same stair just opened that cell, so it cannot cut its own staircase.
 stays climbable, and from its fourth stair it is sheltered, so it often becomes Mimo's first home.
 mine_ore walks to a remembered coal, iron, gold or diamond ore Mimo can harvest and still needs,
 within 48 blocks, and mines it: gold and diamonds once it has an iron pickaxe and knows where enough
-lie for the pickaxe above it (L3).
+lie for the pickaxe above it (L3), and has learned about their ore (L4b, backend.survival.journal).
 
 Late in the day, work that takes Mimo away from home scores 30 lower (purposes.late_penalty), so
 sleep and go_home win at dusk: gather_wood always, gather_stone when it would start from the
@@ -388,17 +388,19 @@ def wanted_ores(s: Situation) -> tuple[str, ...]:
     and then, once a creature has hurt it (L4: or while armor is its goal), as much as the iron
     armor it lacks takes; with an iron pickaxe (L3), gold (until a gold pickaxe or better) and
     diamonds (until a diamond pickaxe), but only once it knows where enough lie for a pickaxe
-    (`enough_known`; L4: any one it knows while diamonds are its goal)."""
+    (`enough_known`; L4: any one it knows while diamonds are its goal) and (L4b) has learned about
+    their ore by seeing it (backend.survival.journal)."""
     wanted, rank = [], pickaxe_rank(s.inventory)
     if s.count("coal") < 8:
         wanted.append("coal_ore")
     iron = 3 if rank < TOOL_RANK["iron_pickaxe"] else armor_iron(s.inventory) if armor_wanted(s.state) else 0
     if s.count("iron_ore", "iron_ingot") < iron:
         wanted.append("iron_ore")
-    if (TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["gold_pickaxe"]
+    if (TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["gold_pickaxe"] and "gold_ore" in s.lessons
             and enough_known(s, "gold_ore", s.count("gold_ore", "gold_ingot"))):
         wanted.append("gold_ore")
-    if TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["diamond_pickaxe"] and enough_known(s, "diamond_ore", s.count("diamond")):
+    if (TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["diamond_pickaxe"] and "diamond_ore" in s.lessons
+            and enough_known(s, "diamond_ore", s.count("diamond"))):
         wanted.append("diamond_ore")
     return tuple(wanted)
 

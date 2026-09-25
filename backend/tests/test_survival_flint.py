@@ -5,7 +5,7 @@ from unittest.mock import patch
 from backend.survival import flint  # noqa: F401  (registers gather_flint)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables
+from backend.survival.memory import create_memory_tables, know
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.steps import finish_step, start_step
@@ -27,12 +27,15 @@ def shore():
     return Grid(rule)
 
 
-def situation(inventory, clock=DAY, grid=None):
+def situation(inventory, clock=DAY, grid=None, learned=True):
+    """L4b: by default Mimo has learned that gravel hides flint (backend.survival.journal)."""
     state = {"name": "Pip", "world_seed": "1", "position": {"x": 0.0, "y": 1.0, "z": 0.0}, "inventory": inventory,
              "vitals": dict(START_VITALS), "traits": {}, "last_tick_at": 0.0}
     ensure_actions(state)
     db = sqlite3.connect(":memory:")
     create_memory_tables(db)
+    if learned:
+        know(db, "gravel", "lesson", 0.0)
     return Situation(state, grid or shore(), clock, 0.0, db)
 
 
@@ -52,6 +55,7 @@ class FlintTests(unittest.TestCase):
         self.assertFalse(flint_purpose.valid(situation({"bow": 1, "flint": 2})))
         self.assertFalse(flint_purpose.valid(situation({"bow": 1, "arrow": 8})))
         self.assertFalse(flint_purpose.valid(situation({"bow": 1}, NIGHT)))
+        self.assertFalse(flint_purpose.valid(situation({"bow": 1}, learned=False)))  # L4b: gravel's lesson first
         self.assertEqual(flint_purpose.score(situation({"bow": 1})), 50.0)
 
     def test_it_walks_to_the_nearest_dry_gravel_and_digs_it(self):

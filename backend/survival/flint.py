@@ -1,7 +1,8 @@
 """gather_flint: dig gravel for flint, the tip of every arrow (L3; L2's flint is one mined gravel in 8).
 
 Mimo wants flint while it has a bow (or the 3 string one takes), carries fewer than FLINT_WANTED
-flint and fewer arrows than make_gear keeps (backend.survival.creatures.gear). Gravel lines lake and
+flint and fewer arrows than make_gear keeps (backend.survival.creatures.gear), and (L4b) only once
+it learned that gravel hides flint (backend.survival.journal). Gravel lines lake and
 river beds, lies in patches on shores, in the taiga and on alpine scree, and on cave floors
 (backend.services.worldgen). gather_flint digs the nearest gravel Mimo can stand by: natural gravel
 ground within 24 blocks with open air over it (never under water), and any gravel within reach of
@@ -70,7 +71,8 @@ def gravel_near(s: Situation) -> list[Cell]:
 
 
 def flint_valid(s: Situation) -> bool:
-    return not s.night and wants_flint(s) and bool(gravel_near(s))
+    """L4b: only once Mimo learned that gravel hides flint (backend.survival.journal)."""
+    return not s.night and "gravel" in s.lessons and wants_flint(s) and bool(gravel_near(s))
 
 
 def plan_flint(s: Situation, context: ActionContext) -> list[dict]:

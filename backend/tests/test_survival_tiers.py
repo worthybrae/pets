@@ -5,6 +5,7 @@ from backend.survival import storage
 from backend.survival.carrying import valuable
 from backend.survival.creatures.combat import SWORDS, weapon
 from backend.survival.grid import Grid
+from backend.survival.memory import know
 from backend.survival.purposes import PURPOSES
 from backend.survival.senses import ORES, ores_around
 from backend.survival.steps import mine_seconds
@@ -25,6 +26,14 @@ def stations():
 
 def craft_step(recipe):
     return {"kind": "craft", "recipe": recipe}
+
+
+def seeing(state, grid, places_seen=()):
+    """L4b: a Situation in which Mimo learned about every ore it remembers, by seeing it."""
+    s = work_situation(state, grid, places_seen)
+    for _, _, ore in places_seen:
+        know(s.db, ore, "lesson", 0.0)
+    return s
 
 
 class TierTests(unittest.TestCase):
@@ -87,10 +96,12 @@ class OreTests(unittest.TestCase):
         self.assertEqual(sorted(ores_around(grid, (0, 0, 0))), [((0, 1, 1), "diamond_ore"), ((1, 0, 0), "gold_ore")])
         seen = lambda ore, count: [("ore", (9, -3, z), ore) for z in range(count)]
         both = seen("gold_ore", 3) + [("ore", (12, -3, z), "diamond_ore") for z in range(3)]
-        want = lambda inventory, known=(): wanted_ores(work_situation(pet(inventory=inventory), ground(), known))
+        want = lambda inventory, known=(): wanted_ores(seeing(pet(inventory=inventory), ground(), known))
         self.assertEqual(want({"stone_pickaxe": 1, "coal": 8}, both), ("iron_ore",))
         self.assertEqual(want({"iron_pickaxe": 1, "coal": 8}), ())  # none known: no trip worth making yet
         self.assertEqual(want({"iron_pickaxe": 1, "coal": 8}, both), ("gold_ore", "diamond_ore"))
+        unseen = work_situation(pet(inventory={"iron_pickaxe": 1, "coal": 8}), ground(), both)
+        self.assertEqual(wanted_ores(unseen), ())  # L4b: remembered, but never learned about
         self.assertEqual(want({"iron_pickaxe": 1, "coal": 8}, seen("gold_ore", 2)), ())  # not enough for a pickaxe
         self.assertEqual(want({"iron_pickaxe": 1, "coal": 8, "gold_ingot": 1}, seen("gold_ore", 2)), ("gold_ore",))
         self.assertEqual(want({"gold_pickaxe": 1, "coal": 8}, both), ("diamond_ore",))
@@ -101,8 +112,8 @@ class OreTests(unittest.TestCase):
     def test_mine_ore_goes_back_for_a_diamond(self):
         grid = ground({(3, -3, 0): "diamond_ore"})
         seen = [("ore", (3, -3, 0), "diamond_ore")]
-        self.assertFalse(PURPOSES["mine_ore"].valid(work_situation(pet(inventory={"stone_pickaxe": 1, "coal": 8}), grid, seen)))
-        s = work_situation(pet(inventory={"iron_pickaxe": 1, "coal": 8, "diamond": 2}), grid, seen)
+        self.assertFalse(PURPOSES["mine_ore"].valid(seeing(pet(inventory={"stone_pickaxe": 1, "coal": 8}), grid, seen)))
+        s = seeing(pet(inventory={"iron_pickaxe": 1, "coal": 8, "diamond": 2}), grid, seen)
         self.assertTrue(PURPOSES["mine_ore"].valid(s))
         self.assertEqual(PURPOSES["mine_ore"].plan(s, None),
                          [{"kind": "walk", "target": [3, -3, 0], "reach": 4.0}, {"kind": "mine", "target": [3, -3, 0]}])

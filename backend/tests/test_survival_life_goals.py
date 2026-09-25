@@ -7,7 +7,7 @@ from backend.survival.creatures import hunting
 from backend.survival.creatures.harm import armor_wanted
 from backend.survival.goals import GOALS, adopt_goal, advances, complete, counted, is_open, progress_of, share_of
 from backend.survival.life_goals import DAY_SECONDS, hides_wanted, land_seen
-from backend.survival.memory import mark_explored, places, remember, structures
+from backend.survival.memory import know, mark_explored, places, remember, structures
 from backend.survival.trips import REASONS
 from backend.survival.purposes import PURPOSES
 from backend.survival.structures import blueprint_of
@@ -94,6 +94,7 @@ class ToolsAndArmorTests(unittest.TestCase):
     def test_with_diamond_tools_the_goal_mine_ore_goes_for_a_single_known_diamond(self):
         world = built({"iron_pickaxe": 1, "coal": 8})
         remember(world.db, "ore", (4, -6, 4), 0.0, "diamond_ore")
+        know(world.db, "diamond_ore", "lesson", 0.0)  # L4b: it has seen one
         self.assertNotIn("diamond_ore", wanted_ores(world.situation()))  # one of the 3 a pickaxe takes
         adopt_goal(world.state, "better_tools", "utility", "", 0.0)
         self.assertIn("diamond_ore", wanted_ores(world.situation()))
