@@ -27,8 +27,9 @@ from backend.survival.situation import Situation
 
 YARD = 32.0  # blocks from home within which a pen is home's own (pens.design_pen puts one within 10)
 # I4: the farthest from home a day trip goes (curiosity.trip_reach grows up to it as the land near
-# home is walked); going home at dusk looks this far for the home Mimo built (purposes.GO_HOME_RANGE).
-# Overnight expeditions, farther still, are L4b's.
+# home is walked). Fix round 1, Minor 2: going home at dusk used to look this far for the home Mimo
+# built, but purposes.GO_HOME_RANGE is now infinite (follow-up fix, item 2), so it finds the built
+# home from any distance. Overnight expeditions, farther still, are L4b's.
 FARTHEST_TRIP = 240.0
 
 
