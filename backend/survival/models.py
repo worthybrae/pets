@@ -10,7 +10,9 @@ function raises ModelError when anything goes wrong, and the caller falls back t
 picker. L4: Jev also chooses goals, in the same call shape with a "goal" question and
 GOAL_INSTRUCTIONS (backend.survival.choosing.prepare_goal); and when explore is offered for more
 than one reason, the purpose call asks a second question, "explore_reason", in the same call
-(`jev_answers`, REASON_INSTRUCTIONS).
+(`jev_answers`, REASON_INSTRUCTIONS). L4b: while a lesson waits for its journal line, a purpose call
+to Jev also asks "journal_line" (JOURNAL_INSTRUCTIONS): which of the lesson's phrasings sounds most
+like Mimo.
 """
 
 from __future__ import annotations
@@ -39,6 +41,10 @@ GOAL_INSTRUCTIONS = ("Choose the goal this small survival pet works toward for t
 # L4: why an explore trip goes, when there is more than one reason.
 REASON_INSTRUCTIONS = ("If this small survival pet explores, choose what it goes looking for: what its goal needs "
                        "or what it lacks most. Choose only from the offered reasons.")
+# L4b: the line the pet writes in its journal about what it just learned.
+JOURNAL_INSTRUCTIONS = ("Choose the line this small survival pet writes in its journal about what it just "
+                        "learned (the payload's \"learned\"): the one that sounds most like it, given its traits, "
+                        "mood and day. Choose only from the offered lines.")
 
 Http = Callable[[str, dict, dict, float], dict]
 Env = Mapping[str, str]

@@ -59,6 +59,11 @@ the same call asks a second question, "explore_reason", and a Jev pick of explor
 reason Jev chose; otherwise (the rules, Luna) it goes for the rules' pick. Choosing explore
 stores the trip in the brain, and its event and thought say what for ("Pip decided to explore to
 look for iron, toward iron tools. \"Heading north to look for iron. My pickaxe needs it.\"").
+L4b: the journal. While a lesson Mimo learned waits for its line (backend.survival.journal), a
+purpose call to Jev asks a third question, "journal_line": which of the lesson's phrasings, the
+plain fact first, sounds most like Mimo. The line Jev chose is kept for the journal; the rules and
+Luna leave the lesson waiting for the next Jev call (the journal shows the fact meanwhile). No
+call is made for the journal alone.
 """
 
 from __future__ import annotations
@@ -76,9 +81,10 @@ from backend.survival.actions import ensure_actions, kept_steps, record
 from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
 from backend.survival.goals import GOALS, active, adopt_goal, goal_state, is_open, lower, offers, penalized, reached_titles
+from backend.survival.journal import LESSONS, journal_state
 from backend.survival.models import (
-    GOAL_INSTRUCTIONS, INSTRUCTIONS, JEV_TIMEOUT, LUNA_TIMEOUT, REASON_INSTRUCTIONS, Http, ModelError, ask_jev,
-    ask_luna, jev_answers, jev_configured, luna_configured, luna_reflect, post_json,
+    GOAL_INSTRUCTIONS, INSTRUCTIONS, JEV_TIMEOUT, JOURNAL_INSTRUCTIONS, LUNA_TIMEOUT, REASON_INSTRUCTIONS, Http,
+    ModelError, ask_jev, ask_luna, jev_answers, jev_configured, luna_configured, luna_reflect, post_json,
 )
 from backend.survival.once import log_once
 from backend.survival.pickers import Option, context_payload, options, thought_for, utility_pick
@@ -118,6 +124,8 @@ class Ask:
     asked_at: float
     game_at: float = 0.0  # game seconds since the life began, when asked
     kind: str = "purpose"  # L4: or "goal"
+    lines: tuple[Option, ...] = ()  # L4b: the journal lines Jev may choose among for `subject`'s lesson
+    subject: str = ""
 
 
 @dataclass(frozen=True)
@@ -128,6 +136,7 @@ class Choice:
     calls: dict  # {"model": n, "luna": n, "reflections": n}
     error: str | None = None
     trip: Offer | None = None  # L4: explore's reason (trips.Offer)
+    line: str | None = None  # L4b: the journal line Jev chose (an option's name in Ask.lines)
 
 
 def cap(env: Env, setting: tuple[str, int]) -> int:
@@ -222,15 +231,28 @@ def prepare(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | N
         return None
     game_at = max(0.0, now - state["born_at"]) * scale
     route = route_for(brain, now, env, game_at, steady)
+    lines, subject = journal_lines(state) if route == "jev" else ((), "")
+    if lines:
+        payload = {**payload, "learned": LESSONS[subject].fact}
     return Ask(brain["pending"]["id"], route, reflect_for(brain, route, now, env), tuple(choices), payload, now,
-               game_at)
+               game_at, lines=lines, subject=subject)
+
+
+def journal_lines(state: dict) -> tuple[tuple[Option, ...], str]:
+    """L4b: the phrasings of the oldest lesson still waiting for its journal line, and its name."""
+    waiting = [thing for thing in journal_state(state)["unphrased"] if thing in LESSONS]
+    if not waiting:
+        return (), ""
+    lesson = LESSONS[waiting[0]]
+    return tuple(Option(f"line_{index}", line, line, lesson.words, 0.0)
+                 for index, line in enumerate((lesson.fact, *lesson.lines))), lesson.thing
 
 
 def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
     """Answer an Ask. Never raises: model failures fall back to the utility picker."""
     calls = {"model": 0, "luna": 0, "reflections": 0}
     choices, errors = list(ask.options), []
-    purpose, picker, reason = None, "utility", None
+    purpose, picker, reason, line = None, "utility", None, None
     reasons = reason_options(ask)
     if ask.route in ("jev", "luna"):
         calls["model"] += 1
@@ -239,12 +261,16 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
         try:
             if ask.kind == "goal":
                 purpose = ask_jev(ask.payload, choices, env, http, question="goal", instructions=GOAL_INSTRUCTIONS)
-            elif ask.route == "jev" and len(reasons) > 1:
-                answers = jev_answers(ask.payload, {"purpose": (choices, INSTRUCTIONS),
-                                                    "explore_reason": (reasons, REASON_INSTRUCTIONS)}, env, http)
-                purpose, reason = answers["purpose"], answers["explore_reason"]
+            elif ask.route == "jev":
+                questions = {"purpose": (choices, INSTRUCTIONS)}
+                if len(reasons) > 1:
+                    questions["explore_reason"] = (reasons, REASON_INSTRUCTIONS)
+                if ask.lines:
+                    questions["journal_line"] = (list(ask.lines), JOURNAL_INSTRUCTIONS)
+                answers = jev_answers(ask.payload, questions, env, http)
+                purpose, reason, line = answers["purpose"], answers.get("explore_reason"), answers.get("journal_line")
             else:
-                purpose = (ask_jev if ask.route == "jev" else ask_luna)(ask.payload, choices, env, http)
+                purpose = ask_luna(ask.payload, choices, env, http)
             picker = ask.route
         except Exception as error:
             errors.append(f"{ask.route}: {error}")
@@ -260,7 +286,7 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
             thought = luna_reflect(ask.payload, option, env, http)
         except Exception as error:
             errors.append(f"reflection: {error}")
-    return Choice(purpose, picker, thought, calls, "; ".join(errors) or None, trip)
+    return Choice(purpose, picker, thought, calls, "; ".join(errors) or None, trip, line)
 
 
 def explore_option(ask: Ask) -> Option | None:
@@ -368,8 +394,19 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, sca
                         if is_open(s, named) and not penalized(s, named.name):
                             aim = f", toward {lower(goal)}"
                 log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}{aim}. "{choice.thought}"')
+        keep_line(state, ask, choice)
         write_state(db, state)
         return choice.purpose if fresh else None
+
+
+def keep_line(state: dict, ask: Ask, choice: Choice) -> None:
+    """L4b: the journal line Jev chose, kept for its lesson (once; a stale ask still counts)."""
+    journal = journal_state(state)
+    line = next((option.phrase for option in ask.lines if option.name == choice.line), None)
+    if line is None or ask.subject not in journal["unphrased"]:
+        return
+    journal["unphrased"] = [thing for thing in journal["unphrased"] if thing != ask.subject]
+    journal["words"] = {**journal["words"], ask.subject: line}
 
 
 def goal_route(brain: dict, now: float, env: Env, game_at: float, offered: int) -> str:
