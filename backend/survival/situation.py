@@ -59,6 +59,11 @@ class Situation:
         return tuple(memory.known(self.db, "poisonous")) if self.db is not None else ()
 
     @cached_property
+    def lessons(self) -> tuple[str, ...]:
+        """L4b: the lessons Mimo learned (backend.survival.journal); what it knows unlocks work."""
+        return tuple(memory.known(self.db, "lesson")) if self.db is not None else ()
+
+    @cached_property
     def recipes(self) -> list[str]:
         return memory.known_recipes(self.db) if self.db is not None else []
 

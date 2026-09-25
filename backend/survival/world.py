@@ -34,7 +34,7 @@ COORDINATE_LIMIT = 30_000
 # distinct one only once.
 ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
                             "explore", "owner", "plan", "purpose", "reflex", "ate", "cook", "fish", "grow",
-                            "hunt", "hurt", "fight", "threat"})
+                            "hunt", "hurt", "fight", "threat", "learned"})
 RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to skip repeats
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6

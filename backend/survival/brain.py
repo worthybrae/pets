@@ -37,6 +37,8 @@ L4: after each walk of an explore trip Mimo looks around for what the trip is fo
 (backend.survival.trips.look_after); a find that is what it came for ends the trip. Curiosity
 (backend.survival.curiosity) grows after each vitals step and falls with each discovery a
 finished step makes.
+L4b: each finished step also feeds the knowledge journal (backend.survival.journal): what Mimo
+learns there and then, the things it sees to study later, and the end of a look.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival.curiosity import note_discoveries, tend_curiosity
+from backend.survival.journal import observe_journal
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
 from backend.survival.escape import plan_escape
@@ -248,6 +251,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
         announce_find(state, step, context, at, *finds[0])  # one a step: the rest are remembered quietly
     note_discoveries(state, step, context, at, context.events[mark:])
     look_after(state, step, context, at)
+    observe_journal(state, step, context, at)
     learn_from_step(state, step, context, at)
     note_building(state, step, context, at)
 

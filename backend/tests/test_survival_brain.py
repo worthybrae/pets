@@ -228,7 +228,8 @@ class NoticeAndObserveTests(unittest.TestCase):
         walk = {"kind": "walk", "purpose": "explore", "path": [], "target": {"x": 5, "y": 1, "z": 0}}
         with patch("backend.survival.senses.trees_near", lambda seed, x, z, radius: [(5, 0, 0)]):
             observe_step(state, walk, ctx, 5.0)
-        self.assertEqual(ctx.events[-1][1:], ("found", "Pip found oak trees."))
+        # L4b: the journal's "learned" event (the biome it walked into) may come after the find.
+        self.assertIn(("found", "Pip found oak trees."), [event[1:] for event in ctx.events if event[1] == "found"])
         self.assertTrue(state["brain"]["trip"]["done"])
         self.assertIn("discovery", state["brain"]["pending"]["reasons"])
 
