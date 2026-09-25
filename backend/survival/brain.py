@@ -48,6 +48,7 @@ from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's b
 from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, build_pen and stock_pen)
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
+from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival.curiosity import note_discoveries, tend_curiosity
 from backend.survival.building import note_building
 from backend.survival.actions import ActionContext, kept_steps
