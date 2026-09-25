@@ -116,12 +116,12 @@ class CooldownTests(unittest.TestCase):
         self.assertEqual(REASONS["wander"].cooldown, WANDER_PENALTY_SECONDS)
         self.assertEqual(REASONS["iron"].cooldown, TRIP_PENALTY_SECONDS)
         own = Reason("slow", "look", lambda s: "", lambda s, x, z: (0.0, ""), lambda s: 1.0, cooldown=900.0)
-        brain = {}
+        mind = {}
         with patch.dict(REASONS, {"slow": own}):
             for name, seconds in (("slow", 900.0), ("wander", WANDER_PENALTY_SECONDS), ("iron", TRIP_PENALTY_SECONDS),
                                   ("gone", TRIP_PENALTY_SECONDS)):
-                cool_down(brain, name, 10.0, 2.0)
-                self.assertEqual(brain["trip_penalties"][name], 10.0 + seconds / 2.0, name)
+                cool_down(mind, name, 10.0, 2.0)
+                self.assertEqual(mind["trip_penalties"][name], 10.0 + seconds / 2.0, name)
 
 
 if __name__ == "__main__":
