@@ -171,8 +171,7 @@ class PenTests(unittest.TestCase):
         s.state["recent_actions"] = [{"target": {"x": 1, "y": 1, "z": 1}, "result": "failed"}]  # home's own stand
         self.assertFalse(PURPOSES["stock_pen"].valid(s))
         self.assertEqual(PURPOSES["stock_pen"].plan(s, self.context()), [])
-        s.state["recent_actions"] = []  # the failure ages out of the window: worth trying again
-        s = self.situation({})
+        s = self.situation({})  # a fresh Situation: the failure has aged out, worth trying again
         s.state["chests"] = {chest_key(home_chest): {"creature_seed": 2}}
         self.assertTrue(PURPOSES["stock_pen"].valid(s))
         self.assertTrue(PURPOSES["stock_pen"].plan(s, self.context()))

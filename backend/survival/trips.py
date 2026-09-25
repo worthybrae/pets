@@ -27,7 +27,9 @@ their goals'). A Reason has:
   ring it leads into. L4 does not build it;
 - `cooldown`: game seconds it is not offered again after a trip for it ends (`cool_down`, the final
   fix wave: a field of its own, TRIP_PENALTY_SECONDS unless the reason says otherwise; wander's is
-  WANDER_PENALTY_SECONDS, and L4b's expedition trip will set its own).
+  WANDER_PENALTY_SECONDS, and L4b's expedition trip will set its own);
+- `roams_from`: blocks from home past which its cooldown does not hold it back (math.inf, so the
+  cooldown always holds; wander's is HOME_RANGE, so a pet out past it keeps roaming).
 
 Targets (`targets`) are the reason's spots and the dry columns at 16 headings 32, 48 and 64 blocks
 away whose land may hold what it needs. Each scores LIKELY times that likelihood (1 for a spot)
