@@ -389,7 +389,7 @@ def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     words = ((brain or {}).get("journal") or {}).get("words", {})
     try:
         rows = learned(db)
-    except Exception:
+    except sqlite3.OperationalError:  # no memory_knowledge table: an archive from before L3
         return []
     found = []
     for thing, at in reversed(rows):
