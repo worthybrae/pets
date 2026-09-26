@@ -15,7 +15,9 @@ from backend.survival.clock import clock_at
 from backend.survival.creatures.harm import sheltered
 from backend.survival.creatures.view import creatures_view
 from backend.survival.curiosity import curiosity_view
+from backend.survival.expedition import expedition_view
 from backend.survival.goals import GOALS, goal_view, reached_rows
+from backend.survival.journal import journal_view
 from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.registry import LifeRegistry
 from backend.survival.trips import trip_view
@@ -41,12 +43,14 @@ def action_view(action: dict | None) -> dict | None:
 
 def brain_view(brain: dict | None) -> dict:
     """What Mimo is up to: its purpose, a running reflex, who chose, and whether it is choosing;
-    (L4) its goal with the day plan, and while it explores, what for. A world whose brain has not
-    started yet is about to choose."""
+    (L4) its goal with the day plan, and while it explores, what for; (L4b) the expedition under
+    way. A world whose brain has not started yet is about to choose."""
     if brain is None:
-        return {"purpose": None, "reflex": None, "picker": None, "choosing": True, "goal": None, "trip": None}
+        return {"purpose": None, "reflex": None, "picker": None, "choosing": True, "goal": None, "trip": None,
+                "expedition": None}
     return {"purpose": brain.get("purpose"), "reflex": brain.get("reflex"), "picker": brain.get("picker"),
-            "choosing": brain.get("pending") is not None, "goal": goal_view(brain), "trip": trip_view(brain)}
+            "choosing": brain.get("pending") is not None, "goal": goal_view(brain), "trip": trip_view(brain),
+            "expedition": expedition_view(brain)}
 
 
 def replayable(recent: list[dict], now: float) -> list[dict]:
@@ -142,6 +146,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         landmarks = landmarks_view(db, state)
         creatures = creatures_view(db, state["position"], now)
         indoors = sheltered(db, here_of(state))
+        journal = journal_view(db, state.get("brain"))
     at = state["died_at"] if state["died_at"] is not None else now
     return {
         "clock": clock_at(state["born_at"], at, scale),
@@ -183,6 +188,8 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         **brain_view(state.get("brain")),
         # L4: how curious Mimo is, and how it feels ({"level", "feeling"}; null before it is tended).
         "curiosity": curiosity_view(state.get("brain"), at, scale),
+        # L4b: what Mimo learned, newest first ({thing, kind, words, fact, line, unlocks, at}).
+        "journal": journal,
     }
 
 

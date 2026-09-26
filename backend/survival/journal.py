@@ -379,3 +379,31 @@ register(Purpose(
     "Walk up to something new nearby, look it over and take a sample, to learn what it is good for.",
     valid=investigate_valid, facts=investigate_facts, score=investigate_score, plan=plan_investigate,
     thoughts=("What is that? I have to look closer.", "I've never seen one of those before.")))
+
+
+# What the model and the viewer are told --------------------------------------------------------
+
+def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
+    """The lessons Mimo learned, newest first: {thing, kind, fact, line (Jev's pick, or the fact),
+    unlocks, at}. A world from before L3 read as an archive has learned nothing."""
+    words = ((brain or {}).get("journal") or {}).get("words", {})
+    try:
+        rows = learned(db)
+    except Exception:
+        return []
+    found = []
+    for thing, at in reversed(rows):
+        lesson = LESSONS.get(thing)
+        if lesson is None:
+            continue
+        found.append({"thing": thing, "kind": lesson.kind, "words": lesson.words, "fact": lesson.fact,
+                      "line": words.get(thing) or lesson.fact, "unlocks": lesson.unlocks, "at": at})
+    return found[:limit]
+
+
+def journal_payload(s: Situation) -> dict:
+    """For the model: how many lessons Mimo learned, the newest, and what it could study near it."""
+    known_now = sorted(lessons_of(s))
+    newest = learned(s.db)[-1][0] if s.db is not None and known_now else None
+    return {"lessons": len(known_now), "newest": LESSONS[newest].fact if newest in LESSONS else None,
+            "could_study": [LESSONS[curio.thing].words for curio in curios(s)[:3]]}

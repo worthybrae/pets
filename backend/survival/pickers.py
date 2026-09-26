@@ -10,6 +10,8 @@ hostile creatures near it and what it can meet them with. L4: the options follow
 (`steer`, with the rules in backend.survival.goals), and the payload carries the goal.
 Explore's option carries its reasons to explore, the rules' pick first (backend.survival.trips);
 the payload says what a trip would look for and where, the trip Mimo is on, and how curious it is.
+L4b: it also carries the journal (how many lessons Mimo learned, the newest, what it could study
+near it) and the expedition under way.
 """
 
 from __future__ import annotations
@@ -22,8 +24,10 @@ from dataclasses import dataclass, replace
 from backend.survival.building import building_payload
 from backend.survival.creatures.defense import threats_payload
 from backend.survival.curiosity import curiosity_view
+from backend.survival.expedition import expedition_view
 from backend.survival.exploring import exploration_payload
 from backend.survival.goals import active, boosted, goal_payload, meets_need, toward
+from backend.survival.journal import journal_payload
 from backend.survival.memory import cell_of
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, offered
@@ -125,4 +129,7 @@ def context_payload(s: Situation, events: list[dict]) -> dict:
         "trip": trip_view(s.brain),
         # L4: how curious Mimo is and how it feels about it ("restless; nothing new for 2 game days").
         "curiosity": curiosity_view(s.brain, s.at, s.scale),
+        # L4b: what Mimo learned and could study near it, and the expedition it is on (or None).
+        "journal": journal_payload(s),
+        "expedition": expedition_view(s.brain),
     }
