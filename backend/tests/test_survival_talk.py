@@ -12,12 +12,15 @@ from fastapi import HTTPException
 from backend.api.bond import ChatLine, talk_to_mimo
 from backend.api.lives import hatch_egg
 from backend.api.mimo import get_mimo
+from backend.survival.choosing import InlineExecutor
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
 from backend.survival.snapshot import alive_snapshot
 from backend.survival.talk import (
-    DAY_LIMIT, HOUR_LIMIT, LINES_SHOWN, TEXT_LIMIT, WAITING, ChatLimited, chat_view, clean, day_start, owner_says,
+    DAY_LIMIT, HOUR_LIMIT, LINES_KEPT, LINES_SHOWN, TEXT_LIMIT, WAITING, ChatLimited, chat_view, clean, day_start,
+    owner_says,
 )
+from backend.survival.talker import Talker
 from backend.survival.world import LifeOver, SurvivalWorld, read_state, write_state
 
 BORN = 1_000_000.0  # 13:46:40 UTC on 12 January 1970: ten hours of the UTC day are left
@@ -73,6 +76,22 @@ class OwnerLinesTests(unittest.TestCase):
             owner_says(self.world, "one more", BORN + 3 * DAY_LIMIT, 60.0)
         tomorrow = day_start(BORN) + 86_400 + 1
         self.assertEqual(owner_says(self.world, "good morning", tomorrow, 60.0)["left"]["day"], DAY_LIMIT - 1)
+
+    def test_the_daily_limit_holds_when_every_line_is_answered_and_tomorrow_prunes_back(self):
+        talker = Talker(env={}, executor_factory=InlineExecutor, scale=60.0)
+        for line in range(DAY_LIMIT):
+            owner_says(self.world, f"line {line}", BORN + 3 * line, 60.0)
+            talker.poll(self.registry, BORN + 3 * line + 1)
+        self.assertEqual(len(self.rows()), 2 * DAY_LIMIT)  # every line of the UTC day is kept, with its answer
+        with self.assertRaises(ChatLimited):
+            owner_says(self.world, "one more", BORN + 3 * DAY_LIMIT, 60.0)
+        tomorrow = day_start(BORN) + 86_400 + 1
+        owner_says(self.world, "good morning", tomorrow, 60.0)
+        talker.poll(self.registry, tomorrow + 1)
+        rows = self.rows()
+        self.assertEqual(len(rows), LINES_KEPT)  # the first store of the day prunes back to the newest lines
+        self.assertEqual([row["who"] for row in rows[-2:]], ["owner", "mimo"])
+        self.assertEqual(rows[-2]["text"], "good morning")
 
     def test_a_dead_pet_takes_no_lines(self):
         with self.world.transaction() as db:

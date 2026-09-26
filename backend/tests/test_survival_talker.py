@@ -16,8 +16,8 @@ from backend.survival.once import forget_logged
 from backend.survival.owner_facts import owner_facts
 from backend.survival.registry import LifeRegistry
 from backend.survival.replies import REPLY_LIMIT
-from backend.survival.talk import ANSWERED, LINES_KEPT, owner_says
-from backend.survival.talker import LANE_REST, Talker
+from backend.survival.talk import ANSWERED, LINES_KEPT, LOST_LINE, WAITING, day_start, owner_says
+from backend.survival.talker import LANE_REST, LANES, PROVIDER_REST, Talker
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.workers.mimo_worker import run_once
 
@@ -160,8 +160,71 @@ class TalkerTests(unittest.TestCase):
             talker.poll(self.registry, BORN + 6 + LANE_REST - 1)
         self.assertEqual(len(jev.bodies), 1)
         talker.poll(self.registry, BORN + 6 + LANE_REST)
-        self.assertEqual(len(jev.bodies), 2)
-        self.assertEqual(self.lines()[-1]["who"], "mimo")
+        self.assertEqual(len(jev.bodies), 1)  # the answer was kept and stored again: Jev is not asked again
+        self.assertEqual((self.lines()[-1]["who"], self.lines()[-1]["picker"]), ("mimo", "jev"))
+
+    def test_a_store_that_keeps_failing_is_retried_with_the_same_answer_not_a_new_call(self):
+        import backend.survival.talk as talk
+        real, failures = talk.store_chat, []
+
+        def flaky(world, ask, answer, now):
+            if len(failures) < 3:
+                failures.append(now)
+                raise RuntimeError("database is locked")
+            return real(world, ask, answer, now)
+        jev = FakeJev(lambda name, criteria: "feel" if name == "reply" else sorted(criteria)[0])
+        talker = self.talker(JEV, jev)
+        owner_says(self.world, "how are you?", BORN + 5, 1.0)
+        with patch.object(talk, "store_chat", flaky):
+            with self.assertLogs("backend.survival.talker", level="ERROR") as logs:
+                for step in range(4):
+                    talker.poll(self.registry, BORN + 6 + step * LANE_REST)
+        self.assertEqual(len(failures), 3)
+        self.assertEqual(len(logs.records), 1)  # logged once
+        self.assertEqual(len(jev.bodies), 1)
+        owner, mimo = self.lines()
+        self.assertEqual((owner["status"], mimo["picker"]), (ANSWERED, "jev"))
+        self.assertTrue(mimo["text"].startswith("I"), mimo["text"])  # how it feels, as Jev chose
+
+    def test_a_line_whose_job_cannot_be_built_is_answered_by_the_rules_and_the_next_line_goes_on(self):
+        import backend.survival.talk as talk
+        real, attempts = talk.chat_payload, []
+
+        def broken_for_the_first_line(db, s, heard, line_id):
+            if heard.text == "hello":
+                attempts.append(line_id)
+                raise RuntimeError("a bad row")
+            return real(db, s, heard, line_id)
+        jev = FakeJev(lambda name, criteria: "feel" if name == "reply" else sorted(criteria)[0])
+        talker = self.talker(JEV, jev)
+        owner_says(self.world, "hello", BORN + 5, 1.0)
+        owner_says(self.world, "how are you?", BORN + 6, 1.0)
+        with patch.object(talk, "chat_payload", broken_for_the_first_line):
+            with self.assertLogs("backend.survival.talk", level="ERROR") as logs:
+                talker.poll(self.registry, BORN + 7)
+                first = self.lines()
+                talker.poll(self.registry, BORN + 8)
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual([line["status"] for line in first if line["who"] == "owner"], [ANSWERED, WAITING])
+        self.assertEqual((first[-1]["text"], first[-1]["picker"]), (LOST_LINE, "rules"))
+        self.assertEqual(len(jev.bodies), 1)  # only the second line asked Jev
+        self.assertEqual([(line["who"], line["picker"]) for line in self.lines()][-1], ("mimo", "jev"))
+
+    def test_a_provider_that_crashes_rests_its_lane_logged_once(self):
+        calls = []
+
+        def broken(world, now, scale, env):
+            calls.append(now)
+            raise RuntimeError("boom")
+        talker = self.talker()
+        with patch.dict(LANES, {"chat": [broken]}):
+            with self.assertLogs("backend.survival.talker", level="ERROR") as logs:
+                talker.poll(self.registry, BORN + 6)
+                talker.poll(self.registry, BORN + 6 + PROVIDER_REST - 1)
+                talker.poll(self.registry, BORN + 6 + PROVIDER_REST)
+        self.assertEqual(calls, [BORN + 6, BORN + 6 + PROVIDER_REST])
+        self.assertEqual(len(logs.records), 1)
 
     def test_lines_are_answered_oldest_first_one_a_poll_and_never_twice(self):
         owner_says(self.world, "hi", BORN + 5, 1.0)
@@ -169,6 +232,8 @@ class TalkerTests(unittest.TestCase):
         talker = self.talker()
         talker.poll(self.registry, BORN + 7)
         self.assertEqual([line["who"] for line in self.lines()], ["owner", "owner", "mimo"])
+        self.assertEqual([line["status"] for line in self.lines()[:2]], [ANSWERED, WAITING])
+        self.assertTrue(self.lines()[-1]["text"].startswith("Hi"), self.lines()[-1]["text"])  # "hi" was answered
         talker.poll(self.registry, BORN + 8)
         talker.poll(self.registry, BORN + 9)
         self.assertEqual([line["who"] for line in self.lines()], ["owner", "owner", "mimo", "mimo"])
@@ -187,13 +252,13 @@ class TalkerTests(unittest.TestCase):
                 "thanks!", "my favourite food is pie", "I hate the rain", "call me Jo", "do you remember me?",
                 "what's the plan today?", "are you bored?", "x" * 280, "?!", "tell me a story"]
         talker = self.talker()
-        now = BORN + 5
+        now = day_start(BORN) + 86_400 - 4 * 60  # 60 lines before the UTC day ends, 50 after
         for number in range(LINES_KEPT // 2 + 10):
             owner_says(self.world, said[number % len(said)], now, 60.0)
             talker.poll(self.registry, now + 1)
             now += 4  # 15 lines a game hour at 60x
         lines = self.lines()
-        self.assertEqual(len(lines), LINES_KEPT)
+        self.assertEqual(len(lines), LINES_KEPT)  # today's 100 lines and yesterday's newest 100
         for line in lines:
             if line["who"] == "mimo":
                 self.assertLessEqual(len(line["text"]), REPLY_LIMIT)

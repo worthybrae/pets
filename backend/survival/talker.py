@@ -13,7 +13,10 @@ given up: its thread is left behind with its executor, a fresh one takes new wor
 rules answer (`fallback`) is stored instead. At most one job a lane is started per poll. Preparing a
 job (reading a snapshot, writing the options) runs in the worker's loop, as the Chooser's prepare does;
 only the model call goes to the lane's thread. A job whose answer could not be stored rests its lane
-for LANE_REST real seconds, so a world that keeps refusing the write never costs a model call a poll.
+for LANE_REST real seconds and keeps its answer: after the rest the same answer is stored again, so a
+world that keeps refusing the write never costs another model call (`unstored`). A provider that
+crashes while it looks for a job rests its lane for PROVIDER_REST real seconds, so a job that cannot
+be built is not rebuilt every poll.
 Every CHORE_EVERY real seconds the Talker also runs the chores (CHORES: B2's asks and B3's inbox),
 rules only, in one short transaction of their own; each chore runs in a savepoint, so one that
 crashes is rolled back alone. Nothing here raises: a crash is logged once and the worker goes on.
@@ -41,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 CHORE_EVERY = 5.0  # real seconds between two rounds of chores
 LANE_REST = 60.0  # real seconds a lane rests after an answer could not be stored
+PROVIDER_REST = 10.0  # real seconds a lane rests after one of its providers crashed
 Env = Mapping[str, str]
 
 
@@ -108,6 +112,7 @@ class Talker:
         self.scale = scale
         self.chored_at: float | None = None
         self.resting: dict[str, float] = {}  # {lane: real time it may start a job again}
+        self.unstored: dict[str, tuple[Path, Job, object]] = {}  # {lane: an answer to store again after the rest}
 
     def executor(self, lane: str):
         if lane not in self.executors:
@@ -155,9 +160,18 @@ class Talker:
             return
         if now < self.resting.get(lane, 0.0):
             return
+        if lane in self.unstored:  # the answer is kept: store it again rather than ask the model again
+            where, job, answer = self.unstored.pop(lane)
+            self.store(where, job, answer, now)
+            return
         world = SurvivalWorld(path, read_only=True)
         for provide in LANES[lane]:
-            job = provide(world, now, scale, self.env)
+            try:
+                job = provide(world, now, scale, self.env)
+            except Exception as error:
+                log_once(logger, f"talker {lane} provider {getattr(provide, '__name__', provide)}", error)
+                self.resting[lane] = now + PROVIDER_REST
+                return
             if job is None:
                 continue
             if job.model:
@@ -170,11 +184,13 @@ class Talker:
             return
 
     def store(self, path: Path, job: Job, answer: object, now: float) -> None:
+        """Store a job's answer; one that cannot be stored is kept, and its lane rests before trying again."""
         try:
             job.store(SurvivalWorld(path), answer, now)
         except Exception as error:
             log_once(logger, f"talker {job.lane} store", error)
             self.resting[job.lane] = now + LANE_REST
+            self.unstored[job.lane] = (path, job, answer)
 
     def close(self) -> None:
         for executor in self.executors.values():
