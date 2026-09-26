@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  AIR, BLOCKS, CUBE_BY_ID, FLUID_BY_ID, GLOW_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE, LAYER_TRANSLUCENT,
-  MISSING_ID, TILES, blockDef, blockId, hasBlock,
+  AIR, BLOCKS, CUBE_BY_ID, FLAT_HEIGHT, FLUID_BY_ID, GLOW_BY_ID, HEIGHT_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE,
+  LAYER_TRANSLUCENT, MISSING_ID, SLAB_HEIGHT, TILES, blockDef, blockId, hasBlock,
 } from './blocks'
 
 /** L3's blocks, in registry order (backend/tests/test_blocks_bigger_world.py). */
@@ -9,6 +9,9 @@ const BIGGER_WORLD = ['granite', 'andesite', 'diorite', 'ashstone', 'gold_ore', 
   'birch_log', 'birch_leaves', 'birch_planks', 'spruce_log', 'spruce_leaves', 'spruce_planks',
   'snow_block', 'ice', 'mud', 'cactus', 'sugar_cane', 'pumpkin', 'melon', 'fern', 'dead_bush',
   'mossy_cobblestone', 'stone_bricks', 'ladder', 'fence', 'creature_sprout']
+/** Making's T1 blocks, right after L3's (backend/tests/test_blocks_making.py). */
+const MAKING = ['bookshelf', 'wool_orange', 'wool_pink', 'wool_yellow', 'rug_orange', 'rug_pink', 'rug_yellow', 'kiln',
+  'stairs', 'slab', 'glass_pane', 'trapdoor', 'iron_bars', 'flower_pot', 'sign', 'barrel', 'composter', 'candle']
 
 describe('block registry', () => {
   it('puts air at id 0 and keeps ids below the missing id', () => {
@@ -52,7 +55,7 @@ describe('block registry', () => {
   it('adds the food and camp blocks after the existing ones, so older ids never change', () => {
     expect(blockId('berry_bush')).toBe(blockId('flower_yellow') + 1)
     expect(blockId('door')).toBe(blockId('chest') + 1)
-    expect(blockId('door')).toBe(BLOCKS.length - 1 - BIGGER_WORLD.length)
+    expect(blockId('door')).toBe(blockId('granite') - 1)
     expect(LAYER_BY_ID[blockId('door')]).toBe(0)  // not meshed: the viewer draws doors itself
     for (const name of ['berry_bush_ripe', 'red_mushroom', 'wheat_2', 'carrot_3', 'sapling', 'campfire', 'torch']) {
       expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
@@ -65,9 +68,9 @@ describe('block registry', () => {
     expect(GLOW_BY_ID[blockId('sapling')]).toBe(0)
   })
 
-  it('adds the bigger world\'s blocks at the very end, plants see-through and the stone solid', () => {
+  it('adds the bigger world\'s blocks after the door, plants see-through and the stone solid', () => {
     const names = BLOCKS.map((block) => block.name)
-    expect(names.slice(-BIGGER_WORLD.length)).toEqual(BIGGER_WORLD)
+    expect(names.slice(blockId('granite'), blockId('granite') + BIGGER_WORLD.length)).toEqual(BIGGER_WORLD)
     expect(blockId('granite')).toBeGreaterThan(blockId('chest'))
     for (const name of ['cactus', 'sugar_cane', 'fern', 'dead_bush', 'creature_sprout', 'ladder', 'fence']) {
       expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
@@ -89,5 +92,25 @@ describe('block registry', () => {
       expect(CUBE_BY_ID[blockId(name)], name).toBe(0)
     }
     expect(CUBE_BY_ID[MISSING_ID]).toBe(0)
+  })
+
+  it('adds Making\'s blocks after the bigger world\'s, the thin ones drawn at their height', () => {
+    const names = BLOCKS.map((block) => block.name)
+    const start = blockId('bookshelf')
+    expect(start).toBe(blockId('creature_sprout') + 1)
+    expect(names.slice(start, start + MAKING.length)).toEqual(MAKING)
+    for (const name of ['rug_orange', 'rug_pink', 'rug_yellow', 'trapdoor']) {
+      expect(CUBE_BY_ID[blockId(name)], name).toBe(1)
+      expect(HEIGHT_BY_ID[blockId(name)], name).toBeCloseTo(FLAT_HEIGHT)
+    }
+    expect(HEIGHT_BY_ID[blockId('slab')]).toBe(SLAB_HEIGHT)
+    for (const name of ['stairs', 'glass_pane', 'iron_bars', 'composter', 'cactus', 'fence']) {
+      expect(CUBE_BY_ID[blockId(name)], name).toBe(1)
+      expect(HEIGHT_BY_ID[blockId(name)], name).toBe(1)
+    }
+    for (const name of ['bookshelf', 'kiln', 'barrel', 'wool_pink']) expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_OPAQUE)
+    for (const name of ['flower_pot', 'sign', 'candle']) expect(CUBE_BY_ID[blockId(name)], name).toBe(0)  // sprites
+    expect(GLOW_BY_ID[blockId('candle')]).toBe(1)
+    expect(blockDef(blockId('bookshelf')).textures).toEqual({ top: 'planks', side: 'bookshelf', bottom: 'planks' })
   })
 })

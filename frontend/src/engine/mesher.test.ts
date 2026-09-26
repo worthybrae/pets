@@ -89,6 +89,16 @@ describe('meshColumn', () => {
     expect(Math.min(...top.light)).toBeGreaterThan(Math.max(...side.light))
   })
 
+  it('draws a slab half high and a rug as a thin plate, their tops showing even under a block', () => {
+    const slab = quads(mesh([[5, 10, 5, 'slab'], [5, 9, 5, 'stone']]).cutout)
+    expect(slab).toHaveLength(5)  // none against the ground
+    expect(Math.max(...slab.flatMap((quad) => quad.vertices.map(([, y]) => y)))).toBe(10.5)
+    const rug = quads(mesh([[5, 10, 5, 'rug_pink'], [5, 9, 5, 'stone'], [5, 11, 5, 'stone']]).cutout)
+    const top = rug.find((quad) => quad.vertices.every(([, y]) => y === 10 + 1 / 16))
+    expect(top).toBeDefined()  // the block over it hides nothing: the plate lies on the floor
+    expect(rug).toHaveLength(5)
+  })
+
   it('scores corner occlusion with the three-neighbor rule', () => {
     expect(cornerAo(0, 0, 0)).toBe(3)
     expect(cornerAo(1, 0, 0)).toBe(2)

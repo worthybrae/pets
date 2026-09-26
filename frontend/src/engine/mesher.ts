@@ -1,6 +1,6 @@
 import { tileUv } from './atlas'
 import {
-  AIR, CUBE_BY_ID, FLUID_BY_ID, GLOW_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE, LAYER_TRANSLUCENT,
+  AIR, CUBE_BY_ID, FLUID_BY_ID, GLOW_BY_ID, HEIGHT_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE, LAYER_TRANSLUCENT,
 } from './blocks'
 import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from './worldgen'
 
@@ -137,13 +137,19 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
 
         if (kind === LAYER_CUTOUT && CUBE_BY_ID[id] === 1) {
           // L3: cactus, ladders and fences are see-through cubes: every face but those against an
-          // opaque block or one of their own, face-shaded, with no corner shadows.
+          // opaque block or one of their own, face-shaded, with no corner shadows. Making: a slab or a
+          // flat plate is the same cube cut down to its height; its top always shows, and its sides
+          // show the bottom of their tile.
+          const height = HEIGHT_BY_ID[id]
           FACES.forEach((face, faceIndex) => {
             const neighbor = idAt(px + face.dir[0], layer + face.dir[1], pz + face.dir[2])
-            if (neighbor === -1 || neighbor === id || LAYER_BY_ID[neighbor] === LAYER_OPAQUE) return
+            const covered = neighbor === -1 || neighbor === id || LAYER_BY_ID[neighbor] === LAYER_OPAQUE
+            if (covered && !(face.dir[1] === 1 && height < 1)) return
             const light = face.shade * blockTint
-            cutout.quad(face.corners.map(([x, y, z]) => [wx + x, wy + y, wz + z] as Vec3),
-              tileUv(faceTiles[id * 6 + faceIndex]), [light, light, light, light], false, glow ? 1 : 0)
+            const uv = tileUv(faceTiles[id * 6 + faceIndex])
+            if (face.dir[1] === 0) uv[3] = uv[1] + (uv[3] - uv[1]) * height
+            cutout.quad(face.corners.map(([x, y, z]) => [wx + x, wy + y * height, wz + z] as Vec3),
+              uv, [light, light, light, light], false, glow ? 1 : 0)
           })
           continue
         }

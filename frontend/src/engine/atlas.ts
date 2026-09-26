@@ -181,6 +181,65 @@ export const PATTERNS: Record<string, Painter> = {
     const leaf = (rise === size && (i === 2 || i === 5)) || (rise === size + 1 && (i === 1 || i === 6))
     return stem || leaf ? tone(color, jitter(random, 0.12)) : CLEAR
   }),
+  // Making (T1): books on shelves, rugs, a kiln's glowing mouth, stairs, windows, a trapdoor, iron bars,
+  // a flower pot, a sign, a barrel, a composter and a candle.
+  books: ({ color, accent }, random) => {
+    const spines: Rgb[] = [accent ?? color, [92, 116, 150], [110, 146, 96], [206, 172, 92]]
+    const book = Array.from({ length: N }, () => spines[Math.floor(random() * spines.length)])
+    return grid((i, j) => {
+      if (j === 0 || j === N - 1 || j === 4 || i === 0 || i === N - 1) return tone(color, 0.82 * jitter(random))
+      return tone(book[(i + (j > 4 ? 3 : 0)) % N], (j === 1 || j === 5 ? 1.08 : 1) * jitter(random, 0.06))
+    })
+  },
+  rug: ({ color, accent }, random) => grid((i, j) =>
+    edge(i, j) ? tone(accent ?? color, jitter(random)) : tone(color, ((i + j) % 4 === 0 ? 0.9 : 1) * jitter(random))),
+  kiln: ({ color, accent }, random) => {
+    const bricks = PATTERNS.bricks({ pattern: 'bricks', color, accent: [214, 200, 184] }, random)
+    return bricks.map((pixel, index) => {
+      const i = index % N, j = Math.floor(index / N)
+      return i >= 2 && i <= 5 && j >= 5 && j <= 6 ? tone(accent ?? color, jitter(random, 0.1)) : pixel
+    })
+  },
+  stair_side: (recipe, random) => PATTERNS.planks(recipe, random).map((pixel, index) =>
+    index % N < N / 2 && Math.floor(index / N) < N / 2 ? CLEAR : pixel),
+  pane: ({ color }, random) => grid((i, j) => {
+    if (edge(i, j)) return tone(color, 0.78 * jitter(random, 0.05))
+    if (i === 3 || j === 3) return tone(color, 0.9 * jitter(random, 0.05))
+    return i - j === 1 && i < 3 ? tone(color, 1.2, 220) : CLEAR
+  }),
+  trapdoor: ({ color }, random) => grid((i, j) => {
+    if ((i === 2 || i === 5) && (j === 2 || j === 5)) return CLEAR
+    return tone(color, (edge(i, j) ? 0.8 : j === 3 || j === 4 ? 0.92 : 1) * jitter(random))
+  }),
+  bars: ({ color }, random) => grid((i, j) => {
+    const rail = j === 0 || j === N - 1
+    return i % 3 === 1 || rail ? tone(color, (rail ? 0.85 : 1) * jitter(random, 0.05)) : CLEAR
+  }),
+  sprite_pot: ({ color, accent }, random) => grid((i, j) => {
+    if (j === 5) return i >= 1 && i <= 6 ? tone(accent ?? color, 1.1 * jitter(random)) : CLEAR
+    if (j > 5) return i >= 2 && i <= 5 ? tone(accent ?? color, (i === 5 ? 0.86 : 1) * jitter(random)) : CLEAR
+    const stem = j >= 3 && (i === 3 || i === 4)
+    const leaf = (j === 2 && i >= 2 && i <= 5) || (j === 1 && (i === 2 || i === 5))
+    return stem || leaf ? tone(color, jitter(random, 0.12)) : CLEAR
+  }),
+  sprite_sign: ({ color, accent }, random) => grid((i, j) => {
+    if (j >= 1 && j <= 4) {
+      const words = (j === 2 || j === 3) && i >= 1 && i <= 6 && (i + j) % 3 !== 0
+      return tone(words ? accent ?? color : color, (edge(i, j) ? 0.88 : 1) * jitter(random))
+    }
+    return j >= 5 && (i === 3 || i === 4) ? tone(accent ?? color, jitter(random)) : CLEAR
+  }),
+  staves: ({ color, accent }, random) => grid((i, j) =>
+    j === 1 || j === N - 2 ? tone(accent ?? color, jitter(random, 0.05)) : tone(color, (i % 2 ? 0.88 : 1) * jitter(random))),
+  slats: ({ color }, random) => grid((i, j) => {
+    const post = i === 0 || i === N - 1
+    return post || j % 3 !== 2 ? tone(color, (post ? 0.84 : 1) * jitter(random)) : CLEAR
+  }),
+  sprite_candle: ({ color, accent }, random) => grid((i, j) => {
+    if (j >= 3) return i >= 3 && i <= 4 ? tone(color, (i === 4 ? 0.88 : 1) * jitter(random, 0.05)) : CLEAR
+    if (j === 2) return i === 3 ? tone([60, 52, 44], 1) : CLEAR
+    return (i === 3 || (j === 1 && i === 4)) ? tone(accent ?? color, 1.1 * jitter(random, 0.05)) : CLEAR
+  }),
   glass: ({ color }, random) => grid((i, j) => {
     if (edge(i, j)) return tone(color, 0.9, 220)
     if (i - j === 2 && i < 6) return tone(color, 1.15, 150)

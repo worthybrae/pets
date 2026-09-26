@@ -28,6 +28,9 @@ export interface BlockDef {
   fluid: boolean
   /** L3: a cutout block drawn as a see-through cube (cactus, ladder, fence), not crossed sprites. */
   cube: boolean
+  /** Making: how tall that cube is drawn, 1 for a whole block, SLAB_HEIGHT for a slab (`shape` "slab")
+   * and FLAT_HEIGHT for a plate lying on the ground (`shape` "flat": rugs, wire, trapdoors). */
+  height: number
 }
 
 interface RawBlock {
@@ -42,6 +45,9 @@ interface RawBlock {
 }
 
 export const AIR = 0
+export const SLAB_HEIGHT = 0.5
+export const FLAT_HEIGHT = 1 / 16
+const HEIGHTS: Record<string, number> = { cube: 1, slab: SLAB_HEIGHT, flat: FLAT_HEIGHT }
 /** Client-only id for material names the registry does not know. */
 export const MISSING_ID = 255
 
@@ -53,7 +59,8 @@ function toDef(raw: RawBlock, id: number): BlockDef {
     : raw.textures
   return {
     id, name: raw.name, color: [raw.color[0], raw.color[1], raw.color[2]], layer: raw.layer,
-    solid: raw.solid, textures, glow: Boolean(raw.glow), fluid: Boolean(raw.fluid), cube: raw.shape === 'cube',
+    solid: raw.solid, textures, glow: Boolean(raw.glow), fluid: Boolean(raw.fluid),
+    cube: raw.shape !== undefined && raw.shape in HEIGHTS, height: HEIGHTS[raw.shape ?? 'cube'] ?? 1,
   }
 }
 
@@ -63,7 +70,7 @@ if (rawBlocks.length >= MISSING_ID) throw new Error('Block registry is full; ids
 export const BLOCKS: BlockDef[] = rawBlocks.map(toDef)
 export const MISSING: BlockDef = {
   id: MISSING_ID, name: 'missing', color: [255, 0, 255], layer: 'opaque', solid: true,
-  textures: { top: 'missing', side: 'missing', bottom: 'missing' }, glow: false, fluid: false, cube: false,
+  textures: { top: 'missing', side: 'missing', bottom: 'missing' }, glow: false, fluid: false, cube: false, height: 1,
 }
 
 const ids = new Map(BLOCKS.map((block) => [block.name, block.id]))
@@ -100,10 +107,12 @@ export const LAYER_BY_ID = new Uint8Array(256)
 export const GLOW_BY_ID = new Uint8Array(256)
 export const FLUID_BY_ID = new Uint8Array(256)
 export const CUBE_BY_ID = new Uint8Array(256)
+export const HEIGHT_BY_ID = new Float32Array(256)
 for (let id = 0; id < 256; id++) {
   const def = blockDef(id)
   LAYER_BY_ID[id] = LAYER_CODES[def.layer]
   GLOW_BY_ID[id] = def.glow ? 1 : 0
   FLUID_BY_ID[id] = def.fluid ? 1 : 0
   CUBE_BY_ID[id] = def.cube ? 1 : 0
+  HEIGHT_BY_ID[id] = def.height
 }

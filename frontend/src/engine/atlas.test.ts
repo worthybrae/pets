@@ -110,6 +110,28 @@ describe('atlas', () => {
     expect(colours('birch_log_side').some(([r]) => r < 90)).toBe(true)
   })
 
+  it('paints Making\'s blocks: see-through windows, bars, stairs and sprites, solid shelves, wool, rugs and barrels', () => {
+    const alphas = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!).map((pixel) => pixel[3])
+    for (const name of ['stairs_side', 'glass_pane', 'trapdoor', 'iron_bars', 'flower_pot', 'sign', 'composter_side', 'candle']) {
+      expect(alphas(name), name).toContain(0)
+      expect(Math.max(...alphas(name)), name).toBe(255)
+    }
+    for (const name of ['bookshelf', 'wool_orange', 'wool_pink', 'wool_yellow', 'rug_orange', 'rug_pink', 'rug_yellow',
+      'kiln_top', 'kiln_side', 'barrel_side', 'barrel_top', 'composter_top']) {
+      expect(Math.min(...alphas(name)), name).toBe(255)
+    }
+    const stairs = tilePixels(atlas, atlas.tileIndex.get('stairs_side')!)
+    expect(stairs[0][3]).toBe(0)  // the step: the top left quarter is open...
+    expect(stairs[TILE_SIZE * TILE_SIZE - 1][3]).toBe(255)  // ...and the bottom right solid
+  })
+
+  it('gives the kiln a glowing mouth and the shelf books of more than one colour', () => {
+    const colours = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!)
+    expect(colours('kiln_side').some(([r, g, b]) => r > 230 && g > 150 && b < 130)).toBe(true)
+    const spines = new Set(colours('bookshelf').slice(TILE_SIZE, 3 * TILE_SIZE).map(([r, g, b]) => `${r >> 5},${g >> 5},${b >> 5}`))
+    expect(spines.size).toBeGreaterThan(2)
+  })
+
   it('insets uvs by a quarter texel', () => {
     const inset = 0.25 / ATLAS_SIZE
     expect(tileUv(0)).toEqual([inset, inset, 8 / 128 - inset, 8 / 128 - inset])

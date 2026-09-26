@@ -3,7 +3,7 @@ import unittest
 from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, TILES, hardness, is_plant, is_replaceable, is_solid, mining_tool
 from backend.services.crafting import BLOCKS
 
-# L3's blocks, in registry order at its very end (after L2's door).
+# L3's blocks, in registry order right after L2's door (Making's follow them).
 BIGGER_WORLD = ("granite", "andesite", "diorite", "ashstone", "gold_ore", "diamond_ore",
                 "birch_log", "birch_leaves", "birch_planks", "spruce_log", "spruce_leaves", "spruce_planks",
                 "snow_block", "ice", "mud", "cactus", "sugar_cane", "pumpkin", "melon", "fern", "dead_bush",
@@ -15,7 +15,8 @@ PLANTS = ("cactus", "sugar_cane", "fern", "dead_bush", "creature_sprout")
 class BiggerWorldBlockTests(unittest.TestCase):
     def test_the_new_blocks_come_last_so_older_ids_never_change(self):
         names = [block["name"] for block in BLOCK_LIST]
-        self.assertEqual(names[-len(BIGGER_WORLD):], list(BIGGER_WORLD))
+        start = BLOCK_IDS["granite"]
+        self.assertEqual(names[start:start + len(BIGGER_WORLD)], list(BIGGER_WORLD))
         self.assertEqual(BLOCK_IDS["granite"], BLOCK_IDS["door"] + 1)  # right after L2's door
         self.assertLess(len(BLOCK_LIST), 255)
 
