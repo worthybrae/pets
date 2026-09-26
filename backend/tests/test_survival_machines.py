@@ -1,17 +1,43 @@
 import unittest
+from dataclasses import replace
 
 from backend.services.crafting import craft
-from backend.survival.machines import MACHINES, design, next_machine, untried
+from backend.survival.grid import Grid
+from backend.survival.machines import (
+    MACHINES, design, machine_batch, machine_valid, makeable, next_machine, untried, yard_column, yard_left,
+)
 from backend.survival.making import raw_needs
 from backend.survival.memory import know, remember, structures
 from backend.survival.purposes import PURPOSES
 from backend.survival.signals import machine_state, run_signals
 from backend.survival.steps import finish_step, start_step
+from backend.survival.structures import todo
 from backend.survival.work import prospecting, wanted_ores
 from backend.tests.test_survival_workshop import NIGHT, Yard, shares
 
 COPPER = {"copper_ingot": 4, "sticks": 6, "cobblestone": 12, "coal": 2, "planks": 12, "oak_log": 4}
 SENSOR = {"glass": 3, "slab": 3}
+
+
+def rough(x, y, z):
+    """A yard's meadow, rough away from home: 3x3 plateaus a block high, and oaks (4 logs under a leaf) in
+    rows (test_survival_computer.rough, duplicated here to avoid a circular import)."""
+    ground = 0
+    if abs(x - 1) > 4 or abs(z - 1) > 4:
+        ground = (x // 3 + z // 3) % 2
+        if x % 4 == 0 and z % 3 == 0:
+            if ground < y <= ground + 4:
+                return "oak_log"
+            if y == ground + 5:
+                return "leaves"
+    return "grass" if y == ground else "dirt" if y < ground else "air"
+
+
+def furrowed(x, y, z):
+    """A yard's meadow, furrowed away from home: every third column a block low (test_survival_computer's,
+    duplicated here to avoid a circular import)."""
+    ground = -1 if (abs(x - 1) > 4 or abs(z - 1) > 4) and x % 3 == 0 else 0
+    return "grass" if y == ground else "dirt" if y < ground else "air"
 
 
 def wired(inventory=None, goal="first_circuits", lesson=True, natural=None):
@@ -141,6 +167,53 @@ class CopperTests(unittest.TestCase):
         yard.state["inventory"]["copper_ore"] = 3
         know(yard.db, "copper_spark", "lesson", 0.0)
         self.assertEqual(shares(yard.situation(), "first_circuits")[:2], [1.0, 1.0])
+
+
+# Fix round 1 -----------------------------------------------------------------------------------------
+
+class YardColumnTests(unittest.TestCase):
+    def test_a_column_over_a_frozen_lake_is_refused(self):
+        """machines.py:116-130: yard_column checked only the cells above the ground for water; it did not
+        require the ground to rest on something solid, as blueprints.look_at's firm check does. Ice sitting
+        right on a lake reads as solid ground unless the cell under it is checked too."""
+        def icy(x, y, z):
+            return "ice" if y == 1 else "water" if y == 0 else "air" if y > 1 else "dirt"
+        self.assertIsNone(yard_column(Grid(icy), 5, 5, 0))
+
+    def test_solid_ground_is_still_accepted(self):
+        def solid(x, y, z):
+            return "grass" if y == 1 else "dirt" if y < 1 else "air"
+        self.assertEqual(yard_column(Grid(solid), 5, 5, 0), (1, []))
+
+
+class StandsTests(unittest.TestCase):
+    def test_a_design_with_no_stands_is_left_alone_not_crashed_on(self):
+        """machines.py:387: blueprint.stands[0] raised IndexError when a design had no stands (here, one
+        whose low columns still want filling with dirt), which machine_valid's caller swallowed, silently
+        never building it."""
+        yard = wired({"dirt": 6}, goal="thinking_machine", natural=furrowed)
+        know(yard.db, "clock", "lesson", 0.0)
+        s = yard.situation()
+        blueprint = design(s, MACHINES["clock"])
+        self.assertTrue(todo(s.grid, blueprint))  # the low columns still want filling
+        stripped = replace(blueprint, stands=())
+        self.assertEqual(machine_batch(s, stripped), [])
+
+
+class MachineValidTests(unittest.TestCase):
+    def test_it_stays_valid_for_yard_clearing_alone_even_with_nothing_to_craft(self):
+        """machines.py:411: machine_valid must check machine_batch (which also covers the yard's levelling,
+        T3), not makeable (which only looks at parts Mimo could craft now); a yard that still needs
+        levelling but has no materials for any part would otherwise read as invalid."""
+        yard = Yard(natural=rough)  # no inventory at all: nothing craftable
+        yard.goal("thinking_machine")
+        know(yard.db, "clock", "lesson", 0.0)
+        s = yard.situation()
+        blueprint = design(s, MACHINES["clock"])
+        self.assertTrue(yard_left(s, blueprint))
+        self.assertEqual(makeable(s, blueprint), [])
+        self.assertTrue(machine_batch(s, blueprint))
+        self.assertTrue(machine_valid(s))
 
 
 if __name__ == "__main__":

@@ -103,37 +103,46 @@ def pairs(circuit: Circuit, rows: tuple[int, int], corner) -> list[tuple[int | N
 
 
 def computer_start(life: dict, at: float, scale: float, circuit: Circuit, corner) -> tuple[dict, dict]:
-    """signals.STARTS: the count set to the days Mimo has lived before today's dawn when built by day (the
-    first step then sees the sensor come on, and counts today), and the sensor read as night while it
-    settles. Each stage's second repeater holds its bit; where the stage's clock is high (the bit below
-    it is 0; the lowest stage's is the sensor, read as off) its first one, locked, holds the same bit."""
+    """signals.STARTS: the count set to the days Mimo has lived before today's dawn (fix round 1: the
+    sensor is read as it truly stands, not forced to night, so a computer that gets no budget before the
+    next dawn does not lose today's count for good). Each stage's second repeater holds its bit; its first
+    one holds the same bit while its stage's clock is high: for the lowest stage that is the sensor, read
+    as it stands now (by day, so the machine's own settle catches today's count at once instead of relying
+    on a later step to see the sensor rise); for the rest, the bit below it being 0."""
     clock = clock_at(life.get("born_at", 0.0), at, scale)
-    value = (clock["day_number"] - (0 if clock["phase"] in NIGHT_PHASES else 1)) % (1 << BITS)
+    by_day = clock["phase"] not in NIGHT_PHASES
+    value = (clock["day_number"] - 1) % (1 << BITS)
     held = {}
     for bit, (first, second) in enumerate(pairs(circuit, COMPUTER_ROWS, corner)):
         on = FULL if (value >> bit) & 1 else 0
         if second is not None:
             held[second] = on
-        if first is not None and bit > 0 and not (value >> (bit - 1)) & 1:
-            held[first] = on
-    sensors = [index for index, part in enumerate(circuit.parts) if part[1] == "sensor"]
-    return held, {sensor: 0 for sensor in sensors}
+        high = by_day if bit == 0 else not (value >> (bit - 1)) & 1
+        if first is not None and high:
+            held[first] = (0 if on else FULL) if bit == 0 else on
+    return held, {}
 
 
-def readout(rows: tuple[int, int]):
+def readout(rows: tuple[int, int], always_shown: bool = False):
     def read(circuit: Circuit, state: dict, corner) -> dict:
-        """The count the stages hold, its bits (highest first) and whether its lamps are shown."""
+        """The count the stages hold, its bits (highest first) and whether its lamps are shown: for the
+        computer (fix round 1), its lever must be there and thrown, not merely absent (`all` of no levers
+        is true, which used to show the caption while a lever-less or lever-gone circuit was dark); the
+        counter (`always_shown`) is always shown, having no lever to gate it."""
         value = sum(1 << bit for bit, (_, second) in enumerate(pairs(circuit, rows, corner))
                     if second is not None and state["out"].get(second, 0) > 0)
-        levers = [index for index, part in enumerate(circuit.parts) if part[1] == "lever"]
-        shown = all(state["out"].get(index, 0) > 0 for index in levers)
+        if always_shown:
+            shown = True
+        else:
+            levers = [index for index, part in enumerate(circuit.parts) if part[1] == "lever"]
+            shown = bool(levers) and all(state["out"].get(index, 0) > 0 for index in levers)
         return {"value": value, "bits": format(value, f"0{BITS}b"), "shown": shown}
     return read
 
 
 STARTS["computer"] = computer_start
 READOUTS["computer"] = readout(COMPUTER_ROWS)
-READOUTS["counter"] = readout(COUNTER_ROWS)
+READOUTS["counter"] = readout(COUNTER_ROWS, always_shown=True)
 
 
 def observe_computer(state: dict, step: dict, context, at: float) -> None:

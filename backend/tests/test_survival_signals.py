@@ -211,6 +211,37 @@ class MachineTests(unittest.TestCase):
         bench.tick()
         self.assertEqual(bench.costs[-1], 0)
 
+    # Fix round 1 ---------------------------------------------------------------------------------
+
+    def test_a_joiner_facing_into_a_repeater_locks_it_too(self):
+        """Not only another repeater (LockTests, above): a joiner facing into a repeater's side locks it
+        the same way."""
+        bench = Bench(("L w 1>* ", "L 1>o^. "))  # the second row's repeater and joiner feed into the first's side
+        bench.set((0, 0))
+        bench.tick(3)
+        self.assertTrue(bench.lit((3, 0)))
+        bench.set((0, 1))  # powers the joiner's side, through a repeater, into the main one's side
+        bench.tick(4)
+        bench.set((0, 0), False)
+        bench.tick(3)
+        self.assertTrue(bench.lit((3, 0)))  # locked: it still gives out what it did
+        bench.set((0, 1), False)
+        bench.tick(4)
+        self.assertFalse(bench.lit((3, 0)))  # let go: it follows its input again
+
+    def test_a_locked_repeaters_register_is_flushed_so_letting_go_does_not_glitch(self):
+        """A repeater's register (its pending, not-yet-given-out readings) must be flushed to the value it
+        is holding while locked; otherwise a stale reading queued before the lock can slip out as a brief,
+        wrong flicker once it lets go."""
+        bench = Bench(("L w 4>* ", ". . 1^. ", ". L w . "))
+        bench.set((0, 0))  # the main repeater's input rises
+        bench.set((1, 2))  # locked at once, before it has given out anything
+        bench.tick(1)  # the locker takes hold
+        bench.set((0, 0), False)  # the input changes while it is locked
+        bench.tick(1)
+        bench.set((1, 2), False)  # let go
+        self.assertFalse(any(bench.tick().lit((3, 0)) for _ in range(10)))  # no stale flicker once it lets go
+
 
 def machine(yard, rows=None, origin=(20, 1, 20), name="test", parts=None):
     """A machine Mimo finished at `origin`, from a layout (or a list of parts), every part in place."""

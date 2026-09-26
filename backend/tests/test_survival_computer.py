@@ -1,15 +1,19 @@
+import sqlite3
 import time
 import unittest
 
+from backend.survival import brain
 from backend.survival.computer import (
-    CLOCK, COMPUTER, COMPUTER_ROWS, COUNTER, DAY_COLUMNS, MEMORY, computer_start, observe_computer, pairs, readout,
+    CLOCK, COMPUTER, COMPUTER_ROWS, COUNTER, COUNTER_ROWS, DAY_COLUMNS, MEMORY, REMEMBERS, computer_start,
+    observe_computer, readout,
 )
 from backend.survival.goals import GOALS
+from backend.survival.grid import Grid
 from backend.survival.machines import CLEAR, MACHINES, design, next_machine
 from backend.survival.memory import know, structures
 from backend.survival.signals import (
-    FULL, MAX_CELLS, compile_circuit, corner_of, fresh_state, machine_state, parse, run_signals, settle, step,
-    step_bound,
+    FULL, MATERIALS, MAX_CELLS, compile_circuit, corner_of, create_signal_table, fresh_state, machine_state, parse,
+    run_machine, run_signals, settle, step, step_bound,
 )
 from backend.tests.test_survival_machines import wired
 from backend.tests.test_survival_signals import Bench, machine
@@ -108,7 +112,7 @@ class MachineTests(unittest.TestCase):
         for day in (1, 6, 14, 16):
             state = fresh_state(circuit)
             held, forced = computer_start({"born_at": 0.0}, (day - 1) * DAY + NOON, 1.0, circuit, corner)
-            self.assertEqual(forced, {sensor: 0})
+            self.assertEqual(forced, {})
             settle(circuit, state, {sensor: 0, lever: FULL, **forced}, held)
             self.assertEqual(read(circuit, state, corner)["value"], (day - 1) % 16)  # before this dawn
         rings, counts = 0, []
@@ -208,9 +212,45 @@ class RunTests(unittest.TestCase):
                 readout_now = machine_state(yard.db, number)["readout"]
                 shown.append((day, bits, readout_now["bits"]))
         self.assertEqual(shown, [(day, format(day % 16, "04b"), format(day % 16, "04b")) for day in range(1, 18)])
-        # It rings as it starts by day (its sensor read as night while it settles), then at each dawn after.
-        self.assertEqual(sum(1 for event in yard.events if event[1] == "bell"), 1 + 16)
+        # Fix round 1: no spurious ring at build (its sensor is no longer forced to night while it settles).
+        self.assertEqual(sum(1 for event in yard.events if event[1] == "bell"), 16)
         self.assertLess(slowest, 0.05)
+
+    def test_a_computer_finished_late_in_the_day_does_not_stay_a_day_behind_for_good(self):
+        """Fix round 1: af0a585's computer_start set the count to yesterday's number and forced the sensor
+        to read night while the circuit settles, relying on the machine's first real step to see the sensor
+        rise and count today. Finished late in the day beside a busy clock and counter (which, at 60x or in
+        a catch-up, leave it little of a tick's budget), that rise can go unseen for so long that the quiet
+        shortcut compares the sensor's reading only much later, once it reads the same as the forced 0 again
+        (night), and jumps ahead without ever having counted today: the display stays one day behind for
+        good. Smallest case from the brief: the clock, the counter and the computer, finished at 2280 s into
+        day 1, a tick every 60 game seconds. Fails on af0a585's computer_start, which shows 0001, 0010, 0011
+        on the noons of days 2-4 instead of 0010, 0011, 0100."""
+        db = sqlite3.connect(":memory:")
+        create_signal_table(db)
+        grid = Grid(lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air")
+        origin = (20, 1, 20)
+        parts = tuple(((x, y, z), kind, facing, setting)
+                      for x, y, z, kind, facing, setting in parse(COMPUTER, origin))
+        for (x, y, z), kind, _, _ in parts:
+            grid.put(x, y, z, MATERIALS[kind][0])
+        grid.put(origin[0] + 19, 1, origin[2] + 9, "lever_on")
+        lamps = [(origin[0] + column, 1, origin[2] + 7) for column in DAY_COLUMNS]
+        life = {"born_at": 0.0}
+        events: list = []
+        run_machine(db, grid, life, 1, "computer", parts, 2280.0, 1.0, MAX_CELLS, events)  # finished at dusk
+        shown, tick = [], int(2280.0 // 60)
+        while tick * 60.0 < 4 * DAY:
+            tick += 1
+            at = tick * 60.0
+            # What a tick's budget has left once a busy clock and counter go first (days 1-3; ample after).
+            budget = 10 if at < 3 * DAY else MAX_CELLS
+            run_machine(db, grid, life, 1, "computer", parts, at, 1.0, budget, events)
+            if at % DAY == NOON:
+                day = int(at // DAY) + 1
+                bits = "".join("1" if grid.material(*lamp) == "lamp_lit" else "0" for lamp in reversed(lamps))
+                shown.append((day, bits))
+        self.assertEqual(shown, [(day, format(day % 16, "04b")) for day in (2, 3, 4)])
 
 
 class GoalTests(unittest.TestCase):
@@ -258,6 +298,51 @@ class GoalTests(unittest.TestCase):
         self.assertEqual([event for event in yard.events if event[1] == "computer"],
                          [(5.0, "computer", "Pip built a machine that remembers how long it has been alive!")])
         self.assertEqual(yard.state["last_thought"], "I built a machine that remembers how long I've been alive!")
+
+    def test_flipping_a_different_machines_lever_does_not_claim_the_computer_moment(self):
+        """computer.py:148: observe_computer checks it really is the computer the flip found, not just any
+        lamp on a lever."""
+        yard = Yard()
+        machine(yard, ("L w w * ",), name="lamp_lever")
+        flip = {"kind": "flip", "target": [20, 1, 20]}
+        observe_computer(yard.state, flip, yard.context(), 5.0)
+        self.assertEqual([event for event in yard.events if event[1] == "computer"], [])
+        self.assertNotEqual(yard.state.get("last_thought"), REMEMBERS)
+
+    def test_the_brain_calls_observe_computer_when_a_step_finishes(self):
+        """brain.py:270: brain.observe_step must call observe_computer itself, not merely offer a function
+        of the same name that nothing invokes."""
+        yard = Yard()
+        machine(yard, COMPUTER, origin=(20, 1, 20), name="computer")
+        flip = {"kind": "flip", "target": [39, 1, 29]}
+        brain.observe_step(yard.state, flip, yard.context(), 5.0)
+        self.assertEqual([event for event in yard.events if event[1] == "computer"],
+                         [(5.0, "computer", "Pip built a machine that remembers how long it has been alive!")])
+
+    def test_the_computer_keeps_its_reach_of_24(self):
+        """computer.py:92: the computer (and the counter), being wide, may stand farther from the workshop
+        than the usual yard reach."""
+        self.assertEqual(MACHINES["computer"].reach, 24)
+
+    def test_the_caption_hides_when_the_lever_is_gone_not_just_thrown_off(self):
+        """computer.py:129 (fix round 1): `all` of no levers is true, so a computer whose lever block was
+        destroyed (missing from the circuit entirely, not merely thrown off) used to still read as shown
+        even though its lamps are dark. The counter, which never has a lever, stays always shown."""
+        all_parts = tuple(((x, y, z), kind, facing, setting)
+                          for x, y, z, kind, facing, setting in parse(COMPUTER))
+        corner = corner_of(all_parts)
+        present = tuple(part for part in all_parts if part[1] != "lever")  # the lever's block is gone
+        circuit = compile_circuit(present)
+        state = fresh_state(circuit)
+        settle(circuit, state, {}, {})
+        self.assertFalse(readout(COMPUTER_ROWS)(circuit, state, corner)["shown"])
+        counter_parts = tuple(((x, y, z), kind, facing, setting)
+                              for x, y, z, kind, facing, setting in parse(COUNTER))
+        counter_circuit = compile_circuit(counter_parts)
+        counter_state = fresh_state(counter_circuit)
+        settle(counter_circuit, counter_state, {}, {})
+        self.assertTrue(readout(COUNTER_ROWS, always_shown=True)(
+            counter_circuit, counter_state, corner_of(counter_parts))["shown"])
 
 
 if __name__ == "__main__":

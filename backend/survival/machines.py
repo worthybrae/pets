@@ -5,9 +5,9 @@ their circuit (style "circuit", run by backend.survival.signals once the machine
 machine is a Machine in MACHINES: its layout (signals.parse's rows), the lesson it takes, where it goes
 and what Mimo does once it is built (throws its levers, presses its first button: trying it out).
 Where a machine goes (`design`):
-- "yard": the nearest flat, untouched ground to the workshop (or home, without one) within YARD_REACH
-  blocks where its whole layout and a walkway round it lie at one height (the walkway within a block
-  of it); Mimo stands on the walkway, or in the layout's gaps, to build;
+- "yard": the spot near the workshop (or home, without one) within its reach that costs the least to
+  level (T3, below) plus its distance; Mimo stands on the walkway round it, or in the layout's gaps,
+  to build;
 - "porch": the same, by home's door, within PORCH_REACH blocks;
 - "door": the home's own door, with a pressure plate in front of it and one inside (the door itself is
   the output; it is the home's, never placed).
@@ -116,7 +116,8 @@ register_machine(Machine("night_light", "a night-light", "copper_spark", ("S n>*
 def yard_column(grid: Grid, x: int, z: int, reference: int) -> tuple[int, list[Cell]] | None:
     """T3: a column's natural ground under what grows on it, and the cells of that growth (a tree's logs and
     leaves, a cactus, a pumpkin or a melon), looked for from SCAN above `reference` down; None where the
-    column holds water, or anything Mimo placed, dug or claimed."""
+    column holds water, or anything Mimo placed, dug or claimed, or (fix round 1, as blueprints.look_at's
+    firm check does) where the ground does not rest on something solid."""
     growth: list[Cell] = []
     for y in range(reference + SCAN, reference - SCAN - 1, -1):
         cell = (x, y, z)
@@ -126,6 +127,9 @@ def yard_column(grid: Grid, x: int, z: int, reference: int) -> tuple[int, list[C
         if material in GROWTH:
             growth.append(cell)
         elif not open_cell(material):
+            under = grid.material(x, y - 1, z)
+            if under == "water" or not grid.solid((x, y - 1, z)):
+                return None
             return y, growth
     return None
 
@@ -384,6 +388,8 @@ def machine_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
                 for planned in digging[:PARTS_PER_BATCH]]
         return place_steps(s, yard_stands(s, blueprint), jobs)
     if todo(s.grid, blueprint):
+        if not blueprint.stands:
+            return []
         stand = s.here if s.here in blueprint.stands else blueprint.stands[0]
         work = structural_batch(s, blueprint, stand)
         return ([] if stand == s.here else [whole_walk(stand)]) + work if work else []
