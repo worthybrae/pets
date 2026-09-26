@@ -49,7 +49,7 @@ class TeachableLessonsTests(unittest.TestCase):
     def test_the_new_lessons_are_never_things_to_go_and_study(self):
         added = [thing for thing in LESSONS if ":" in thing]
         self.assertEqual(len(added), len(GEAR) + 2 * len(KINDS) - sum(1 for kind in KINDS.values() if not kind.drops))
-        self.assertEqual(len(LESSONS) - len(added), 32)  # L4b's
+        self.assertEqual(len(LESSONS) - len(added), 36)  # L4b's 32, plus Making T2's 4 (copper_spark, clock, latch, adder)
         self.assertFalse(set(added) & (set(SURFACE) | set(PLANTS) | set(KINDS)))
 
     def test_part_b_can_add_a_recipe_lesson(self):
