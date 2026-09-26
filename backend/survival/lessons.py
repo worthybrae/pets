@@ -16,15 +16,25 @@ Their things hold a colon, so they are never things to go and study (journal.cur
 L4b's block, plant and creature names). They unlock nothing: L4b's lessons keep their own gates
 (gravel's flint, gold, diamonds) and Part B's "copper carries a spark" brings its own.
 
-`claims(text)` reads the owner's words against every lesson in journal.LESSONS. A lesson fits when
-the words name what it is about (one of its `subjects`: "iron sword", or "iron armor" for iron
-armor, TEACH_SYNONYMS widening them), say something it says too (another of its `words`), and name
-no other thing of the world (mind.vocabulary) that it does not: "cows give leather" fits the cow
-lessons, "cows give diamonds" fits none, since no cow lesson speaks of diamonds, and is `doubtful`.
-A claim about a known subject with a verb no lesson says at all, "cows fly", is `doubtful` too
-(controller ruling, Task 5 review); small talk about the same subject with no verb of its own to
-check, "cows are cute" ("are" a copula, not a claim), is not. Words that seem to teach about things
-no lesson is about are `unknown` ("bread is made from wheat"). A question never teaches.
+`claims(text)` reads the owner's words against every lesson in journal.LESSONS, one sentence at a
+time (a false or foreign word in one sentence never spoils a lesson a later sentence teaches
+cleanly: "I like the lake. Skitters hate light." still teaches the skitter lessons). A lesson fits
+a sentence when its words name what the lesson is about (one of its `subjects`: "iron sword", or
+"iron armor" for iron armor, TEACH_SYNONYMS widening them), say something it says too (another of
+its `words`), and name no other thing of the world (mind.vocabulary) that it does not: "cows give
+leather" fits the cow lessons, "cows give diamonds" fits none, since no cow lesson speaks of
+diamonds, and is `doubtful`.
+
+A short statement that starts by naming a known subject (a creature kind or a recipe item) and is
+directly followed by a claim no lesson supports at all is `doubtful` too, even when its verb is
+outside TEACH_VERBS: "cows fly", "cows fly, it is true" (controller ruling, Task 5 and Task 6
+review). A copula right after the subject only describes it ("cows are cute") unless more follows
+too ("skitters are friendly and sing", still doubtful); talk of the owner ("I", "you", "we", "my",
+"your", "let's"), checked on the raw words, never is ("Moss, I love you", the pet named after the
+moss lesson's own subject) -- nor is anything that does not start with the subject at all ("good
+morning cows", "nice sword!", a place or a compliment mentioned in passing). Words that seem to
+teach about things no lesson is about are `unknown` ("bread is made from wheat"). A question never
+teaches.
 """
 
 from __future__ import annotations
@@ -35,7 +45,7 @@ from dataclasses import dataclass
 from backend.services.crafting import RECIPES
 from backend.survival.creatures.kinds import KINDS, Kind
 from backend.survival.journal import LESSONS, Lesson, teach
-from backend.survival.mind import vocabulary, words_of
+from backend.survival.mind import singular, vocabulary, words_of
 
 SHORTLIST = 5  # lessons offered for one line
 NUMBERS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
@@ -57,17 +67,23 @@ TEACH_SYNONYMS = (
     {"cap", "helmet", "hat"}, {"tunic", "shirt", "chestplate"}, {"pickaxe", "pick"}, {"sword", "blade"},
     {"cow", "cattle"}, {"skitter", "spider"}, {"gloomling", "zombie"}, {"rabbit", "bunny"},
     {"give", "drop"}, {"take", "need", "cost"}, {"make", "made", "craft"}, {"dark", "light", "shadow", "night"},
-    {"sun", "sunlight", "day", "daylight", "light"}, {"fade", "hate", "avoid", "fear", "burn"}, {"mountain", "alpine"},
+    {"sun", "sunlight", "day", "daylight", "light"}, {"fade", "avoid", "fear", "burn"}, {"mountain", "alpine"},
     {"ingot", "bar"}, {"wooden", "wood"}, {"stone", "cobblestone"},
 )
 TEACH_VERBS = frozenset({"give", "make", "made", "need", "take", "drop", "come", "live", "grow", "burn", "hide",
                          "keep", "craft", "dig", "smelt", "cook", "spawn", "hate", "fear", "use", "turn", "melt"})
 QUESTION_WORDS = frozenset({"do", "does", "did", "can", "could", "is", "are", "was", "what", "how", "why", "where",
                             "when", "who", "which", "should", "would", "will"})
-# "cows are cute": a copula, not a claim (controller ruling, Task 5 review: "cows fly" is doubtful,
-# small talk that only describes a known subject through "is"/"are" is not).
+# "cows are cute": a copula right after a known subject only describes it, not a claim to check,
+# unless more follows too ("skitters are friendly and sing", controller ruling, Task 6 review).
 COPULA = frozenset({"is", "are", "was", "were"})
+# Talk of the owner, not a claim about the subject ("Moss, I love you", "let's go fishing"), checked
+# on the raw words (the pet's own name is dropped before this, teaching.hear_lessons).
+PERSON_WORDS = frozenset({"i", "you", "we", "my", "your", "let"})
 _RAW_WORD = re.compile(r"[a-z]+")
+# A sentence boundary (., ! or ?) followed by space, but not inside a "..." pause (replies.clip's own
+# pattern): a false or foreign word in one sentence never spoils a lesson a later one teaches cleanly.
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?<!\.\.\.)\s+")
 
 
 def number(n: int) -> str:
@@ -245,16 +261,40 @@ def asks(text: str) -> bool:
     return text.rstrip().endswith("?") or first.strip(",.!") in QUESTION_WORDS
 
 
-def claims(text: str) -> Claims:
-    """What the owner's words could teach Mimo: only real lessons, never what they get wrong."""
+def raw_words(text: str) -> list[str]:
+    """The lower-case, singular words of `text`, in order, stop words kept (for position checks)."""
+    return [singular(word) for word in _RAW_WORD.findall(text.lower())]
+
+
+def bare_claim(raw: list[str], subject: frozenset[str], found_words: frozenset[str]) -> bool:
+    """A short statement that starts by naming a known subject and is directly followed by a claim
+    no lesson supports at all ("cows fly", doubtful even though "fly" is outside TEACH_VERBS): a
+    copula right after the subject only describes it ("cows are cute") unless more follows too
+    ("skitters are friendly and sing"); talk of the owner never is (controller ruling, Task 6
+    review)."""
+    if PERSON_WORDS & set(raw):
+        return False
+    width = len(subject)
+    if set(raw[:width]) != subject:
+        return False
+    rest = raw[width:]
+    if not rest:
+        return False
+    copula = rest[0] in COPULA
+    content = tokens(" ".join(rest[1:] if copula else rest))
+    if not content or (copula and len(content) <= 1):
+        return False
+    return bool(set(content) - found_words)
+
+
+def claims_one(text: str) -> Claims:
+    """`claims`, judged for one sentence alone."""
     if asks(text):
         return Claims((), False, False)
     keys, world = lesson_keys()
     said = set(tokens(text))
     things = said & world
-    # A copula ("cows are cute") only describes a known subject; it makes no claim to check, unlike
-    # a verb of its own ("cows fly") that no lesson says at all (controller ruling, Task 5 review).
-    describing = bool(COPULA & set(_RAW_WORD.findall(text.lower())))
+    raw = raw_words(text)
     fits, doubtful = [], False
     for index, (thing, found) in enumerate(keys.items()):
         named = [subject for subject in found.subjects if subject <= said]
@@ -267,11 +307,27 @@ def claims(text: str) -> Claims:
             doubtful = True
         elif claim:
             fits.append((-(len(claim) + len(subject)), index, thing))
-        elif not describing and (said - subject) - found.words:
-            doubtful = True  # a known subject, and a claim about it that no lesson supports at all
+        elif bare_claim(raw, subject, found.words):
+            doubtful = True
     fits.sort()
     unknown = not fits and not doubtful and bool(things) and bool(said & TEACH_VERBS)
     return Claims(tuple(thing for _, _, thing in fits[:SHORTLIST]), doubtful and not fits, unknown)
+
+
+def claims(text: str) -> Claims:
+    """What the owner's words could teach Mimo: only real lessons, never what they get wrong, each
+    sentence judged on its own (`claims_one`), so a false or foreign word in one never spoils a
+    lesson a later sentence teaches cleanly."""
+    sentences = [sentence for sentence in SENTENCE_SPLIT.split(text.strip()) if sentence.strip()] or [text]
+    if len(sentences) == 1:
+        return claims_one(sentences[0])
+    results = [claims_one(sentence) for sentence in sentences]
+    taught: list[str] = []
+    for result in results:
+        taught.extend(thing for thing in result.taught if thing not in taught)
+    doubtful = not taught and any(result.doubtful for result in results)
+    unknown = not taught and not doubtful and any(result.unknown for result in results)
+    return Claims(tuple(taught[:SHORTLIST]), doubtful, unknown)
 
 
 teach_all()

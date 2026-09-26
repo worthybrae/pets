@@ -65,7 +65,9 @@ class ClaimsTests(unittest.TestCase):
     def test_the_owners_words_fit_real_lessons(self):
         self.assertEqual(claims("Cows give leather!").taught, ("cow", "cow:drops"))
         self.assertEqual(claims("iron armor needs iron ingots").taught, ("recipe:iron_cap", "recipe:iron_tunic"))
-        self.assertEqual(claims("skitters hate light").taught, ("skitter:habits", "skitter"))
+        # "hate" no longer widens to "fade" (fix round 1, Minor 10): "light" alone still fits both,
+        # so the order between them shifts.
+        self.assertEqual(claims("skitters hate light").taught, ("skitter", "skitter:habits"))
         self.assertEqual(claims("you can make a bow from sticks and string").taught, ("recipe:bow",))
         self.assertEqual(claims("gravel hides flint").taught, ("gravel",))
         self.assertEqual(claims("zombies come out at night").taught, ("gloomling", "gloomling:habits"))
@@ -89,6 +91,31 @@ class ClaimsTests(unittest.TestCase):
         self.assertEqual((claims("cows fly").taught, claims("cows fly").doubtful), ((), True))
         self.assertEqual((claims("do you like cows?").taught, claims("do you like cows?").doubtful), ((), False))
         self.assertEqual(claims("cows give leather").taught, ("cow", "cow:drops"))
+
+    def test_fix_round_1_the_copula_guard_is_narrow_and_does_not_leak(self):
+        # Important 1: greetings, compliments and lines about a place stay chit-chat even when they
+        # name a known subject in passing, and talk of the owner is never a claim about it.
+        for text in ("good morning cows", "look, a cow!", "nice sword!", "let's go to the lake",
+                     "hello cows", "good cow", "Pip, the cows look happy"):
+            found = claims(text)
+            self.assertEqual((found.taught, found.doubtful, found.unknown), ((), False, False), text)
+        # The leak: a copula elsewhere in the line (not right after the subject), or more than a bare
+        # description right after it, still doubts a false claim about a known subject.
+        for text in ("cows fly, it is true", "skitters are friendly and sing"):
+            found = claims(text)
+            self.assertEqual((found.taught, found.doubtful), ((), True), text)
+
+    def test_fix_round_1_hate_no_longer_falsely_teaches_a_habits_lesson(self):
+        # Minor 10: "hate" was a synonym of "fade" (skitter:habits' own fact), so "I hate skitters"
+        # taught it; "skitters hate light" still teaches through "light" alone.
+        self.assertEqual(claims("I hate skitters").taught, ())
+        self.assertIn("skitter:habits", claims("skitters hate light").taught)
+
+    def test_fix_round_1_each_sentence_is_judged_on_its_own(self):
+        # Minor 10: a foreign word in one sentence ("lake") no longer spoils a lesson a later
+        # sentence teaches cleanly.
+        self.assertEqual(claims("I like the lake.").taught, ())
+        self.assertIn("skitter:habits", claims("I like the lake. Skitters hate light.").taught)
 
     def test_questions_and_small_talk_teach_nothing(self):
         for text in ("do cows give leather?", "Can you make a bow?", "cows are cute", "I love you", "my name is Sam",
