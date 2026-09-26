@@ -220,8 +220,17 @@ class ChatAnswer:
 
 def hear(db: sqlite3.Connection, s: Situation, text: str) -> Heard:
     """The owner's words, with what Mimo remembers of them and what the HEARING hooks found (once)."""
+    return listened(db, s, heard_from(db, s, text))
+
+
+def heard_from(db: sqlite3.Connection, s: Situation, text: str) -> Heard:
+    """The owner's words with what Mimo remembers of its owner."""
     facts = tuple(owner_facts(db))
-    heard = Heard(text, owner_name(list(facts)), facts)
+    return Heard(text, owner_name(list(facts)), facts)
+
+
+def listened(db: sqlite3.Connection, s: Situation, heard: Heard) -> Heard:
+    """The words with what each HEARING hook found in them (Heard.context), each hook run once."""
     if not HEARING:
         return heard
     context: dict = {}
