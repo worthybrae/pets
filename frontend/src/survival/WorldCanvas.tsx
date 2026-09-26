@@ -43,7 +43,7 @@ function pickViewDistance(): number {
  * built swing open as the drawn pet passes, arrows fly and hostiles burn (CombatEffects), and the
  * pet wears the armor in `inventory` and glows red when a creature hits it (`hurtAt`).
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, serverTime, cameraMode = 'overview', onAutoPick }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, serverTime, cameraMode = 'overview', onAutoPick, doorsOpen }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -57,6 +57,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   decays?: LeafDecay[]
   /** What Mimo built (the snapshot's list); its shelters' walls and roofs may be cut away. */
   structures?: Built[]
+  /** Making: the doors a machine holds open ([x, y, z]). */
+  doorsOpen?: readonly number[][]
   /** The creatures near Mimo and their last moves (the snapshot's lists). */
   creatures?: Creature[]
   creatureMoves?: CreatureMove[]
@@ -153,7 +155,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           {serverTime && <SurvivalCreatures creatures={creatures} moves={creatureMoves} now={replayTime} />}
           {serverTime && <CombatEffects action={action} recent={recentActions} position={position} creatures={creatures}
             now={replayTime} />}
-          <SurvivalDoors store={store} focus={position} pet={serverTime ? petAt : undefined} />
+          <SurvivalDoors store={store} focus={position} pet={serverTime ? petAt : undefined} held={doorsOpen} />
           <FollowCamera focus={position} focusY={position.y} stepAt={serverTime ? stepAt : undefined}
             initialFocus={initial} initialFocusY={initial.y} mode={cameraMode} store={store} onView={onView} onAutoPick={onAutoPick}
             distance={CAMERA_DISTANCE} follow={following} viewDistance={viewDistance} onOrbit={onOrbit}

@@ -538,6 +538,14 @@ def draw(grid: Grid, circuit: Circuit, state: dict) -> None:
                 grid.put(*cell, "button")
 
 
+def note_outputs(circuit: Circuit, state: dict) -> None:
+    """What the viewer is told (machines.workshop_view): the doors held open (their cells) and how many
+    lamps are lit."""
+    state["doors"] = [list(part[0]) for index, part in enumerate(circuit.parts)
+                      if part[1] == "door" and state["lit"].get(index)]
+    state["lamps"] = sum(1 for index, part in enumerate(circuit.parts) if part[1] == "lamp" and state["lit"].get(index))
+
+
 def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, name: str, parts: tuple[tuple, ...],
                 at: float, scale: float, budget: int, events: list) -> int:
     """Bring one machine's circuit up to `at` within `budget` cells; returns the cells worked out. Its state
@@ -554,6 +562,7 @@ def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, nam
         settle(circuit, state, {**readings_at(circuit, state, grid, life, at, scale), **forced}, held)
         state["at"], state["missing"] = at, missing
         draw(grid, circuit, state)
+        note_outputs(circuit, state)
         save_state(db, number, state)
         return 0
     due = math.floor((at - state["at"]) * scale / STEP + 1e-9)
@@ -583,6 +592,7 @@ def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, nam
         state["at"] = when
         cost += spent
     draw(grid, circuit, state)
+    note_outputs(circuit, state)
     if encode(state) != before:
         save_state(db, number, state)
     return cost

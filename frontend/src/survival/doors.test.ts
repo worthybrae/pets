@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HELD_OPEN, OPEN_REACH, doorAxis, doorSwing } from './doors'
+import { HELD_OPEN, OPEN_REACH, doorAxis, doorSwing, heldOpen } from './doors'
 
 const door = { x: 4, y: 1, z: 7 }
 
@@ -11,6 +11,12 @@ describe('doors', () => {
     expect(doorSwing(door, { x: 4, y: 1, z: 7 + OPEN_REACH })).toBeCloseTo(0)
     expect(doorSwing(door, { x: 4, y: 4, z: 7 })).toBe(0)
     expect(doorSwing(door, null)).toBe(0)
+  })
+
+  it('stands open while a machine holds it open', () => {
+    expect(heldOpen(door, [[4, 1, 7]])).toBe(true)
+    expect(heldOpen(door, [[4, 2, 7], [5, 1, 7]])).toBe(false)
+    expect(heldOpen(door, undefined)).toBe(false)
   })
 
   it('lies along the wall it stands in', () => {

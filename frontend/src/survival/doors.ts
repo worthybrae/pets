@@ -22,6 +22,11 @@ export function doorSwing(door: Point, pet: Point | null): number {
   return (OPEN_REACH - distance) / (OPEN_REACH - HELD_OPEN)
 }
 
+/** Making: whether a machine holds this door open (its cells, [x, y, z], from the workshop view). */
+export function heldOpen(door: Point, held: readonly number[][] | null | undefined): boolean {
+  return (held ?? []).some(([x, y, z]) => x === door.x && y === door.y && z === door.z)
+}
+
 /** The axis a door's panel lies along: x when a wall stands east or west of it, else z. */
 export function doorAxis(solidAt: (x: number, y: number, z: number) => boolean, door: Point): 'x' | 'z' {
   return solidAt(door.x - 1, door.y, door.z) || solidAt(door.x + 1, door.y, door.z) ? 'x' : 'z'

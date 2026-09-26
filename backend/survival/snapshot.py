@@ -19,6 +19,7 @@ from backend.survival.curiosity import curiosity_view
 from backend.survival.expedition import expedition_view
 from backend.survival.goals import GOALS, goal_view, reached_rows
 from backend.survival.journal import journal_view
+from backend.survival.machines import workshop_view
 from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.mind import mind_fields
 from backend.survival.registry import LifeRegistry
@@ -149,6 +150,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         creatures = creatures_view(db, state["position"], now)
         indoors = sheltered(db, here_of(state))
         journal = journal_view(db, state.get("brain"))
+        workshop = workshop_view(db)
     at = state["died_at"] if state["died_at"] is not None else now
     return {
         "clock": clock_at(state["born_at"], at, scale),
@@ -192,6 +194,8 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "curiosity": curiosity_view(state.get("brain"), at, scale),
         # L4b: what Mimo learned, newest first ({thing, kind, words, fact, line, unlocks, at}).
         "journal": journal,
+        # Making: the workshop, the machines and the doors they hold open (backend.survival.machines).
+        "workshop": workshop,
     }
 
 

@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { blockDef } from '../engine/blocks'
 import type { WorldStore } from '../engine/worldStore'
-import { doorAxis, doorSwing } from './doors'
+import { doorAxis, doorSwing, heldOpen } from './doors'
 import type { Point } from './types'
 
 /** Doors drawn at most, the nearest first, and how far from the pet they are looked for. */
@@ -26,10 +26,12 @@ interface Door {
  * at `pet()` passes (doors.ts); in an archive, with no pet to replay, they stay shut. The doors are
  * looked up again when the store changes or every LOOK_EVERY seconds, all inside useFrame.
  */
-export default function SurvivalDoors({ store, focus, pet }: {
+export default function SurvivalDoors({ store, focus, pet, held }: {
   store: WorldStore
   focus: Point
   pet?: () => Point | null
+  /** Making: the doors a machine holds open ([x, y, z]); they stand wide open. */
+  held?: readonly number[][]
 }) {
   const hinges = useRef<(THREE.Group | null)[]>([])
   const doors = useRef<Door[]>([])
@@ -54,7 +56,7 @@ export default function SurvivalDoors({ store, focus, pet }: {
       hinge.visible = door !== undefined
       if (!door) return
       const { x, y, z } = door.cell
-      const swing = doorSwing(door.cell, drawn) * (Math.PI / 2)
+      const swing = (heldOpen(door.cell, held) ? 1 : doorSwing(door.cell, drawn)) * (Math.PI / 2)
       if (door.axis === 'x') {
         hinge.position.set(x, y, z + 0.5)
         hinge.rotation.y = swing

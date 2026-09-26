@@ -33,6 +33,14 @@ describe('the journal', () => {
     ])
     expect(journalEntries(undefined, 'Pebble')).toEqual([])
   })
+
+  it('labels what Mimo learned about making', () => {
+    const spark: JournalEntry = { thing: 'copper_spark', kind: 'making', words: 'copper wire',
+      fact: 'Copper carries a spark: a lever, copper wire and a lamp make light.',
+      line: 'I flipped the lever and the lamp lit up! Copper carries a spark.', unlocks: 'wires up machines', at: 30 }
+    expect(journalEntries([spark], 'Pebble')[0]).toEqual({ key: 'copper_spark', label: 'Making', line: spark.line,
+      fact: spark.fact, unlocks: 'Now Pebble wires up machines.' })
+  })
 })
 
 describe('the expedition line', () => {

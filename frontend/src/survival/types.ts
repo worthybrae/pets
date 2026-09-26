@@ -19,6 +19,7 @@ export interface Point {
 
 export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
   | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop' | 'attack' | 'shoot'
+  | 'flip'
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -74,7 +75,7 @@ export interface LeafDecay extends Point {
 /** Something Mimo built or is building (backend/survival/memory.py structures), by its anchor. */
 export interface Built extends Point {
   id: number
-  kind: 'shelter' | 'farm' | 'pen' | 'workshop'
+  kind: 'shelter' | 'farm' | 'pen' | 'workshop' | 'machine'
   name: string
   status: 'building' | 'done'
 }
@@ -223,11 +224,31 @@ export interface Trip {
   found: string | null
 }
 
+/** A machine Mimo built or is building (Making, backend/survival/machines.py workshop_view). */
+export interface MachineRow extends Point {
+  id: number
+  /** Like "a lamp on a lever". */
+  name: string
+  /** Its kind, like "lamp_lever". */
+  machine: string
+  status: 'building' | 'done'
+  /** How many of its lamps are lit now. */
+  lamps: number
+}
+
+/** What Mimo made (Making, backend/survival/machines.py workshop_view). */
+export interface WorkshopView {
+  workshop: { name: string; status: 'building' | 'done' } | null
+  machines: MachineRow[]
+  /** The doors its machines hold open, [x, y, z]. */
+  doors_open: number[][]
+}
+
 /** A lesson Mimo learned (L4b, backend/survival/journal.py journal_view). */
 export interface JournalEntry {
   /** What it learned about, like "gravel" or "skitter". */
   thing: string
-  kind: 'block' | 'plant' | 'creature' | 'biome' | 'landmark'
+  kind: 'block' | 'plant' | 'creature' | 'biome' | 'landmark' | 'making'
   /** The thing in words, like "a skitter". */
   words: string
   /** What it teaches, like "Skitters come out of caves at night." */
@@ -323,6 +344,8 @@ export interface SurvivalState {
   journal?: JournalEntry[]
   /** L4b: the expedition under way; null without one (an older API sends none). */
   expedition?: Expedition | null
+  /** Making: the workshop, the machines and the doors they hold open (an older API sends none). */
+  workshop?: WorkshopView
 }
 
 export interface AliveResponse extends SurvivalState, BondFields {

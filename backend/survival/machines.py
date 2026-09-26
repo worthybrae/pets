@@ -36,6 +36,7 @@ The flip step (registered here): throw a lever within reach (lever <-> lever_on)
 from __future__ import annotations
 
 import math
+import sqlite3
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Callable
 
@@ -45,10 +46,11 @@ from backend.survival.foraging import whole_walk
 from backend.survival.goals import Goal, Milestone, active, register_goal
 from backend.survival.grid import Cell, Grid
 from backend.survival.home import all_structures, home_structure
+from backend.survival.memory import structures as structure_rows
 from backend.survival.making import NEEDS, craft_plan, place_steps
 from backend.survival.pens import near_home
 from backend.survival.purposes import Purpose, register
-from backend.survival.signals import KIND, MATERIALS, parse
+from backend.survival.signals import KIND, MATERIALS, machine_state, parse
 from backend.survival.situation import Situation
 from backend.survival.steps import (
     PLACE_SECONDS, StepFailed, StepKind, as_cell, as_point, in_reach, register_step,
@@ -410,3 +412,27 @@ register_goal(Goal(
                ("daylight_sensor",))),
     score=lambda s: 40.0 + s.trait("curiosity") / 10 + s.trait("creativity") / 10,
     thought="Copper, a lever, a lamp... I want to make a spark.", after=("workshop",)))
+
+
+# What the viewer is told -------------------------------------------------------------------------
+
+def workshop_view(db: sqlite3.Connection) -> dict:
+    """What Mimo made, for /api/mimo (read only): its workshop ({name, status} or None), its machines,
+    oldest first ({id, name, machine, status, x, y, z, lamps lit}) and the doors its machines hold open
+    ([x, y, z]). A world from before M5 or Making (an archive) made nothing."""
+    try:
+        found = structure_rows(db, ("workshop", KIND))
+    except sqlite3.OperationalError:
+        return {"workshop": None, "machines": [], "doors_open": []}
+    workshops = [row for row in found if row["kind"] == "workshop"]
+    machines, doors = [], []
+    for row in found:
+        if row["kind"] != KIND:
+            continue
+        state = machine_state(db, row["id"]) if row["status"] == "done" else None
+        machines.append({"id": row["id"], "name": row["name"], "machine": row["data"].get("style", {}).get("machine"),
+                         "status": row["status"], "x": row["x"], "y": row["y"], "z": row["z"],
+                         "lamps": (state or {}).get("lamps", 0)})
+        doors += (state or {}).get("doors", [])
+    workshop = {"name": workshops[-1]["name"], "status": workshops[-1]["status"]} if workshops else None
+    return {"workshop": workshop, "machines": machines, "doors_open": doors}

@@ -144,6 +144,12 @@ describe('purposeText', () => {
     expect(purposeText({ purpose: 'build_workshop', reflex: null, choosing: false })).toBe('Building the workshop')
     expect(purposeText({ purpose: 'decorate_home', reflex: null, choosing: false })).toBe('Making home cozy')
   })
+
+  it('names what Mimo does with copper and machines', () => {
+    expect(purposeText({ purpose: 'build_machine', reflex: null, choosing: false })).toBe('Building a machine')
+    expect(purposeText({ purpose: 'tinker', reflex: null, choosing: false })).toBe('Tinkering')
+    expect(actionText({ kind: 'flip', started_at: 0, ends_at: 1, block: 'lever' }, 'working')).toBe('Flipping lever')
+  })
 })
 
 describe('building', () => {

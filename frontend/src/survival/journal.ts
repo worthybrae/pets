@@ -12,7 +12,7 @@ export function journalButton(journal: readonly JournalEntry[] | null | undefine
 }
 
 const KIND_LABELS: Record<JournalEntry['kind'], string> = {
-  block: 'Block', plant: 'Plant', creature: 'Creature', biome: 'Land', landmark: 'Landmark',
+  block: 'Block', plant: 'Plant', creature: 'Creature', biome: 'Land', landmark: 'Landmark', making: 'Making',
 }
 
 /**

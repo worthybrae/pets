@@ -72,7 +72,7 @@ const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
   walk: 'Walking', swim: 'Swimming', fall: 'Falling!', mine: 'Mining', place: 'Placing', eat: 'Eating',
   craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping', pick: 'Picking', harvest: 'Harvesting',
   till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking', store: 'Putting away', take: 'Taking out',
-  drop: 'Dropping', attack: 'Attacking', shoot: 'Shooting',
+  drop: 'Dropping', attack: 'Attacking', shoot: 'Shooting', flip: 'Flipping',
 }
 
 /** A block or item in plain words: a crop's stage and a bush's ripeness are left out. */
@@ -101,6 +101,8 @@ const PURPOSE_TEXT: Record<string, string> = {
   gather_flint: 'Digging for flint', build_pen: 'Building a pen', stock_pen: 'Planting creature seeds',
   // Making (T1)
   gather_materials: 'Gathering materials', build_workshop: 'Building the workshop', decorate_home: 'Making home cozy',
+  // Making (T2)
+  build_machine: 'Building a machine', tinker: 'Tinkering',
 }
 const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
