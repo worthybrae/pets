@@ -208,6 +208,8 @@ class ReplyTests(unittest.TestCase):
         found, heard = self.replies("what did you learn lately?")
         self.assertEqual(found[0].text, "Nothing new yet. I'm still looking!")
         self.assertNotIn("journal", [reply.topic for reply in self.replies("hi!")[0]])  # not said unasked
+        self.assertNotIn("ask_back", [reply.topic for reply in self.replies("My name is Sam.")[0]])
+        self.assertEqual(rules_pick(*self.replies("do you need anything?")), MOOD)
 
     def test_every_goal_line_is_grammatical(self):
         for name, goal in GOALS.items():

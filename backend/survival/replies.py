@@ -133,7 +133,7 @@ TOPIC_WORDS = {
     "doing": frozenset({"doing", "up", "busy", "working", "where", "heading", "going"}),
     "goal": frozenset({"goal", "goals", "project", "progress", "working"}),
     "plan": frozenset({"plan", "plans", "today", "tomorrow", "next"}),
-    "news": frozenset({"news", "happened", "new", "anything", "interesting", "guess", "day"}),
+    "news": frozenset({"news", "happen", "happened", "new", "interesting", "guess", "day"}),
     "thanks": frozenset({"snack", "bandage", "gift", "treat"}),
     "curious": frozenset({"bored", "explore", "exploring", "adventure", "curious", "wonder", "thinking", "think"}),
     "fond": frozenset({"favorite", "favourite", "scared", "afraid", "fear", "frightened", "scary"}),
@@ -529,8 +529,10 @@ def self_name(s: Situation, heard: Heard) -> str | None:
 
 
 def ask_back(s: Situation, heard: Heard) -> str | None:
+    if heard.noticed.get("name"):  # the owner is saying it right now
+        return None
     if not heard.owner:
-        asked = "name" in heard.words and not heard.noticed.get("name") and not touches(heard, "self")
+        asked = "name" in heard.words and not touches(heard, "self")
         return "Not yet! What should I call you?" if asked else "What should I call you?"
     if not any(kind == "likes" for kind, _ in heard.facts):
         return f"What do you like, {heard.owner}?"
