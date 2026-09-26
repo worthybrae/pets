@@ -3,7 +3,8 @@
 Run with: python -m backend.workers.mimo_worker
 Keep exactly one worker running against a persistent MIMO_DATA_DIR. Each tick brings the
 active life up to now (timed actions, vitals, death) with the brain; then the Chooser answers a
-pending purpose trigger outside the tick's transaction (backend.survival.choosing). A long
+pending purpose trigger outside the tick's transaction (backend.survival.choosing), and (Bond) the
+Talker answers the owner's chat and keeps Mimo's side of the bond (backend.survival.talker). A long
 catch-up runs one transaction per 60 game seconds, and between them a rules-only chooser
 answers, so a pet that slept through the laptop's night kept choosing without a burst of model
 calls; SIGINT or SIGTERM stops a catch-up between two of those transactions. The retired
@@ -28,6 +29,7 @@ from backend.survival.brain import BRAIN
 from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry, data_dir
+from backend.survival.talker import Talker
 from backend.survival.tick import RESTING, Mind, death_words, tick_life
 from backend.survival.world import WorldMissing
 
@@ -60,7 +62,7 @@ def should_log_data_error(error: BaseException, last: str | None) -> tuple[bool,
 
 def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | None = None,
              mind: Mind = RESTING, chooser: Chooser | None = None,
-             should_stop: Callable[[], bool] | None = None) -> str:
+             should_stop: Callable[[], bool] | None = None, talker: Talker | None = None) -> str:
     """Tick the active life once, then let the chooser answer a pending purpose trigger. Logs a
     line when the pet's status changes and returns it.
 
@@ -89,6 +91,11 @@ def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | No
             chooser.poll(registry, timestamp)
         except Exception as error:
             log_once(logger, "chooser", error)
+    if talker is not None and state is not None and state["died_at"] is None and not stopped:
+        try:
+            talker.poll(registry, timestamp)
+        except Exception as error:
+            log_once(logger, "talker", error)
     if state is None:
         line = "No pet is alive. Waiting for the egg to hatch."
     elif state["died_at"] is not None:
@@ -111,11 +118,13 @@ def main():
     previous: str | None = None
     last_data_error: str | None = None
     chooser = Chooser()
+    talker = Talker()
     while not stopping:
         try:
             if registry is None:
                 registry = LifeRegistry()
-            previous = run_once(registry, previous, mind=WORKER_MIND, chooser=chooser, should_stop=lambda: stopping)
+            previous = run_once(registry, previous, mind=WORKER_MIND, chooser=chooser, should_stop=lambda: stopping,
+                                talker=talker)
             last_data_error = None
         except (WorldMissing, OSError, sqlite3.Error) as error:
             log_it, last_data_error = should_log_data_error(error, last_data_error)
@@ -126,6 +135,7 @@ def main():
             logger.exception("Survival tick failed")
         time.sleep(delay)
     chooser.close()
+    talker.close()
     logger.info("Survival worker stopped")
 
 
