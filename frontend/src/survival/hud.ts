@@ -99,6 +99,8 @@ const PURPOSE_TEXT: Record<string, string> = {
   build_farm: 'Laying out a farm', build_storage: 'Putting things away', drop_items: 'Dropping what it cannot use',
   light_up: 'Lighting torches', hunt: 'Hunting', make_gear: 'Making gear',
   gather_flint: 'Digging for flint', build_pen: 'Building a pen', stock_pen: 'Planting creature seeds',
+  // Making (T1)
+  gather_materials: 'Gathering materials', build_workshop: 'Building the workshop', decorate_home: 'Making home cozy',
 }
 const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',

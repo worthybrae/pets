@@ -74,7 +74,7 @@ export interface LeafDecay extends Point {
 /** Something Mimo built or is building (backend/survival/memory.py structures), by its anchor. */
 export interface Built extends Point {
   id: number
-  kind: 'shelter' | 'farm' | 'pen'
+  kind: 'shelter' | 'farm' | 'pen' | 'workshop'
   name: string
   status: 'building' | 'done'
 }

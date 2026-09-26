@@ -138,6 +138,12 @@ describe('purposeText', () => {
     expect(purposeText({ purpose: null, reflex: null, choosing: true })).toBe('Deciding what to do')
     expect(purposeText({ purpose: null, reflex: null, choosing: false })).toBe('Taking it easy')
   })
+
+  it('names what Mimo does when it makes things', () => {
+    expect(purposeText({ purpose: 'gather_materials', reflex: null, choosing: false })).toBe('Gathering materials')
+    expect(purposeText({ purpose: 'build_workshop', reflex: null, choosing: false })).toBe('Building the workshop')
+    expect(purposeText({ purpose: 'decorate_home', reflex: null, choosing: false })).toBe('Making home cozy')
+  })
 })
 
 describe('building', () => {
