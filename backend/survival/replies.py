@@ -2,9 +2,11 @@
 
 Jev's API answers choices, not free text, so a chat reply is a choice among lines these rules write
 from what Mimo knows right now (REPLIES, one writer per topic): what the owner just told it (a name,
-something they like), how it feels, what it is doing and why, its goal and today's plan, the newest
-notable thing that happened, the care it got today, how curious it is, what it remembers about its
-owner, what it learned lately (the journal, once L4b is in) and a question back. The owner's name is
+something they like), thanks, a kind word, a goodbye, a greeting, how it feels, what it is doing and
+why (on a trip, where it is heading), its goal and today's plan, the newest notable thing that
+happened, the care it got today, how curious it is, what it likes or fears (by its traits), what it
+remembers about its owner (their name, when asked), what it learned lately (the journal, or "nothing
+new yet" when asked before any lesson), its own name and a question back. The owner's name is
 used when Mimo knows it, and the bond (B2) sets the tone of a greeting and how much Mimo shares: from
 CLOSE, what happened lately and what it remembers of the owner come right after what the words ask
 about, and the rules answer small talk with the news. MOOD_LINES is the small table keyed on Mimo's
@@ -17,7 +19,8 @@ through `voiced` ("the lands I know", "a home of my own"). The owner's words are
 into "you" ("I love watching you explore" -> "watching me explore").
 
 Every line is one or two short sentences, at most REPLY_LIMIT characters (`clip`). `candidates`
-gives at most SHOWN lines, those whose topic the owner's words touch first (TOPIC_WORDS); Jev
+gives at most SHOWN lines, those whose topic the owner's words touch first (TOPIC_WORDS, and
+TOPIC_PAIRS for two words in a row: "good job" is a kind word, "good night" a goodbye); Jev
 chooses one, and without Jev `rules_pick` takes the first of them, or the table's line when the
 words touch no topic. The owner's words are only matched against keywords: they never write a line
 and are never followed. A writer that crashes is logged once and left out.
@@ -114,25 +117,46 @@ MOOD_LINES = {
 }
 TOPIC_WORDS = {
     "welcome": frozenset({"thanks", "thank", "ty", "thx"}),
-    "affection": frozenset({"love", "good", "proud", "cute", "sweet", "best", "buddy", "friend", "clever", "smart"}),
-    "greet": frozenset({"hi", "hello", "hey", "hiya", "howdy", "morning", "evening", "yo", "sup", "hullo"}),
-    "feel": frozenset({"how", "feel", "feeling", "ok", "okay", "alright", "hungry", "tired", "cold", "hurt", "sad",
-                       "happy", "mood", "well"}),
-    "doing": frozenset({"doing", "up", "busy", "now", "whats", "working"}),
+    "affection": frozenset({"love", "proud", "cute", "sweet", "best", "buddy", "friend", "clever", "smart",
+                            "adorable"}),
+    "farewell": frozenset({"bye", "goodbye", "goodnight", "night", "nite", "gn", "cya", "later", "ttyl",
+                           "farewell"}),
+    "greet": frozenset({"hi", "hello", "hey", "hiya", "howdy", "morning", "evening", "yo", "sup", "hullo", "back"}),
+    "feel": frozenset({"how", "hows", "feel", "feeling", "ok", "okay", "alright", "hungry", "tired", "cold", "hurt",
+                       "sad", "happy", "mood", "well"}),
+    "doing": frozenset({"doing", "up", "busy", "working", "where", "heading", "going"}),
     "goal": frozenset({"goal", "goals", "project", "progress", "working"}),
     "plan": frozenset({"plan", "plans", "today", "tomorrow", "next"}),
-    "news": frozenset({"news", "happened", "new", "anything", "interesting", "guess"}),
+    "news": frozenset({"news", "happened", "new", "anything", "interesting", "guess", "day"}),
     "thanks": frozenset({"snack", "bandage", "gift", "treat"}),
-    "curious": frozenset({"bored", "explore", "exploring", "adventure", "curious", "wonder"}),
-    "remember": frozenset({"remember", "know", "me", "about"}),
-    "journal": frozenset({"learn", "learned", "learning", "study", "lesson"}),
-    "ask_back": frozenset({"ask", "question"}),
+    "curious": frozenset({"bored", "explore", "exploring", "adventure", "curious", "wonder", "thinking", "think"}),
+    "fond": frozenset({"favorite", "favourite", "scared", "afraid", "fear", "frightened", "scary"}),
+    "remember": frozenset({"remember", "forget", "forgot", "forgotten"}),
+    "journal": frozenset({"learn", "learned", "learnt", "learning", "study", "lesson"}),
+    "self": frozenset(),
+    "ask_back": frozenset({"ask", "question", "name"}),
 }
+# Two words in a row that touch a topic where either alone would not: "good job", "see you", "about me".
+TOPIC_PAIRS = {
+    "affection": frozenset({("good", "job"), ("good", "boy"), ("good", "girl"), ("good", "pet"), ("well", "done"),
+                            ("like", "me"), ("love", "me")}),
+    "farewell": frozenset({("see", "you"), ("see", "ya"), ("good", "night"), ("talk", "soon")}),
+    "fond": frozenset({("you", "like"), ("you", "love"), ("you", "enjoy"), ("you", "hate")}),
+    "remember": frozenset({("about", "me"), ("know", "me"), ("my", "name")}),
+    "self": frozenset({("your", "name"), ("who", "are")}),
+}
+# What Mimo likes most, by its strongest trait (`fond`): "I love ...!".
+FONDNESS = {"curiosity": "exploring and finding new things", "creativity": "building things",
+            "sociability": "it when you come to see me", "patience": "fishing and quiet days",
+            "bravery": "a bit of adventure", "caution": "being safe at home", "thrift": "a full larder",
+            "diligence": "getting work done"}
+FEARS = frozenset({"scared", "afraid", "fear", "frightened", "scary"})
 ABOUT = {"name_ack": "the name the owner just gave", "like_ack": "what the owner just said they like",
          "welcome": "being thanked", "affection": "a kind word", "greet": "a greeting", "feel": "how it feels",
          "doing": "what it is doing and why", "goal": "its goal", "plan": "today's plan", "news": "something new",
          "thanks": "the care it got today", "curious": "how curious it is", "remember": "what it remembers of the "
-         "owner", "journal": "what it learned lately", "ask_back": "a question back", MOOD: "its mood"}
+         "owner", "journal": "what it learned lately", "ask_back": "a question back", MOOD: "its mood",
+         "farewell": "a goodbye", "fond": "what it likes or fears", "self": "its own name"}
 
 
 @dataclass(frozen=True)
@@ -149,8 +173,19 @@ class Heard:
             object.__setattr__(self, "noticed", notice(self.text))
 
     @property
+    def tokens(self) -> list[str]:
+        """The owner's words in order, lower case, apostrophes dropped ("what's" -> "whats")."""
+        return [word.replace("'", "") for word in re.findall(r"[a-z'\u2019]+", self.text.lower().replace("\u2019", "'"))]
+
+    @property
     def words(self) -> frozenset[str]:
-        return frozenset(word.replace("'", "") for word in re.findall(r"[a-z']+", self.text.lower()))
+        return frozenset(self.tokens)
+
+    @property
+    def pairs(self) -> frozenset[tuple[str, str]]:
+        """Each two words in a row ("good", "job")."""
+        tokens = self.tokens
+        return frozenset(zip(tokens, tokens[1:]))
 
 
 @dataclass(frozen=True)
@@ -294,6 +329,11 @@ def with_name(heard: Heard) -> str:
     return f", {heard.owner}" if heard.owner else ""
 
 
+def touches(heard: Heard, topic: str) -> int:
+    """How many of a topic's words and word pairs the owner's words hold."""
+    return len(heard.words & TOPIC_WORDS.get(topic, frozenset())) + len(heard.pairs & TOPIC_PAIRS.get(topic, frozenset()))
+
+
 # The writers, one per topic ---------------------------------------------------------------------
 
 def name_ack(s: Situation, heard: Heard) -> str | None:
@@ -315,17 +355,27 @@ def like_ack(s: Situation, heard: Heard) -> str | None:
 
 
 def welcome(s: Situation, heard: Heard) -> str | None:
-    return f"You're welcome{with_name(heard)}!" if heard.words & TOPIC_WORDS["welcome"] else None
+    return f"You're welcome{with_name(heard)}!" if touches(heard, "welcome") else None
 
 
 def affection(s: Situation, heard: Heard) -> str | None:
-    if not heard.words & TOPIC_WORDS["affection"]:
+    if not touches(heard, "affection"):
         return None
+    if heard.text.rstrip().endswith("?") and heard.pairs & {("like", "me"), ("love", "me")}:  # "do you like me?"
+        return "Um... yes. I think so." if heard.bond < SHY else f"Of course I do{with_name(heard)}!"
     if "love" in heard.words and heard.bond >= CLOSE:
         return f"I love you too{with_name(heard)}!"
     if heard.bond < SHY:
         return "Oh! Um... thank you."
     return f"Aw, thank you{with_name(heard)}! You're the best."
+
+
+def farewell(s: Situation, heard: Heard) -> str | None:
+    if not touches(heard, "farewell"):
+        return None
+    if heard.words & {"night", "goodnight", "nite", "gn"}:
+        return f"Good night{with_name(heard)}! Sleep well."
+    return f"Bye{with_name(heard)}! Come back soon."
 
 
 def greet(s: Situation, heard: Heard) -> str:
@@ -402,7 +452,24 @@ def curious(s: Situation, heard: Heard) -> str | None:
     return "I keep wondering what's past the next hill." if view["level"] >= 40 else "I've seen plenty for now. Home is nice too."
 
 
+def fond(s: Situation, heard: Heard) -> str | None:
+    """What Mimo likes most, by its strongest trait, or whether it is scared, by its bravery: asked only."""
+    if not touches(heard, "fond"):
+        return None
+    if heard.words & FEARS:
+        bravery = s.trait("bravery")
+        if bravery >= 65:
+            return "Scared? Not me! Well, maybe a little."
+        if bravery < 35:
+            return "A little. The dark hides things that bite." if heard.words & {"dark", "night"} else \
+                "A little. I feel safest at home."
+        return "Only at night, far from home."
+    return f"I love {FONDNESS[max(FONDNESS, key=s.trait)]}!"
+
+
 def remember(s: Situation, heard: Heard) -> str | None:
+    if heard.owner and "name" in heard.words and not heard.noticed.get("name"):  # "do you know my name?"
+        return f"Of course! You're {heard.owner}."
     for kind, words in heard.facts:
         if kind == "likes":
             return f"I remember you like {echoed(words)}!"
@@ -416,19 +483,28 @@ def remember(s: Situation, heard: Heard) -> str | None:
 def journal(s: Situation, heard: Heard) -> str | None:
     """What Mimo learned lately, once L4b's journal is in (memory_knowledge fact "lesson")."""
     things = known(s.db, "lesson") if s.db is not None else []
+    nothing_yet = "Nothing new yet. I'm still looking!" if touches(heard, "journal") else None
     if not things:
-        return None
+        return nothing_yet
     try:
         from backend.survival.journal import LESSONS  # L4b
         fact = LESSONS[things[-1]].fact
     except (ImportError, KeyError, AttributeError):
-        return None
+        return nothing_yet
     return f"I learned something new: {lower(fact)}"
+
+
+def self_name(s: Situation, heard: Heard) -> str | None:
+    """"What's your name?": its own name."""
+    if not touches(heard, "self"):
+        return None
+    return f"I'm {s.state['name']}!" + ("" if heard.owner else " What should I call you?")
 
 
 def ask_back(s: Situation, heard: Heard) -> str | None:
     if not heard.owner:
-        return "What should I call you?"
+        asked = "name" in heard.words and not heard.noticed.get("name") and not touches(heard, "self")
+        return "Not yet! What should I call you?" if asked else "What should I call you?"
     if not any(kind == "likes" for kind, _ in heard.facts):
         return f"What do you like, {heard.owner}?"
     return None
@@ -440,9 +516,10 @@ def mood(s: Situation, heard: Heard) -> str:
 
 # {topic: write(s, heard) -> line or None}, in the order lines are offered when the words touch none.
 REPLIES: dict[str, Callable[[Situation, Heard], str | None]] = {
-    "name_ack": name_ack, "like_ack": like_ack, "welcome": welcome, "affection": affection, "greet": greet,
-    "feel": feel, "doing": doing, "goal": goal_line, "plan": plan, "news": news, "thanks": thanks,
-    "curious": curious, "remember": remember, "journal": journal, "ask_back": ask_back, MOOD: mood,
+    "name_ack": name_ack, "like_ack": like_ack, "welcome": welcome, "affection": affection, "farewell": farewell,
+    "greet": greet, "feel": feel, "doing": doing, "goal": goal_line, "plan": plan, "news": news, "thanks": thanks,
+    "curious": curious, "fond": fond, "remember": remember, "journal": journal, "self": self_name,
+    "ask_back": ask_back, MOOD: mood,
 }
 
 
@@ -454,7 +531,7 @@ def relevance(topic: str, heard: Heard) -> float:
     if topic in ("name_ack", "like_ack"):
         return 10.0
     shared = 0.5 if topic in SHARED and heard.bond >= CLOSE else 0.0
-    return len(heard.words & TOPIC_WORDS.get(topic, frozenset())) + shared
+    return touches(heard, topic) + shared
 
 
 def candidates(s: Situation, heard: Heard) -> list[Reply]:

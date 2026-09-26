@@ -177,6 +177,38 @@ class ReplyTests(unittest.TestCase):
         self.assertEqual(lines["doing"], "I'm heading east to travel past the lands I know.")
         self.assertEqual(lines["plan"], "Today I want to travel past the lands I know and come home with my finds.")
 
+    def test_the_rules_answer_common_lines_with_the_topic_they_ask_about(self):
+        def trekking(state, db):
+            state["vitals"].update(hunger=55, energy=45, mood=62)
+            state["brain"].update(purpose="explore", reflex=None, trip={
+                "reason": "expedition", "words": "travel past the lands it knows", "direction": "east",
+                "why": "I want to see what lies past the lands I know"})
+            state["brain"]["goal"] = {"name": "expedition", "since": BORN, "picker": "jev", "progress": 0.35,
+                                      "plan": [{"text": "Travel past the lands it knows", "done": False, "step": 1}]}
+            log_event(db, NOW - 100, "found", f"{state['name']} met its first skitter.")
+        self.edit(trekking)
+        for text, topic in (("hi Pebble!", "greet"), ("I'm back!", "greet"), ("how are you feeling?", "feel"),
+                            ("how's it going?", "feel"), ("what are you up to?", "doing"),
+                            ("where are you going?", "doing"), ("what\u2019s your goal?", "goal"),
+                            ("what's the plan for today?", "plan"), ("any news?", "news"),
+                            ("tell me about your day", "news"), ("what did you learn lately?", "journal"),
+                            ("what's the capital of France?", MOOD), ("good night!", "farewell"), ("bye", "farewell"),
+                            ("see you later", "farewell"), ("good job!", "affection"), ("do you like me?", "affection"),
+                            ("thanks for waiting for me", "welcome"), ("what do you like?", "fond"),
+                            ("are you scared of the dark?", "fond"), ("what's your name?", "self"),
+                            ("do you know my name?", "ask_back")):
+            found, heard = self.replies(text)
+            self.assertEqual(rules_pick(found, heard), topic, text)
+        lines = {reply.topic: reply.text for reply in self.replies("good night!", owner="Sam")[0]}
+        self.assertEqual(lines["farewell"], "Good night, Sam! Sleep well.")
+        found, heard = self.replies("do you know my name?", owner="Sam", facts=(("name", "Sam"),))
+        self.assertEqual((rules_pick(found, heard), found[0].text), ("remember", "Of course! You're Sam."))
+        found, heard = self.replies("do you know my name?")
+        self.assertEqual(found[0].text, "Not yet! What should I call you?")
+        found, heard = self.replies("what did you learn lately?")
+        self.assertEqual(found[0].text, "Nothing new yet. I'm still looking!")
+        self.assertNotIn("journal", [reply.topic for reply in self.replies("hi!")[0]])  # not said unasked
+
     def test_every_goal_line_is_grammatical(self):
         for name, goal in GOALS.items():
             def working(state, db, name=name, goal=goal):
