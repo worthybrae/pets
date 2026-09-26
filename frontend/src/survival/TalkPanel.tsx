@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChatView } from './bondTypes'
-import { TEXT_LIMIT, canSend, charactersLeft, draftProblem, limitText, sendChat, speaker, waitingText } from './talk'
+import {
+  TEXT_LIMIT, canSend, charactersLeft, closesOnKey, draftProblem, limitText, sendChat, sendsOnKey, speaker, waitingText,
+} from './talk'
 
 /** Talking with Mimo: the newest lines and a box to write in, over the world and the HUD. */
 export default function TalkPanel({ name, chat, onSent, onClose }: {
@@ -15,35 +17,50 @@ export default function TalkPanel({ name, chat, onSent, onClose }: {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const end = useRef<HTMLDivElement>(null)
+  const box = useRef<HTMLInputElement>(null)
+  // A second Enter in the same moment sees no new state yet: this guard does.
+  const busy = useRef(false)
   const lines = chat?.lines ?? []
   const newest = lines.length > 0 ? lines[lines.length - 1].id : 0
   const waiting = Boolean(chat?.waiting)
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [newest, waiting])
 
-  const send = async (event: FormEvent) => {
-    event.preventDefault()
+  const send = async () => {
+    if (busy.current || sending) return
     const problem = draftProblem(text)
     if (problem) {
       setError(problem)
       return
     }
+    if (!canSend(text, chat, false)) return  // the limits: the panel already says why
+    busy.current = true
     setSending(true)
     setError('')
     try {
       await sendChat(text)
-      setText('')
-      await onSent()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'That did not go through. Try again.')
+      return
     } finally {
+      busy.current = false
       setSending(false)
     }
+    setText('')
+    box.current?.focus()
+    // The line went through: a refresh that fails now is not the owner's problem, the next poll shows it.
+    onSent().catch(() => undefined)
   }
 
   const left = charactersLeft(text)
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-end justify-end bg-[#203b38]/25 p-3 sm:items-stretch sm:p-6" role="presentation" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-label={`Talk with ${name}`} onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (closesOnKey(event.key)) {
+            event.stopPropagation()
+            onClose()
+          }
+        }}
         className="flex max-h-[80vh] w-full flex-col rounded-3xl bg-[#f5faf7] text-[#243e3d] shadow-2xl sm:max-h-none sm:w-96">
         <div className="flex items-center justify-between gap-3 border-b border-[#d6e5dc] px-5 py-3">
           <h2 className="text-lg font-semibold">Talk with {name}</h2>
@@ -61,10 +78,16 @@ export default function TalkPanel({ name, chat, onSent, onClose }: {
           {waiting && <p className="text-xs italic text-[#65817b]">{waitingText(chat, name)}</p>}
           <div ref={end} />
         </div>
-        <form onSubmit={(event) => { void send(event) }} className="border-t border-[#d6e5dc] px-5 py-3">
+        <form onSubmit={(event) => { event.preventDefault(); void send() }} className="border-t border-[#d6e5dc] px-5 py-3">
           <div className="flex gap-2">
-            <input value={text} onChange={(event) => setText(event.target.value)} maxLength={TEXT_LIMIT * 2}
-              aria-label={`Write to ${name}`} placeholder={`Write to ${name}…`}
+            <input ref={box} value={text} onChange={(event) => setText(event.target.value)} maxLength={TEXT_LIMIT * 2}
+              autoFocus aria-label={`Write to ${name}`} placeholder={`Write to ${name}…`}
+              onKeyDown={(event) => {
+                if (sendsOnKey({ key: event.key, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing })) {
+                  event.preventDefault()
+                  void send()
+                }
+              }}
               className="min-w-0 flex-1 rounded-xl border border-[#bfd5cd] bg-white px-3 py-2 text-sm outline-none focus:border-[#315e58]" />
             <button type="submit" disabled={!canSend(text, chat, sending)}
               className="rounded-xl bg-[#315e58] px-3 py-2 text-sm font-medium text-white hover:bg-[#244b47] disabled:cursor-not-allowed disabled:opacity-40">Send</button>

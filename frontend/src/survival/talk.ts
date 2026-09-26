@@ -6,22 +6,55 @@ export const TEXT_LIMIT = 280
 /** Below this many lines left in the game hour, the panel says how many. */
 export const FEW_LEFT = 5
 
-/** The words as the server keeps them: one line, spaces collapsed. */
+/** The joiner inside an emoji family (👨‍👩‍👧), which the cleaning keeps. */
+const JOINER = '\u200d'
+
+/** The words as the server keeps them (backend/survival/talk.py clean): control characters become
+ * spaces, other invisible characters (format marks, lone surrogates) are dropped but for the joiner,
+ * and spaces collapse to one line. */
 export function cleanDraft(text: string): string {
-  return text.split(/\s+/).filter(Boolean).join(' ')
+  return text
+    .replace(/\p{Cc}/gu, ' ')
+    .replace(/[\p{Cf}\p{Cs}]/gu, (char) => (char === JOINER ? char : ''))
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** Characters as the server counts them: code points, so an emoji is one, not two. */
+export function textLength(text: string): number {
+  return Array.from(text).length
 }
 
 /** Why a draft cannot be sent, or null when it can. */
 export function draftProblem(text: string): string | null {
   const words = cleanDraft(text)
   if (!words) return 'Write something first.'
-  if (words.length > TEXT_LIMIT) return `Keep it to ${TEXT_LIMIT} characters.`
+  if (textLength(words) > TEXT_LIMIT) return `Keep it to ${TEXT_LIMIT} characters.`
   return null
 }
 
 /** Characters left in the draft (negative when it is too long). */
 export function charactersLeft(text: string): number {
-  return TEXT_LIMIT - cleanDraft(text).length
+  return TEXT_LIMIT - textLength(cleanDraft(text))
+}
+
+/** A key pressed in the chat box, as the panel reads it. */
+export interface TalkKey {
+  key: string
+  shiftKey: boolean
+  /** True while an input method is composing a character (Japanese, Chinese…): its Enter picks the character. */
+  isComposing: boolean
+}
+
+/** Whether a key in the chat box sends the draft: Enter, without Shift and not while composing. */
+export function sendsOnKey({ key, shiftKey, isComposing }: TalkKey): boolean {
+  return key === 'Enter' && !shiftKey && !isComposing
+}
+
+/** Whether a key closes the talk panel: Escape. */
+export function closesOnKey(key: string): boolean {
+  return key === 'Escape'
 }
 
 /** What the limits leave, in words; '' while there is plenty. */

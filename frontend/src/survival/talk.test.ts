@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatView } from './bondTypes'
 import {
-  TEXT_LIMIT, canSend, charactersLeft, cleanDraft, draftProblem, limitText, newestReply, speaker, talkLabel,
-  unseenReplies, waitingText,
+  TEXT_LIMIT, canSend, charactersLeft, cleanDraft, closesOnKey, draftProblem, limitText, newestReply, sendsOnKey,
+  speaker, talkLabel, textLength, unseenReplies, waitingText,
 } from './talk'
 
 const chat: ChatView = {
@@ -25,12 +25,38 @@ describe('a draft', () => {
     expect(charactersLeft('a  b')).toBe(TEXT_LIMIT - 3)
   })
 
+  it('is cleaned as the server cleans it: controls become spaces, invisible marks go, emoji families stay', () => {
+    expect(cleanDraft('a\u0007b\u0000c')).toBe('a b c')
+    expect(cleanDraft('left\u202eright\u200b!')).toBe('leftright!')
+    expect(cleanDraft('\ufeffhi')).toBe('hi')
+    expect(cleanDraft('👨\u200d👩\u200d👧 hi')).toBe('👨\u200d👩\u200d👧 hi')
+    expect(cleanDraft('bad\ud800 half')).toBe('bad half')
+  })
+
+  it('counts characters as the server does, an emoji as one', () => {
+    expect(textLength('🙂🙂')).toBe(2)
+    expect(draftProblem('🙂'.repeat(TEXT_LIMIT))).toBeNull()
+    expect(charactersLeft('🙂 hi')).toBe(TEXT_LIMIT - 4)
+    expect(draftProblem('🙂'.repeat(TEXT_LIMIT + 1))).toBe('Keep it to 280 characters.')
+  })
+
   it('can be sent while the limits leave room and nothing is sending', () => {
     expect(canSend('hi', chat, false)).toBe(true)
     expect(canSend('hi', chat, true)).toBe(false)
     expect(canSend('', chat, false)).toBe(false)
     expect(canSend('hi', { ...chat, left: { hour: 0, day: 150 } }, false)).toBe(false)
     expect(canSend('hi', undefined, false)).toBe(true)
+  })
+})
+
+describe('the keys', () => {
+  it('send on Enter, not with Shift or while an input method composes, and close on Escape', () => {
+    expect(sendsOnKey({ key: 'Enter', shiftKey: false, isComposing: false })).toBe(true)
+    expect(sendsOnKey({ key: 'Enter', shiftKey: true, isComposing: false })).toBe(false)
+    expect(sendsOnKey({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false)
+    expect(sendsOnKey({ key: 'a', shiftKey: false, isComposing: false })).toBe(false)
+    expect(closesOnKey('Escape')).toBe(true)
+    expect(closesOnKey('Enter')).toBe(false)
   })
 })
 

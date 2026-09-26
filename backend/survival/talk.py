@@ -1,7 +1,8 @@
 """Talking with Mimo (Bond B1): the owner's lines in, Mimo's replies out.
 
 The owner writes to Mimo through `POST /api/mimo/chat` (`owner_says`). A line is cleaned to one line
-of plain text and must hold 1 to TEXT_LIMIT characters. At most HOUR_LIMIT owner lines are taken a
+of plain text (`clean`) and must hold 1 to TEXT_LIMIT characters (a raw line past RAW_LIMIT is
+refused before it is cleaned). At most HOUR_LIMIT owner lines are taken a
 game hour (the Chooser's game hour: 3,600 game seconds, triggers.HOUR) and DAY_LIMIT a real UTC day;
 past either the line is refused (ChatLimited) and nothing is written. A line that is taken is
 written in one short transaction (BEGIN IMMEDIATE) as an owner row with the status "waiting": that
@@ -81,6 +82,8 @@ EARLIER_SHOWN = 6  # earlier chat lines in the model payload
 FACTS_SHOWN = 12  # owner facts in the model payload
 GIVE_UP_AFTER = 15.0  # seconds past Jev's own timeout before a chat call is given up
 LOST_LINE = "Sorry, I lost my train of thought. Say that again?"  # a line whose job could not be built
+JOINER = "\u200d"  # the zero-width joiner inside an emoji family, which cleaning keeps
+RAW_LIMIT = 4 * TEXT_LIMIT  # characters a line may have before it is cleaned
 
 
 class ChatLimited(RuntimeError):
@@ -88,9 +91,18 @@ class ChatLimited(RuntimeError):
 
 
 def clean(text: str) -> str:
-    """The owner's words as one line of plain text: control characters dropped, spaces collapsed."""
-    kept = "".join(" " if unicodedata.category(char).startswith("C") else char for char in str(text))
-    return " ".join(kept.split())
+    """The owner's words as one line of plain text: control characters become spaces; other invisible
+    characters (format marks such as a right-to-left override or a zero-width space, hidden tag
+    characters, lone surrogates) are dropped, but for the joiner inside an emoji family (U+200D); spaces
+    collapse. The viewer's cleanDraft (frontend/src/survival/talk.ts) cleans a draft the same way."""
+    kept = []
+    for char in str(text):
+        category = unicodedata.category(char)
+        if category == "Cc":
+            kept.append(" ")
+        elif category not in ("Cf", "Cs") or char == JOINER:
+            kept.append(char)
+    return " ".join("".join(kept).split())
 
 
 def day_start(now: float) -> float:
@@ -114,6 +126,9 @@ def lines_left(db: sqlite3.Connection, now: float, game_at: float) -> dict[str, 
 def owner_says(world: SurvivalWorld, text: str, now: float, scale: float) -> dict:
     """Take one owner line and queue Mimo's reply. Raises ValueError for an empty or too long line,
     LifeOver when Mimo has died and ChatLimited past a limit; nothing is written then."""
+    text = str(text)
+    if len(text) > RAW_LIMIT:  # refused before the cleaning reads it all
+        raise ValueError(f"Keep it to {TEXT_LIMIT} characters.")
     words = clean(text)
     if not words:
         raise ValueError("Write something first.")

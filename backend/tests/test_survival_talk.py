@@ -59,6 +59,19 @@ class OwnerLinesTests(unittest.TestCase):
         self.assertEqual(len(self.rows()), 1)
         self.assertEqual(clean("one\ntwo  three"), "one two three")
 
+    def test_cleaning_keeps_emoji_families_drops_invisible_marks_and_refuses_a_huge_line_first(self):
+        self.assertEqual(clean("a\x07b\x00c"), "a b c")
+        self.assertEqual(clean("left\u202eright\u200b!"), "leftright!")  # a right-to-left override, a zero-width space
+        self.assertEqual(clean("\ufeffhi\U000e0041"), "hi")  # a byte-order mark, a hidden tag character
+        self.assertEqual(clean("\U0001f468\u200d\U0001f469\u200d\U0001f467 hi"),
+                         "\U0001f468\u200d\U0001f469\u200d\U0001f467 hi")
+        self.assertEqual(clean("bad\ud800 half"), "bad half")
+        said = owner_says(self.world, "\U0001f642" * TEXT_LIMIT, BORN + 1, 1.0)  # an emoji counts as one
+        self.assertEqual(len(said["text"]), TEXT_LIMIT)
+        with patch("backend.survival.talk.clean", side_effect=AssertionError("cleaned")):
+            with self.assertRaises(ValueError):
+                owner_says(self.world, " " * (4 * TEXT_LIMIT + 1), BORN + 2, 1.0)
+
     def test_twenty_lines_a_game_hour_then_a_breather(self):
         for line in range(HOUR_LIMIT):
             owner_says(self.world, f"line {line}", BORN + line, 1.0)
