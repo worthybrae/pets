@@ -70,7 +70,13 @@ class ExpeditionRunTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("MIMO_SLOW_TESTS"), "a slow run: set MIMO_SLOW_TESTS=1")
     def test_left_alone_a_curious_pet_goes_on_an_expedition_of_its_own(self):
-        events, outposts, _, _ = self.run_life(8, 8, 7)
+        """Left alone, the days tests' pet sets out on an expedition of its own and comes home. The
+        spec gives no day count; the plan picked 7 game days, when it set out on day 4.4. The L4b final
+        fix wave's I5 (a sight out of reach gives way to a new one of its kind, so it studies more near
+        home and its curiosity climbs later) moved its set-out to about day 6.4 and its homecoming past
+        day 7, so it runs 8 game days now (the controller's ruling): it must still set out and come home
+        on its own."""
+        events, outposts, _, _ = self.run_life(8, 8, 8)  # 8 game days (was 7): see the docstring
         texts = [event["text"] for event in events]
         self.assertTrue(any("set out on an expedition" in text for text in texts))
         self.assertTrue(any("came home from its expedition" in text for text in texts))
