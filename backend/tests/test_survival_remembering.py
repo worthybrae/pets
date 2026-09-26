@@ -128,6 +128,28 @@ class RememberingTests(unittest.TestCase):
                          "It was a wild one! I went 249 blocks east, camped two nights and learned two new things.")
         self.assertNotIn("It was", self.say("how was the trip?", at=now + 3 * DAY_SECONDS))
 
+    def test_a_verb_in_another_form_brings_its_moment_back(self):
+        # Final fix wave (M9): recall reduces only plurals, so "hunting" never met "hunted".
+        self.remember(1, "episode", "I hunted a cow.", 2)
+        self.remember(1, "episode", "I fought off a gloomling.", 6)
+        self.assertEqual(self.say("do you remember hunting?"), "I remember when I hunted a cow.")
+        self.assertEqual(self.say("remember fighting?", at=BORN + 20), "I remember when I fought off a gloomling.")
+
+    def test_a_goal_or_a_trip_is_said_back_as_its_gist_says_it(self):
+        # Final fix wave (I3): the event log's colons stay out of what Mimo says too.
+        memory = type("M", (), {})
+        memory.kind = "episode"
+        for text, line in (("I reached a goal: look into a cave.", "I remember when I managed to look into a cave."),
+                           ("I set a goal aside for now: a herd of my own.",
+                            "I remember when I put a herd of my own aside for now."),
+                           ('I set a new goal: armor up. "Next time a gloomling swings at me, I\'ll be ready."',
+                            "I remember when I decided to armor up."),
+                           ("I nearly died: a gloomling almost got me.",
+                            "I remember when I was nearly killed by a gloomling."),
+                           ("I met my first skitter.", "I remember when I met my first skitter.")):
+            memory.text = text
+            self.assertEqual(recalled_line(memory), line)
+
     def test_how_each_kind_of_memory_is_said_back(self):
         memory = type("M", (), {})
         for kind, text, line in (("episode", "You gave me a snack.", "I remember when you gave me a snack."),

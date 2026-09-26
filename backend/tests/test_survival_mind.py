@@ -137,6 +137,18 @@ class MemoryStreamTests(unittest.TestCase):
         self.assertTrue(meals and min(meals) >= 8, meals)  # the old small things went first
         self.assertEqual(orphans, 0)
 
+    def test_the_kinds_kept_for_good_come_from_kept_and_the_oldest_gists_go_before_any_thought(self):
+        # Final fix wave (M1): forget_weakest reads KEPT rather than naming the kinds itself.
+        for day in (1, 2, 3):
+            self.add(day, f"Day {day}: a day.", kind="gist", importance=9)
+            self.add(day, f"A thought on day {day}.", kind="thought", importance=9)
+            self.add(day, f"You taught me thing {day}.", kind="told", importance=1)
+        with patch.object(mind, "KEPT", ("gist", "thought", "told")), self.world.transaction() as db:
+            self.assertEqual(mind.forget_weakest(db, 3, 2), 2)  # nothing else to forget: the two oldest gists
+            left = [tuple(row) for row in db.execute("SELECT kind, game_day FROM mind_memories ORDER BY id")]
+        self.assertEqual(left, [("thought", 1), ("told", 1), ("thought", 2), ("told", 2),
+                                ("gist", 3), ("thought", 3), ("told", 3)])
+
     def test_api_mimo_shows_the_memories_and_reading_never_writes(self):
         self.add(1, "I met my first cow.", importance=6)
         self.add(1, "Day 1: met my first cow.", kind="gist", importance=6)

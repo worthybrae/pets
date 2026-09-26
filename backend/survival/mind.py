@@ -19,7 +19,7 @@ strength, so a rehearsed memory fades slower; importance is importance / 10; rel
 of the cue the memory covers, from 0 to 1 and counted RELEVANCE_WEIGHT times, so what the cue asks
 about comes first: each word of the cue is looked for among the memory's tags (a thing's name,
 worth TAG_WEIGHT) or its words, itself counting whole and through SYNONYMS half (cow: cattle, beef,
-leather; armor: cap, tunic, iron). The candidates come from indexed pre-filters, never a scan of
+leather; armor: cap, tunic, iron; a moment's verb in its other forms, VERB_FORMS: hunting, hunted). The candidates come from indexed pre-filters, never a scan of
 the stream: the newest memories tagged with the cue's tags (TAGGED), the newest (RECENT) and the
 most important (IMPORTANT), at most POOL in all. Recalling only reads:
 `rehearse` writes the strength, and only write paths call it (a chat reply that quotes a memory, a
@@ -91,6 +91,17 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
     "food": ("ate", "meal", "hunt", "fish"), "eat": ("ate", "meal", "food"), "hungry": ("hunger", "food"),
     "mountain": ("alpine",), "hill": ("alpine",), "lake": ("water", "fish"), "gift": ("snack", "owner"),
 }
+# A moment's verb in its other forms (the final fix wave's M9): "do you remember hunting?" brings
+# back "I hunted a cow.", since recall only reduces plurals. With what such a moment says besides
+# (VERB_ALSO: exploring finds things, eating is a meal); each form widens to the others.
+VERB_FORMS = (("hunt", "hunted", "hunting"), ("camp", "camped", "camping"), ("fight", "fought", "fighting"),
+              ("explore", "explored", "exploring"), ("eat", "ate", "eating"), ("craft", "crafted", "crafting"),
+              ("build", "built", "building"), ("sleep", "slept", "sleeping"))
+VERB_ALSO = {"explore": ("found",), "eat": ("meal",)}
+for _forms in VERB_FORMS:
+    for _form in _forms:
+        SYNONYMS[_form] = tuple(dict.fromkeys([*SYNONYMS.get(_form, ()), *(other for other in _forms if other != _form),
+                                               *VERB_ALSO.get(_forms[0], ())]))
 SINGULARS = {"zombies": "zombie", "cookies": "cookie", "pies": "pie", "lies": "lie", "movies": "movie"}
 _WORD = re.compile(r"[a-z]+")
 _vocabulary: tuple[tuple, frozenset[str]] | None = None
@@ -273,13 +284,13 @@ def forget_weakest(db: sqlite3.Connection, today: int, how_many: int) -> int:
     then the oldest gists."""
     if how_many <= 0:
         return 0
+    marks = ",".join("?" * len(KEPT))
     ids = [row[0] for row in db.execute(
-        f"SELECT id FROM mind_memories WHERE kind NOT IN ('gist', 'thought') ORDER BY importance, {KEEP_SCORE}, id "
-        "LIMIT ?",
-        (FADE, FADE, today, how_many)).fetchall()]
-    if len(ids) < how_many:
-        ids += [row[0] for row in db.execute("SELECT id FROM mind_memories WHERE kind='gist' ORDER BY id LIMIT ?",
-                                             (how_many - len(ids),)).fetchall()]
+        f"SELECT id FROM mind_memories WHERE kind NOT IN ({marks}) ORDER BY importance, {KEEP_SCORE}, id LIMIT ?",
+        (*KEPT, FADE, FADE, today, how_many)).fetchall()]
+    if len(ids) < how_many:  # KEPT[0], the gists, go before the thoughts
+        ids += [row[0] for row in db.execute("SELECT id FROM mind_memories WHERE kind=? ORDER BY id LIMIT ?",
+                                             (KEPT[0], how_many - len(ids))).fetchall()]
     forget(db, ids)
     return len(ids)
 

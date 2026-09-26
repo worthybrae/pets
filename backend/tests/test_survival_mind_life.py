@@ -22,7 +22,7 @@ from backend.survival.brain import BRAIN
 from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.hatch import hatch
-from backend.survival.mind import CAP, POOL, candidates, count_memories, cue_of, recall
+from backend.survival.mind import CAP, POOL, ROOM, candidates, count_memories, cue_of, recall
 from backend.survival.registry import LifeRegistry
 from backend.survival.talker import run_chores
 from backend.survival.tick import tick_life
@@ -122,10 +122,14 @@ class ThirtyDaysTests(unittest.TestCase):
             seconds = time.perf_counter() - started
         self.assertGreater(written, CAP)  # far more was lived than the stream can hold...
         self.assertLessEqual(count, CAP)  # ...so it holds its cap
-        self.assertGreater(count, CAP - 500)
+        self.assertGreaterEqual(count, CAP - ROOM)  # the cap forgets down to CAP - ROOM, no further
         self.assertEqual([day for day, _ in gists], list(range(1, DAYS + 1)))  # one gist a day, every day kept
         self.assertTrue(all(text.startswith(f"Day {day}: ") for day, text in gists))
-        self.assertEqual(mattered, {"birth": 1, "goal": DAYS // 3, "near_death": 1})
+        # In Mimo's words, never the event log's colons ("reached a goal: ..."), and every day's meals
+        # counted, even at the cap, which forgets a day's meals before its sleep (the final fix wave).
+        self.assertEqual([text for day, text in gists if ": " in text[len(f"Day {day}: "):]], [])
+        self.assertEqual([text for _, text in gists if not text.endswith("ate 60 meals.")], [])
+        self.assertEqual(mattered, {"birth": 1, "goal": DAYS // 3, "near_death": 1})  # each goal a new one
         self.assertGreater(finds[0], 1)  # the oldest finds went first...
         self.assertEqual(finds[-5:], list(range(DAYS - 4, DAYS + 1)))  # ...the newest days' are all there
         self.assertLessEqual(pool, POOL)

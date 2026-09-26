@@ -17,10 +17,13 @@ event, with the table's importance and feeling (a first sighting 6, a goal reach
 dated by the game day it happened on and written in Mimo's voice: "Pip met its first skitter."
 becomes "I met my first skitter.", "You gave Pip a snack." becomes "You gave me a snack.". A "plan"
 event is a moment only for a goal set, a step finished or a goal set aside or given up
-(PLAN_MOMENTS), and a sapling growing is not one. Routine events (a purpose chosen, a craft, falling
-asleep, waking...) never become memories one by one: the day's gist sums them up
-(backend.survival.consolidation). A moment with `many` words is one that repeats in a day, and
-consolidation merges its repeats ("I ate 5 meals.").
+(PLAN_MOMENTS), remembered without the goal's quoted thought or the reason in brackets ("I set a
+new goal: map the far hills."), and a sapling growing is not one. A goal reached again, or a camp
+made again, whose words Mimo already remembers, is a smaller moment (AGAIN): it fades like a routine
+one and lives on in its day's gist, so the moments that mattered stay the first ones. Routine
+events (a purpose chosen, a craft, falling asleep, waking...) never become memories one by one: the
+day's gist sums them up (backend.survival.consolidation). A moment with `many` words is one that
+repeats in a day, and consolidation merges its repeats ("I ate 5 meals.").
 
 What the owner tells about themselves (Bond's owner facts) is a told memory, kept as the fact is
 kept (owner_facts.FACT_MIRRORS), never through the event log: "You told me your name is Sam."
@@ -34,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -98,6 +102,12 @@ MOMENTS: dict[str, Moment] = {
 # A "plan" event is a moment when its words say one of these.
 PLAN_MOMENTS = ((" set a new goal: ", Moment(4, 1)), (" finished a step toward ", Moment(4, 1)),
                 (" set a goal aside", Moment(4, -1)), (" gave up trying to ", Moment(3, -1)))
+# Final fix wave (I4): a goal reached again or another camp like one Mimo remembers is this important,
+# not a moment that matters forever (goals can repeat: "look into a cave" was reached 15 times in a
+# 60-day life, and at the cap it would have outlived first sightings and fights).
+AGAIN = {"goal": 4, "camp": 4}
+# What a plan memory leaves out (I3): the reason in brackets and the goal's quoted thought.
+_ASIDE = re.compile(r'\s*\([^)]*\)|\s*"[^"]*"')
 # What the owner told about themselves, as Mimo remembers it (owner_facts' kinds).
 TOLD_FACTS = {"name": "You told me your name is {words}.", "likes": "You told me you like {words}.",
               "dislikes": "You told me you don't like {words}.", "about": "You told me {words}."}
@@ -161,13 +171,24 @@ def game_day(state: dict, at: float, scale: float) -> int:
     return clock_at(state["born_at"], at, scale)["day_number"]
 
 
+def moment_text(event: dict, name: str) -> str:
+    """The event in Mimo's voice; a plan without its quoted thought or bracketed reason."""
+    text = voice(event["text"], name)
+    return _ASIDE.sub("", text) if event["kind"] == "plan" else text
+
+
 def remember_moment(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:
-    """A Mind writer: the event as a memory, when it is a moment."""
+    """A Mind writer: the event as a memory, when it is a moment (a smaller one when it is AGAIN)."""
     moment = moment_of(event, state["name"])
     if moment is not None:
         day = game_day(state, event["at"], scale)
-        add_memory(db, event["at"], day, moment.kind, voice(event["text"], state["name"]), moment.about,
-                   moment.importance, moment.feeling, source=event["kind"])
+        text = moment_text(event, state["name"])
+        importance = moment.importance
+        if event["kind"] in AGAIN and db.execute("SELECT 1 FROM mind_memories WHERE source=? AND text=? LIMIT 1",
+                                                 (event["kind"], text)).fetchone():
+            importance = min(importance, AGAIN[event["kind"]])
+        add_memory(db, event["at"], day, moment.kind, text, moment.about, importance, moment.feeling,
+                   source=event["kind"])
 
 
 for _kind in (*MOMENTS, "plan"):

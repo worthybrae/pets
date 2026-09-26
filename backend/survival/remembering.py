@@ -11,8 +11,10 @@ a chat job by a talk.HEARING hook (into Heard.context), with the owner's words a
   by the lake.". A memory comes back when the words name a thing Mimo remembers (the memory covers
   at least THING_MATCH of the cue; a time of day, TIMES, is no such thing: "is it night yet?"
   recalls nothing) or ask it to remember (MEMORY_WORDS) and something relates; "yesterday" brings
-  back yesterday's gist. What the owner told of themselves is never said back here: that is Bond's
-  to say (its "remember" and "fond" lines), and everyday words must not bring it up. It weighs
+  back yesterday's gist. A goal or a trip is said plainly, as its day's gist says it ("I remember
+  when I managed to look into a cave."). What the owner told of themselves is never said back
+  here: that is Bond's to say (its "remember" and "fond" lines), and everyday words must not bring
+  it up. It weighs
   WEIGHT plus how much of the cue it covers (and one more when asked), so a real memory answers "do
   you remember the skitter?" before what Mimo knows of its owner. The weights share one scale with
   the topics' keyword counts and replies.TOLD (10): a memory the words do not cue is never offered,
@@ -28,7 +30,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from backend.survival.consolidation import joined, number
+from backend.survival.consolidation import clause, joined, number, plainly
 from backend.survival.mind import MEMORY_COLUMNS, Memory, cue_of, memory_of, recall, rehearse
 from backend.survival.replies import ABOUT, REPLIES, Heard, Reply, clip
 from backend.survival.situation import Situation
@@ -59,6 +61,9 @@ def recalled_line(memory: Memory) -> str:
         return f"I remember day {gist.group(1)}: {gist.group(2)}"
     if memory.kind == "thought":
         return f"I keep thinking: {text}"
+    words = text[2:].rstrip(".!?") if text.startswith("I ") else ""
+    if words and plainly(words) != words:  # the event log's shape, said as the gist says it
+        return f"I remember when I {clause(text)}."
     return f"I remember when {text if text.startswith('I ') else text[:1].lower() + text[1:]}"
 
 

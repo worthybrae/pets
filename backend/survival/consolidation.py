@@ -6,9 +6,11 @@ When Mimo falls asleep in the evening (a "sleep" event from dusk on), Mind's mem
 1. the day's repeats of a routine moment (a MOMENTS entry with `many` words: meals, fish, blows)
    are merged into one ("I caught 9 fish."), when there are MERGE_AT or more; a moment of
    importance KEEP_WHOLE or more is always kept whole;
-2. a gist of the day is written ("Day 12: reached a goal: iron tools, met my first skitter and
-   learned three things."): its biggest moments, what it learned, what it ate and made, from the
-   day's memories and the tally of every event the memory read that day;
+2. a gist of the day is written ("Day 12: reached my goal of iron tools, met my first skitter and
+   learned three things."): its biggest moments in Mimo's own words (`clause`, GIST_PHRASES: never
+   the event log's "goal: title"), what it learned, what it ate and made, from the day's memories
+   and the tally of every event the memory read that day (its meals from the tally, so a meal the
+   cap forgot before sleep is still counted);
 3. what faded is forgotten: an episode or lesson under KEEP_WHOLE whose keep_score (importance x
    strength against age, mind.keep_score) fell under 1; it lives on only in its day's gist;
 4. the stream is brought back within the cap (mind.enforce_cap).
@@ -36,7 +38,7 @@ from backend.survival.mind import (
     mind_state,
 )
 from backend.survival.once import log_once
-from backend.survival.replies import SENTENCE_END
+from backend.survival.replies import SENTENCE_END, starts_with_verb
 from backend.survival.situation import DUSK
 
 logger = logging.getLogger(__name__)
@@ -56,13 +58,49 @@ def number(n: int) -> str:
     return NUMBERS[n] if 0 <= n < len(NUMBERS) else str(n)
 
 
+def goal_words(said: str, title: str) -> str:
+    """A goal's event words said plainly, for a title that is something to do ("look into a cave")
+    or a thing ("iron tools")."""
+    doing = starts_with_verb(title)
+    if said == "reached":
+        return f"managed to {title}" if doing else f"reached my goal of {title}"
+    if said == "new":
+        return f"decided to {title}" if doing else f"set my heart on {title}"
+    return f"put off trying to {title}" if doing else f"put {title} aside for now"
+
+
+# The event log's shapes, as Mimo says them (the final fix wave's I3): "reached a goal: iron tools"
+# -> "reached my goal of iron tools", "finished a step toward an expedition: camp out for the night"
+# -> "took a step toward an expedition", "came home from my expedition: 162 blocks out, 1 night
+# camped, ..." -> "came home from my expedition 162 blocks out"; and the near death's own colon, "nearly
+# died: a gloomling almost got me" -> "was nearly killed by a gloomling".
+GIST_PHRASES = (
+    (re.compile(r"^reached a goal: (.+)$"), lambda found: goal_words("reached", found[1])),
+    (re.compile(r"^set a new goal: (.+)$"), lambda found: goal_words("new", found[1])),
+    (re.compile(r"^set a goal aside for now: (.+)$"), lambda found: goal_words("aside", found[1])),
+    (re.compile(r"^finished a step toward (.+?): .+$"), lambda found: f"took a step toward {found[1]}"),
+    (re.compile(r"^came home from my expedition: (\d+) blocks out\b.*$"),
+     lambda found: f"came home from my expedition {found[1]} blocks out"),
+    (re.compile(r"^nearly died: (an? .+?) almost got me$"), lambda found: f"was nearly killed by {found[1]}"),
+)
+
+
+def plainly(words: str) -> str:
+    """Words of Mimo's (without its leading "I ") with the event log's shapes said plainly (GIST_PHRASES)."""
+    for pattern, say in GIST_PHRASES:
+        found = pattern.match(words)
+        if found:
+            return say(found)
+    return words
+
+
 def clause(text: str) -> str:
     """A memory as part of a gist: "I met my first skitter." -> "met my first skitter"; the first
-    sentence only, without what it says in brackets."""
+    sentence only, without what it says in brackets, and the event log's shapes said plainly: "I
+    reached a goal: look into a cave." -> "managed to look into a cave"."""
     first = re.sub(r"\s*\([^)]*\)", "", SENTENCE_END.split(text.strip())[0]).rstrip(".!?")
-    if first.startswith("I "):
-        return first[2:]
-    return first[:1].lower() + first[1:]
+    first = first[2:] if first.startswith("I ") else first[:1].lower() + first[1:]
+    return plainly(first)
 
 
 def joined(parts: list[str]) -> str:
@@ -98,8 +136,16 @@ def merge_repeats(db: sqlite3.Connection, day: int) -> int:
     return merged
 
 
+def times(kind: str, n: int) -> str:
+    """ "crafted six things", "cooked once", "cooked twice", "cooked three times"."""
+    if kind == "cook" and n in (1, 2):
+        return "cooked once" if n == 1 else "cooked twice"
+    words, plural = TALLY_WORDS[kind]
+    return words.format(n=number(n)) + ("" if n == 1 else plural)
+
+
 def gist_text(day: int, memories: list[Memory], tally: dict) -> str:
-    """ "Day 12: reached a goal: iron tools, met my first skitter, learned three things and ate
+    """ "Day 12: reached my goal of iron tools, met my first skitter, learned three things and ate
     five meals."; "Day 3: a quiet day." when nothing stood out."""
     parts, sources = [], set()
     for memory in sorted(memories, key=lambda memory: (-memory.importance, memory.id)):
@@ -112,13 +158,13 @@ def gist_text(day: int, memories: list[Memory], tally: dict) -> str:
     lessons = sum(1 for memory in memories if memory.kind == "lesson")
     if lessons:
         parts.append("learned something new" if lessons == 1 else f"learned {number(lessons)} things")
-    meals = sum(memory.count for memory in memories if memory.source == "ate")
+    # Every meal the memory read is in the day's tally, even one the cap forgot before sleep (I7).
+    meals = max(tally.get("ate", 0), sum(memory.count for memory in memories if memory.source == "ate"))
     if meals:
         parts.append(f"ate {number(meals)} meal{'' if meals == 1 else 's'}")
     busiest = max(TALLY_WORDS, key=lambda kind: (tally.get(kind, 0), kind))
     if tally.get(busiest, 0):
-        words, plural = TALLY_WORDS[busiest]
-        parts.append(words.format(n=number(tally[busiest])) + ("" if tally[busiest] == 1 else plural))
+        parts.append(times(busiest, tally[busiest]))
     while parts:
         text = f"Day {day}: {joined(parts)}."
         if len(text) <= TEXT_LIMIT:

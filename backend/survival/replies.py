@@ -73,11 +73,12 @@ REFLEX_WORDS = {"flee": "running from danger", "fight": "fighting off a creature
                 "collapse": "too tired to stand", "avoid_drop": "watching my step"}
 GERUNDS = {"go": "going", "put": "putting", "dig": "digging", "drop": "dropping", "lie": "lying", "stop": "stopping"}
 # The verbs after an "it" that means Mimo, in its own voice (`voiced`): "it knows" -> "I know".
-IT_VERBS = {"knows": "know", "has": "have", "does": "do", "is": "am", "was": "was", "needs": "need", "wants": "want",
-            "cannot": "cannot", "can": "can", "will": "will", "had": "had", "found": "found", "met": "met",
-            "saw": "saw", "carries": "carry", "sees": "see", "likes": "like", "loves": "love", "hates": "hate",
-            "feels": "feel", "gets": "get", "goes": "go", "makes": "make", "keeps": "keep", "lives": "live",
-            "misses": "miss", "doesn't": "don't", "isn't": "am not", "hasn't": "haven't", "wasn't": "wasn't"}
+IT_VERBS = {"knows": "know", "has": "have", "does": "do", "did": "did", "is": "am", "was": "was", "needs": "need",
+            "wants": "want", "cannot": "cannot", "can": "can", "will": "will", "had": "had", "found": "found",
+            "met": "met", "saw": "saw", "carries": "carry", "sees": "see", "likes": "like", "loves": "love",
+            "hates": "hate", "feels": "feel", "gets": "get", "goes": "go", "makes": "make", "keeps": "keep",
+            "lives": "live", "misses": "miss", "doesn't": "don't", "isn't": "am not", "hasn't": "haven't",
+            "wasn't": "wasn't"}
 IT_SUBJECT = re.compile(r"\bit (" + "|".join(sorted(map(re.escape, IT_VERBS), key=len, reverse=True)) + r")\b")
 # The owner's words in Mimo's mouth (`echoed`): the owner's "you" is Mimo, the owner's "I" is the owner.
 ECHO = {"your": "my", "yours": "mine", "yourself": "myself", "you're": "I'm", "youre": "I'm", "you've": "I've",

@@ -7,7 +7,7 @@ from unittest.mock import patch
 import backend.survival.brain  # noqa: F401  (every creature, recipe and goal registered, for the tags)
 from backend.survival import minding  # noqa: F401  (the mirror and the moments registered)
 from backend.survival.clock import DAY_SECONDS
-from backend.survival.episodes import FOLLOWERS
+from backend.survival.episodes import AGAIN, FOLLOWERS, voice
 from backend.survival.events import MIRROR_BATCH
 from backend.survival.hatch import hatch
 from backend.survival.once import forget_logged
@@ -68,13 +68,53 @@ class MirrorTests(unittest.TestCase):
              "importance": 6, "feeling": 1, "source": "found"},
             {"game_day": 1, "kind": "episode", "text": "You gave me a snack.", "about": "owner snack",
              "importance": 5, "feeling": 2, "source": "care"},
-            {"game_day": 1, "kind": "episode", "text": 'I set a new goal: iron tools. "I want iron tools."',
+            {"game_day": 1, "kind": "episode", "text": "I set a new goal: iron tools.",  # the quoted thought left out
              "about": "iron_tool iron tool", "importance": 4, "feeling": 1, "source": "plan"},
             {"game_day": 2, "kind": "lesson", "text": "I learned that gravel sometimes hides flint.",
              "about": "gravel hide flint", "importance": 5, "feeling": 1, "source": "learned"},
             {"game_day": 2, "kind": "episode", "text": "I finished building my Snug Cabin and moved in.",
              "about": "", "importance": 7, "feeling": 2, "source": "built"},
         ])
+
+    def test_a_plan_is_remembered_without_its_reason_or_its_quoted_thought(self):
+        # Final fix wave (I3): the bracket was voiced wrongly ("(I cannot be done now)"), and the quote
+        # tagged the plan with whatever the thought named, so it came back for "the gloomling?".
+        self.log((BORN + 10, "plan", f"{self.name} set a goal aside for now: map the far hills (it cannot be done "
+                                     "now)."),
+                 (BORN + 20, "plan", f'{self.name} set a new goal: armor up. "Next time a gloomling swings at me, '
+                                     'I\'ll be ready."'),
+                 (BORN + 30, "plan", f"{self.name} gave up trying to look into a cave (it was too far)."))
+        run_chores(self.world, BORN + 40, 1.0)
+        plans = [(memory["text"], memory["about"]) for memory in self.memories() if memory["source"] == "plan"]
+        self.assertEqual(plans, [("I set a goal aside for now: map the far hills.", "far_hill hill"),
+                                 ("I set a new goal: armor up.", "armor"),
+                                 ("I gave up trying to look into a cave.", "cave")])
+
+    def test_a_find_it_did_not_know_is_said_in_mimos_own_voice(self):
+        self.assertEqual(voice("Pip found water it did not know.", "Pip"), "I found water I did not know.")
+
+    def test_a_goal_reached_again_or_another_camp_is_a_smaller_moment_that_fades(self):
+        # Final fix wave (I4): the first reach matters for good (7); the same goal reached again is
+        # remembered at AGAIN's 4, fades after some nine game days, and both days' gists still name it.
+        name = self.name
+        for day in (1, 2):
+            self.log((BORN + (day - 1) * DAY_SECONDS + 100, "goal", f"{name} reached a goal: look into a cave."),
+                     (BORN + (day - 1) * DAY_SECONDS + 200, "camp", f"{name} dug in for the night and made a camp."),
+                     (BORN + (day - 1) * DAY_SECONDS + 2500, "sleep", f"{name} fell asleep."))
+            run_chores(self.world, BORN + (day - 1) * DAY_SECONDS + 2600, 1.0)
+        again = [(memory["game_day"], memory["source"], memory["importance"]) for memory in self.memories()
+                 if memory["source"] in AGAIN]
+        self.assertEqual(again, [(1, "goal", 7), (1, "camp", 6), (2, "goal", 4), (2, "camp", 4)])
+        with self.world.connect() as db:
+            gists = [row[0] for row in db.execute("SELECT text FROM mind_memories WHERE kind='gist' ORDER BY id")]
+        self.assertEqual(gists, ["Day 1: hatched into a brand-new world, managed to look into a cave and dug in for "
+                                 "the night and made a camp.",
+                                 "Day 2: managed to look into a cave and dug in for the night and made a camp."])
+        for day in range(3, 14):
+            self.log((BORN + (day - 1) * DAY_SECONDS + 2500, "sleep", f"{name} fell asleep."))
+            run_chores(self.world, BORN + (day - 1) * DAY_SECONDS + 2600, 1.0)
+            left = [memory["game_day"] for memory in self.memories() if memory["source"] == "goal"]
+            self.assertEqual(left, [1, 2] if day <= 11 else [1], day)  # 4 x 1 x 3 / (3 + 10 days) < 1
 
     def test_the_mirror_reads_the_whole_log_a_batch_at_a_time_and_never_twice(self):
         self.log(*((BORN + number, "ate", f"{self.name} ate apple.") for number in range(1, 2 * MIRROR_BATCH + 50)))
