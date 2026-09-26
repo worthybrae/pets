@@ -162,11 +162,11 @@ def reflection(s: Situation) -> list[Aside]:
     def keep(db: sqlite3.Connection, state: dict, pick: str | None, now: float, scale: float) -> None:
         if pick is None:
             return  # Jev did not answer: the night's rules reflect instead
+        if pick in by_key and pick not in kept:
+            think(db, state, by_key[pick], day, now)
+            kept.add(pick)
         mind = mind_state(state)
         mind["reflected"] = max(mind["reflected"], day)
-        if pick in by_key and pick not in kept:
-            kept.add(pick)
-            think(db, state, by_key[pick], day, now)
     return [Aside("thought", options, REFLECT_INSTRUCTIONS, keep), Aside("another_thought", options,
                                                                          REFLECT_INSTRUCTIONS, keep)]
 

@@ -2,10 +2,13 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every purpose, goal and creature registered)
 from backend.survival import minding  # noqa: F401  (reflection, its asides and nightly hook registered)
-from backend.survival.choosing import Choice, Chooser, InlineExecutor, prepare, prepare_goal, store_goal
+from backend.survival.choosing import (
+    Ask, Aside, Choice, Chooser, InlineExecutor, keep_asides, prepare, prepare_goal, store_goal,
+)
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.goals import ask_for_goal
 from backend.survival.hatch import hatch
@@ -162,6 +165,37 @@ class ReflectionTests(unittest.TestCase):
         with self.world.connect() as db:
             strong = [row[0] for row in db.execute("SELECT id FROM mind_memories WHERE strength = 2 ORDER BY id")]
         self.assertEqual(sorted(strong), sorted(ask.recalled))
+
+    def test_a_crashing_asides_keep_also_restores_state_mind(self):
+        def broken(db, state, pick, now, scale):
+            state["mind"]["reflected"] = 999
+            raise RuntimeError("boom")
+        with self.world.transaction() as db:
+            state = read_state(db)
+            mind_state(state)  # seed state["mind"] with its defaults (reflected=0), as a real ask would
+            ask = Ask(1, "jev", False, (), {}, at(3, DUSK), asides=(Aside("thought", (), "", broken),))
+            choice = Choice("rest", "jev", "", {"model": 0, "luna": 0, "reflections": 0}, asides={"thought": "x"})
+            with self.assertLogs("backend.survival.choosing", level="ERROR"):
+                keep_asides(db, state, ask, choice, at(3, DUSK), 1.0)
+            write_state(db, state)
+        self.assertEqual(self.world.state()["mind"]["reflected"], 0)
+
+    def test_a_crash_in_think_does_not_lose_that_days_reflection_the_nightly_rules_still_keep_it(self):
+        self.a_week()
+        self.edit(lambda state: mark_trigger(state, "dusk", at(3, DUSK)))
+        picks = {"thought": "hungry_trips", "another_thought": "hungry_trips"}
+        jev = FakeJev(lambda name, criteria: picks.get(name, "rest" if "rest" in criteria else sorted(criteria)[0]))
+        with patch("backend.survival.insights.think", side_effect=RuntimeError("boom")):
+            with self.assertLogs("backend.survival.choosing", level="ERROR"):
+                Chooser(env=JEV, http=jev, executor=InlineExecutor(), rng=random.Random(1), scale=1.0).poll(
+                    self.registry, at(3, DUSK + 5))
+        self.assertEqual(self.thoughts(), [])
+        self.assertEqual(self.world.state().get("mind", {}).get("reflected", 0), 0)
+        with self.world.transaction() as db:
+            log_event(db, at(3, NIGHT + 50), "sleep", f"{self.life['name']} fell asleep.")
+        run_chores(self.world, at(3, NIGHT + 51), 1.0)
+        self.assertEqual([thought[2] for thought in self.thoughts()], ["hungry_trips"])
+        self.assertEqual(self.world.state()["mind"]["reflected"], 3)
 
 
 if __name__ == "__main__":

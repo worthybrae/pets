@@ -73,6 +73,7 @@ rehearsed when the goal is stored.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import random
@@ -441,13 +442,17 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, sca
 
 def keep_asides(db, state: dict, ask: Ask, choice: Choice, now: float, scale: float) -> None:
     """Mind M2: each aside keeps Jev's answer (None when there was none), even for a stale ask; one
-    that crashes is rolled back alone (logged once)."""
+    that crashes is rolled back alone, its state["mind"] restored too (logged once)."""
     for aside in ask.asides:
+        mind = copy.deepcopy(state.get("mind"))
         db.execute("SAVEPOINT aside")
         try:
             aside.keep(db, state, (choice.asides or {}).get(aside.name), now, scale)
         except Exception as error:
             db.execute("ROLLBACK TO aside")
+            state.pop("mind", None)
+            if mind is not None:
+                state["mind"] = mind
             log_once(logger, f"aside {aside.name}", error)
         db.execute("RELEASE aside")
 
