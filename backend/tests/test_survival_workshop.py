@@ -12,6 +12,7 @@ from backend.survival.grid import Grid
 from backend.survival.making import raw_needs
 from backend.survival.memory import create_memory_tables, finish_structure, set_home, structures
 from backend.survival.purposes import PURPOSES
+from backend.survival.signals import create_signal_table
 from backend.survival.situation import Situation
 from backend.survival.structures import blueprint_of, start, todo
 from backend.survival.vitals import START_VITALS
@@ -32,6 +33,7 @@ class Yard:
         self.db = sqlite3.connect(":memory:")
         create_memory_tables(self.db)
         create_creature_tables(self.db)
+        create_signal_table(self.db)  # T2: the machines' signals
         self.grid = Grid(lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air")
         self.grid.herd = Herd(self.db)
         site = find_site(self.grid, (1, 1, 1), (3, 3), ("north",), "flat", reach=0)

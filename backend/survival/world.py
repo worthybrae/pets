@@ -27,6 +27,7 @@ from backend.survival.creatures.table import create_creature_tables
 from backend.survival.memory import create_memory_tables
 from backend.survival.mind import create_mind_tables
 from backend.survival.renewal import create_growth_table
+from backend.survival.signals import create_signal_table
 from backend.survival.steps import WORKSTATIONS
 from backend.survival.triggers import mark_trigger
 from backend.survival.vitals import START_VITALS
@@ -36,7 +37,7 @@ COORDINATE_LIMIT = 30_000
 # distinct one only once.
 ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", "craft", "smelt",
                             "explore", "owner", "plan", "purpose", "reflex", "ate", "cook", "fish", "grow",
-                            "hunt", "hurt", "fight", "threat", "learned"})
+                            "hunt", "hurt", "fight", "threat", "learned", "bell"})
 RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to skip repeats
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6
@@ -119,6 +120,7 @@ def create_world_tables(db: sqlite3.Connection) -> None:
     create_growth_table(db)
     create_creature_tables(db)
     create_bond_tables(db)
+    create_signal_table(db)  # Making: the machines' signals
     create_mind_tables(db)
 
 

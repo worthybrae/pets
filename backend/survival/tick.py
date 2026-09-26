@@ -27,6 +27,9 @@ running (and costing) on every short step too.
 L2 final fix wave: each of those short steps also gives Mimo's walks one small route search of
 its own (ActionContext.small_searches_left, backend.survival.actions), so a flee walk does not wait
 in the queue for the transaction's 2 whole searches while it is struck.
+
+Making: last of all, once a transaction while Mimo lives, the machines Mimo built run up to its end
+(backend.survival.signals.run_signals, bounded to MAX_CELLS cells a transaction).
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry
 from backend.survival.renewal import renew
 from backend.survival.script import rest_plan
+from backend.survival.signals import run_signals
 from backend.survival.vitals import (
     FIRE_REACH, FREEZING_BELOW, WARM_BLOCKS, Surroundings, is_sheltered, near_warm_block, step_vitals,
 )
@@ -251,6 +255,8 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 run_creatures(state, context, timestamp)  # the slice's one final call: full (fix round 2)
                 if caught(state):
                     record_death(state, state["hurt_by"], timestamp, scale, events)
+                else:
+                    run_signals(state, context, timestamp)  # Making: the machines, once a transaction
         state["last_tick_at"] = state["died_at"] if state["died_at"] is not None else timestamp
         write_state(db, state)
         for at, kind, text in sorted(events, key=lambda event: event[0]):
