@@ -80,6 +80,9 @@ GOAL = "expedition"
 REST_DAYS = 2.0  # game days between the end of one expedition and the offer of the next
 RESTLESS_PULL = 110.0
 PACK_FOOD = 90.0  # hunger points of food packed: a day and a half
+PACK_MORE_TOP = 15.0  # Mind M2: hunger points of food a thought may add to the pack, at most
+# [more(s) -> hunger points]: food to pack besides PACK_FOOD (Mind M2's "pack more food" thought).
+PACK_MORE: list = []
 PACK_TORCHES = 4
 RANGE_MIN, RANGE_MAX = 48.0, 144.0
 PAST = 48.0
@@ -188,6 +191,18 @@ def packed_food(s: Situation) -> float:
     return foraging.food_points(s)
 
 
+def pack_food(s: Situation) -> float:
+    """The food an expedition packs: PACK_FOOD, and (Mind M2) up to PACK_MORE_TOP more that a thought
+    asks for (PACK_MORE). One that crashes counts nothing."""
+    more = 0.0
+    for extra in PACK_MORE:
+        try:
+            more += float(extra(s))
+        except Exception as error:
+            log_once(logger, "pack more", error)
+    return PACK_FOOD + max(0.0, min(PACK_MORE_TOP, more))
+
+
 def coal_known(s: Situation) -> bool:
     """Mimo carries coal, or remembers coal ore mine_ore could go back for: it can have torches."""
     return s.count("coal") > 0 or any(place["note"] == "coal_ore" for place in ore_targets(s))
@@ -229,7 +244,7 @@ def campfire_ready(s: Situation) -> bool:
 
 
 def packed(s: Situation) -> bool:
-    return packed_food(s) >= PACK_FOOD and torches_packed(s) >= 1.0 and campfire_ready(s)
+    return packed_food(s) >= pack_food(s) and torches_packed(s) >= 1.0 and campfire_ready(s)
 
 
 def set_out(state: dict, s: Situation, found: dict, context: ActionContext, at: float) -> None:
@@ -376,7 +391,7 @@ def expedition_score(s: Situation) -> float:
 def pack_share(s: Situation) -> float:
     if phase_of(s) in ("out", "homeward", "home"):
         return 1.0
-    return (min(1.0, packed_food(s) / PACK_FOOD) + torches_packed(s) + float(campfire_ready(s))) / 3
+    return (min(1.0, packed_food(s) / pack_food(s)) + torches_packed(s) + float(campfire_ready(s))) / 3
 
 
 def travel_share(s: Situation) -> float:
@@ -429,8 +444,9 @@ register_goal(Goal(
 
 
 def more_food(s: Situation) -> float:
-    """While packing, Mimo wants PACK_FOOD of food on hand, not just a day's worth."""
-    return max(0.0, PACK_FOOD - foraging.FOOD_WANTED) if phase_of(s) == "packing" else 0.0
+    """While packing, Mimo wants PACK_FOOD of food on hand (Mind M2: or more, pack_food), not just a
+    day's worth."""
+    return max(0.0, pack_food(s) - foraging.FOOD_WANTED) if phase_of(s) == "packing" else 0.0
 
 
 foraging.MORE_FOOD.append(more_food)
@@ -453,7 +469,7 @@ def packed_kept(s: Situation, item: str) -> float:
     if (phase == "packing" and item in GIVES_WAY_TO_FOOD and item not in materials_wanted(s.inventory)
             and item not in ladder_ores(s.inventory)):
         return -float(storage.KEEP.get(item, 0))
-    return {"torch": PACK_TORCHES, "food": PACK_FOOD - foraging.FOOD_WANTED}.get(item, 0.0)
+    return {"torch": PACK_TORCHES, "food": pack_food(s) - foraging.FOOD_WANTED}.get(item, 0.0)
 
 
 storage.KEEPS_MORE.append(packed_kept)
@@ -487,7 +503,7 @@ register(Purpose(
     "pack", "pack for the expedition", "Make the torches and the campfire an expedition takes.",
     valid=pack_valid, facts=lambda s: (f"carrying {s.count('torch')} of {PACK_TORCHES} torches, "
                                        f"{s.count('campfire')} campfire, {round(packed_food(s))} of "
-                                       f"{round(PACK_FOOD)} hunger of food"),
+                                       f"{round(pack_food(s))} hunger of food"),
     score=lambda s: 60.0, plan=lambda s, context: [] if s.brain["batches"] > 0 else pack_steps(s),
     thoughts=("Torches, a campfire, food... what else?", "Packing up for the trip!")))
 

@@ -37,6 +37,7 @@ from backend.survival.trips import offers, reasons_payload, trip_view
 logger = logging.getLogger(__name__)
 
 JITTER = 6.0
+NUDGE_TOP = 15.0  # Mind M2: points the nudges move one purpose's score, either way, at most
 PENALTY = 30.0
 PLACES_SHOWN = 12
 EVENTS_SHOWN = 8
@@ -64,9 +65,26 @@ def options(s: Situation) -> list[Option]:
             continue
         if s.brain["penalties"].get(purpose.name, -math.inf) > s.at:
             score -= PENALTY
+        score += nudged(s, purpose.name)
         reasons = tuple(offers(s)) if purpose.name == "explore" else ()
         found.append(Option(purpose.name, purpose.phrase, purpose.description, facts, score, reasons=reasons))
     return steer(s, found)
+
+
+# [nudge(s, purpose name) -> points]: small, bounded pulls on a purpose's score (Mind M2's thoughts:
+# backend.survival.nudges), NUDGE_TOP either way in all.
+NUDGES: list = []
+
+
+def nudged(s: Situation, name: str) -> float:
+    """The nudges' points for a purpose, within NUDGE_TOP either way. One that crashes counts nothing."""
+    points = 0.0
+    for nudge in NUDGES:
+        try:
+            points += float(nudge(s, name))
+        except Exception as error:
+            log_once(logger, "nudge", error)
+    return max(-NUDGE_TOP, min(NUDGE_TOP, points))
 
 
 def steer(s: Situation, found: list[Option]) -> list[Option]:
