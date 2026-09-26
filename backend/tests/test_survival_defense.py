@@ -144,6 +144,17 @@ class ThreatTests(unittest.TestCase):
         self.assertFalse(indoors(situation(grid, without_roof)))
         self.assertEqual(len(threats(situation(grid, without_roof))), 1)
 
+    def test_a_sealed_camp_with_a_wall_gone_is_not_indoors(self):
+        # Fix round 2: sealed_camp must also require the four walls (camp.in_camp), not just the
+        # roof and the outpost memory -- a gloomling could come in through the gap unnoticed.
+        grid = meadow({(0, 0, 0): "air", (0, 1, 0): "dirt"})
+        grid.put(1, 0, 0, "air")  # a wall dug away since
+        remember(grid.herd.db, "outpost", (0, 0, 0), 0.0, "camp")
+        hostile(grid, cell=(5, 1, 0))
+        s = situation(grid, pet(position={"x": 0.0, "y": 0.0, "z": 0.0}))
+        self.assertFalse(indoors(s))
+        self.assertEqual(len(threats(s)), 1)
+
     def test_a_weapon_is_a_sword_or_a_bow_with_arrows(self):
         self.assertFalse(armed(situation(meadow(), pet())))
         self.assertTrue(armed(situation(meadow(), pet(inventory={"wooden_sword": 1}))))

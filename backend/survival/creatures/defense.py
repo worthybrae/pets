@@ -39,9 +39,9 @@ from __future__ import annotations
 
 import math
 
-from backend.services.blocks import is_solid
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext
+from backend.survival.camp import in_camp as camp_sealed
 from backend.survival.creatures.archery import SHOOT_RANGE
 from backend.survival.creatures.combat import ATTACK_REACH, weapon
 from backend.survival.creatures.harm import ARMOR, sheltered
@@ -98,12 +98,12 @@ THREAT_RISE = 2
 
 def sealed_camp(s: Situation) -> bool:
     """Mimo stands in a camp it dug in and roofed over (backend.survival.camp): a remembered
-    outpost cell with the roof cell above it solid. Fix round 1, Minor 1: without this, an unarmed
-    pet sleeping in a sealed camp re-fired flee at every hostile within CHASE_SIGHT, its walk out
-    always failing (six solid walls), breaking sleep every few seconds."""
-    x, y, z = s.here
-    return (is_solid(s.grid.material(x, y + 1, z))
-            and any(place["kind"] == "outpost" and cell_of(place) == s.here for place in s.places))
+    outpost cell, walled and roofed solid on all sides (camp.in_camp, imported as `camp_sealed`;
+    Fix round 2: a roof alone is not enough -- a wall dug away since still let a gloomling in the
+    gap hit a pet that neither fled nor fought). Fix round 1, Minor 1: without this at all, an
+    unarmed pet sleeping in a sealed camp re-fired flee at every hostile within CHASE_SIGHT, its
+    walk out always failing (six solid walls), breaking sleep every few seconds."""
+    return camp_sealed(s) and any(place["kind"] == "outpost" and cell_of(place) == s.here for place in s.places)
 
 
 def indoors(s: Situation) -> bool:

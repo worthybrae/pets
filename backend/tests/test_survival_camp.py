@@ -134,6 +134,7 @@ class CampLoopFixTests(unittest.TestCase):
         self.pet.world.carry_out(steps)
         self.pet.state["position"]["y"] = 0.0  # it dropped into the hole
         self.pet.world.grid.put(101, 1, 1, "dirt")  # the roof cell is already solid (a batch planned twice)
+        self.pet.world.grid.put(102, 0, 1, "air")  # a wall gone: in_camp alone would not call this settled
         s = self.pet.situation(DUSK)
         self.assertTrue(settled(s))
         self.assertEqual(camp.plan(s, self.pet.context(DUSK)), [{"kind": "wait", "seconds": 60.0}])  # for nightfall
@@ -182,11 +183,11 @@ class CampWiringFixTests(unittest.TestCase):
     def test_camp_spot_excludes_water_lava_and_a_reserved_ground(self):
         s = self.pet.situation(DUSK)
         self.assertTrue(camp_spot(s, (101, 1, 1)))
-        self.pet.world.grid.put(102, 0, 1, "water")
+        self.pet.world.grid.put(102, 1, 1, "water")  # beside the hole, not the wall under it
         self.assertFalse(camp_spot(self.pet.situation(DUSK), (101, 1, 1)))
-        self.pet.world.grid.put(102, 0, 1, "lava")
+        self.pet.world.grid.put(102, 1, 1, "lava")
         self.assertFalse(camp_spot(self.pet.situation(DUSK), (101, 1, 1)))
-        self.pet.world.grid.put(102, 0, 1, "grass")
+        self.pet.world.grid.put(102, 1, 1, "air")
         self.pet.world.grid.claims.add((101, 0, 1))  # something Mimo built or tends
         self.assertFalse(camp_spot(self.pet.situation(DUSK), (101, 1, 1)))
 
@@ -195,10 +196,12 @@ class CampWiringFixTests(unittest.TestCase):
         forget_logged()
         with patch("backend.survival.brain.leave_camp", side_effect=RuntimeError("boom")), \
                 self.assertLogs("backend.survival.brain", level="ERROR") as logs:
-            out = self.plan_as("explore", MORNING)
+            first = self.plan_as("explore", MORNING)
+            second = self.plan_as("explore", MORNING)  # the same error again: no new log
         self.assertEqual(len(logs.output), 1)
-        self.assertEqual(out, [{"kind": "walk", "target": [56, 1, -44], "reach": 3.0, "whole": True,
-                               "purpose": "explore"}])  # planned as if leave_camp weren't there
+        self.assertEqual(first, [{"kind": "walk", "target": [56, 1, -44], "reach": 3.0, "whole": True,
+                                 "purpose": "explore"}])  # planned as if leave_camp weren't there
+        self.assertTrue(second and all(step.get("purpose") == "explore" for step in second))
 
     def test_leave_camp_through_brain_plan_spares_sleep_and_camp_but_not_other_purposes(self):
         self.dig_in_and_seal()
