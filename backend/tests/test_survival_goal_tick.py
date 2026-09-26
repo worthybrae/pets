@@ -270,6 +270,23 @@ class TendTests(unittest.TestCase):
             self.assertEqual(self.events[-1][1:], ("goal", "Pip reached a goal: a woodpile."))
             self.assertNotIn("woodpile", brain["goal_penalties"])
 
+    def test_a_goal_that_would_start_at_once_is_workable_until_it_is_chosen(self):
+        """Follow-up 3: Goal.startable says a goal not yet chosen would get going at once (a packed
+        expedition sets out); once it is Mimo's goal, what is on offer for it decides, as before. A
+        startable check that crashes counts as no, logged once."""
+        forget_logged()
+        ready = replace(LATER, startable=lambda s: True)  # nothing on offer digs stone: not workable by itself
+        with only_goals(WOOD, ready):
+            self.assertTrue(workable(self.s, ready))
+            adopt_goal(self.state, "later", "jev", "Some day.", 0.0)
+            self.assertFalse(workable(self.s, ready))  # its goal now: idle may still set it aside
+        broken = replace(LATER, startable=lambda s: 1 / 0)
+        with only_goals(WOOD, broken), self.assertLogs("backend.survival.goals", level="ERROR") as logs:
+            self.state["brain"]["goal"] = None
+            self.assertFalse(workable(self.s, broken))
+            self.assertFalse(workable(self.s, broken))
+        self.assertEqual(len(logs.output), 1)
+
     def test_a_goal_that_holds_never_idles_but_still_stalls_at_dawn(self):
         """L4b final fix wave, I2: a goal that holds (an expedition out from home) is never set aside
         for idling -- LATER alone is, at IDLE + 70 (the test above) -- but a day with no progress

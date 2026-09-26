@@ -36,10 +36,12 @@ goal choice: Jev may keep the goal or pick another, the rules picker keeps it. A
 progress has not risen for a game day is given up at dawn instead. A goal given up is not offered
 again for a game day. A goal that holds Mimo to it now (`Goal.holds`, the L4b final fix wave's I2:
 an expedition out from home) is offered alone at a goal choice and never idles; only the dawn stall
-ends it early. A step of the day's plan Mimo finishes is a routine "plan" event too, once a
-plan (the final fix wave, for Bond to read: "Pip finished a step toward iron tools: mine 3 iron
-ore."; `told`). With no goal, a goal choice is asked for at once, then every IDLE_RETRY game
-seconds while none is open. The worker's Chooser answers goal choices (backend.survival.choosing).
+ends it early. A goal that is not Mimo's goal counts as workable when it would get going at once
+were it chosen (`Goal.startable`, follow-up 3: a packed expedition sets out). A step of the day's
+plan Mimo finishes is a routine "plan" event too, once a plan (the final fix wave, for Bond to
+read: "Pip finished a step toward iron tools: mine 3 iron ore."; `told`). With no goal, a goal
+choice is asked for at once, then every IDLE_RETRY game seconds while none is open. The worker's
+Chooser answers goal choices (backend.survival.choosing).
 
 Purposes follow the goal (`toward`, used by pickers.steer): the purposes on offer that advance
 the goal score GOAL_BOOST more (`boosted`: not past GOAL_TOP, and not late in the day or at
@@ -127,6 +129,10 @@ class Goal:
     # L4b final fix wave, I2: while this is true of Mimo's goal (an expedition out from home), a goal
     # choice keeps it (`offers` offers it alone) and `idle` never sets it aside; `stalled` still does.
     holds: Callable[[Situation], bool] | None = None
+    # L4b final fix wave, follow-up 3: whether, chosen now, it would get going at once though nothing on
+    # offer advances it yet (an expedition sets out, or packs, only once it is Mimo's goal). `workable`
+    # asks it, of Mimo as if the goal were chosen (`as_goal`), for a goal that is not Mimo's goal now.
+    startable: Callable[[Situation], bool] | None = None
 
 
 GOALS: dict[str, Goal] = {}
@@ -396,10 +402,25 @@ def as_goal(s: Situation, goal: Goal) -> Situation:
     return replace(s, state={**s.state, "brain": {**s.brain, "goal": fake}}, memo={})
 
 
+def starting(s: Situation, goal: Goal) -> bool:
+    """The goal would get going at once, were it chosen now (Goal.startable, follow-up 3). A check
+    that crashes counts as no (logged once), like a validity check."""
+    if goal.startable is None:
+        return False
+    try:
+        return bool(goal.startable(s))
+    except Exception as error:
+        log_once(logger, f"goal {goal.name} startable", error)
+        return False
+
+
 def workable(s: Situation, goal: Goal) -> bool:
-    """Something that advances the goal would be on offer now, were it Mimo's goal."""
+    """Something that advances the goal would be on offer now, were it Mimo's goal; or, for a goal
+    that is not Mimo's goal now, it would get going at once were it chosen (`starting`, follow-up 3:
+    live, an expedition's facts told Jev "nothing to do for it right now" for a packed, restless pet,
+    since packing and setting out only begin once it is chosen, and Jev never chose it)."""
     t = as_goal(s, goal)
-    return any(is_valid(PURPOSES[name], t) for name in advancing(t, goal))
+    return any(is_valid(PURPOSES[name], t) for name in advancing(t, goal)) or (t is not s and starting(t, goal))
 
 
 def idle(s: Situation, goal: Goal) -> bool:

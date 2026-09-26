@@ -1,9 +1,10 @@
+import random
 import unittest
 from unittest.mock import patch
 
 from backend.survival import brain  # noqa: F401  (registers every goal, purpose and reason)
 from backend.survival import purposes, storage
-from backend.survival.choosing import goal_route
+from backend.survival.choosing import Ask, decide, goal_route
 from backend.survival.creatures.gear import GEAR_MATERIALS
 from backend.survival.curiosity import curiosity_state
 from backend.survival.exploring import COMPASS
@@ -13,15 +14,17 @@ from backend.survival.expedition import (
 )
 from backend.survival.foraging import food_need
 from backend.survival.goals import (
-    GOALS, IDLE, STALL, adopt_goal, check_goal, complete, is_open, offers, progress_of,
+    GOALS, IDLE, STALL, WORKABLE, adopt_goal, check_goal, complete, is_open, offers, progress_of,
 )
 from backend.survival.memory import know, mark_explored, remember
 from backend.survival.once import forget_logged
+from backend.survival.pickers import Option
 from backend.survival.purposes import PURPOSES, away
 from backend.survival.reflexes import by_name
 from backend.survival.storage import KEEP, chest_spot, kept, more_kept, to_store
 from backend.survival.trips import REASONS, WANDER_PENALTY_SECONDS, cool_down, wanted_now
 from backend.survival.work import ladder_ores
+from backend.tests.test_survival_goal_choice import Recorder
 from backend.tests.test_survival_life_goals import built
 
 DUSK = {"phase": "dusk", "seconds_into_day": 2250.0, "time_scale": 1.0, "day_number": 2}
@@ -250,6 +253,49 @@ class AwayTests(unittest.TestCase):
         self.assertFalse(by_name("head_home").trigger(s))
         self.pet.state["inventory"]["cobblestone"] = 60
         self.assertFalse(PURPOSES["build_shelter"].valid(self.pet.situation()))
+
+
+class ChosenByJevTests(unittest.TestCase):
+    """Follow-up 3 (live, the demo on 703e5e7, with Jev choosing): over 2 game days Pebble never took
+    the expedition goal, even nudged (curiosity 94, packed, fed). offers() ranked it first, but its
+    facts said "nothing to do for it right now": workable() judges a goal as if just chosen, and
+    packing and setting out only begin once the expedition is Mimo's goal, so nothing advanced it.
+    The rules and the tests' fake Jev pick by score, so no test saw it."""
+
+    def ask_jev(self, pet, clock):
+        """The goal question as the Chooser sends it (choosing.prepare_goal, decide), to a recording Jev."""
+        s = pet.situation(clock)
+        found = offers(s)
+        http = Recorder({"answers": {"goal": {"choice": found[0][0].name}}})
+        ask = Ask(1, "jev", False, tuple(Option(goal.name, goal.title, goal.why, facts, score)
+                                         for goal, facts, score in found), {}, 5.0, 5.0, kind="goal")
+        choice = decide(ask, {"TYPESAFE_API_KEY": "k"}, http, random.Random(1))
+        return choice, http.bodies[0]["questions"]["goal"]["criteria"], {goal.name: score for goal, _, score in found}
+
+    def test_a_packed_restless_pet_is_told_its_expedition_can_start_and_jev_may_choose_it(self):
+        pet = Expedition()
+        curiosity_state(pet.state, 0.0)["value"] = 90.0  # restless
+        pet.state["inventory"] = dict(PACKED)  # packed and fed, and not on an expedition yet
+        self.assertIsNone(pet.state["brain"].get("goal"))
+        choice, criteria, scores = self.ask_jev(pet, MORNING)
+        self.assertNotIn("nothing to do", criteria["expedition"])
+        expedition = GOALS["expedition"]
+        self.assertEqual(scores["expedition"], expedition.score(pet.situation(MORNING)) + WORKABLE)
+        self.assertEqual((choice.purpose, choice.picker), ("expedition", "jev"))
+        _, criteria, scores = self.ask_jev(pet, NIGHT)  # it cannot set out at night: nothing to do yet
+        self.assertIn("nothing to do", criteria["expedition"])
+        self.assertEqual(scores["expedition"], expedition.score(pet.situation(NIGHT)))
+
+    def test_a_pet_that_can_pack_now_is_told_so_too(self):
+        pet = Expedition({"coal": 1, "sticks": 4, "oak_log": 2, "bread": 4})  # the pack's torches and campfire
+        curiosity_state(pet.state, 0.0)["value"] = 90.0
+        _, criteria, scores = self.ask_jev(pet, MORNING)
+        self.assertNotIn("nothing to do", criteria["expedition"])
+        self.assertEqual(scores["expedition"], GOALS["expedition"].score(pet.situation(MORNING)) + WORKABLE)
+        pet.state["inventory"] = dict(PACKED)
+        late = {**MORNING, "seconds_into_day": 2000.0}  # packed, but too late in the day to set out
+        _, criteria, _ = self.ask_jev(pet, late)
+        self.assertIn("nothing to do", criteria["expedition"])
 
 
 class StayOutStorageTests(unittest.TestCase):

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.services.worldgen import SEA_LEVEL, terrain_height
@@ -54,14 +55,14 @@ from backend.survival.carrying import GIVES_WAY_TO_FOOD, crafts_fit, full
 from backend.survival.creatures.gear import materials_wanted
 from backend.survival.curiosity import GROUND_FLOOR, RESTLESS, needs_met, value_of
 from backend.survival.exploring import COMPASS
-from backend.survival.goals import Goal, Milestone, active, register_goal
+from backend.survival.goals import GOALS, Goal, Milestone, active, advancing, register_goal
 from backend.survival.grid import Cell
 from backend.survival.home import built_home, home_cell
 from backend.survival.journal import curios
 from backend.survival.memory import PATCH, explored, known, patch_of
 from backend.survival.once import log_once
 from backend.survival.purposes import (
-    AT_HOME, Purpose, late_day, register, walk_to,
+    AT_HOME, PURPOSES, Purpose, is_valid, late_day, register, walk_to,
 )
 from backend.survival.situation import Situation, in_tick
 from backend.survival.steps import as_cell
@@ -170,11 +171,15 @@ def heading_of(db, seed: str, home: Cell, reach: float) -> int:
     return best[1]
 
 
+def new_trek(since: float) -> dict:
+    """An expedition just begun: packing."""
+    return {"since": since, "phase": "packing", "home": None, "range": None, "target": None,
+            "heading": None, "direction": None, "far": 0.0, "nights": 0, "walks": 0, "lessons": 0,
+            "left_at": None, "camp": None, "slept": None}
+
+
 def start_trek(s: Situation) -> dict:
-    goal = s.brain["goal"]
-    found = {"since": goal["since"], "phase": "packing", "home": None, "range": None, "target": None,
-             "heading": None, "direction": None, "far": 0.0, "nights": 0, "walks": 0, "lessons": 0,
-             "left_at": None, "camp": None, "slept": None}
+    found = new_trek(s.brain["goal"]["since"])
     s.brain["expedition"] = found
     return found
 
@@ -270,10 +275,7 @@ def tend_expedition(state: dict, context: ActionContext, at: float) -> None:
             return
         found = trek(s) or start_trek(s)
         phase = found["phase"]
-        # The final fix wave, (a): not while it would turn home at once (hurt, or short of food), or a
-        # pet at 30 health "came home from its expedition: 0 blocks out" and reached the goal.
-        if (phase == "packing" and packed(s) and not camp_time(s) and home_built(s) is not None
-                and not should_turn(s, found)):
+        if phase == "packing" and can_set_out(s, found):
             set_out(state, s, found, context, at)
         elif phase in ("out", "homeward"):
             found["far"] = max(found["far"], from_home(s))
@@ -283,6 +285,28 @@ def tend_expedition(state: dict, context: ActionContext, at: float) -> None:
                 come_home(state, s, found, context, at)
     except Exception as error:
         log_once(logger, "expedition", error)
+
+
+def can_set_out(s: Situation, found: dict) -> bool:
+    """Packed, by day (not late, not at night), with the home it built, and (the final fix wave, (a))
+    not about to turn home at once: a pet at 30 health once set out and "came home from its
+    expedition: 0 blocks out", reaching the goal."""
+    return packed(s) and not camp_time(s) and home_built(s) is not None and not should_turn(s, found)
+
+
+def startable(s: Situation) -> bool:
+    """Chosen now, the expedition would get going at once (goals.Goal.startable; `s` is Mimo as if it
+    were chosen, goals.as_goal): packed, it sets out (`can_set_out`), or packing work is on offer --
+    the pack, or food work toward PACK_FOOD -- judged with the expedition begun, as the tick sees it
+    once tend_expedition has begun it. Follow-up 3: without this a packed, restless pet's expedition
+    read "nothing to do for it right now" to Jev, which never chose it (setting out is tend's, and
+    packing needs the expedition begun, so no purpose advanced it before it was chosen)."""
+    goal = s.brain.get("goal")
+    if not goal or goal["name"] != GOAL:
+        return False
+    found = new_trek(goal["since"])
+    t = replace(s, state={**s.state, "brain": {**s.brain, "expedition": found}}, memo={})
+    return can_set_out(t, found) or any(is_valid(PURPOSES[name], t) for name in advancing(t, GOALS[GOAL]))
 
 
 def should_turn(s: Situation, found: dict) -> bool:
@@ -400,7 +424,8 @@ register_goal(Goal(
      Milestone("Map new ground", map_share, ("explore", "investigate")),
      Milestone("Come home with its finds", home_share, ("come_home",))),
     score=expedition_score, thought="I want to see what lies past the lands I know. Pack up, let's go!",
-    after=("first_shelter",), valid=expedition_valid, reward=20.0, repeat=True, holds=out_from_home))
+    after=("first_shelter",), valid=expedition_valid, reward=20.0, repeat=True, holds=out_from_home,
+    startable=startable))
 
 
 def more_food(s: Situation) -> float:
