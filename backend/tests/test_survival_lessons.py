@@ -93,6 +93,14 @@ class ClaimsTests(unittest.TestCase):
             self.assertFalse(found.doubtful, text)
         self.assertTrue(claims("skitters hate light, like a lamp").doubtful)  # a lamp is a real thing: Mind's rule
 
+    def test_pressure_and_bar_are_plain_name_parts_too(self):
+        """Making wave 2 (the final fix wave's re-review, Minor 4): "pressure" (pressure_plate) and "bar" (iron_bars)
+        made these true lessons doubtful. ("No pressure, but ..." stays doubted: that is Mind's rule for "no".)"""
+        for text in ("under pressure, cows give leather", "cows give leather, set the bar high"):
+            found = claims(text)
+            self.assertIn("cow:drops", found.taught, text)
+            self.assertFalse(found.doubtful, text)
+
     def test_every_lesson_can_be_taught_in_its_own_words(self):
         for thing, lesson in LESSONS.items():
             self.assertIn(thing, claims(lesson.fact).taught, lesson.fact)

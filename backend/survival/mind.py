@@ -76,7 +76,9 @@ PLAIN = frozenset({"better", "cooked", "dead", "far", "first", "full", "new", "r
                    "mossy", "ripe", "leave", "block", "panel", "hull", "solar", "brown", "red", "orange", "pink",
                    "yellow", "map", "path", "tile", "roof", "land",
                    # Making final fix wave (I5): thinking_machine, cozy_home and the lit parts (lamp_lit ...)
-                   "thinking", "cozy", "lit"})
+                   "thinking", "cozy", "lit",
+                   # Making wave 2 (the re-review's Minor 4): pressure_plate and iron_bars
+                   "pressure", "bar"})
 # The cue's words widened (the spec's cow -> cattle, beef, leather; armor -> cap, tunic, iron).
 SYNONYMS: dict[str, tuple[str, ...]] = {
     "cow": ("cattle", "beef", "leather"), "cattle": ("cow", "beef"), "beef": ("cow",),

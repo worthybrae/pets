@@ -22,7 +22,8 @@ a thing it cannot make yet is left for later.
   wants lies within SOURCE_SIGHT it looks farther: every column of the natural surface out to FAR_SIGHT
   blocks from home for clay and sand, and the plants worldgen grew out to FAR_PLANTS (`far_scan`: the
   FAR_KEPT nearest of each kind still there, remembered in state["brain"] and looked over again on a new
-  game day once none of them is left). Clay is rare: 3 to 12 columns lie within 96 blocks of the gate's six
+  game day once none of them is left; what worldgen put where is read once for the process, Making wave 2's
+  `far_candidates`, so the Chooser shares it). Clay is rare: 3 to 12 columns lie within 96 blocks of the gate's six
   homes, 15 to 34 within 160. A batch then walks to the nearest one (in segments, beyond one whole walk)
   and digs it, and the next batch finds the rest of that shore in sight.
 - mine_ore goes after copper and iron ore while raw_needs asks for it (work.MORE_ORES), and gather_stone
@@ -91,6 +92,9 @@ FAR_SIGHT = 160  # C1: blocks from home the natural surface is looked over for c
 FAR_PLANTS = 96  # and for plants worldgen grew (their chunks cost more to read)
 FAR_KEPT = 48  # the nearest cells of each kind still there that are remembered
 FAR = "making_far"  # state["brain"]'s key for them
+FAR_CANDIDATES = 512  # Making wave 2: the nearest worldgen cells of a kind one far look keeps (`far_candidates`)
+FAR_SCANS = 16  # and the looks kept for the process
+FAR_CACHE: dict = {}
 WOOD_AND_STONE = LOGS + PLANKS + ("sticks", "cobblestone")  # I1: kept and gathered by L4a's own rules
 PER_BATCH = 8
 GATHER_BATCHES = 3
@@ -483,28 +487,47 @@ def ground_at(seed: str, x: int, z: int, kinds: tuple[str, ...]) -> tuple[Cell, 
     return ((x, terrain_height(x, z, seed), z), kind) if kind in kinds else None
 
 
-def far_scan(s: Situation, center: Cell, kind: str) -> list[list[int]]:
-    """C1: the FAR_KEPT nearest cells to `center` where `kind` still lies as worldgen put it: clay or sand
-    on dry ground within FAR_SIGHT blocks (never a lake bed or a swamp pool), every column; or a plant
-    worldgen grew within FAR_PLANTS, the root of a stalk that still stands."""
+def far_candidates(seed: str, center: Cell, kind: str) -> list[Cell]:
+    """The worldgen part of `far_scan`: where worldgen put `kind` near `center`, nearest first (the
+    FAR_CANDIDATES nearest): clay or sand on dry ground within FAR_SIGHT blocks (never a lake bed or a swamp
+    pool), every column; or a plant worldgen grew within FAR_PLANTS, the root of its stalk. Making wave 2 (the
+    final fix wave's re-review, I1): it depends on worldgen alone, so it is kept at module level for the
+    process (FAR_SCANS of them), keyed by the seed, the center, the kind and the worldgen it read. Kept in
+    state["brain"] only, it was lost whenever the Chooser (a read-only snapshot) or a goal weighed "as if"
+    (goals.as_goal, a copy of the brain) looked: 57 of 62 scans on seed 3 in 40 game days, up to 3.6 s each."""
+    key = (seed, tuple(center), kind, terrain_height, surface_material, swamp_pool, natural_plants, SEA_LEVEL,
+           FAR_SIGHT, FAR_PLANTS)
+    known = FAR_CACHE.get(key)
+    if known is not None:
+        return known
     cx, _, cz = center
     found: list[tuple[float, tuple[int, int, int]]] = []
     if kind in PLANTS:
         found = [(math.hypot(x - cx, z - cz), (x, y, z))
-                 for x, y, z in natural_plants(s.seed, cx, cz, FAR_PLANTS, (kind,))]
+                 for x, y, z in natural_plants(seed, cx, cz, FAR_PLANTS, (kind,))]
     else:
         for x in range(cx - FAR_SIGHT, cx + FAR_SIGHT + 1):
             for z in range(cz - FAR_SIGHT, cz + FAR_SIGHT + 1):
                 distance = math.hypot(x - cx, z - cz)
                 if distance > FAR_SIGHT:
                     continue
-                y = terrain_height(x, z, s.seed)
+                y = terrain_height(x, z, seed)
                 if y < SEA_LEVEL or (kind == "clay" and y != SEA_LEVEL):  # clay only lies on shores, at sea level
                     continue
-                if surface_material(x, z, s.seed) == kind and not swamp_pool(x, z, s.seed):
+                if surface_material(x, z, seed) == kind and not swamp_pool(x, z, seed):
                     found.append((distance, (x, y, z)))
+    cells = [cell for _, cell in sorted(found)[:FAR_CANDIDATES]]
+    while len(FAR_CACHE) >= FAR_SCANS:
+        FAR_CACHE.pop(next(iter(FAR_CACHE)))
+    FAR_CACHE[key] = cells
+    return cells
+
+
+def far_scan(s: Situation, center: Cell, kind: str) -> list[list[int]]:
+    """C1: the FAR_KEPT nearest cells to `center` where `kind` still lies as worldgen put it
+    (`far_candidates`, then the grid: not dug, not built on)."""
     kept: list[list[int]] = []
-    for _, cell in sorted(found):
+    for cell in far_candidates(s.seed, center, kind):
         if s.grid.material(*cell) == kind:
             kept.append(list(cell))
             if len(kept) >= FAR_KEPT:

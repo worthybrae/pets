@@ -4,7 +4,7 @@ from unittest.mock import patch
 from backend.services.crafting import craft, smelt
 from backend.survival import brain  # noqa: F401  (registers every purpose)
 from backend.survival.making import (
-    COLOURS, FAR, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, favourite_colour, gathered_wanted,
+    COLOURS, FAR, FAR_CACHE, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, favourite_colour, gathered_wanted,
     kept_for_making, making_room, needs, place_steps, raw_needs, sources,
 )
 from backend.survival.building import spared, sparing
@@ -12,9 +12,10 @@ from backend.survival.carrying import GIVES_WAY_TO_FOOD, LOW_VALUE, settle, stac
 from backend.survival.goals import GOALS, adopt_goal, advancing, workable
 from backend.survival.memory import know, remember
 from backend.survival.purposes import PURPOSES
-from backend.survival.storage import junk, kept, loose_blocks, to_store, to_take
+from backend.survival.situation import Situation
+from backend.survival.storage import chest_crafting, junk, kept, loose_blocks, to_store, to_take
 from backend.survival.work import ore_targets, stone_goal, wanted_ores
-from backend.tests.test_survival_building import NIGHT, World
+from backend.tests.test_survival_building import DAY, NIGHT, World
 from backend.tests.test_survival_storage import Home
 
 FLAT = lambda x, z, seed: 0  # noqa: E731
@@ -137,6 +138,24 @@ class NeedsTests(unittest.TestCase):
         self.assertNotIn("copper_ore", wanted_ores(world.situation()))
         want(self, {"copper_ingot": 2})
         self.assertIn("copper_ore", wanted_ores(world.situation()))
+
+    def test_with_no_room_for_copper_mine_ore_does_not_go_after_it(self):
+        """The Making final fix wave's room check on ores (untested until Making wave 2, the re-review's Minor 5):
+        a find with full arms is left behind (carrying.settle)."""
+        world = World({"stone_pickaxe": 1, "coal": 8, "iron_ore": 3, **{f"item_{n}": 1 for n in range(13)}})  # 16
+        want(self, {"copper_ingot": 2})
+        self.assertNotIn("copper_ore", wanted_ores(world.situation()))
+        del world.state["inventory"]["item_0"]
+        self.assertIn("copper_ore", wanted_ores(world.situation()))
+
+    def test_the_chest_is_made_without_dropping_what_a_project_keeps(self):
+        """The Making final fix wave's `kept` guard in chest_crafting (untested until Making wave 2, the re-review's
+        Minor 5): with full arms the chest's planks need a stack, and the one LOW_VALUE stack is the windows' sand."""
+        home = Home({"sand": 6, "planks": 20, **{f"item_{n}": 1 for n in range(14)}})  # 16 stacks, no chest
+        know(home.db, "workshop", "goal", 0.0)
+        self.assertEqual(chest_crafting(home.situation())[0], {"kind": "drop", "item": "sand", "amount": 6})
+        want(self, {"glass_pane": 2})  # six glass: the sand is kept
+        self.assertIsNone(chest_crafting(home.situation()))
 
     def test_the_favourite_colour_is_a_trait_fixed_by_the_seed_and_the_name(self):
         colour = favourite_colour({"name": "Pip", "world_seed": "1"})
@@ -274,6 +293,34 @@ class FarTests(unittest.TestCase):
         steps = PURPOSES["gather_materials"].plan(s, yard.context())
         self.assertEqual(steps, [{"kind": "walk", "target": list(nearest), "reach": 2.0, "whole": True},
                                  {"kind": "mine", "target": list(nearest)}])  # one far one, then look again there
+
+    def test_a_far_look_is_made_once_for_the_process_and_shared_by_the_chooser(self):
+        """Making wave 2 (the final fix wave's re-review, I1): the far look was kept only in the tick's own
+        state["brain"], so the Chooser (a read-only snapshot) and a goal weighed "as if" (goals.as_goal, a copy of
+        the brain) looked again every time: 57 of 62 looks on seed 3 in 40 game days, up to 3.6 s each."""
+        from backend.tests.test_survival_workshop import BLOCKS_FOR_IT, Yard
+
+        FAR_CACHE.clear()
+        heights = []
+
+        def counted(x, z, seed):
+            heights.append((x, z))
+            return 0
+
+        yard = Yard(BLOCKS_FOR_IT, position=(2, 1, 5), natural=far_ground)
+        yard.goal("workshop")
+        with patch("backend.survival.making.terrain_height", counted):
+            first = sources(yard.situation())
+            self.assertGreater(len(heights), 80_000)  # every column out to FAR_SIGHT
+            heights.clear()
+            snapshot = {**yard.state, "brain": {key: value for key, value in yard.state["brain"].items() if key != FAR}}
+            chooser = Situation(snapshot, yard.grid, DAY, 0.0, yard.db)  # as the Chooser sees it: no FAR kept
+            self.assertEqual(sources(chooser), first)
+            self.assertEqual(heights, [])  # the worldgen part is not looked over again
+            yard.grid.put(60, 0, 1, "air")  # dug since: the grid still decides what is left
+            again = sources(Situation(snapshot, yard.grid, DAY, 0.0, yard.db))
+            self.assertNotIn((60, 0, 1), [cell for cell, _ in again])
+            self.assertEqual(heights, [])
 
     def test_a_home_with_clay_sixty_blocks_away_gets_its_workshops_kiln(self):
         from backend.survival.workshop import current_workshop, fixtures_left

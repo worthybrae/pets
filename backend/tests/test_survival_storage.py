@@ -93,6 +93,16 @@ class StorageTests(unittest.TestCase):
             {"kind": "walk", "target": [1, 1, 1], "reach": 0.0, "whole": True},
             {"kind": "take", "target": [2, 1, 2], "item": "bread", "amount": 3}])
 
+    def test_food_is_taken_out_only_as_far_as_it_fits(self):
+        """The Making final fix wave's room cap on the food take (untested until Making wave 2, the re-review's
+        Minor 5): at 15 stacks one stack of food fits, not two."""
+        chest = {"bread": 1, "berries": 10}
+        home = Home({f"item_{n}": 1 for n in range(14)}, chest=dict(chest))  # 14 stacks: both fit
+        self.assertEqual([(item, amount) for _, item, amount in storage.to_take(home.situation())],
+                         [("bread", 1), ("berries", 5)])
+        home = Home({f"item_{n}": 1 for n in range(15)}, chest=dict(chest))  # 15 stacks
+        self.assertEqual([(item, amount) for _, item, amount in storage.to_take(home.situation())], [("bread", 1)])
+
     def test_a_chest_with_no_path_is_not_retried_until_its_penalty_passes(self):
         # Fix round 2: the repeating "gave up trying to put things away (no way there)" bug -- a
         # step that just failed near home's anchor (1, 1, 1) is not retried at once, the same guard

@@ -185,11 +185,13 @@ def workshop_later(s: Situation) -> dict[str, int]:
 
 def stations_at_home(s: Situation, item: str) -> float:
     """storage.KEEPS_MORE (the Making final fix wave): once the workshop's own crafting table and furnace are
-    in, the ones Mimo carries go in the chest: what it makes at home it makes there (`at_bench`, and
-    build_machine at the workshop), and they took two of its 16 stacks. On the gate's route check pets with
-    the spark, the wire and a lamp's copper in hand had no room left to make the lamp's torch. Out in the
-    field, craft_tools makes a table again from four planks when it needs one."""
-    if item not in BENCH:
+    in, the furnace Mimo carries goes in the chest: what it makes at home it makes there (`at_bench`, and
+    build_machine at the workshop). On the gate's route check pets with the spark, the wire and a lamp's
+    copper in hand had no room left to make the lamp's torch. Making wave 2 (the re-review's Minor 1): the
+    table stays carried, one of it. Stored too, a table was made again from four planks for every craft away
+    from the workshop (bread, tools, the tinker bench) and put away at the next visit: 5 to 13 of them sat in
+    the chests by day 100. Room for making is made by `making.making_room` now."""
+    if item != "furnace":
         return 0.0
     workshop = current_workshop(s)
     if workshop is None or workshop["status"] != "done":

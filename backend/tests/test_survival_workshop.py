@@ -7,7 +7,7 @@ from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter
 from backend.survival.building import building_need, note_building
 from backend.survival.creatures.table import Herd, create_creature_tables
-from backend.survival.goals import GOALS, adopt_goal, share_of
+from backend.survival.goals import GOALS, adopt_goal, advancing, share_of
 from backend.survival.grid import Grid
 from backend.survival.making import raw_needs
 from backend.survival.memory import create_memory_tables, finish_structure, set_home, structures
@@ -17,7 +17,7 @@ from backend.survival.storage import kept, to_store
 from backend.survival.situation import Situation
 from backend.survival.structures import blueprint_of, start, todo
 from backend.survival.vitals import START_VITALS
-from backend.survival.workshop import FIXTURE, UNDER_WAY, current_workshop, design_workshop, fixtures_left
+from backend.survival.workshop import FIXTURE, current_workshop, design_workshop, fixtures_left
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 NIGHT = {**DAY, "phase": "night", "seconds_into_day": 3000.0}
@@ -188,8 +188,13 @@ class BuildTests(unittest.TestCase):
         yard.build()
         yard.state["inventory"].update(crafting_table=1, furnace=1)
         s = yard.situation()
-        self.assertEqual((kept(s, "crafting_table"), kept(s, "furnace")), (0, 0))
-        self.assertLessEqual({("crafting_table", 1), ("furnace", 1)}, set(to_store(s, (0, 0, 0))))
+        # Making wave 2 (the re-review's Minor 1): the table stays, one of it; stored, a new one was made for every
+        # craft away from the workshop, and 5 to 13 of them sat in the chests by day 100.
+        self.assertEqual((kept(s, "crafting_table"), kept(s, "furnace")), (1, 0))
+        self.assertIn(("furnace", 1), to_store(s, (0, 0, 0)))
+        self.assertNotIn("crafting_table", dict(to_store(s, (0, 0, 0))))
+        yard.state["inventory"]["crafting_table"] = 2
+        self.assertIn(("crafting_table", 1), to_store(yard.situation(), (0, 0, 0)))  # a second one goes in
 
     def test_what_it_wants_brings_clay_for_the_kiln_and_blocks_for_its_walls(self):
         yard = Yard({"cobblestone": 5, "oak_log": 2})
@@ -213,14 +218,29 @@ class GoalTests(unittest.TestCase):
 
     def test_a_workshop_whose_walls_stand_pulls_harder(self):
         """The Making final fix wave: pets whose workshop lacked only its kiln or bars chose it once or twice in 50
-        game days against the discovery goals and never finished it; once its walls stand it scores UNDER_WAY
+        game days against the discovery goals and never finished it; once its walls stand it scores 25 (UNDER_WAY)
         more."""
         yard = Yard({**BLOCKS_FOR_IT}, traits={"creativity": 50, "diligence": 40})
         self.assertEqual(GOALS["workshop"].score(yard.situation()), 40.0 + 5.0 + 2.0)
         yard.goal("workshop")
         yard.build()
         self.assertEqual(current_workshop(yard.situation())["status"], "done")
-        self.assertEqual(GOALS["workshop"].score(yard.situation()), 40.0 + 5.0 + 2.0 + UNDER_WAY)
+        self.assertEqual(GOALS["workshop"].score(yard.situation()), 72.0)  # 25 more (Making wave 2: a literal)
+
+    def test_the_workshops_milestones_send_gather_stone_gather_wood_and_mine_ore(self):
+        """The Making final fix wave (C1) named them, untested until Making wave 2 (the re-review's Minor 5): the
+        furnace's and kiln's cobblestone, the barrel's, hatch's, seat's and sign's planks and the bars' iron."""
+        yard = Yard({**BLOCKS_FOR_IT, "stone_pickaxe": 1}, traits={"creativity": 50, "diligence": 40})
+        yard.goal("workshop")
+        yard.build()
+        milestones = {milestone.text: milestone.purposes for milestone in GOALS["workshop"].milestones}
+        self.assertIn("gather_stone", milestones["Raise the workshop's walls and roof"])
+        self.assertLessEqual({"gather_stone", "gather_wood", "gather_materials"},
+                             set(milestones["Put in a crafting table, a furnace, a kiln and a barrel"]))
+        self.assertLessEqual({"mine_ore", "gather_wood"}, set(milestones["Fit bars, a hatch, a seat and a sign"]))
+        yard.state["inventory"] = {"stone_pickaxe": 1, "brick": 3}  # the kiln's bricks, but no cobblestone
+        s = yard.situation()
+        self.assertIn("gather_stone", advancing(s, GOALS["workshop"]))
 
 
 if __name__ == "__main__":
