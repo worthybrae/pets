@@ -7,8 +7,9 @@ flint", "skitters come out of caves at night". A lesson is remembered in memory_
 "lesson", with when), logged as a routine "learned" event ("Pip learned that gravel sometimes hides
 flint.") and is a discovery for curiosity (NEW_LESSON; the L4b final fix wave's follow-up 2: like
 new ground, a lesson never takes curiosity below curiosity.GROUND_FLOOR, though it still counts as
-a discovery); one that unlocks something asks for a new choice. The journal starts with curiosity, once the tick first tends it (`observe_journal`, from
-brain.observe_step, does nothing before). Studying takes one of three forms:
+a discovery); one that unlocks something asks for a new choice. The journal starts with
+curiosity, once the tick first tends it (`observe_journal`, from brain.observe_step, does nothing
+before). Studying takes one of three forms:
 - Mimo learns at once what it meets right there: a kind of block it digs (the sample is in its
   arms), an ore or lava its digging lays bare beside it, the biome it walks into, and a cave mouth,
   sinkhole or lake it walks up to (a remembered cave or water place within LANDMARK_NEAR blocks).
