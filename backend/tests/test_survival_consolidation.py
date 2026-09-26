@@ -1,4 +1,6 @@
+import hashlib
 import random
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +8,7 @@ from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every creature, recipe and goal registered, for the tags)
 from backend.survival import minding  # noqa: F401  (the mirror, the moments and consolidation registered)
+from backend.survival import world as world_module
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.consolidation import NIGHTLY, clause, gist_text, times
 from backend.survival.hatch import hatch
@@ -276,15 +279,62 @@ class LastDayTests(unittest.TestCase):
         self.assertEqual(self.gists(SurvivalWorld(self.registry.world_path(new))), [])  # the new life lives on
         talker.close()
 
-    def test_a_dead_world_from_before_mind_closes_without_an_error(self):
-        self.log((at(1, 100), "found", f"{self.name} met its first cow."))
-        self.die(at(1, 200))  # no chore ever ran: no mind, no cursor
-        with patch("backend.survival.talker.log_once") as logged:
-            Talker(env={}, scale=1.0).poll(self.registry, at(1, 210))
-        logged.assert_not_called()
-        self.assertEqual(self.gists(), [])
-        self.assertTrue(self.world.state()["mind"]["closed"])
+    def files(self, world=None):
+        """A hash of each of the world's files (its database, WAL and shared memory; None when missing)."""
+        path = (world or self.world).path
+        found = {}
+        for suffix in ("", "-wal", "-shm"):
+            file = Path(f"{path}{suffix}")
+            found[suffix or "db"] = hashlib.sha256(file.read_bytes()).hexdigest() if file.exists() else None
+        return found
 
+    def restarted_talker_poll(self, when):
+        """A worker that starts again: a new process (no schema known ready) and a new Talker's first
+        poll. Returns every world the Talker opened, as (path, read_only)."""
+        opened = []
+
+        class Recording(SurvivalWorld):
+            def __init__(self, path, read_only=False):
+                opened.append((Path(path), read_only))
+                super().__init__(path, read_only)
+        world_module._schema_ready.clear()
+        with patch("backend.survival.talker.SurvivalWorld", Recording), \
+                patch("backend.survival.talker.log_once") as logged:
+            talker = Talker(env={}, scale=1.0)
+            talker.poll(self.registry, when)
+            talker.close()
+        logged.assert_not_called()
+        return opened
+
+    def test_a_dead_pets_archive_from_before_mind_is_never_written(self):
+        # Follow-up (the scoped re-review): the first poll of a started worker opened the newest ended
+        # life for writing even when Mind never followed it, and gave an earlier pet's archive Mind's
+        # tables, an index and state["mind"]. It is read read-only now, and left byte for byte as it was.
+        self.log((at(1, 100), "found", f"{self.name} met its first cow."))
+        self.die(at(1, 200))  # no chore ever ran: Mind never followed this life
+        db = sqlite3.connect(self.world.path)
+        for drop in ("DROP TABLE mind_memories", "DROP TABLE mind_tags", "DROP INDEX mimo_events_by_kind"):
+            db.execute(drop)  # a world from before Mind has none of them
+        db.commit()
+        db.close()
+        hatch(self.registry, random.Random(9), timestamp=at(1, 300))  # the owner's pet alive now
+        before = self.files()
+        opened = self.restarted_talker_poll(at(1, 400))
+        self.assertEqual(self.files(), before)
+        self.assertNotIn((self.world.path, False), opened)  # never opened for writing
+        with self.world.connect() as db:
+            tables = db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'mind%'").fetchone()[0]
+            self.assertNotIn("mind", read_state(db))
+        self.assertEqual(tables, 0)
+
+    def test_a_restart_never_opens_a_closed_life_for_writing(self):
+        self.a_day_then_death()
+        Talker(env={}, scale=1.0).poll(self.registry, at(2, 410))  # closed: its last gist written
+        before = self.files()
+        opened = self.restarted_talker_poll(at(2, 500))
+        self.assertEqual(self.files(), before)
+        self.assertNotIn((self.world.path, False), opened)
+        self.assertEqual([day for day, _ in self.gists()], [1, 2])
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,8 @@ whatever reads gists, Luna's story among them). Each day is consolidated once
 
 A life that ends closes its mind once (`last_day`, one of the Talker's LAST_CHORES, the final fix
 wave's I6): the events logged since the last chore are read, and the day it died on, which no
-evening sleep consolidated, gets its gist.
+evening sleep consolidated, gets its gist. Only a life Mind followed (its state has "mind") and has
+not closed yet (`unclosed`): a dead pet's archive from before Mind is never opened for writing.
 """
 
 from __future__ import annotations
@@ -246,12 +247,18 @@ def day_tally(db: sqlite3.Connection, state: dict, event: dict, now: float, scal
         tally["kinds"][event["kind"]] = tally["kinds"].get(event["kind"], 0) + 1
 
 
+def unclosed(state: dict) -> bool:
+    """Whether an ended life is one Mind followed (its state has "mind") and has not closed yet."""
+    mind = state.get("mind")
+    return isinstance(mind, dict) and not mind.get("closed")
+
+
 def last_day(db: sqlite3.Connection, state: dict, now: float, scale: float) -> bool:
     """A Talker LAST_CHORES chore, once a life (state["mind"]["closed"]): the events logged since the
     last chore are read (at most LAST_BATCHES batches), then the day the tally was counting, the day
     Mimo died on, which no evening sleep consolidated, is consolidated at the moment it died. A day
-    already consolidated is not again, and a life from before Mind (no tally) only closes."""
-    if mind_state(state).get("closed"):
+    already consolidated is not again."""
+    if not unclosed(state):
         return False
     for _ in range(LAST_BATCHES):
         if not mirror_events(db, state, now, scale):
@@ -266,4 +273,4 @@ followed("sleep", night_sleep)
 followed(EVERY, day_tally)
 for _kind in TALLIED:
     followed(_kind)
-LAST_CHORES.append(last_day)
+LAST_CHORES.append((unclosed, last_day))

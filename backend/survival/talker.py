@@ -22,8 +22,10 @@ backend.survival.events, first; then B2's asks and B3's inbox), rules only, in o
 of their own; each chore runs in a savepoint, so one that
 crashes is rolled back alone. The chores stop when a life ends, so the Talker closes an ended life
 once (`close_life`: LAST_CHORES, the same way, Mind's last day among them), on its first poll and
-whenever the active life changes or goes away. Nothing here raises: a crash is logged once and the
-worker goes on.
+whenever the active life changes or goes away. It reads the ended world's state first without
+touching its files, and opens it for writing only when a last chore still has work there: an archive
+nothing followed (a pet from before Mind) or one already closed is never written. Nothing here
+raises: a crash is logged once and the worker goes on.
 The Bond modules register their jobs and chores on import (backend.survival.bonding).
 """
 
@@ -32,6 +34,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import sqlite3
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -43,7 +46,7 @@ from backend.survival.events import consumers, mirror_events
 from backend.survival.models import Http, post_json
 from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry
-from backend.survival.world import SurvivalWorld, read_state, write_state
+from backend.survival.world import SurvivalWorld, WorldMissing, read_state, write_state
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +74,11 @@ LANES: dict[str, list] = {"chat": [], "story": []}
 # mirrors come first (Mind hook R7: Mind's memories and B2's inbox register their writers there), then B2's
 # and B3's chores.
 CHORES: list = [mirror_events]
-# chore(db, state, now, scale) -> True when it changed the state: rules-only, run once when a life has
-# ended (`close_life`), in place of the CHORES that stop then (Mind: the events left to read, the last day).
+# (wanted(state) -> bool, chore(db, state, now, scale) -> True when it changed the state): rules-only,
+# run once when a life has ended (`close_life`), in place of the CHORES that stop then (Mind: the events
+# left to read, the last day). `wanted` says, from the ended world's state, whether the chore has work
+# there; an ended world is opened for writing only when one does, so an archive is never written for
+# nothing (a pet from before Mind, a life already closed).
 LAST_CHORES: list = []
 UNSEEN = object()  # the active life a new Talker has not looked at yet
 
@@ -112,17 +118,40 @@ def run_chores(world: SurvivalWorld, now: float, scale: float) -> None:
             write_state(db, state)
 
 
+def last_chores(state: dict) -> list:
+    """The LAST_CHORES chores that still have work in an ended life with this state."""
+    return [chore for wanted, chore in LAST_CHORES if wanted(state)]
+
+
+def ended_state(path: Path) -> dict:
+    """An ended life's state, read without changing any of its world's files. A world closed cleanly
+    holds everything in its database file (its WAL is gone, or empty), so it is read as immutable:
+    no lock is taken and no WAL or shared memory is opened, made or rebuilt. One whose WAL still has
+    frames in it (a worker stopped mid-write) is read through that WAL, read-only."""
+    path = Path(path)
+    if not path.exists():
+        raise WorldMissing(f"World database {path} is missing")
+    wal = Path(f"{path}-wal")
+    if wal.exists() and wal.stat().st_size:
+        return SurvivalWorld(path, read_only=True).state()
+    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    try:
+        db.row_factory = sqlite3.Row
+        return read_state(db)
+    finally:
+        db.close()
+
+
 def close_life(world: SurvivalWorld, now: float, scale: float) -> bool:
-    """Every LAST_CHORES chore once, in one transaction, for a life that has ended (nothing for one
-    still alive). Each chore keeps its own "once" (Mind's state["mind"]["closed"]), so closing a
-    life again changes nothing. True when a chore changed the state."""
-    if not LAST_CHORES:
-        return False
+    """Every LAST_CHORES chore still wanted, once, in one transaction, for a life that has ended
+    (nothing for one still alive). Each chore keeps its own "once" (Mind's state["mind"]["closed"]),
+    so closing a life again changes nothing. True when a chore changed the state."""
     with world.transaction() as db:
         state = read_state(db)
-        if state["died_at"] is None:
+        chores = last_chores(state) if state["died_at"] is not None else []
+        if not chores:
             return False
-        changed = each_chore(db, state, list(LAST_CHORES), now, scale)
+        changed = each_chore(db, state, chores, now, scale)
         if changed:
             write_state(db, state)
         return changed
@@ -178,12 +207,17 @@ class Talker:
 
     def close_ended(self, registry: LifeRegistry, now: float, scale: float) -> None:
         """Close the newest survival life that has ended (`close_life`; never the legacy life, which is
-        only ever read)."""
+        only ever read). Its state is read first without touching its files (`ended_state`), and its
+        world opened for writing only when a last chore still has work there, so a dead pet's archive
+        from before Mind, or one already closed, stays byte for byte as it was."""
         try:
             ended = next((life for life in registry.list_lives()
                           if life["kind"] == "survival" and life["died_at"] is not None), None)
-            if ended is not None:
-                close_life(SurvivalWorld(registry.world_path(ended)), now, scale)
+            if ended is None:
+                return
+            path = registry.world_path(ended)
+            if last_chores(ended_state(path)):
+                close_life(SurvivalWorld(path), now, scale)
         except Exception as error:
             log_once(logger, "talker close life", error)
 
