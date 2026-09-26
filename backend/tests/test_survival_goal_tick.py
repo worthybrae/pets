@@ -10,8 +10,8 @@ from backend.survival.actions import ActionContext
 from backend.survival.brain import BRAIN
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.goals import (
-    IDLE, IDLE_RETRY, REPEAT_REST, Goal, Milestone, active, adopt_goal, as_goal, ask_for_goal, goal_state, offers,
-    tend_goal, workable,
+    IDLE, IDLE_RETRY, REPEAT_REST, SIDE, Goal, Milestone, active, adopt_goal, as_goal, ask_for_goal, goal_state,
+    offers, tend_goal, workable,
 )
 from backend.survival.hatch import hatch
 from backend.survival.memory import known
@@ -26,6 +26,15 @@ from backend.tests.test_survival_pickers import DAY, NIGHT, forest, situation
 BORN = 1_000_000.0
 ONLY = Goal("only", "Only", "Its own work.", (Milestone("Do it", lambda s: 0.0, ("goal_only",)),),
             score=lambda s: 20.0, thought="Mine alone.")
+# Making wave 2: goals completed while another is Mimo's goal.
+PILE = Goal("stonepile", "A stone pile", "Stone lasts.",
+            (Milestone("Carry 4 stone", lambda s: s.count("cobblestone") / 4, ("gather_stone",)),),
+            score=lambda s: 30.0, thought="Stone.")
+LOGS = Goal("birch", "Some birch logs", "Birch is pale.",
+            (Milestone("Carry 2 birch logs", lambda s: s.count("birch_log") / 2, ("gather_wood",)),),
+            score=lambda s: 30.0, thought="Birch.")
+FOREVER = Goal("forever", "Forever", "Again and again.", (Milestone("Look", lambda s: 1.0, ("explore",)),),
+               score=lambda s: 30.0, thought="Again.", repeat=True)
 
 
 @contextmanager
@@ -114,6 +123,54 @@ class TendTests(unittest.TestCase):
             self.assertEqual(known(self.s.db, "goal"), ["woodpile"])
             self.assertEqual(brain["goal_due"]["reasons"], ["reached"])
             self.assertIn("goal", brain["pending"]["reasons"])
+
+    def test_a_goal_completed_while_another_is_its_goal_is_reached_once_and_the_goal_goes_on(self):
+        """Making wave 2: on the gate's route runs a workshop whose last fixture went in while another goal
+        was Mimo's, and first circuits whose night-light did, were settled but never reached: no event, no
+        mood, no memory. Now they are reached the same way as Mimo's own goal, once."""
+        with only_goals(WOOD, PILE, FOREVER):
+            adopt_goal(self.state, "woodpile", "jev", "Wood first.", 0.0)
+            self.tend(1.0)  # its first look: nothing is complete yet
+            self.state["inventory"]["cobblestone"] = 4
+            mood = self.state["vitals"]["mood"]
+            brain = self.tend(30.0)
+            self.assertEqual([event for event in self.events if event[1] == "goal"], [])  # once a game minute
+            brain = self.tend(61.0)
+            self.assertEqual([event[1:] for event in self.events if event[1] == "goal"],
+                             [("goal", "Pip reached a goal: a stone pile.")])
+            self.assertEqual(self.state["vitals"]["mood"], min(100.0, mood + 15.0))
+            self.assertEqual(self.state["last_thought"], "I did it: a stone pile!")
+            self.assertEqual(known(self.s.db, "goal"), ["stonepile"])
+            self.assertEqual((brain["goal"]["name"], brain["goal_due"]), ("woodpile", None))  # its goal goes on
+            self.state["inventory"]["cobblestone"] = 0  # undone...
+            self.tend(122.0)
+            self.state["inventory"]["cobblestone"] = 4  # ...and done again: reached once is enough
+            self.tend(183.0, "dawn")
+            self.assertEqual(sum(event[1] == "goal" for event in self.events), 1)
+            self.state["inventory"].update(oak_log=4, wooden_pickaxe=1)  # its own goal, reached as before
+            brain = self.tend(244.0)
+            self.assertEqual([event[2] for event in self.events if event[1] == "goal"],
+                             ["Pip reached a goal: a stone pile.", "Pip reached a goal: a woodpile."])
+            self.assertEqual((known(self.s.db, "goal"), brain["goal"]), (["stonepile", "woodpile"], None))
+            self.assertNotIn("forever", known(self.s.db, "goal"))  # a goal that repeats needs a goal of its own
+
+    def test_an_older_save_cheers_no_goal_it_had_settled_on_the_side_before(self):
+        """An older save has goals complete and never reached (Sorrel's workshop): its first look writes them
+        down and cheers none, so no burst of stale "reached" events comes on load; one settled after that is
+        reached."""
+        with only_goals(WOOD, PILE, LOGS):
+            adopt_goal(self.state, "woodpile", "jev", "Wood first.", 0.0)
+            self.state["inventory"]["cobblestone"] = 4  # settled before the upgrade
+            self.assertNotIn(SIDE, self.state["brain"])
+            brain = self.tend(1.0)
+            self.assertEqual(brain[SIDE], ["stonepile"])
+            self.tend(62.0, "dawn")
+            self.assertEqual([event for event in self.events if event[1] == "goal"], [])
+            self.assertEqual(known(self.s.db, "goal"), [])
+            self.state["inventory"]["birch_log"] = 2  # settled after it
+            self.tend(123.0)
+            self.assertEqual([event[2] for event in self.events if event[1] == "goal"],
+                             ["Pip reached a goal: some birch logs."])
 
     def test_at_dawn_the_plan_is_written_again_and_a_goal_choice_is_asked_for(self):
         with only_goals(WOOD):

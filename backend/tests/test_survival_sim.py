@@ -143,13 +143,18 @@ def dull_days(home_at: float | None, discoveries: list[float], end: float) -> li
 def sample(world: SurvivalWorld) -> tuple[bool, bool | None]:
     """Whether Mimo can walk to the natural surface or home, and whether its home can walk to the
     surface (None while it has no home). L3 final fix wave: this was "fewer than 256 cells reachable",
-    blind to a bigger pocket with no way up (escape.way_out)."""
+    blind to a bigger pocket with no way up (escape.way_out). Making wave 2: an expedition's camp (L4b, an
+    "outpost" place) counts as home for the night: Mimo digs in there and puts a roof over its head on
+    purpose, and takes it off in the morning (camp.leave_camp). This check predates camps; the seed-3 Jev
+    life first camped inside these two game days once a goal finished on the side was reached (its mood
+    and choices moved on from there), and its night in camp read as 1,620 s trapped."""
     with world.connect() as db:
         state = read_state(db)
         seed = state["world_seed"]
         grid = world_grid(db, seed)
         homes = [cell_of(place) for place in places(db, ("home",))]
-        here = way_out(grid, as_cell(state["position"]), seed, set(homes))
+        camps = [cell_of(place) for place in places(db, ("outpost",))]
+        here = way_out(grid, as_cell(state["position"]), seed, set(homes) | set(camps))
         home = way_out(grid, homes[0], seed) if homes else None
     return here, home
 

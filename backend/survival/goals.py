@@ -25,6 +25,8 @@ The brain keeps its goal in state["brain"]:
 - goal_penalties: {goal: server time until which it is not offered, after it was given up, or (the
   L4b final fix wave's I4) after a repeating goal was reached: REPEAT_REST}.
 - goal_idle_at: when a goal choice last found no goal open.
+- goals_aside, goals_aside_at: the goals found complete while another was Mimo's goal, and when the tick
+  last looked (Making wave 2, below).
 The goals Mimo reached are remembered in its world (memory_knowledge, fact "goal").
 
 The tick tends the goal (`tend_goal`, from brain.notice_step). At most once a game minute it
@@ -40,7 +42,10 @@ ends it early. A goal that is not Mimo's goal counts as workable when it would g
 were it chosen (`Goal.startable`, follow-up 3: a packed expedition sets out). A step of the day's
 plan Mimo finishes is a routine "plan" event too, once a plan (the final fix wave, for Bond to
 read: "Pip finished a step toward iron tools: mine 3 iron ore."; `told`). With no goal, a goal
-choice is asked for at once, then every IDLE_RETRY game seconds while none is open. The worker's
+choice is asked for at once, then every IDLE_RETRY game seconds while none is open. Making wave 2: once
+a game minute the tick also looks for a goal Mimo completed while another was its goal (a workshop whose
+last fixture went in meanwhile): it is reached the same way, once (`reached_aside`), and Mimo's own goal
+goes on. The worker's
 Chooser answers goal choices (backend.survival.choosing).
 
 Purposes follow the goal (`toward`, used by pickers.steer): the purposes on offer that advance
@@ -100,6 +105,8 @@ OFFERED = 4  # goals offered at a choice, the current one among them
 PLAN_STEPS = 3  # milestones on the day plan
 NEXT_SHOWN = 2  # milestones named in a goal's facts
 REACHED = "goal"  # the memory_knowledge fact for a goal Mimo reached
+SIDE = "goals_aside"  # Making wave 2: state["brain"]'s list of goals found complete while not Mimo's goal
+SIDE_AT = "goals_aside_at"  # and when it last looked (once a game minute, like the goal's own check)
 
 
 @dataclass(frozen=True)
@@ -468,19 +475,25 @@ def step_sentence(name: str, goal: Goal, milestone: Milestone) -> str:
     return f"{name} finished a step toward {lower(goal.title)}: {lower(milestone.text)}."
 
 
-def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float, scale: float = 1.0) -> None:
-    """A notable "goal" event, the goal's mood reward, the goal remembered, and new choices. A
-    non-repeating goal already known as reached (a stale answer re-adopted it and it completed
-    again) gets neither: only its first reach is a celebration. A repeating goal then rests for
-    REPEAT_REST game seconds (`scale`: game seconds per server one), set aside like a goal given up,
-    so `offers` and `toward` leave it be meanwhile (the final fix wave's I4)."""
-    brain = goal_state(state)
-    brain["goal"] = None
+def cheer_goal(state: dict, context: ActionContext, goal: Goal, at: float) -> None:
+    """The goal remembered as reached, and, the first time (or every time for a goal that repeats), a
+    notable "goal" event, the goal's mood reward and the thought."""
     first = know(context.db, goal.name, REACHED, at)
     if first or goal.repeat:
         context.events.append((at, "goal", f"{state['name']} reached a goal: {lower(goal.title)}."))
         state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + goal.reward)
         state["last_thought"] = f"I did it: {lower(goal.title)}!"
+
+
+def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float, scale: float = 1.0) -> None:
+    """A notable "goal" event, the goal's mood reward, the goal remembered (`cheer_goal`), and new
+    choices. A non-repeating goal already known as reached (a stale answer re-adopted it and it completed
+    again) gets neither: only its first reach is a celebration. A repeating goal then rests for
+    REPEAT_REST game seconds (`scale`: game seconds per server one), set aside like a goal given up,
+    so `offers` and `toward` leave it be meanwhile (the final fix wave's I4)."""
+    brain = goal_state(state)
+    brain["goal"] = None
+    cheer_goal(state, context, goal, at)
     if goal.repeat:
         brain["goal_penalties"][goal.name] = at + REPEAT_REST / scale
     ask_for_goal(state, "reached", at, fresh=True)
@@ -546,6 +559,29 @@ def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> No
         ask_for_goal(state, "dawn", at)
 
 
+def reached_aside(state: dict, context: ActionContext, at: float) -> None:
+    """Making wave 2: a goal Mimo completes while another goal is its goal (or with none) is reached the
+    same way as its goal is (`cheer_goal`: the event, the mood and the memory), once. On the gate's route
+    runs a workshop whose last fixture went in while another goal was Mimo's, and first circuits whose
+    night-light did, were settled but never reached. Goals that repeat are measured from when they were set,
+    so only a goal of its own completes them. SIDE lists every goal found complete and not reached; a world
+    that has no such list yet (an older save, or a new life's first look) only writes it, so the goals it
+    had settled on the side before are never cheered late, all at once."""
+    brain = goal_state(state)
+    first = not isinstance(brain.get(SIDE), list)
+    seen = brain[SIDE] = list(brain.get(SIDE) or [])
+    current = brain["goal"]
+    s = in_tick(state, context, at)
+    for name in sorted(GOALS):
+        goal = GOALS[name]
+        if (goal.repeat or name in seen or name in reached(s) or (current is not None and current["name"] == name)
+                or not all(settled(s, other) for other in goal.after) or not complete(s, goal)):
+            continue
+        seen.append(name)
+        if not first:
+            cheer_goal(state, context, goal, at)
+
+
 def tend_goal(state: dict, context: ActionContext, at: float, phase: str | None) -> None:
     """The goal after a vitals step (brain.notice_step): see the module docstring. A crash is
     logged once and the tick goes on."""
@@ -555,6 +591,10 @@ def tend_goal(state: dict, context: ActionContext, at: float, phase: str | None)
         brain = goal_state(state)
         scale = context.clock_at(at)["time_scale"]
         dawn = phase == "dawn"
+        aside = brain.get(SIDE_AT)
+        if dawn or aside is None or (at - aside) * scale >= CHECK_EVERY:
+            brain[SIDE_AT] = at
+            reached_aside(state, context, at)
         current = brain["goal"]
         if current is None:
             idle_at = brain["goal_idle_at"]
