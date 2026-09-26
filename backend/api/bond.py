@@ -12,9 +12,7 @@ from backend.api.mimo import active_world
 from backend.survival.bond_view import note_visit
 from backend.survival.clock import time_scale
 from backend.survival.diary import DIARY_SHOWN, diary_entries
-from backend.survival.inbox import (
-    ITEMS_SHOWN, MARKED_AT_MOST, inbox_items, mark_ids, mark_one, mark_read, name_place, unread,
-)
+from backend.survival.inbox import MARKED_AT_MOST, inbox_listing, mark_ids, mark_one, mark_read, name_place, unread
 from backend.survival.talk import ChatLimited, owner_says
 from backend.survival.world import LifeOver
 
@@ -61,10 +59,11 @@ def visit_mimo():
 
 @router.get("/mimo/inbox")
 def get_inbox():
-    """Mimo's newest messages, newest first, and how many are unread. Reads only."""
+    """Mimo's messages: every unread one first, then the newest read ones (Bond follow-up, N1), each part
+    newest first, and how many are unread. Reads only."""
     _, world = active_world(open_registry(), read_only=True)
     with world.connect() as db:
-        return {"items": inbox_items(db, ITEMS_SHOWN), "unread": unread(db)}
+        return {"items": inbox_listing(db), "unread": unread(db)}
 
 
 @router.post("/mimo/inbox/read")

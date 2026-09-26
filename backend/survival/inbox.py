@@ -31,6 +31,9 @@ Bond's final fix wave:
   Hollow"), and Mind keeps it as a told memory. m9: a name far too long is refused before it is cleaned.
 - m14: a care ask is answered (its data's "done", and read) once that UTC day's care is given.
 - m10, m12: marking read writes nothing when nothing listed is unread, and never for a pet that died.
+
+Bond follow-up (N1): GET /api/mimo/inbox lists every unread item first (`inbox_listing`, at most
+UNREAD_LISTED), then the newest read ones, so opening the inbox can always clear it.
 """
 
 from __future__ import annotations
@@ -64,7 +67,8 @@ PLACE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]*$")
 STORY = "story"
 STALE_ASK = REAL_DAY  # real seconds a naming ask waits unanswered before a newer one may replace it (I7)
 FAR = 64.0  # blocks from home from which a place is "far" (m7)
-MARKED_AT_MOST = 200  # ids one call marks read at most
+UNREAD_LISTED = 500  # unread items the inbox lists at most (N1): more than ITEMS_KEPT, stories and waiting asks
+MARKED_AT_MOST = UNREAD_LISTED  # ids one call marks read at most
 # A naming ask still waiting for its answer (I7): never pruned, and at most one at a time.
 WAITING_ASK = "kind = 'ask' AND json_extract(data, '$.ask') = 'name' AND json_extract(data, '$.answer') IS NULL"
 # What the prune may take: never a story (the diary keeps them) nor a naming ask still waiting.
@@ -98,6 +102,21 @@ def inbox_items(db: sqlite3.Connection, limit: int = ITEMS_SHOWN, unread_only: b
             raise
         return []
     return [item_of(row) for row in rows]
+
+
+def inbox_listing(db: sqlite3.Connection) -> list[dict]:
+    """What the inbox panel lists (N1): every unread item, newest first (at most UNREAD_LISTED), then the
+    newest ITEMS_SHOWN read ones. A world from before the inbox has none."""
+    try:
+        fresh = db.execute("SELECT * FROM mimo_inbox WHERE read_at IS NULL ORDER BY id DESC LIMIT ?",
+                           (UNREAD_LISTED,)).fetchall()
+        seen = db.execute("SELECT * FROM mimo_inbox WHERE read_at IS NOT NULL ORDER BY id DESC LIMIT ?",
+                          (ITEMS_SHOWN,)).fetchall()
+    except sqlite3.OperationalError as error:
+        if not missing_table(error):
+            raise
+        return []
+    return [item_of(row) for row in (*fresh, *seen)]
 
 
 def unread(db: sqlite3.Connection) -> int:

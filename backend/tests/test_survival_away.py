@@ -60,7 +60,7 @@ class OwnerAwayTests(unittest.TestCase):
         self.assertTrue(chat[3][1].startswith("I'm "), chat[3][1])
         self.assertIn(("name", "Sam"), facts)
         [story] = stories  # the first dawn after the visit, about game day 1, and only that one
-        self.assertEqual(story["data"], {"day": 1, "writer": "rules"})
+        self.assertEqual(story["data"], {"day": 1, "writer": "rules", "present": True})  # N3: the owner was there
         self.assertTrue(3 <= len(re.split(r"(?<=[.!?])(?<!\.\.\.)\s+", story["text"])) <= 6, story["text"])
         self.assertEqual(waiting, len(items))  # nothing read yet: every item counts
         self.assertGreater(bond, START)  # the chat grew the bond

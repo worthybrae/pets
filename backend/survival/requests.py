@@ -46,6 +46,10 @@ Bond's final fix wave:
   chore `promise_clock` also starts the clock once the goal is Mimo's own, or its waits are settled, and
   a promise waits WAIT_DAYS at most. Meanwhile /api/mimo shows it waiting ("after"). A promise that runs
   out is told to the owner once, in Mimo's words ("I couldn't make iron tools in time. Ask me again?").
+  Bond follow-up (N2): a promise never runs out while its goal is Mimo's own (`holds`), so a finish past
+  its time is still kept; a goal Mimo took up for it ("worked") and then set aside ends the promise with
+  "I tried to raise a herd, but it didn't work out this time. Ask me again?", and "I never got to" is said
+  only of a goal never taken up.
 - m6: a shy "Maybe. After I ..." is taken as a maybe ("maybe": the HUD says so softly).
 - I6: "cant" never says Mimo does not know how: "That's not one of my goals yet.", or for a recipe it
   knows, "I know how to make a furnace, but ...".
@@ -215,9 +219,11 @@ def to_do(goal: Goal) -> str:
     return TO_DO.get(goal.name, f"work on {voiced(lower(goal.title))}")
 
 
-def lapse_words(goal: Goal, maybe: bool) -> str:
+def lapse_words(goal: Goal, maybe: bool, tried: bool = False) -> str:
     """What Mimo tells the owner when a promise ran out before it got to it (Bond's final fix wave, I5),
-    or a shy "maybe" (m6) did."""
+    or a shy "maybe" (m6) did, or (Bond follow-up, N2) when it took the goal up and it did not work out."""
+    if tried:
+        return f"I tried to {to_do(goal)}, but it didn't work out this time. Ask me again?"
     return (f"I never got to {to_do(goal)}. Maybe another time?" if maybe
             else f"I couldn't {to_do(goal)} in time. Ask me again?")
 
@@ -684,10 +690,22 @@ def lasting(request: dict | None, at: float) -> bool:
     return bool(request) and (request.get("until") is None or at < request["until"])
 
 
+def working(state: dict, request: dict | None) -> bool:
+    """Mimo works on the goal the owner asked for now: it is its goal (N2)."""
+    goal = ((state.get("brain") or {}).get("goal") or {}).get("name")
+    return bool(request) and goal is not None and goal == request.get("goal")
+
+
+def holds(request: dict | None, state: dict, at: float) -> bool:
+    """The promise holds at `at`: its time lasts, or Mimo works on its goal (Bond follow-up, N2: it never
+    runs out mid-work)."""
+    return lasting(request, at) or working(state, request)
+
+
 def pull(s: Situation, goal: Goal) -> tuple[float, str]:
     """goals.PULLS: the goal the owner asked for, while the request lasts."""
     request = (s.state.get("bond") or {}).get("request")
-    if not request or request.get("goal") != goal.name or not lasting(request, s.at):
+    if not request or request.get("goal") != goal.name or not holds(request, s.state, s.at):
         return 0.0, ""
     return pull_points(bond_level(s.state, s.at), s.trait("sociability")), "the owner asked for this"
 
@@ -698,12 +716,17 @@ PULLS.append(pull)
 TITLES = {}  # {a goal's title in lower case: the goal}, filled on first use (every goal registered by then)
 
 
-def goal_titled(text: str) -> Goal | None:
-    """The goal an event names at its end ("Pip reached a goal: iron tools." -> iron tools)."""
+def goal_titled(text: str, marker: str = ": ") -> Goal | None:
+    """The goal an event names after `marker` ("Pip reached a goal: iron tools." -> iron tools; "Pip set a
+    new goal: a herd of its own. "Sheep!"" and "Pip set a goal aside for now: a herd of its own (no progress
+    for a day)." -> a herd of its own), without its reason or Mimo's thought."""
     if len(TITLES) != len(GOALS):
         TITLES.clear()
         TITLES.update({lower(goal.title): goal for goal in GOALS.values()})
-    return TITLES.get(text.rsplit(": ", 1)[-1].split(" (")[0].rstrip("."))
+    if marker not in text:
+        return None
+    named = text.rsplit(marker, 1)[-1] if marker == ": " else text.split(marker, 1)[1]
+    return TITLES.get(named.split(" (")[0].split('. "')[0].rstrip("."))
 
 
 def start_clock(request: dict, at: float, scale: float) -> None:
@@ -712,13 +735,15 @@ def start_clock(request: dict, at: float, scale: float) -> None:
 
 
 def lapse(db: sqlite3.Connection, state: dict, now: float) -> None:
-    """The promise ran out before Mimo got to it: it ends, and the owner is told once, in Mimo's words (I5)."""
+    """The promise ran out before Mimo got to it, or (N2) Mimo tried and set its goal aside: it ends, and
+    the owner is told once, in Mimo's words (I5)."""
     bond = bond_state(state)
     request, bond["request"] = bond.get("request"), None
     goal = GOALS.get(request["goal"]) if request else None
     if goal is not None:
-        post_item(db, now, "report", asking(db, lapse_words(goal, bool(request.get("maybe")))),
-                  {"lapsed": goal.name, "maybe": bool(request.get("maybe"))})
+        tried = bool(request.get("worked"))
+        post_item(db, now, "report", asking(db, lapse_words(goal, bool(request.get("maybe")), tried)),
+                  {"lapsed": goal.name, "maybe": bool(request.get("maybe")), "tried": tried})
 
 
 def worth_reporting(state: dict, goal: Goal | None, at: float) -> bool:
@@ -740,15 +765,15 @@ def goal_report(db: sqlite3.Connection, state: dict, event: dict, now: float, sc
     bond = bond_state(state)
     request = bond.get("request")
     goal = GOALS.get(request["goal"]) if request else None
-    if (goal is not None and request["at"] <= event["at"] and lasting(request, event["at"])
-            and event["text"].endswith(f": {lower(goal.title)}.")):
+    if (goal is not None and request["at"] <= event["at"] and (lasting(request, event["at"]) or request.get("worked"))
+            and event["text"].endswith(f": {lower(goal.title)}.")):  # N2: a finish past its time, mid-work, counts
         grow_bond(state, "promise", now, present=False)
         bond["request"] = None
         post_item(db, event["at"], "report", f"You asked me to {to_do(goal)}, and I did it! I kept my promise.",
                   {"event": event["id"], "promise": goal.name})
         return
     reached = goal_titled(event["text"])
-    if request and not lasting(request, now):
+    if request and not holds(request, state, now):
         lapse(db, state, now)
     elif request and request.get("until") is None and request["at"] <= event["at"]:
         waits = [name for name in request.get("waits") or [] if reached is None or name != reached.name]
@@ -764,12 +789,25 @@ mirror(CONSUMER, "goal", goal_report)  # replaces the inbox's plain report of a 
 
 
 def plan_seen(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:
-    """The inbox's mirror of a "plan" event: the goal Mimo worked on set aside is the next goal choice, so a
-    promise made for after that goal starts its clock (I5)."""
+    """The inbox's mirror of a "plan" event (I5, N2):
+    - the goal the owner asked for set as Mimo's goal: Mimo works on it ("worked"), and a waiting promise's
+      clock starts;
+    - that goal set aside: Mimo tried and it did not work out, so the promise ends with the owner told so;
+    - another goal set aside is the next goal choice, so a promise made for after that goal starts its clock."""
     request = bond_state(state).get("request")
-    if (request and request.get("until") is None and request.get("rival") and request["at"] <= event["at"]
-            and " set a goal aside for now: " in event["text"]):
-        start_clock(request, event["at"], scale)
+    if not request or request["at"] > event["at"]:
+        return
+    asked = GOALS.get(request["goal"])
+    if " set a new goal: " in event["text"] and goal_titled(event["text"], " set a new goal: ") is asked:
+        request["worked"] = True
+        if request.get("until") is None:
+            start_clock(request, event["at"], scale)
+    elif " set a goal aside for now: " in event["text"]:
+        if goal_titled(event["text"], " set a goal aside for now: ") is asked:
+            request["worked"] = True
+            lapse(db, state, now)
+        elif request.get("until") is None and request.get("rival"):
+            start_clock(request, event["at"], scale)
 
 
 mirror(CONSUMER, "plan", plan_seen)
@@ -778,10 +816,17 @@ mirror(CONSUMER, "plan", plan_seen)
 def promise_clock(db: sqlite3.Connection, state: dict, now: float, scale: float) -> bool:
     """A chore (I5): a promise that ran out, or waited WAIT_DAYS for its goal, is told to the owner once;
     every CLOCK_CHECK game seconds a waiting one starts its clock when its goal is Mimo's own now or every
-    goal it waits for (one that does not repeat) is settled."""
+    goal it waits for (one that does not repeat) is settled. Bond follow-up (N2): while its goal is Mimo's
+    own it never runs out, and Mimo worked on it ("worked")."""
     request = bond_state(state).get("request")
     if not request:
         return False
+    if working(state, request):  # N2: never runs out while Mimo works on it
+        changed = not request.get("worked") or request.get("until") is None
+        request["worked"] = True
+        if request.get("until") is None:
+            start_clock(request, now, scale)
+        return changed
     waited = (now - request["at"]) * scale >= WAIT_DAYS * DAY_SECONDS
     if not lasting(request, now) or (request.get("until") is None and waited):
         lapse(db, state, now)
@@ -822,7 +867,7 @@ def request_view(state: dict, now: float) -> dict | None:
     final fix wave) "after" (the title of the goal a waiting promise waits for, I5: its "until" is None
     meanwhile) and "maybe" (a shy maybe, m6)}; else None."""
     request = (state.get("bond") or {}).get("request")
-    if not lasting(request, now):
+    if not holds(request, state, now):
         return None
     goal = GOALS.get(request["goal"])
     waits = [GOALS[name].title for name in request.get("waits") or [] if name in GOALS]

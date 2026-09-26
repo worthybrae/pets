@@ -128,7 +128,7 @@ class StoryTests(unittest.TestCase):
         talker.poll(self.registry, BORN + 61)
         talker.poll(self.registry, BORN + 62)
         [story] = self.stories()
-        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules"})
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules", "present": True})  # follow-up N3: the owner was there on day 1
         self.assertTrue(3 <= len(sentences(story["text"])) <= 6, story["text"])
         self.assertTrue(story["text"].startswith("Day 1 was"))
         self.visit(BORN + 70)
@@ -229,7 +229,7 @@ class StoryTests(unittest.TestCase):
             log_event(db, BORN + 200, "ate", f"{self.name} ate berries.")  # day 4
         talker.poll(self.registry, BORN + 61)
         [story] = self.stories()
-        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules"})  # as the plan has it
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules", "present": True})  # as the plan has it
         self.assertNotIn("iron tools", story["text"])
         for day in range(3, 7):
             talker.poll(self.registry, BORN + 1 + 60 * (day - 1))
@@ -304,7 +304,8 @@ class StoryTests(unittest.TestCase):
         talker = self.talker(LUNA, luna)
         talker.poll(self.registry, BORN + 61)
         [story] = self.stories()
-        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "luna", "lead": len(STORY), "lead_last": 1})
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "luna", "lead": len(STORY), "lead_last": 1,
+                                                  "present": True})
         self.assertEqual(story["text"], STORY)  # Luna's own words, untouched
         with self.world.transaction() as db:
             log_event(db, BORN + 70, "goal", f"{self.name} reached a goal: iron tools.")  # day 2
@@ -446,7 +447,7 @@ class StoryTests(unittest.TestCase):
         self.visit(BORN + 10)  # day 1
         talker.poll(self.registry, BORN + 61)  # dawn of day 2: creates the item, day 1 only
         [story] = self.stories()
-        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules"})
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules", "present": True})
         talker.poll(self.registry, BORN + 121)  # dawn of day 3: grows to days 1-2, still no new visit
         [story] = self.stories()
         self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 2, "writer": "rules"})

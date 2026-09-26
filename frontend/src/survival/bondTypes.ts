@@ -52,9 +52,10 @@ export interface InboxItem {
   text: string
   /** A naming ask: {ask: "name", words, answer once named}; a care ask: {care, day (its UTC day), done once
    * that day's care was given (Bond's final fix wave, m14)}; a story: {day, last,
-   * writer, and, for one Luna wrote and the rules later grew, lead, lead_last (Task 13's fix rounds)}. */
+   * writer, and, for one Luna wrote and the rules later grew, lead, lead_last (Task 13's fix rounds), and
+   * present for one written for an owner who was there (Bond follow-up, N3)}. */
   data: { ask?: string; words?: string; answer?: string; care?: string; day?: number | string; last?: number;
-    writer?: string; lead?: number; lead_last?: number; done?: boolean }
+    writer?: string; lead?: number; lead_last?: number; done?: boolean; present?: boolean }
   read: boolean
 }
 
@@ -76,6 +77,8 @@ export interface DiaryEntry {
   text: string
   writer: 'luna' | 'rules'
   read: boolean
+  /** Bond follow-up (N3): written for an owner who was there that day, so it never pops up (an older API sends none). */
+  present?: boolean
 }
 
 /** What /api/mimo adds for Bond while Mimo lives (an older API sends none of it). */

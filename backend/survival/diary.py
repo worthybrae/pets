@@ -47,6 +47,10 @@ is said now and left out for a goal taken up after the last day told (I2); dange
 (m3); a promise kept leads, a day's goals share one sentence and one day is ranked as a long absence is
 (m15); an absence is told from its first day, reading the events of its newest MAX_STORY_DAYS (m16); and a
 one-day story for an owner who was seen that day thanks them for the company (I4, `present`).
+
+Bond follow-up (N3, the controller's ruling amending I4): `present` is kept in the story's data, and the
+viewer pops up every unread story that is not `present` whenever it arrives (the owed story after a laptop
+sleep among them), and never a `present` one. A story that grows over an absence is rewritten without it.
 """
 
 from __future__ import annotations
@@ -360,6 +364,7 @@ class StoryAsk:
     writer: str | None = None  # the Bond ledger's ruling: the item's own writer, when growing one (None: a new item)
     lead_len: int | None = None  # fix round 1, item 1: characters of a growing Luna item's own lead, carried as is
     lead_last: int | None = None  # fix round 1, item 2: a growing Luna item's own last day, carried as is
+    present: bool = False  # Bond follow-up (N3): for an owner who was there; kept in the item's data
 
 
 @dataclass(frozen=True)
@@ -502,7 +507,8 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
     payload = {"pet": state["name"], "day": day, "last": last, "traits": dict(state.get("traits", {})),
                "mood": round(state["vitals"]["mood"]), "bond": feeling(level), "owner": owner or None,
                "present": present, "highlights": found, "memories": remembered}
-    ask = StoryAsk(day, state["bond"]["seen_at"], rules, payload, luna, now, last, item, writer, lead_len, lead_last)
+    ask = StoryAsk(day, state["bond"]["seen_at"], rules, payload, luna, now, last, item, writer, lead_len, lead_last,
+                   present)
     return Job("story", luna, now, LUNA_TIMEOUT + GIVE_UP_AFTER, lambda env, http: write_story(ask, env, http),
                lambda: StoryAnswer(ask.rules, "rules", "luna: no answer, gave up"),
                lambda target, answer, at: store_story(target, ask, answer, at))
@@ -539,6 +545,8 @@ def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: f
         if writer == "luna":
             data["lead"] = ask.lead_len if ask.lead_len is not None else len(answer.text)
             data["lead_last"] = ask.lead_last if ask.lead_last is not None else last
+        if ask.present:
+            data["present"] = True  # N3: the viewer never pops it up (a grown story is about an absence)
         if ask.item is None:
             if bond.get("storied") == ask.seen:
                 return None
@@ -578,7 +586,8 @@ def diary_entries(db: sqlite3.Connection, limit: int | None = None) -> list[dict
     for row in rows:
         data = json.loads(row["data"] or "{}")
         entries.append({"id": row["id"], "at": row["at"], "day": data.get("day"), "last": data.get("last"),
-                        "text": row["text"], "writer": data.get("writer"), "read": row["read_at"] is not None})
+                        "text": row["text"], "writer": data.get("writer"), "read": row["read_at"] is not None,
+                        "present": bool(data.get("present"))})
     return entries
 
 

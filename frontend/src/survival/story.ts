@@ -1,36 +1,16 @@
 import { request } from './api'
 import { kindLabel } from './bond'
 import type { DiaryEntry, InboxView } from './bondTypes'
-import type { Clock } from './types'
 
 /** Where the owner's choice to be notified is kept (this browser only). */
 export const NOTIFY_KEY = 'mimo.notify'
 
-/** The story to show first: the newest, while it is unread and the owner has not just closed it. */
+/** The story to pop up: the newest, while it is unread, is about an absence and the owner has not just closed it.
+ * Bond follow-up, N3 (the controller's ruling amending I4): a story written for an owner who was there
+ * (`present`) never pops up and goes quietly into the inbox and the diary, while one about an absence pops up
+ * whenever it arrives, the owed story after a laptop sleep among them. */
 export function storyToShow(story: DiaryEntry | null | undefined, closed: number): DiaryEntry | null {
-  return story && !story.read && story.id !== closed ? story : null
-}
-
-/** The story that was waiting when the viewer opened (or the tab came back after a game day away): the newest
- * while unread, else null (Bond's final fix wave, I4). */
-export function openedStoryId(story: DiaryEntry | null | undefined): number | null {
-  return story && !story.read ? story.id : null
-}
-
-/** The story to pop up (I4): only the one waiting when the viewer opened, grown or not, while unread and not
- * just closed. A story written while the owner watches goes quietly into the inbox and the diary. */
-export function storyOnOpen(opened: number | null, story: DiaryEntry | null | undefined, closed: number): DiaryEntry | null {
-  return opened !== null && story?.id === opened ? storyToShow(story, closed) : null
-}
-
-/** A game day in real milliseconds, from the clock (an hour at the production scale). */
-export function gameDayMs(clock: Pick<Clock, 'day_seconds' | 'time_scale'> | undefined): number {
-  return clock && clock.time_scale > 0 ? (clock.day_seconds / clock.time_scale) * 1000 : 3_600_000
-}
-
-/** Whether the tab was hidden longer than a game day (I4): then the story waiting pops up as on opening. */
-export function awayLongEnough(hiddenAt: number | null, now: number, dayMs: number): boolean {
-  return hiddenAt !== null && now - hiddenAt > dayMs
+  return story && !story.read && !story.present && story.id !== closed ? story : null
 }
 
 /** The memorial's diary (I8): every story, from the life's own detail once it came, else the summary's newest. */
@@ -74,21 +54,24 @@ export function newestUnread(inbox: InboxView | undefined): number {
   return (inbox?.newest ?? []).reduce((newest, item) => Math.max(newest, item.id), 0)
 }
 
-/** One browser notification for the unread messages newer than the last one notified, or null. Bond's final
- * fix wave: when every message the snapshot shows is new there may be more, so no count is claimed (m11); and a
- * story written while the owner watches (`watching`) goes quietly, as its pop-up does (I4). */
-export function notifyPlan(inbox: InboxView | undefined, lastNotified: number, name: string, watching = false):
-  { title: string; body: string; upTo: number } | null {
+/** The unread messages newer than the last one notified: how far that mark moves (`upTo`), and the one browser
+ * notification to show for them, or no notice when there is nothing to tell; null when nothing is new. Bond's
+ * final fix wave: when every message the snapshot shows is new there may be more, so no count is claimed (m11).
+ * Bond follow-up (N4): a story written for an owner who was there (`present`) is never told, as it never pops
+ * up, and the mark still moves past it. */
+export function notifyPlan(inbox: InboxView | undefined, lastNotified: number, name: string):
+  { notice: { title: string; body: string } | null; upTo: number } | null {
   const shown = inbox?.newest ?? []
   const fresh = shown.filter((item) => item.id > lastNotified)
-  const told = watching ? fresh.filter((item) => item.kind !== 'story') : fresh
-  if (told.length === 0) return null
-  const newest = told.reduce((best, item) => item.id > best.id ? item : best)
+  if (fresh.length === 0) return null
   const upTo = fresh.reduce((best, item) => Math.max(best, item.id), 0)
+  const told = fresh.filter((item) => !(item.kind === 'story' && item.data.present))
+  if (told.length === 0) return { notice: null, upTo }
+  const newest = told.reduce((best, item) => item.id > best.id ? item : best)
   const title = told.length === 1 ? `${name}: ${kindLabel(newest.kind)}`
     : fresh.length === shown.length && (inbox?.unread ?? 0) > shown.length ? `New messages from ${name}`
       : `${told.length} new messages from ${name}`
-  return { title, body: newest.text, upTo }
+  return { notice: { title, body: newest.text }, upTo }
 }
 
 export const fetchDiary = () => request<{ entries: DiaryEntry[] }>('/api/mimo/diary')

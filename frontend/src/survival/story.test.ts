@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DiaryEntry, InboxView } from './bondTypes'
 import {
-  NOTIFY_KEY, awayLongEnough, diaryLines, gameDayMs, loadNotify, memorialDiary, newestUnread, notifyPlan, notifyShown,
-  openedStoryId, saveNotify, storyOnOpen, storyToShow,
+  NOTIFY_KEY, diaryLines, loadNotify, memorialDiary, newestUnread, notifyPlan, notifyShown, saveNotify, storyToShow,
 } from './story'
 
 const story: DiaryEntry = { id: 12, at: 100, day: 3, text: 'Day 3 was a good one. I ate. I hope you visit again soon.', writer: 'rules', read: false }
@@ -21,27 +20,15 @@ describe('the story', () => {
     expect(diaryLines(undefined)).toEqual([])
   })
 
-  it('pops up only the story unread when the viewer opened, never one written while the owner watches (I4)', () => {
-    const opened = openedStoryId(story)
-    expect(opened).toBe(12)
-    expect(storyOnOpen(opened, story, 0)).toBe(story)
-    const grown = { ...story, last: 5, text: 'Days 3 to 5 were busy ones.' }
-    expect(storyOnOpen(opened, grown, 0)).toBe(grown)  // the same story, grown while unread
-    const newer = { ...story, id: 13, day: 4 }
-    expect(storyOnOpen(opened, newer, 0)).toBeNull()  // written mid-session: quietly to the inbox and diary
-    expect(storyOnOpen(opened, story, 12)).toBeNull()  // closed
-    expect(storyOnOpen(openedStoryId({ ...story, read: true }), story, 0)).toBeNull()
-    expect(openedStoryId(null)).toBeNull()
-    expect(storyOnOpen(null, story, 0)).toBeNull()
-  })
-
-  it('pops up again when the tab comes back after a game day hidden', () => {
-    const clock = { day_number: 3, seconds_into_day: 0, time_of_day: 0, phase: 'day' as const, day_seconds: 3600, time_scale: 1 }
-    expect(gameDayMs(clock)).toBe(3_600_000)
-    expect(gameDayMs(undefined)).toBe(3_600_000)
-    expect(awayLongEnough(0, 3_600_001, 3_600_000)).toBe(true)
-    expect(awayLongEnough(0, 3_599_999, 3_600_000)).toBe(false)
-    expect(awayLongEnough(null, 9e9, 3_600_000)).toBe(false)
+  it('pops up a story about an absence whenever it arrives, and never one written for an owner who was there', () => {
+    // Bond follow-up, N3 (the controller's ruling amending I4): after a laptop sleep the owed story comes minutes
+    // after the viewer opened, and still pops up; a story written while the owner watched never does.
+    const owed = { ...story, id: 13, day: 4, last: 9 }
+    expect(storyToShow(owed, 0)).toBe(owed)
+    expect(storyToShow({ ...owed, present: false }, 0)).toEqual({ ...owed, present: false })
+    expect(storyToShow({ ...story, present: true }, 0)).toBeNull()
+    expect(storyToShow({ ...owed, present: true }, 0)).toBeNull()
+    expect(storyToShow(owed, 13)).toBeNull()  // closed
   })
 
   it('shows every story on the memorial, from the life\'s own detail (I8)', () => {
@@ -69,18 +56,30 @@ describe('notifications', () => {
 
   it('tell of the messages newer than the last told, in one notification', () => {
     expect(newestUnread(inbox)).toBe(9)
-    expect(notifyPlan(inbox, 8, 'Pebble')).toEqual({ title: 'Pebble: Danger', body: 'I saw a gloomling coming.', upTo: 9 })
-    expect(notifyPlan(inbox, 5, 'Pebble')).toEqual({ title: '2 new messages from Pebble', body: 'I saw a gloomling coming.', upTo: 9 })
+    expect(notifyPlan(inbox, 8, 'Pebble')).toEqual({ notice: { title: 'Pebble: Danger', body: 'I saw a gloomling coming.' }, upTo: 9 })
+    expect(notifyPlan(inbox, 5, 'Pebble')).toEqual({
+      notice: { title: '2 new messages from Pebble', body: 'I saw a gloomling coming.' }, upTo: 9,
+    })
     expect(notifyPlan(inbox, 9, 'Pebble')).toBeNull()
     expect(notifyPlan(undefined, 0, 'Pebble')).toBeNull()
   })
 
-  it('never claim a count the five newest cannot show (m11), and a story written while watched is quiet (I4)', () => {
+  it('never claim a count the five newest cannot show (m11)', () => {
     const many: InboxView = { unread: 40, newest: [9, 8, 7, 6, 5].map((id) => ({ ...inbox.newest[0], id })) }
-    expect(notifyPlan(many, 0, 'Pebble')?.title).toBe('New messages from Pebble')
-    const story: InboxView = { unread: 1, newest: [{ ...inbox.newest[0], id: 10, kind: 'story', text: 'Day 3 was a good one.' }] }
-    expect(notifyPlan(story, 9, 'Pebble', true)).toBeNull()
-    expect(notifyPlan(story, 9, 'Pebble', false)?.title).toBe('Pebble: While you were away')
+    expect(notifyPlan(many, 0, 'Pebble')?.notice?.title).toBe('New messages from Pebble')
+  })
+
+  it('move the mark past a story written for an owner who was there, and never tell of it (N4)', () => {
+    // The re-review's probe: with only a present story new, the mark never moved, so switching tabs told it.
+    const watched: InboxView = {
+      unread: 1, newest: [{ ...inbox.newest[0], id: 50, kind: 'story', text: 'Day 3 was a good one.', data: { present: true } }],
+    }
+    expect(notifyPlan(watched, 49, 'Clover')).toEqual({ notice: null, upTo: 50 })
+    expect(notifyPlan(watched, 50, 'Clover')).toBeNull()
+    const away: InboxView = { unread: 1, newest: [{ ...watched.newest[0], data: { present: false } }] }
+    expect(notifyPlan(away, 49, 'Clover')).toEqual({ notice: { title: 'Clover: While you were away', body: 'Day 3 was a good one.' }, upTo: 50 })
+    const both: InboxView = { unread: 2, newest: [watched.newest[0], { ...inbox.newest[0], id: 48 }] }
+    expect(notifyPlan(both, 47, 'Clover')).toEqual({ notice: { title: 'Clover: Danger', body: 'I saw a gloomling coming.' }, upTo: 50 })
   })
 
   it('show as on only while the browser still grants them (Task 15)', () => {
