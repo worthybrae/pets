@@ -5,7 +5,7 @@ import backend.survival.brain  # noqa: F401  (every creature, recipe and goal re
 from backend.services.crafting import RECIPES
 from backend.survival.creatures.kinds import KINDS
 from backend.survival.journal import LESSONS, PLANTS, SURFACE
-from backend.survival.lessons import SHORTLIST, claims, gear_group, teach_recipe
+from backend.survival.lessons import SHORTLIST, claims, contradicts, denied, gear_group, raw_words, teach_recipe
 
 GEAR = ("wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "gold_pickaxe", "diamond_pickaxe", "wooden_axe", "stone_axe",
         "iron_axe", "wooden_sword", "stone_sword", "iron_sword", "gold_sword", "diamond_sword", "bow", "arrow",
@@ -36,6 +36,9 @@ class TeachableLessonsTests(unittest.TestCase):
             self.assertEqual(f"{name}:drops" in LESSONS, bool(kind.drops), name)
         self.assertEqual(LESSONS["cow:drops"].fact, "A cow drops one to three raw beef and up to two leather.")
         self.assertEqual(LESSONS["rabbit:drops"].fact, "A rabbit drops a raw rabbit and sometimes a rabbit hide.")
+        # Final fix wave: a sometimes-drop counted by mass reads naturally ("and sometimes tallow").
+        self.assertEqual(LESSONS["sheep:drops"].fact,
+                         "A sheep drops one to two raw mutton, one to two wool and sometimes tallow.")
         self.assertEqual(LESSONS["cow:habits"].fact,
                          "Cows graze in meadows, forests, birch forests and swamps, two to three together.")
         self.assertEqual(LESSONS["rabbit:habits"].fact, "Rabbits hop about in every land, one to three together.")
@@ -169,6 +172,89 @@ class ClaimsTests(unittest.TestCase):
     def test_words_about_what_no_lesson_covers_are_not_understood_yet(self):
         found = claims("bread is made from wheat")
         self.assertEqual((found.taught, found.doubtful, found.unknown), ((), False, True))
+
+
+# The final review's corpus (I2): 13 false lines that each fit a true lesson and were thanked for,
+# 26 true lines, and two parked residuals.
+FALSE_LINES = (
+    "skitters love sunlight", "skitters come out at noon", "gloomlings love light",  # the opposite
+    "cows don't give leather", "cows never give leather", "cows do not drop beef",  # a denial
+    "a bow takes two sticks", "a leather cap takes five leather", "iron cap needs eight iron ingots",  # a number
+    "gloomlings love the sun", "sheep don't give wool", "cows drop five leather", "an iron sword takes 3 iron ingots",
+)
+# The shortlist each true line keeps, best first: the lesson the rules teach is the same as before.
+# Two lose a second lesson whose own words they contradict ("two" is not in the cow lesson's fact;
+# "sun" is the opposite of the gloomling lesson's "dark").
+TRUE_LINES = (
+    ("skitters hate light", ("skitter", "skitter:habits")),
+    ("Gloomlings hate light", ("gloomling", "gloomling:habits")),
+    ("you can make a bow from sticks and string", ("recipe:bow",)),
+    ("an iron cap needs five iron ingots", ("recipe:iron_cap",)),
+    ("cows drop up to two leather", ("cow:drops",)),
+    ("zombies burn in the sun", ("gloomling:habits",)),
+    ("Iron armor needs iron ingots.", ("recipe:iron_cap", "recipe:iron_tunic")),
+    ("Cows give leather!", ("cow", "cow:drops")),
+    ("sheep give wool", ("sheep", "sheep:drops")),
+    ("chickens drop feathers", ("chicken", "chicken:drops")),
+    ("a bow takes three sticks and three string", ("recipe:bow",)),
+    ("an iron sword takes two iron ingots and a stick", ("recipe:iron_sword",)),
+    ("skitters come out of caves at night", ("skitter", "skitter:habits")),
+    ("gloomlings come out at night", ("gloomling", "gloomling:habits")),
+    ("gravel hides flint", ("gravel",)),
+    ("sugar cane grows beside water", ("sugar_cane",)),
+    ("cactus grows on sand", ("sand", "cactus")),
+    ("diamonds need an iron pickaxe", ("diamond_ore",)),
+    ("a leather cap takes two leather", ("recipe:leather_cap",)),
+    ("skitters drop string", ("skitter:drops",)),
+    ("gloomlings drop gloom dust", ("gloomling:drops",)),
+    ("moss grows on the forest floor", ("moss",)),
+    ("a stone pickaxe takes three cobblestone and two sticks", ("recipe:stone_pickaxe",)),
+    ("an iron tunic takes eight iron ingots", ("recipe:iron_tunic",)),
+    ("skitters fear light", ("skitter", "skitter:habits")),
+    ("light keeps gloomlings away", ("gloomling", "gloomling:habits")),
+)
+# Parked: a fact that says both sides ("the caves and dark places, and the sunlight") is never
+# contradicted by either; "light" is on both sides of TEACH_SYNONYMS. Each still teaches only a
+# true lesson.
+RESIDUALS = ("skitters come out in the day", "skitters like light")
+
+
+class ContradictionTests(unittest.TestCase):
+    def test_the_corpus_is_the_final_reviews_forty_one_lines(self):
+        self.assertEqual((len(FALSE_LINES), len(TRUE_LINES), len(RESIDUALS)), (13, 26, 2))
+
+    def test_a_denial_a_wrong_number_or_the_opposite_is_doubted_never_taught(self):
+        for text in FALSE_LINES:
+            found = claims(text)
+            self.assertEqual((found.taught, found.doubtful, found.unknown), ((), True, False), text)
+
+    def test_the_true_lines_still_teach_what_they_taught(self):
+        for text, taught in TRUE_LINES:
+            found = claims(text)
+            self.assertEqual((found.taught, found.doubtful), (taught, False), text)
+
+    def test_the_parked_residuals_teach_only_real_lessons(self):
+        for text in RESIDUALS:
+            self.assertTrue(set(claims(text).taught) <= set(LESSONS), text)
+
+    def test_contradicts_reads_denials_numbers_and_opposites_against_the_lessons_own_words(self):
+        def against(thing, text):
+            return contradicts(LESSONS[thing], text, raw_words(text))
+
+        self.assertTrue(against("recipe:bow", "a bow takes 2 sticks"))
+        self.assertFalse(against("recipe:bow", "a bow takes three sticks"))
+        self.assertTrue(against("skitter:habits", "skitters love caves"))
+        self.assertTrue(against("skitter", "skitters come out at noon"))
+        self.assertFalse(against("skitter:habits", "skitters come out in the day"))  # its fact says both sides
+        self.assertEqual(denied("cows don't give leather, and I can't lie"),
+                         "cows do not give leather, and I cannot lie")
+
+    def test_a_true_recipe_said_with_make_is_taught_and_a_false_one_stays_doubtful(self):
+        # M10: every recipe lesson means make, made, craft, need and take, whatever its fact says.
+        self.assertEqual(claims("leather armor is made from leather").taught,
+                         ("recipe:leather_cap", "recipe:leather_tunic"))
+        found = claims("iron armor is made from leather")
+        self.assertEqual((found.taught, found.doubtful), ((), True))
 
 
 if __name__ == "__main__":

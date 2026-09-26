@@ -40,6 +40,12 @@ cows", "nice sword!", a place or a compliment mentioned in passing). Words that 
 things no lesson is about are `unknown`, narrowed the same way: "bread is made from wheat" stays
 unknown ("bread" is a thing), "keep the torch lit" does not ("keep" is not). A question never
 teaches.
+
+Words that fit a lesson but contradict it are `doubtful` too, never taught with a thank-you
+(`contradicts`, the final fix wave): they deny it ("cows don't give leather", "cows never give
+leather"), say a number the lesson does not ("a bow takes two sticks": it takes three) or say the
+opposite of the lesson's own words ("skitters love sunlight": the sunlight makes them fade;
+"skitters come out at noon": they come out at night).
 """
 
 from __future__ import annotations
@@ -56,7 +62,7 @@ SHORTLIST = 5  # lessons offered for one line
 NUMBERS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
 GROUPS = (("tool", ("_pickaxe", "_axe")), ("weapon", ("_sword", "bow", "arrow")), ("armor", ("_cap", "_tunic")))
 # Ingredients that are not counted one by one ("three string", "two leather").
-MASS = frozenset({"string", "leather", "cobblestone", "raw_beef", "raw_mutton", "wool", "gloom_dust"})
+MASS = frozenset({"string", "leather", "cobblestone", "raw_beef", "raw_mutton", "wool", "gloom_dust", "tallow"})
 PLURAL = {"sheep": "sheep", "fish": "fish"}
 LANDS = {"meadow": "meadows", "forest": "forests", "birch_forest": "birch forests", "taiga": "the taiga",
          "swamp": "swamps", "desert": "deserts", "alpine": "the mountains"}
@@ -75,6 +81,9 @@ TEACH_SYNONYMS = (
     {"sun", "sunlight", "day", "daylight", "light"}, {"fade", "burn"}, {"mountain", "alpine"},
     {"ingot", "bar"}, {"wooden", "wood"}, {"stone", "cobblestone"},
 )
+# Words every recipe lesson means, whether its fact says "takes" or "make" ("leather armor is made
+# from leather", final fix wave M10).
+RECIPE_WORDS = ("make", "made", "craft", "need", "take")
 TEACH_VERBS = frozenset({"give", "make", "made", "need", "take", "drop", "come", "live", "grow", "burn", "hide",
                          "keep", "craft", "dig", "smelt", "cook", "spawn", "hate", "fear", "use", "turn", "melt"})
 QUESTION_WORDS = frozenset({"do", "does", "did", "can", "could", "is", "are", "was", "what", "how", "why", "where",
@@ -95,6 +104,20 @@ PERSON_WORDS = frozenset({"i", "you", "we", "my", "your", "let", "me", "us", "ou
 # today", "cows rule!", "cow spotted near the lake", fix round 2, residual 6).
 SKIP_WORDS = frozenset({"look", "looks", "seem", "seems", "rule", "rules", "rock", "rocks", "everywhere", "again",
                         "spotted"})
+# What contradicts a lesson its words fit (`contradicts`, final fix wave I2): a word that denies it
+# ("n't" is read as " not"), a number it does not say, or a word from the other side of one of
+# OPPOSITES than the lesson's own words.
+NEGATIONS = frozenset({"not", "no", "never", "nothing", "none", "without", "cannot", "dont", "doesnt", "didnt",
+                       "cant", "wont", "isnt", "arent"})
+COUNTS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+          "ten": 10, "eleven": 11, "twelve": 12}
+OPPOSITES = ((frozenset({"love", "like", "enjoy"}), frozenset({"hate", "fear", "fade", "burn", "away", "avoid"})),
+             (frozenset({"day", "daytime", "daylight", "noon", "morning", "sun", "sunlight", "sunny"}),
+              frozenset({"night", "nighttime", "midnight", "dark", "evening"})))
+_NOT = ((re.compile(r"\bcan['’]t\b", re.IGNORECASE), "cannot"),
+        (re.compile(r"\bwon['’]t\b", re.IGNORECASE), "will not"),
+        (re.compile(r"n['’]t\b", re.IGNORECASE), " not"))
+_DIGITS = re.compile(r"\d+")
 _RAW_WORD = re.compile(r"[a-z]+")
 # A sentence boundary (., ! or ?) followed by space, but not inside a "..." pause (replies.clip's own
 # pattern): a false or foreign word in one sentence never spoils a lesson a later one teaches cleanly.
@@ -155,9 +178,9 @@ def plural(kind: str) -> str:
 
 
 def drop_words(item: str, drop) -> str:
-    """ "one to three raw beef", "up to two leather", "sometimes a rabbit hide"."""
+    """ "one to three raw beef", "up to two leather", "sometimes a rabbit hide", "sometimes tallow"."""
     if isinstance(drop, float):
-        return f"sometimes {amount(item, 1)}"
+        return f"sometimes {label(item) if item in MASS else amount(item, 1)}"
     least, most = drop
     if least == most:
         return amount(item, least)
@@ -233,7 +256,8 @@ def named(lesson: Lesson) -> str:
 def keys_of(lesson: Lesson) -> Keys:
     """A lesson's subjects (its thing's name and its words, their head word alone -- "coal" for coal
     ore, "mushroom" for a brown mushroom -- and, for a recipe, its material with its group: "iron
-    armor"), each widened by TEACH_SYNONYMS, and every word it says or means."""
+    armor"), each widened by TEACH_SYNONYMS, and every word it says or means (a recipe's
+    RECIPE_WORDS among them, whichever verb its fact uses)."""
     thing, words = tokens(named(lesson)), tokens(lesson.words)
     group = gear_group(named(lesson)) if lesson.kind == "recipe" else ""
     subjects = {frozenset(thing), frozenset(words)}
@@ -246,7 +270,8 @@ def keys_of(lesson: Lesson) -> Keys:
         for word in subject:
             for other in widened(word) - {word}:
                 subjects.add(subject - {word} | {other})
-    said = {*thing, *words, *tokens(lesson.fact), *([group] if group else [])}
+    said = {*thing, *words, *tokens(lesson.fact), *([group] if group else []),
+            *(RECIPE_WORDS if lesson.kind == "recipe" else ())}
     return Keys(tuple(sorted(subjects, key=sorted)), frozenset(set().union(*(widened(word) for word in said))))
 
 
@@ -321,11 +346,37 @@ def bare_claim(text: str, raw: list[str], subject: frozenset[str], found_words: 
     return bool(set(content) - found_words)
 
 
+def denied(text: str) -> str:
+    """`text` with its "n't" read as " not": "cows don't give leather" -> "cows do not give leather"."""
+    for pattern, words in _NOT:
+        text = pattern.sub(words, text)
+    return text
+
+
+def counts_in(text: str) -> set[int]:
+    """The numbers `text` says, in words or digits ("a" is not one)."""
+    return {int(digits) for digits in _DIGITS.findall(text)} | {
+        COUNTS[word] for word in _RAW_WORD.findall(text.lower()) if word in COUNTS}
+
+
+def contradicts(lesson: Lesson, text: str, raw: list[str]) -> bool:
+    """Whether words that fit `lesson` contradict it: they deny it, say a number its fact does not,
+    or say the opposite of its fact's own words ("love" of what the sunlight makes fade, "noon" of
+    what comes out at night). A fact that says both sides ("the caves and dark places, and the
+    sunlight") is never contradicted by either."""
+    fact, words = set(raw_words(lesson.fact)), set(raw)
+    if words & NEGATIONS or counts_in(text) - counts_in(lesson.fact):
+        return True
+    return any((words & one and fact & other and not fact & one) or (words & other and fact & one and not fact & other)
+               for one, other in OPPOSITES)
+
+
 def claims_one(text: str) -> Claims:
     """`claims`, judged for one sentence alone."""
     if asks(text):
         return Claims((), False, False)
     keys, world, all_subjects = lesson_keys()
+    text = denied(text)
     said = set(tokens(text))
     things = said & world
     raw = raw_words(text)
@@ -338,6 +389,8 @@ def claims_one(text: str) -> Claims:
         claim = (said & found.words) - subject
         foreign = things - found.words
         if foreign and (claim or said & TEACH_VERBS):
+            doubtful = True
+        elif claim and contradicts(LESSONS[thing], text, raw):
             doubtful = True
         elif claim:
             fits.append((-(len(claim) + len(subject)), index, thing))
