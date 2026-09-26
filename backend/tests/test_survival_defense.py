@@ -13,7 +13,7 @@ from backend.survival.actions import ActionContext, advance_actions, ensure_acti
 from backend.survival.brain import BRAIN, brain_plan
 from backend.survival.choosing import Chooser, InlineExecutor
 from backend.survival.creatures.defense import (
-    FIGHT_KEEP, FLEE_KEEP, FLEE_REACH, QUIET, armed, clear_line, fight_target, threats,
+    FIGHT_KEEP, FLEE_KEEP, FLEE_REACH, QUIET, armed, clear_line, fight_target, indoors, threats,
 )
 from backend.survival.creatures.harm import hurt_pet
 from backend.survival.creatures.hostiles import GIVE_UP
@@ -126,6 +126,23 @@ class ThreatTests(unittest.TestCase):
         self.assertEqual(threats(situation(grid, pet())), [])
         in_the_doorway = pet(position={"x": 0.0, "y": 1.0, "z": -1.0})
         self.assertEqual(len(threats(situation(grid, in_the_doorway))), 1)
+
+    def test_inside_a_sealed_camp_mimo_has_nothing_to_fear_either(self):
+        # Fix round 1, Minor 1: a sealed camp (backend.survival.camp) is not claimed or sheltered
+        # like a built shelter, so `indoors` must know it separately -- a remembered outpost cell
+        # with the roof cell above it solid.
+        grid = meadow({(0, 0, 0): "air", (0, 1, 0): "dirt"})
+        remember(grid.herd.db, "outpost", (0, 0, 0), 0.0, "camp")
+        hostile(grid, cell=(5, 1, 0))
+        dug_in = pet(position={"x": 0.0, "y": 0.0, "z": 0.0})
+        s = situation(grid, dug_in)
+        self.assertTrue(indoors(s))
+        self.assertEqual(threats(s), [])
+        self.assertFalse(FLEE.trigger(s))  # a hostile 5 blocks away does not fire flee
+        without_roof = pet(position={"x": 0.0, "y": 0.0, "z": 0.0})
+        grid.put(0, 1, 0, "air")  # the roof came off: no shelter any more
+        self.assertFalse(indoors(situation(grid, without_roof)))
+        self.assertEqual(len(threats(situation(grid, without_roof))), 1)
 
     def test_a_weapon_is_a_sword_or_a_bow_with_arrows(self):
         self.assertFalse(armed(situation(meadow(), pet())))

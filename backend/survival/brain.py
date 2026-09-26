@@ -198,7 +198,10 @@ def brain_plan(state: dict, context: ActionContext, at: float) -> list[dict]:
         finish_purpose(state, at, "plan_done")
         return waiting(state, context, at)
     brain["planned_at"] = at
-    steps = leave_camp(s, steps)  # L4b: out of a dug-in camp, the roof comes off first
+    try:  # L4b: out of a dug-in camp, the roof comes off first; a crash plans as if it weren't there
+        steps = leave_camp(s, steps)
+    except Exception as error:
+        log_once(logger, "leave_camp", error)
     return [{**step, "purpose": purpose.name} for step in steps]
 
 

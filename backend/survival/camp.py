@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from backend.services.blocks import is_solid
+from backend.services.blocks import is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, can_harvest
 from backend.survival.blueprints import BUILDING
 from backend.survival.cooking import made
@@ -32,6 +32,7 @@ from backend.survival.grid import Cell
 from backend.survival.memory import cell_of, remember
 from backend.survival.once import log_once
 from backend.survival.purposes import Purpose, register, walk_to, wait_for_nightfall
+from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.structures import reserved
@@ -46,6 +47,7 @@ OUTPOST_REUSE = 24.0
 CAMP_SEARCH = 6
 CAMP_TORCHES = 2
 SIDES = ((1, 0), (0, 1), (-1, 0), (0, -1))
+GROUND = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))
 
 
 def roof_block(s: Situation) -> str | None:
@@ -83,42 +85,61 @@ def camp_spot(s: Situation, cell: Cell) -> bool:
 
 
 def outpost_near(s: Situation) -> Cell | None:
-    """An outpost within OUTPOST_REUSE blocks whose hole is still open and empty."""
+    """An outpost within OUTPOST_REUSE blocks whose hole is still open and empty, its floor and its
+    four walls still solid (Fix round 1, Critical 1c: a wall dug away since is not reused), and no
+    step failed near it lately (Fix round 1, Critical 1b: senses.near_failure)."""
     for place in sorted((place for place in s.places if place["kind"] == "outpost"),
                         key=lambda place: s.distance(cell_of(place))):
         cell = cell_of(place)
         if s.distance(cell) > OUTPOST_REUSE:
             break
         x, y, z = cell
-        if s.grid.passable(cell) and s.grid.passable((x, y + 1, z)) and is_solid(s.grid.material(x, y - 1, z)):
+        if (s.grid.passable(cell) and s.grid.passable((x, y + 1, z)) and is_solid(s.grid.material(x, y - 1, z))
+                and all(is_solid(s.grid.material(x + dx, y, z + dz)) for dx, dz in SIDES)
+                and not near_failure(s.state, cell)):
             return cell
     return None
 
 
 def new_camp(s: Situation) -> Cell | None:
-    """The nearest spot within CAMP_SEARCH blocks (and a block or two up or down) to dig in at."""
+    """The nearest spot within CAMP_SEARCH blocks (and a block or two up or down) to dig in at, not
+    one a step failed near lately (Fix round 1, Critical 1b: senses.near_failure), so a spot Mimo
+    cannot reach or cannot use is not picked again at once."""
     x, y, z = s.here
     spots = []
     for dx in range(-CAMP_SEARCH, CAMP_SEARCH + 1):
         for dz in range(-CAMP_SEARCH, CAMP_SEARCH + 1):
             column = [(x + dx, y + dy, z + dz) for dy in (0, 1, -1, 2, -2)]
             cell = next((cell for cell in column if s.grid.standable(cell)), None)
-            if cell is not None and camp_spot(s, cell):
+            if cell is not None and camp_spot(s, cell) and not near_failure(s.state, cell):
                 spots.append(cell)
     return min(spots, key=lambda cell: (s.distance(cell), cell)) if spots else None
 
 
 def ground_spots(s: Situation, cell: Cell) -> list[Cell]:
-    """Cells beside the camp on the ground, where the campfire and torches go: nearest first."""
+    """Cells beside the camp on the ground that are free to build on (Fix round 1, Critical 1a: not
+    a berry bush or a mushroom, and not a campfire or torch already there), nearest first."""
     x, y, z = cell
-    found = [(x + dx, y, z + dz) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))]
-    return [spot for spot in found if s.grid.standable(spot) and not reserved(s.grid, spot)]
+    found = [(x + dx, y, z + dz) for dx, dz in GROUND]
+    return [spot for spot in found if s.grid.standable(spot) and is_replaceable(s.grid.material(*spot))
+            and not reserved(s.grid, spot)]
+
+
+def lit_near(s: Situation, cell: Cell, block: str) -> int:
+    """How many `block` ("campfire" or "torch") already stand on the ground beside `cell` (Fix
+    round 1, Critical 1a): reused, not placed again."""
+    x, y, z = cell
+    return sum(1 for dx, dz in GROUND if s.grid.material(x + dx, y, z + dz) == block)
 
 
 def settled(s: Situation) -> bool:
-    """Dug in for the night: in the camp with its roof on, or in its hole with no block for a roof."""
+    """Dug in for the night: in the camp with its roof on, in its hole with no block for a roof, or
+    in its hole with the roof cell already solid (Fix round 1, Critical 1d: a reused outpost or a
+    batch planned twice must not plan another roof step onto a cell already taken)."""
     camp = (trek(s) or {}).get("camp")
-    return in_camp(s) or (camp is not None and in_pit(s, camp) and roof_block(s) is None)
+    in_hole = camp is not None and in_pit(s, camp)
+    roofed = in_hole and is_solid(s.grid.material(camp[0], camp[1] + 1, camp[2]))
+    return in_camp(s) or (in_hole and (roof_block(s) is None or roofed))
 
 
 def somewhere(s: Situation) -> bool:
@@ -139,7 +160,8 @@ def camp_score(s: Situation) -> float:
 
 def plan_camp(s: Situation, context: ActionContext) -> list[dict]:
     """Dig in: to the camp, fire and torches beside it, the hole (Mimo drops in); then the roof;
-    then wait for nightfall."""
+    then wait for nightfall. Fix round 1, Critical 1a: a campfire or torches already standing
+    beside the spot (a batch cut short and planned again) are counted, not placed a second time."""
     found = trek(s)
     if found is None:
         return []
@@ -163,11 +185,13 @@ def plan_camp(s: Situation, context: ActionContext) -> list[dict]:
     steps = [] if s.here == spot else [{**walk_to(spot), "whole": True}]
     inventory = dict(s.inventory)
     lights = ground_spots(s, spot)
-    if inventory.get("campfire", 0) < 1:
-        steps += made(inventory, "campfire") or []
-    if lights and inventory.get("campfire", 0) > 0:
-        steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
-    for cell in lights[:min(CAMP_TORCHES, inventory.get("torch", 0))]:
+    if lit_near(s, spot, "campfire") < 1:
+        if inventory.get("campfire", 0) < 1:
+            steps += made(inventory, "campfire") or []
+        if lights and inventory.get("campfire", 0) > 0:
+            steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
+    torches_wanted = max(0, CAMP_TORCHES - lit_near(s, spot, "torch"))
+    for cell in lights[:min(torches_wanted, inventory.get("torch", 0))]:
         steps.append({"kind": "place", "target": list(cell), "block": "torch"})
     return [*steps, {"kind": "mine", "target": [x, y - 1, z]}]
 

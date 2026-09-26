@@ -4,7 +4,9 @@ A threat is a living hostile creature that could come after Mimo: within 16 bloc
 than THREAT_RISE (2) above or below it, nearest first (`threats`; final fix wave: what lives in a
 cave 3 or more blocks under Mimo's feet cannot get at it, so it is no reason to run). Inside its
 own shelter (a room or passage cell of a shelter it built) Mimo has none, since nothing gets in
-there (creatures.moves.steps). A weapon is a sword, or a bow with arrows.
+there (creatures.moves.steps); L4b's sealed camp is the same shelter for a night out
+(backend.survival.camp: a remembered outpost cell with the roof cell above it solid). A weapon is
+a sword, or a bow with arrows.
 
 - flee (30): a threat, and health below 35, or the nearest threat within 6 blocks and no weapon
   (while a flight is on -- it ended a run in the last FLEE_KEEP action seconds -- the flight goes
@@ -37,6 +39,7 @@ from __future__ import annotations
 
 import math
 
+from backend.services.blocks import is_solid
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext
 from backend.survival.creatures.archery import SHOOT_RANGE
@@ -93,9 +96,20 @@ THREATS_SHOWN = 4
 THREAT_RISE = 2
 
 
+def sealed_camp(s: Situation) -> bool:
+    """Mimo stands in a camp it dug in and roofed over (backend.survival.camp): a remembered
+    outpost cell with the roof cell above it solid. Fix round 1, Minor 1: without this, an unarmed
+    pet sleeping in a sealed camp re-fired flee at every hostile within CHASE_SIGHT, its walk out
+    always failing (six solid walls), breaking sleep every few seconds."""
+    x, y, z = s.here
+    return (is_solid(s.grid.material(x, y + 1, z))
+            and any(place["kind"] == "outpost" and cell_of(place) == s.here for place in s.places))
+
+
 def indoors(s: Situation) -> bool:
-    """Mimo stands in a room or passage cell of a shelter it built."""
-    return s.db is not None and s.grid.claimed(s.here) and sheltered(s.db, s.here)
+    """Mimo stands in a room or passage cell of a shelter it built, or in a sealed camp it dug in
+    for the night (Fix round 1, Minor 1: sealed_camp)."""
+    return (s.db is not None and s.grid.claimed(s.here) and sheltered(s.db, s.here)) or sealed_camp(s)
 
 
 def threats(s: Situation) -> list[dict]:
