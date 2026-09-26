@@ -51,7 +51,7 @@ from backend.survival.purposes import Purpose, register
 from backend.survival.signals import KIND, MATERIALS, parse
 from backend.survival.situation import Situation
 from backend.survival.steps import (
-    PLACE_SECONDS, REACH, StepFailed, StepKind, as_cell, as_point, in_reach, register_step,
+    PLACE_SECONDS, StepFailed, StepKind, as_cell, as_point, in_reach, register_step,
 )
 from backend.survival import structures
 from backend.survival.structures import blueprint_of, clearing, start, todo
