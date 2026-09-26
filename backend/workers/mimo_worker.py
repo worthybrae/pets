@@ -91,7 +91,9 @@ def run_once(registry: LifeRegistry, previous: str | None, timestamp: float | No
             chooser.poll(registry, timestamp)
         except Exception as error:
             log_once(logger, "chooser", error)
-    if talker is not None and state is not None and state["died_at"] is None and not stopped:
+    # The Talker is polled with no pet alive too, so a life that just ended is closed at once (Mind's
+    # last day); with no active life it does nothing else.
+    if talker is not None and not stopped:
         try:
             talker.poll(registry, timestamp)
         except Exception as error:

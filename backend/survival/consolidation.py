@@ -22,6 +22,10 @@ before the sleep has been read by then, so nothing the mirrors lag behind on is 
 A gist never holds a told memory or any memory about the owner (the owner's words stay out of
 whatever reads gists, Luna's story among them). Each day is consolidated once
 (state["mind"]["day"]); then the NIGHTLY hooks run (Mind M2's reflection), each crash-guarded.
+
+A life that ends closes its mind once (`last_day`, one of the Talker's LAST_CHORES, the final fix
+wave's I6): the events logged since the last chore are read, and the day it died on, which no
+evening sleep consolidated, gets its gist.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ import sqlite3
 
 from backend.survival.clock import clock_at
 from backend.survival.episodes import EVERY, MOMENTS, followed, game_day
+from backend.survival.events import mirror_events
 from backend.survival.mind import (
     FADE, KEEP_SCORE, MEMORY_COLUMNS, TAGS_KEPT, TEXT_LIMIT, Memory, add_memory, enforce_cap, forget, memory_of,
     mind_state,
@@ -40,6 +45,7 @@ from backend.survival.mind import (
 from backend.survival.once import log_once
 from backend.survival.replies import SENTENCE_END, starts_with_verb
 from backend.survival.situation import DUSK
+from backend.survival.talker import LAST_CHORES
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +58,7 @@ TALLY_WORDS = {"craft": ("crafted {n} thing", "s"), "cook": ("cooked {n} time", 
 TALLIED = (*TALLY_WORDS, "sleep", "wake")  # routine kinds the memory follows only to count them and to see a new day
 # {name: hook(db, state, day, at, scale)}: run after a day is consolidated (Mind M2's reflection).
 NIGHTLY: dict = {}
+LAST_BATCHES = 10  # event batches (events.MIRROR_BATCH each) an ended life still reads, at most
 
 
 def number(n: int) -> str:
@@ -239,7 +246,24 @@ def day_tally(db: sqlite3.Connection, state: dict, event: dict, now: float, scal
         tally["kinds"][event["kind"]] = tally["kinds"].get(event["kind"], 0) + 1
 
 
+def last_day(db: sqlite3.Connection, state: dict, now: float, scale: float) -> bool:
+    """A Talker LAST_CHORES chore, once a life (state["mind"]["closed"]): the events logged since the
+    last chore are read (at most LAST_BATCHES batches), then the day the tally was counting, the day
+    Mimo died on, which no evening sleep consolidated, is consolidated at the moment it died. A day
+    already consolidated is not again, and a life from before Mind (no tally) only closes."""
+    if mind_state(state).get("closed"):
+        return False
+    for _ in range(LAST_BATCHES):
+        if not mirror_events(db, state, now, scale):
+            break
+    mind = mind_state(state)  # a writer that crashed may have restored state["mind"]
+    consolidate(db, state, mind["tally"]["day"], state["died_at"], scale)
+    mind_state(state)["closed"] = True
+    return True
+
+
 followed("sleep", night_sleep)
 followed(EVERY, day_tally)
 for _kind in TALLIED:
     followed(_kind)
+LAST_CHORES.append(last_day)

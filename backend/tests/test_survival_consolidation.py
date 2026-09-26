@@ -13,8 +13,9 @@ from backend.survival.mind import TEXT_LIMIT, forget
 from backend.survival.once import forget_logged
 from backend.survival.owner_facts import remember_fact
 from backend.survival.registry import LifeRegistry
-from backend.survival.talker import run_chores
-from backend.survival.world import SurvivalWorld, log_event
+from backend.survival.talker import Talker, run_chores
+from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
+from backend.workers.mimo_worker import run_once
 
 BORN = 1_000_000.0
 EVENING = 2500.0  # game seconds into a day: night, when Mimo goes to sleep
@@ -197,6 +198,92 @@ class ConsolidationTests(unittest.TestCase):
         self.a_busy_day(1)
         for row in self.rows("kind='gist'"):
             self.assertLessEqual(len(row["text"]), TEXT_LIMIT)
+
+
+class LastDayTests(unittest.TestCase):
+    """Final fix wave (I6): the chores stop when a life ends, so the day Mimo dies on once got no gist,
+    and the events logged since the last chore were never read. The Talker closes an ended life once."""
+
+    def setUp(self):
+        forget_logged()
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        self.registry = LifeRegistry(root / "data", root / "no-legacy.sqlite3")
+        self.life = hatch(self.registry, random.Random(8), timestamp=BORN)
+        self.world = SurvivalWorld(self.registry.world_path(self.life))
+        self.name = self.life["name"]
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def log(self, *events):
+        with self.world.transaction() as db:
+            for when, kind, text in events:
+                log_event(db, when, kind, text)
+
+    def die(self, when, world=None, life=None):
+        with (world or self.world).transaction() as db:
+            state = read_state(db)
+            state.update(status="dead", died_at=when, cause="starved")
+            write_state(db, state)
+        self.registry.mark_dead((life or self.life)["id"], when, "starved")
+
+    def gists(self, world=None):
+        with (world or self.world).connect() as db:
+            return [tuple(row) for row in db.execute("SELECT game_day, text FROM mind_memories WHERE kind='gist' "
+                                                     "ORDER BY id")]
+
+    def a_day_then_death(self):
+        """Day 1 slept through; on day 2 a find the chores read, then a meal and a goal they never did."""
+        name = self.name
+        self.log((at(1, 100), "found", f"{name} met its first cow."),
+                 (at(1, EVENING), "sleep", f"{name} fell asleep."),
+                 (at(2, 100), "found", f"{name} met its first sheep."))
+        run_chores(self.world, at(2, 101), 1.0)
+        self.log((at(2, 200), "ate", f"{name} ate apple."),
+                 (at(2, 300), "goal", f"{name} reached a goal: look into a cave."))
+        self.die(at(2, 400))
+
+    def test_a_life_that_dies_before_sleeping_gets_that_days_gist_once(self):
+        self.a_day_then_death()
+        talker = Talker(env={}, scale=1.0)
+        talker.poll(self.registry, at(2, 410))
+        self.assertEqual(self.gists(), [
+            (1, "Day 1: hatched into a brand-new world and met my first cow."),
+            (2, "Day 2: managed to look into a cave, met my first sheep and ate one meal.")])
+        talker.poll(self.registry, at(2, 420))
+        Talker(env={}, scale=1.0).poll(self.registry, at(2, 430))  # a worker restarted closes it again: nothing
+        self.assertEqual([day for day, _ in self.gists()], [1, 2])
+        self.assertTrue(self.world.state()["mind"]["closed"])
+        talker.close()
+
+    def test_the_worker_polls_the_talker_after_the_death_so_the_life_is_closed_at_once(self):
+        talker = Talker(env={}, scale=1.0)
+        talker.poll(self.registry, at(1, 50))  # the pet alive: nothing to close
+        self.a_day_then_death()
+        self.assertEqual(run_once(self.registry, None, timestamp=at(2, 410), talker=talker),
+                         "No pet is alive. Waiting for the egg to hatch.")
+        self.assertEqual([day for day, _ in self.gists()], [1, 2])
+        talker.close()
+
+    def test_a_new_egg_hatching_at_once_still_closes_the_old_life(self):
+        talker = Talker(env={}, scale=1.0)
+        talker.poll(self.registry, at(1, 50))
+        self.a_day_then_death()
+        new = hatch(self.registry, random.Random(9), timestamp=at(2, 405))
+        talker.poll(self.registry, at(2, 410))
+        self.assertEqual([day for day, _ in self.gists()], [1, 2])
+        self.assertEqual(self.gists(SurvivalWorld(self.registry.world_path(new))), [])  # the new life lives on
+        talker.close()
+
+    def test_a_dead_world_from_before_mind_closes_without_an_error(self):
+        self.log((at(1, 100), "found", f"{self.name} met its first cow."))
+        self.die(at(1, 200))  # no chore ever ran: no mind, no cursor
+        with patch("backend.survival.talker.log_once") as logged:
+            Talker(env={}, scale=1.0).poll(self.registry, at(1, 210))
+        logged.assert_not_called()
+        self.assertEqual(self.gists(), [])
+        self.assertTrue(self.world.state()["mind"]["closed"])
 
 
 if __name__ == "__main__":

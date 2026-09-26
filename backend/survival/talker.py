@@ -20,7 +20,10 @@ be built is not rebuilt every poll.
 Every CHORE_EVERY real seconds the Talker also runs the chores (CHORES: the event log's mirrors,
 backend.survival.events, first; then B2's asks and B3's inbox), rules only, in one short transaction
 of their own; each chore runs in a savepoint, so one that
-crashes is rolled back alone. Nothing here raises: a crash is logged once and the worker goes on.
+crashes is rolled back alone. The chores stop when a life ends, so the Talker closes an ended life
+once (`close_life`: LAST_CHORES, the same way, Mind's last day among them), on its first poll and
+whenever the active life changes or goes away. Nothing here raises: a crash is logged once and the
+worker goes on.
 The Bond modules register their jobs and chores on import (backend.survival.bonding).
 """
 
@@ -68,15 +71,36 @@ LANES: dict[str, list] = {"chat": [], "story": []}
 # mirrors come first (Mind hook R7: Mind's memories and B2's inbox register their writers there), then B2's
 # and B3's chores.
 CHORES: list = [mirror_events]
+# chore(db, state, now, scale) -> True when it changed the state: rules-only, run once when a life has
+# ended (`close_life`), in place of the CHORES that stop then (Mind: the events left to read, the last day).
+LAST_CHORES: list = []
+UNSEEN = object()  # the active life a new Talker has not looked at yet
 
 
 def new_thread() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=1, thread_name_prefix="mimo-talker")
 
 
+def each_chore(db, state: dict, chores: list, now: float, scale: float) -> bool:
+    """Run `chores` in order, each in a savepoint, so a crash rolls back only its own writes and state
+    changes (logged once). True when one changed the state."""
+    changed = False
+    for chore in chores:
+        before = copy.deepcopy(state)
+        db.execute("SAVEPOINT chore")
+        try:
+            changed = bool(chore(db, state, now, scale)) or changed
+        except Exception as error:
+            db.execute("ROLLBACK TO chore")
+            state.clear()
+            state.update(before)
+            log_once(logger, f"chore {getattr(chore, '__name__', chore)}", error)
+        db.execute("RELEASE chore")
+    return changed
+
+
 def run_chores(world: SurvivalWorld, now: float, scale: float) -> None:
-    """Every chore once, in one transaction; each in a savepoint, so a crash rolls back only its own
-    writes and state changes (logged once)."""
+    """Every chore once, in one transaction, while the life lasts."""
     chores = [chore for chore in CHORES if chore is not mirror_events or consumers()]  # mirrors with no one to tell
     if not chores:
         return
@@ -84,20 +108,24 @@ def run_chores(world: SurvivalWorld, now: float, scale: float) -> None:
         state = read_state(db)
         if state["died_at"] is not None:
             return
-        changed = False
-        for chore in chores:
-            before = copy.deepcopy(state)
-            db.execute("SAVEPOINT chore")
-            try:
-                changed = bool(chore(db, state, now, scale)) or changed
-            except Exception as error:
-                db.execute("ROLLBACK TO chore")
-                state.clear()
-                state.update(before)
-                log_once(logger, f"chore {getattr(chore, '__name__', chore)}", error)
-            db.execute("RELEASE chore")
+        if each_chore(db, state, chores, now, scale):
+            write_state(db, state)
+
+
+def close_life(world: SurvivalWorld, now: float, scale: float) -> bool:
+    """Every LAST_CHORES chore once, in one transaction, for a life that has ended (nothing for one
+    still alive). Each chore keeps its own "once" (Mind's state["mind"]["closed"]), so closing a
+    life again changes nothing. True when a chore changed the state."""
+    if not LAST_CHORES:
+        return False
+    with world.transaction() as db:
+        state = read_state(db)
+        if state["died_at"] is None:
+            return False
+        changed = each_chore(db, state, list(LAST_CHORES), now, scale)
         if changed:
             write_state(db, state)
+        return changed
 
 
 class Talker:
@@ -118,6 +146,7 @@ class Talker:
         self.chored_at: float | None = None
         self.resting: dict[str, float] = {}  # {lane: real time it may start a job again}
         self.unstored: dict[str, tuple[Path, Job, object]] = {}  # {lane: an answer to store again after the rest}
+        self.active: object = UNSEEN  # the active life's id at the last poll (None: no pet alive)
 
     def executor(self, lane: str):
         if lane not in self.executors:
@@ -127,10 +156,14 @@ class Talker:
     def poll(self, registry: LifeRegistry, now: float | None = None) -> None:
         now = time.time() if now is None else now
         life = registry.active_life()
+        scale = time_scale() if self.scale is None else self.scale
+        active = life["id"] if life is not None else None
+        if active != self.active:  # the first poll, or the active life changed or went away
+            self.active = active
+            self.close_ended(registry, now, scale)
         if life is None:
             return
         path = registry.world_path(life)
-        scale = time_scale() if self.scale is None else self.scale
         for lane in list(LANES):
             try:
                 self.poll_lane(lane, path, now, scale)
@@ -142,6 +175,17 @@ class Talker:
                 run_chores(SurvivalWorld(path), now, scale)
             except Exception as error:
                 log_once(logger, "talker chores", error)
+
+    def close_ended(self, registry: LifeRegistry, now: float, scale: float) -> None:
+        """Close the newest survival life that has ended (`close_life`; never the legacy life, which is
+        only ever read)."""
+        try:
+            ended = next((life for life in registry.list_lives()
+                          if life["kind"] == "survival" and life["died_at"] is not None), None)
+            if ended is not None:
+                close_life(SurvivalWorld(registry.world_path(ended)), now, scale)
+        except Exception as error:
+            log_once(logger, "talker close life", error)
 
     def poll_lane(self, lane: str, path: Path, now: float, scale: float) -> None:
         """Store the lane's finished job, give up a hung one, or start the next job."""
