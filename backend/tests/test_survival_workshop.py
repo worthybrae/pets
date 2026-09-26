@@ -29,12 +29,12 @@ class Yard:
     """A pet on a flat meadow whose home, a 3x3 cobblestone shelter by (1, 1, 1), is built: where the
     workshop and (T2, T3) the machines go up. Steps are carried out at once, the way they would end."""
 
-    def __init__(self, inventory=None, position=(12, 1, 1), traits=None):
+    def __init__(self, inventory=None, position=(12, 1, 1), traits=None, natural=None):
         self.db = sqlite3.connect(":memory:")
         create_memory_tables(self.db)
         create_creature_tables(self.db)
         create_signal_table(self.db)  # T2: the machines' signals
-        self.grid = Grid(lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air")
+        self.grid = Grid(natural or (lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air"))  # T3: any ground
         self.grid.herd = Herd(self.db)
         site = find_site(self.grid, (1, 1, 1), (3, 3), ("north",), "flat", reach=0)
         self.home = shelter(site, Style("flat", "cobblestone", "planks", "none", ("north",)), "Pip's Snug Cottage")

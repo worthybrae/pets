@@ -11,6 +11,12 @@ Where a machine goes (`design`):
 - "porch": the same, by home's door, within PORCH_REACH blocks;
 - "door": the home's own door, with a pressure plate in front of it and one inside (the door itself is
   the output; it is the home's, never placed).
+T3: a yard need not be flat. Mimo levels it first: a column of it up to LEVEL blocks above the floor is
+dug down and one up to LEVEL below is filled with dirt, and what grows on it (a tree's trunk up to
+CLEAR_UP above the floor, anything else up to head height) comes out. Of the spots within reach, the one
+with the least digging and filling, plus its distance, is chosen; every other spot is tried for the wide
+machines (the counter and the computer may stand farther out). The walkway round it is where the ground
+lies within a block of the floor.
 
 build_machine ("build a machine") works on the machine a making goal is up to (MACHINE_GOALS, in order,
 the first not built whose lesson Mimo knows), or on one it started: by day, by home. A batch makes up to
@@ -40,8 +46,9 @@ import sqlite3
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Callable
 
-from backend.survival.blueprints import Blueprint, Planned, Survey
-from backend.survival.building import site_center
+from backend.services.worldgen import TREE_LEAVES, TREE_LOGS
+from backend.survival.blueprints import SCAN, Blueprint, Planned, open_cell
+from backend.survival.building import site_center, structural_batch
 from backend.survival.foraging import whole_walk
 from backend.survival.goals import Goal, Milestone, active, register_goal
 from backend.survival.grid import Cell, Grid
@@ -68,6 +75,11 @@ PORCH_REACH = 6
 PARTS_PER_BATCH = 12
 MACHINE_BATCHES = 6
 PART = "part"
+LEVEL = 2  # T3: a yard column this much above or below the floor is dug down or filled up first
+CLEAR = "clear"  # T3: a cell of the yard Mimo digs out before the parts go in
+CLEAR_UP = 5  # T3: a trunk on the yard is taken down this far above the floor (as high as Mimo reaches)
+LOGS = frozenset(TREE_LOGS.values())
+GROWTH = LOGS | frozenset(TREE_LEAVES.values()) | {"cactus", "pumpkin", "melon"}  # what a yard's clearing takes
 PLAIN = {kind: materials[0] for kind, materials in MATERIALS.items()}  # the item each part is placed as
 structures.STANDS_IN.update({off: (off, on) for off, on in MATERIALS.values() if off != on})
 
@@ -80,6 +92,7 @@ class Machine:
     layout: tuple[str, ...] = ()  # signals.parse's rows ("door" machines have none)
     where: str = "yard"  # "yard", "porch" or "door"
     try_out: bool = True  # once built, Mimo throws its levers and presses its first button
+    reach: int = YARD_REACH  # T3: blocks from the yard's middle a yard machine may stand (the big ones farther)
 
 
 MACHINES: dict[str, Machine] = {}
@@ -100,36 +113,99 @@ register_machine(Machine("night_light", "a night-light", "copper_spark", ("S n>*
 
 # Designs -----------------------------------------------------------------------------------------
 
-def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int) -> Blueprint | None:
-    """The machine on the nearest flat, untouched ground to `center`: its layout and a walkway round it
-    at one height (the walkway within a block of it), or None."""
-    width, depth = len(machine.layout[0]) // 2, len(machine.layout)
-    survey = Survey(grid, center[1] - 1)
-    cx, _, cz = center
-    spots = sorted((math.hypot(dx, dz), dx, dz) for dx in range(-reach, reach + 1) for dz in range(-reach, reach + 1)
-                   if math.hypot(dx, dz) <= reach)
-    for _, dx, dz in spots:
-        ox, oz = cx + dx - width // 2, cz + dz - depth // 2
-        floor = survey.height(ox, oz)
-        if floor is None or any(survey.height(ox + i, oz + j) != floor or not survey.room(ox + i, oz + j, floor + 2)
-                                for i in range(width) for j in range(depth)):
-            continue
-        ring = [(ox + i, oz + j) for i in range(-1, width + 1) for j in range(-1, depth + 1)
-                if i in (-1, width) or j in (-1, depth)]
-        grounds = [survey.height(x, z) for x, z in ring]
-        if any(ground is None or abs(ground - floor) > 1 for ground in grounds):
-            continue
-        parts = parse(machine.layout, (ox, floor + 1, oz))
-        taken = {(x, z) for x, _, z, _, _, _ in parts}
-        stands = [(x, ground + 1, z) for (x, z), ground in zip(ring, grounds)]
-        stands += [(ox + i, floor + 1, oz + j) for j in range(depth) for i in range(width)
-                   if (ox + i, oz + j) not in taken]
-        return machine_blueprint(machine, (ox, floor + 1, oz), parts, tuple(stands))
+def yard_column(grid: Grid, x: int, z: int, reference: int) -> tuple[int, list[Cell]] | None:
+    """T3: a column's natural ground under what grows on it, and the cells of that growth (a tree's logs and
+    leaves, a cactus, a pumpkin or a melon), looked for from SCAN above `reference` down; None where the
+    column holds water, or anything Mimo placed, dug or claimed."""
+    growth: list[Cell] = []
+    for y in range(reference + SCAN, reference - SCAN - 1, -1):
+        cell = (x, y, z)
+        material = grid.material(*cell)
+        if material == "water" or grid.claimed(cell) or material != grid.natural_material(*cell):
+            return None
+        if material in GROWTH:
+            growth.append(cell)
+        elif not open_cell(material):
+            return y, growth
     return None
 
 
-def machine_blueprint(machine: Machine, anchor: Cell, parts: list[list], stands: tuple[Cell, ...]) -> Blueprint:
-    cells = tuple(Planned((x, y, z), PART, PLAIN[kind]) for x, y, z, kind, _, _ in parts if kind != "door")
+def levelled(columns: dict[tuple[int, int], tuple[int, list[Cell]]]) -> int | None:
+    """T3: the floor height that takes the least digging and filling (the higher of two alike), or None
+    when the columns lie more than 2 * LEVEL apart."""
+    grounds = [ground for ground, _ in columns.values()]
+    low, high = min(grounds), max(grounds)
+    if high - low > 2 * LEVEL:
+        return None
+    return min(range(high - LEVEL, low + LEVEL + 1), key=lambda floor: (sum(abs(g - floor) for g in grounds), -floor))
+
+
+def ring_of(ox: int, oz: int, width: int, depth: int) -> list[tuple[int, int]]:
+    """The columns round a layout: its walkway, clear of water and of anything Mimo built."""
+    return [(ox + i, oz + j) for i in range(-1, width + 1) for j in range(-1, depth + 1)
+            if i in (-1, width) or j in (-1, depth)]
+
+
+def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int) -> Blueprint | None:
+    """The machine where its layout, levelled, costs the least digging and filling plus distance from
+    `center` (T3): its parts on the floor, the cells to clear (dug down, then what grows there) and the
+    floor blocks to fill; a walkway round it clear of water and of what Mimo built, and stands on it where
+    its ground is within a block of the floor. Every other spot is tried for the wide machines. None when
+    nothing fits."""
+    width, depth = len(machine.layout[0]) // 2, len(machine.layout)
+    cx, cy, cz = center
+    columns: dict[tuple[int, int], tuple[int, list[Cell]] | None] = {}
+
+    def column(x: int, z: int) -> tuple[int, list[Cell]] | None:
+        if (x, z) not in columns:
+            columns[(x, z)] = yard_column(grid, x, z, cy - 1)
+        return columns[(x, z)]
+
+    stride = 2 if reach > 12 else 1
+    spots = sorted((math.hypot(dx, dz), dx, dz) for dx in range(-reach, reach + 1, stride)
+                   for dz in range(-reach, reach + 1, stride) if math.hypot(dx, dz) <= reach)
+    best = None
+    for distance, dx, dz in spots:
+        if best is not None and distance >= best[0]:
+            break
+        ox, oz = cx + dx - width // 2, cz + dz - depth // 2
+        found = {(ox + i, oz + j): column(ox + i, oz + j) for i in range(width) for j in range(depth)}
+        if None in found.values() or any(column(x, z) is None for x, z in ring_of(ox, oz, width, depth)):
+            continue
+        floor = levelled(found)
+        if floor is None:
+            continue
+        clear: list[Cell] = []
+        fill: list[Cell] = []
+        for (x, z), (ground, growth) in found.items():
+            clear += [(x, y, z) for y in range(ground, floor, -1)]
+            fill += [(x, y, z) for y in range(ground + 1, floor + 1)]
+            clear += [cell for cell in growth if cell[1] <= floor + 2
+                      or (cell[1] <= floor + CLEAR_UP and grid.material(*cell) in LOGS)]
+        cost = len(clear) + len(fill) + distance
+        if best is None or cost < best[0]:
+            best = (cost, ox, oz, floor, clear, fill)
+    if best is None:
+        return None
+    _, ox, oz, floor, clear, fill = best
+    parts = parse(machine.layout, (ox, floor + 1, oz))
+    taken = {(x, z) for x, _, z, _, _, _ in parts}
+    stands = []
+    for x, z in ring_of(ox, oz, width, depth):
+        found = column(x, z)
+        if found is not None and abs(found[0] - floor) <= 1 and not any(cell[1] <= found[0] + 2 for cell in found[1]):
+            stands.append((x, found[0] + 1, z))
+    stands += [(ox + i, floor + 1, oz + j) for j in range(depth) for i in range(width) if (ox + i, oz + j) not in taken]
+    clear.sort(key=lambda cell: (-cell[1], cell))
+    return machine_blueprint(machine, (ox, floor + 1, oz), parts, tuple(stands), fill, clear)
+
+
+def machine_blueprint(machine: Machine, anchor: Cell, parts: list[list], stands: tuple[Cell, ...],
+                      floors: list[Cell] = (), clear: list[Cell] = ()) -> Blueprint:
+    """The design: the yard's cells to clear and its floor blocks (T3), then the parts."""
+    cells = tuple(Planned(cell, CLEAR, "air") for cell in clear)
+    cells += tuple(Planned(cell, "floor", "dirt") for cell in floors)
+    cells += tuple(Planned((x, y, z), PART, PLAIN[kind]) for x, y, z, kind, _, _ in parts if kind != "door")
     return Blueprint(KIND, machine.title, anchor, cells, stands, style={"machine": machine.name, "circuit": parts})
 
 
@@ -159,7 +235,7 @@ def design(s: Situation, machine: Machine) -> Blueprint | None:
             return layout_design(s.grid, machine, blueprint_of(home).front, PORCH_REACH)
         workshop = current_workshop(s)
         center = workshop_front(workshop) if workshop is not None and workshop["status"] == "done" else site_center(s)
-        return layout_design(s.grid, machine, center, YARD_REACH)
+        return layout_design(s.grid, machine, center, machine.reach)
     return s.sensed(f"machine design {machine.name}", look)
 
 
@@ -285,8 +361,32 @@ def flips(s: Situation, blueprint: Blueprint) -> list[tuple[Cell, list[dict]]]:
     return jobs
 
 
+def yard_left(s: Situation, blueprint: Blueprint) -> list[Planned]:
+    """T3: the yard's cells still to clear, the highest first."""
+    return [planned for planned in blueprint.parts(CLEAR) if not open_cell(s.grid.material(*planned.cell))]
+
+
+def yard_stands(s: Situation, blueprint: Blueprint) -> list[Cell]:
+    """T3: where Mimo can stand while it levels the yard: the design's stands, and every cell of the layout,
+    that is open with ground under it now."""
+    cells = list(blueprint.stands) + [(x, y, z) for x, y, z, kind, _, _ in blueprint.style.get("circuit", [])
+                                      if kind != "door" and (x, y, z) not in blueprint.stands]
+    return [cell for cell in cells if open_cell(s.grid.material(*cell)) and s.grid.solid((cell[0], cell[1] - 1, cell[2]))]
+
+
 def machine_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
-    """Make the next parts (at the workshop, walking in there first, when there is one) and put them in."""
+    """The yard cleared (T3: what is too high dug down, what grows there taken out) and its floor blocks
+    put in (building.structural_batch), then make the next parts (at the workshop, walking in there first,
+    when there is one) and put them in."""
+    digging = yard_left(s, blueprint)
+    if digging:
+        jobs = [(planned.cell, [{"kind": "mine", "target": list(planned.cell)}])
+                for planned in digging[:PARTS_PER_BATCH]]
+        return place_steps(s, yard_stands(s, blueprint), jobs)
+    if todo(s.grid, blueprint):
+        stand = s.here if s.here in blueprint.stands else blueprint.stands[0]
+        work = structural_batch(s, blueprint, stand)
+        return ([] if stand == s.here else [whole_walk(stand)]) + work if work else []
     chosen = makeable(s, blueprint)
     if not chosen:
         return []
@@ -308,7 +408,7 @@ def machine_valid(s: Situation) -> bool:
     if untried(s) is not None:
         return True
     found = working(s)
-    return found is not None and bool(makeable(s, found[1]))
+    return found is not None and bool(machine_batch(s, found[1]))
 
 
 def machine_facts(s: Situation) -> str:

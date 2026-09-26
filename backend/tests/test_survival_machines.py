@@ -14,9 +14,9 @@ COPPER = {"copper_ingot": 4, "sticks": 6, "cobblestone": 12, "coal": 2, "planks"
 SENSOR = {"glass": 3, "slab": 3}
 
 
-def wired(inventory=None, goal="first_circuits", lesson=True):
+def wired(inventory=None, goal="first_circuits", lesson=True, natural=None):
     """The yard's pet with its first circuits for its goal and (unless `lesson` is False) the lesson."""
-    yard = Yard({**COPPER, **(inventory or {})})
+    yard = Yard({**COPPER, **(inventory or {})}, natural=natural)
     if lesson:
         know(yard.db, "copper_spark", "lesson", 0.0)
     yard.goal(goal)

@@ -8,9 +8,11 @@ drawn by a block that shows whether it is on (MATERIALS):
 - wire (copper_wire, copper_wire_lit while powered): power 15 where a source or a gate feeds it, one less
   each block along it, so it carries a spark up to 15 blocks;
 - gates, each facing the way it gives out (its front) and taking in from behind (a joiner from its two
-  sides): a repeater, on `delay` steps (1 to 4) after its input; an inverter, on one step after its
-  input goes off and off one step after it comes on (setting 1: it starts on); a joiner, one step
-  later on when both sides are ("and") or either side is ("or");
+  sides): a repeater, on `delay` steps (1 to 4) after its input (T3: while a repeater or joiner facing into
+  one of its sides is on, it is locked and keeps what it gives out, as in Minecraft, so a pair of repeaters
+  holds a bit); an inverter, on one step after its input goes off and off one step after it comes on
+  (setting 1: it starts on); a joiner, one step later on when both sides are ("and") or either side is
+  ("or");
 - outputs: a lamp (lamp_lit while powered), a door (open while powered: the viewer swings it) and a bell
   (it rings, a routine "bell" event, as it becomes powered).
 A source powers the wire, gates and outputs beside it (north, east, south or west, on its level); a
@@ -88,6 +90,7 @@ MATERIALS = {
 }
 SOURCES = ("lever", "button", "plate", "sensor")
 GATES = ("repeater", "inverter", "joiner")
+LOCKERS = ("repeater", "joiner")  # T3: what locks a repeater, facing into its side
 OUTPUTS = ("lamp", "door", "bell")
 DRAWN = ("wire", "repeater", "inverter", "joiner", "lamp")  # the engine draws these lit or not
 DIRECTIONS = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
@@ -104,9 +107,13 @@ GATE_KEYS = {"1": ("repeater", 1), "2": ("repeater", 2), "3": ("repeater", 3), "
              "n": ("inverter", 0), "N": ("inverter", 1), "a": ("joiner", "and"), "o": ("joiner", "or")}
 ARROWS = {">": "east", "<": "west", "^": "north", "v": "south"}
 
-# Machine name -> start(life, at, scale, circuit) giving ({part index: output held while it settles},
-# {source index: reading while it settles}): what a machine starts from (backend.survival.machines).
+# Machine name -> start(life, at, scale, circuit, corner) giving ({part index: output held while it
+# settles}, {source index: reading while it settles}): what a machine starts from. `corner` is the least
+# x and z of all its parts, present or not, and their height: where its layout's top left is.
 STARTS: dict[str, Callable] = {}
+# T3: machine name -> readout(circuit, state, corner) giving what the viewer shows of it (the computer's
+# count, backend.survival.computer).
+READOUTS: dict[str, Callable] = {}
 
 
 def parse(rows, origin: Cell = (0, 0, 0)) -> list[list]:
@@ -228,6 +235,11 @@ def compile_circuit(parts: tuple[tuple, ...]) -> Circuit:
                     ref = ("e", other)
             if ref is not None or kind in GATES:
                 refs.append(ref)
+        if kind == "repeater":  # T3: a repeater or joiner facing into a repeater's side locks it
+            for side in (ahead(cell, LEFT[facing]), ahead(cell, RIGHT[facing])):
+                other = cells.get(side)
+                if other is not None and parts[other][1] in LOCKERS and ahead(side, parts[other][2]) == cell:
+                    refs.append(("e", other))
         inputs[index] = refs
     net_readers: dict[int, list] = {}
     for reader, refs in inputs.items():
@@ -270,8 +282,11 @@ def gate_output(circuit: Circuit, state: dict, gate: int, instant: bool = False)
     _, kind, _, setting = circuit.parts[gate]
     refs = circuit.inputs[gate]
     if kind == "repeater":
-        on = 1 if value(state, refs[0]) > 0 else 0
         register = state["reg"][gate]
+        if any(value(state, ref) > 0 for ref in refs[1:]):  # locked: it keeps what it gives out
+            register[:] = [1 if state["out"][gate] else 0] * len(register)
+            return state["out"][gate]
+        on = 1 if value(state, refs[0]) > 0 else 0
         if instant:
             register[:] = [on] * len(register)
             return FULL if on else 0
@@ -538,9 +553,16 @@ def draw(grid: Grid, circuit: Circuit, state: dict) -> None:
                 grid.put(*cell, "button")
 
 
-def note_outputs(circuit: Circuit, state: dict) -> None:
-    """What the viewer is told (machines.workshop_view): the doors held open (their cells) and how many
-    lamps are lit."""
+def corner_of(parts: tuple[tuple, ...]) -> tuple[int, int, int]:
+    """The least x and z of a machine's parts (all of them, present or not), and their height."""
+    return (min(part[0][0] for part in parts), parts[0][0][1], min(part[0][2] for part in parts))
+
+
+def note_outputs(circuit: Circuit, state: dict, name: str = "", parts: tuple[tuple, ...] = ()) -> None:
+    """What the viewer is told (machines.workshop_view): the doors held open (their cells), how many lamps
+    are lit and (T3, READOUTS) what the machine reads out."""
+    if name in READOUTS and parts:
+        state["readout"] = READOUTS[name](circuit, state, corner_of(parts))
     state["doors"] = [list(part[0]) for index, part in enumerate(circuit.parts)
                       if part[1] == "door" and state["lit"].get(index)]
     state["lamps"] = sum(1 for index, part in enumerate(circuit.parts) if part[1] == "lamp" and state["lit"].get(index))
@@ -558,11 +580,11 @@ def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, nam
     if state is None or state.get("missing") != missing:
         state = fresh_state(circuit)
         start = STARTS.get(name)
-        held, forced = start(life, at, scale, circuit) if start is not None else ({}, {})
+        held, forced = start(life, at, scale, circuit, corner_of(parts)) if start is not None else ({}, {})
         settle(circuit, state, {**readings_at(circuit, state, grid, life, at, scale), **forced}, held)
         state["at"], state["missing"] = at, missing
         draw(grid, circuit, state)
-        note_outputs(circuit, state)
+        note_outputs(circuit, state, name, parts)
         save_state(db, number, state)
         return 0
     due = math.floor((at - state["at"]) * scale / STEP + 1e-9)
@@ -592,7 +614,7 @@ def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, nam
         state["at"] = when
         cost += spent
     draw(grid, circuit, state)
-    note_outputs(circuit, state)
+    note_outputs(circuit, state, name, parts)
     if encode(state) != before:
         save_state(db, number, state)
     return cost

@@ -55,6 +55,7 @@ from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
+from backend.survival.computer import observe_computer
 from backend.survival.tinker import observe_tinker
 from backend.survival.cozy import tend_comfort
 from backend.survival.curiosity import note_discoveries, tend_curiosity
@@ -266,6 +267,7 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     look_after(state, step, context, at)
     observe_journal(state, step, context, at)
     observe_tinker(state, step, context, at)
+    observe_computer(state, step, context, at)
     observe_expedition(state, step, context, at)
     observe_camp(state, step, context, at)
     learn_from_step(state, step, context, at)
