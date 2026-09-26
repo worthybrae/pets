@@ -39,6 +39,20 @@ goal while the request lasts the promise is kept (the inbox's mirror of the "goa
 inbox; a goal reached before the request, or after it lapsed, is the plain report, and a lapsed request
 is cleared.
 
+Bond's final fix wave:
+- I5: a promise's clock starts when its goal can first be taken up. A promise for after other goals
+  ("First I need to make iron tools") waits for them (`waits`), and one for after the goal Mimo works on
+  ("After I raise a herd, I promise.") waits for the next goal choice (a goal reached or set aside); the
+  chore `promise_clock` also starts the clock once the goal is Mimo's own, or its waits are settled, and
+  a promise waits WAIT_DAYS at most. Meanwhile /api/mimo shows it waiting ("after"). A promise that runs
+  out is told to the owner once, in Mimo's words ("I couldn't make iron tools in time. Ask me again?").
+- m6: a shy "Maybe. After I ..." is taken as a maybe ("maybe": the HUD says so softly).
+- I6: "cant" never says Mimo does not know how: "That's not one of my goals yet.", or for a recipe it
+  knows, "I know how to make a furnace, but ...".
+- I7: a goal reached is reported the first time; a repeating one then at most once a real UTC day.
+- Task 9's parked (3): "you can make bread from wheat" says how a thing is made and asks for nothing;
+  (6): the owner's name in Mimo's yes and its promises.
+
 Words that teach Mimo a lesson (backend.survival.teaching: the rules decided they teach) and neither
 ask nor command anything (lessons.wants) are a statement, not a request, so the request question is
 not asked for them: "you can make a bow from sticks and string" teaches, while a command ("make a
@@ -49,28 +63,36 @@ owner taught that Mimo later sees come true earns the bond's kept-promise credit
 
 from __future__ import annotations
 
+import copy
 import re
 import sqlite3
 
-from backend.survival.bond import bond_level, bond_state, grow_bond
+from backend.survival.actions import ensure_actions
+from backend.survival.bond import bond_level, bond_state, grow_bond, utc_day
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.events import mirror
 from backend.survival.goals import (
     GOALS, PULLS, REPEAT_REST, Goal, active, complete, counted, goal_view, holding, is_open, lower, own_score,
     penalized, pulls, reached, rules_score, settled, stalled,
 )
-from backend.survival.inbox import CONSUMER, post_item, report
+from backend.survival.inbox import CONSUMER, asking, post_item, report
 from backend.survival.lessons import listed, wants
+from backend.survival.memory import known_recipes
 from backend.survival.mind import singular
 from backend.survival.owner_facts import remember_fact
 from backend.survival.pickers import Option
-from backend.survival.replies import CLOSE, SHY, Heard
-from backend.survival.situation import Situation
+from backend.survival.replies import CLOSE, SHY, Heard, voiced
+from backend.survival.situation import Situation, from_db
+from backend.survival.steps import label
 from backend.survival.talk import KEEPERS, QUESTIONS, Question
+from backend.survival.talker import CHORES
 from backend.survival.teaching import CONFIRMED, heard_claims
+from backend.survival.triggers import HOUR
 from backend.survival.trips import REASONS
 
-REQUEST_DAYS = 3  # game days a request lasts
+REQUEST_DAYS = 3  # game days a promise lasts, once its goal can be taken up (the final fix wave's I5)
+WAIT_DAYS = 30  # game days a promise waits at most for its goal to be one Mimo can take up (I5)
+CLOCK_CHECK = HOUR / 4  # game seconds between the chore's looks at a waiting promise's goal (I5)
 PULL_BASE = 40.0
 PULL_PER_BOND = 0.8
 PULL_PER_TRAIT = 0.2
@@ -142,6 +164,10 @@ BARE = frozenset({"bit", "little", "while", "alone"})
 PARTICLES = frozenset({"along", "up", "through", "out", "in", "on", "down", "off", "over", "back"})
 PLAIN_WORDS = frozenset({"big", "bigger", "new", "nice", "little", "small", "cool", "better", "good", "great", "own",
                          "real", "proper", "whole", "full", "first", "cozy", "cosy"})  # "a big house, please"
+# Task 9's parked (3): after "you can" or "you could", to make a thing from, out of or using something says
+# how it is made ("you can make bread from wheat"), and asks for nothing.
+HOW_CUES = (("you", "can"), ("you", "could"))
+HOW_WORDS = frozenset({"from", "using"})
 TOKEN = re.compile(r"[a-z0-9']+|[,;:()]|[-–—]+")
 SENTENCE_END = re.compile(r"[.!?…]+")
 # Words for each goal besides its title's.
@@ -186,7 +212,14 @@ STATUS_ORDER = ("current", "open", "after", "set_aside", "resting", "cannot", "r
 
 
 def to_do(goal: Goal) -> str:
-    return TO_DO.get(goal.name, f"work on {lower(goal.title)}")
+    return TO_DO.get(goal.name, f"work on {voiced(lower(goal.title))}")
+
+
+def lapse_words(goal: Goal, maybe: bool) -> str:
+    """What Mimo tells the owner when a promise ran out before it got to it (Bond's final fix wave, I5),
+    or a shy "maybe" (m6) did."""
+    return (f"I never got to {to_do(goal)}. Maybe another time?" if maybe
+            else f"I couldn't {to_do(goal)} in time. Ask me again?")
 
 
 def keywords(goal: Goal) -> frozenset[str]:
@@ -282,30 +315,36 @@ def steps_before(s: Situation, goal: Goal) -> list[Goal]:
     return steps
 
 
-def note_for(s: Situation, goal: Goal, status: str, level: float, until: float) -> dict:
-    """Mimo's answer to a request for `goal`, whether it takes the request and whether it turns it down."""
-    words = to_do(goal)
-    take, declined = False, False
+def note_for(s: Situation, goal: Goal, status: str, level: float, until: float, owner: str = "") -> dict:
+    """Mimo's answer to a request for `goal`, whether it takes the request and whether it turns it down.
+    Bond's final fix wave: a promise for after other goals waits for them ("waits", I5; "rival" when it
+    waits for the goal Mimo works on first), its clock not started ("until" None); a shy "Maybe." is a
+    maybe (m6); and the owner's name is in Mimo's yes and its promises (Task 9's parked (6))."""
+    words, to = to_do(goal), f", {owner}" if owner else ""
+    take, declined, waits, rival_of, maybe = False, False, [], False, False
     if status == "current":
         progress = round((goal_view(s.brain) or {}).get("progress", 0.0) * 100)
         answer = f"That's what I'm doing right now: {progress}% done!"
     elif status == "reached":
-        answer = f"I already did that one: {lower(goal.title)}!"
+        answer = f"I already did that one: {voiced(lower(goal.title))}!"
     elif status == "open":
         take = True
         first = rival(s, goal, level)
         if first is None:
-            answer = (f"Yes! I'll {words} next." if level >= CLOSE else
-                      f"Hmm... okay. I'll try to {words} next." if level < SHY else f"Okay! I'll {words} next.")
+            answer = (f"Yes{to}! I'll {words} next." if level >= CLOSE else
+                      f"Hmm... okay. I'll try to {words} next." if level < SHY else f"Okay{to}! I'll {words} next.")
         else:
+            waits, rival_of, maybe = [first.name], True, level < SHY
             after = f"After I {to_do(first)}"
-            answer = f"Maybe. {after}." if level < SHY else f"{after}, I promise."
+            answer = f"Maybe. {after}." if maybe else f"{after}, I promise{to}."
     elif status == "after":
         take = True
-        steps = [to_do(step) for step in steps_before(s, goal)]
+        before = steps_before(s, goal)
+        waits = [step.name for step in before]
+        steps = [to_do(step) for step in before]
         then = f", then {listed(steps[1:])}" if len(steps) > 1 else ""
-        answer = (f"First I need to {steps[0]}{then}. After that, I promise!" if steps else
-                  "First I need to finish another goal. After that, I promise!")
+        answer = (f"First I need to {steps[0]}{then}. After that, I promise{to}!" if steps else
+                  f"First I need to finish another goal. After that, I promise{to}!")
     elif status == "resting":
         answer = "I just did that! I'll do it again later."
     elif status == "set_aside":
@@ -314,19 +353,52 @@ def note_for(s: Situation, goal: Goal, status: str, level: float, until: float) 
     else:
         declined = True
         answer = f"I can't {words} right now. Maybe later!"
-    return {"answer": answer, "take": take, "declined": declined, "status": status, "until": until}
+    return {"answer": answer, "take": take, "declined": declined, "status": status,
+            "until": None if waits else until, "waits": waits, "rival": rival_of, "maybe": maybe}
 
 
-def cant_note(s: Situation, statuses: dict[str, str], until: float) -> dict:
+def recipe_asked(s: Situation, text: str, name: str = "") -> str | None:
+    """A recipe Mimo knows that the owner's words ask it to build, make or craft ("could you make a
+    furnace?" -> "furnace", "make me an iron sword" -> "iron_sword"), or None (I6)."""
+    known = set(known_recipes(s.db)) if s.db is not None else set()
+    for words in sentences_of(text, name) if known else ():
+        for place, word in enumerate(words):
+            if verb_of(word) not in MAKE_VERBS:
+                continue
+            named = thing_of([word for word in clause(words[place + 1:]) if word not in PERSONS])
+            if not named:
+                continue
+            for guess in ("_".join(named), "_".join(singular(word) for word in named)):
+                if guess in known:
+                    return guess
+            last = singular(named[-1])
+            found = sorted(recipe for recipe in known if recipe == last or recipe.endswith(f"_{last}"))
+            if found:
+                return found[0]
+    return None
+
+
+def cant_note(s: Situation, statuses: dict[str, str], until: float, text: str = "", name: str = "") -> dict:
+    """The answer to something none of Mimo's goals covers. Bond's final fix wave (I6): never "I don't
+    know how", which is untrue of a recipe it uses every day: "That's not one of my goals yet.", or "I
+    know how to make a furnace, but ..." for a recipe it knows."""
     current = active(s)
-    if current is not None:
-        instead = f"I'm busy trying to {to_do(current)} anyway."
+    thing = recipe_asked(s, text, name)
+    if thing is not None:
+        what = label(thing)
+        article = "" if what.endswith("s") else "an " if what[0] in "aeiou" else "a "
+        busy = f"I'm busy trying to {to_do(current)} right now." if current is not None else \
+            "it's not one of my goals right now."
+        answer = f"I know how to make {article}{what}, but {busy}"
     else:
-        open_goals = [GOALS[name] for name, status in statuses.items() if status == "open"]
-        best = max(open_goals, key=lambda goal: (own_score(s, goal) or 0.0, goal.name), default=None)
-        instead = f"I could {to_do(best)} instead." if best else "Maybe something else?"
-    return {"answer": f"I don't know how to do that yet. {instead}", "take": False, "declined": True,
-            "status": CANT, "until": until}
+        if current is not None:
+            instead = f"I'm busy trying to {to_do(current)} anyway."
+        else:
+            open_goals = [GOALS[name] for name, status in statuses.items() if status == "open"]
+            best = max(open_goals, key=lambda goal: (own_score(s, goal) or 0.0, goal.name), default=None)
+            instead = f"I could {to_do(best)} instead." if best else "Maybe something else?"
+        answer = f"That's not one of my goals yet. {instead}"
+    return {"answer": answer, "take": False, "declined": True, "status": CANT, "until": until}
 
 
 # The rules' reading of the owner's words (Task 9 fix round 1) ---------------------------------------
@@ -520,6 +592,13 @@ def asked_from(words: list[str], place: int, nouns: bool, statuses: dict[str, st
     return None
 
 
+def how_it_is_made(words: list[str]) -> bool:
+    """ "make bread from wheat", "make planks out of logs": the words say how a thing is made (parked (3))."""
+    said = [word for word in clause(words) if word not in SKIPPED]
+    return bool(said) and verb_of(said[0]) in MAKE_VERBS and bool(
+        HOW_WORDS & set(said) or ("out", "of") in set(zip(said, said[1:])))
+
+
 def sentence_request(words: list[str], statuses: dict[str, str], keys: dict) -> str | None:
     """What one sentence asks for (a goal's name or CANT), from its first cue that asks for something;
     None when it asks for nothing."""
@@ -529,7 +608,8 @@ def sentence_request(words: list[str], statuses: dict[str, str], keys: dict) -> 
                if tuple(words[first:first + len(phrase)]) == phrase]
     for place in range(len(words)):
         starts += [(place + len(phrase), phrase in NOUN_CUES) for phrase in ASK_PHRASES
-                   if tuple(words[place:place + len(phrase)]) == phrase]
+                   if tuple(words[place:place + len(phrase)]) == phrase
+                   and not (phrase in HOW_CUES and how_it_is_made(words[place + len(phrase):]))]
     for place, nouns in sorted(starts):
         found = asked_from(words, place, nouns, statuses, keys)
         if found is not None:
@@ -564,8 +644,9 @@ def request_question(s: Situation, heard: Heard) -> Question | None:
         return None  # pre-flight 2 (carry 5): the words teach a lesson (Mind's teaching) and ask for nothing
     until = s.at + REQUEST_DAYS * DAY_SECONDS / s.scale
     statuses = {name: status_of(s, goal) for name, goal in sorted(GOALS.items())}
-    notes = {name: note_for(s, GOALS[name], status, heard.bond, until) for name, status in statuses.items()}
-    notes[CANT] = cant_note(s, statuses, until)
+    notes = {name: note_for(s, GOALS[name], status, heard.bond, until, heard.owner)
+             for name, status in statuses.items()}
+    notes[CANT] = cant_note(s, statuses, until, heard.text, str(s.state.get("name") or ""))
     options = [Option(NONE, "no request", "The owner asks the pet for nothing: they are just talking.",
                       "most words ask for nothing", 0.0)]
     for name, status in statuses.items():
@@ -573,7 +654,7 @@ def request_question(s: Situation, heard: Heard) -> Question | None:
         options.append(Option(name, goal.title, f"The owner asks the pet to take up the goal: {goal.title}. {goal.why}",
                               STATUS_WORDS[status] + (f"; its trips: {trips}" if trips else ""), 0.0))
     options.append(Option(CANT, "something it cannot do", "The owner asks for something none of the goals covers.",
-                          "it would say it does not know how yet", 0.0))
+                          "it would say that is not one of its goals yet", 0.0))
     return Question("request", REQUEST_INSTRUCTIONS, tuple(options),
                     rules_request(heard, statuses, str(s.state.get("name") or "")), notes)
 
@@ -585,7 +666,9 @@ def keep_request(db: sqlite3.Connection, state: dict, heard: Heard, question: Qu
     if pick == NONE or note is None:
         return None
     if note["take"]:
-        bond_state(state)["request"] = {"goal": pick, "at": now, "until": note["until"], "status": note["status"]}
+        bond_state(state)["request"] = {"goal": pick, "at": now, "until": note["until"], "status": note["status"],
+                                        "waits": list(note.get("waits") or []), "rival": bool(note.get("rival")),
+                                        "maybe": bool(note.get("maybe"))}
     if note["declined"] and question.rules != NONE:  # fix round 1: only words the rules read as a request too
         remember_fact(db, "asked", heard.text, now)
     return note["answer"]
@@ -595,10 +678,16 @@ QUESTIONS.append(request_question)
 KEEPERS["request"] = keep_request
 
 
+def lasting(request: dict | None, at: float) -> bool:
+    """A request taken and not run out at `at`: waiting for its goal to open ("until" None, I5), or
+    before its "until"."""
+    return bool(request) and (request.get("until") is None or at < request["until"])
+
+
 def pull(s: Situation, goal: Goal) -> tuple[float, str]:
     """goals.PULLS: the goal the owner asked for, while the request lasts."""
     request = (s.state.get("bond") or {}).get("request")
-    if not request or request.get("goal") != goal.name or s.at >= request.get("until", 0.0):
+    if not request or request.get("goal") != goal.name or not lasting(request, s.at):
         return 0.0, ""
     return pull_points(bond_level(s.state, s.at), s.trait("sociability")), "the owner asked for this"
 
@@ -606,25 +695,117 @@ def pull(s: Situation, goal: Goal) -> tuple[float, str]:
 PULLS.append(pull)
 
 
+TITLES = {}  # {a goal's title in lower case: the goal}, filled on first use (every goal registered by then)
+
+
+def goal_titled(text: str) -> Goal | None:
+    """The goal an event names at its end ("Pip reached a goal: iron tools." -> iron tools)."""
+    if len(TITLES) != len(GOALS):
+        TITLES.clear()
+        TITLES.update({lower(goal.title): goal for goal in GOALS.values()})
+    return TITLES.get(text.rsplit(": ", 1)[-1].split(" (")[0].rstrip("."))
+
+
+def start_clock(request: dict, at: float, scale: float) -> None:
+    """The promise's goal can be taken up from `at`: it lasts REQUEST_DAYS game days from then (I5)."""
+    request.update(waits=[], until=at + REQUEST_DAYS * DAY_SECONDS / scale, since=at)
+
+
+def lapse(db: sqlite3.Connection, state: dict, now: float) -> None:
+    """The promise ran out before Mimo got to it: it ends, and the owner is told once, in Mimo's words (I5)."""
+    bond = bond_state(state)
+    request, bond["request"] = bond.get("request"), None
+    goal = GOALS.get(request["goal"]) if request else None
+    if goal is not None:
+        post_item(db, now, "report", asking(db, lapse_words(goal, bool(request.get("maybe")))),
+                  {"lapsed": goal.name, "maybe": bool(request.get("maybe"))})
+
+
+def worth_reporting(state: dict, goal: Goal | None, at: float) -> bool:
+    """A goal reached is reported the first time; a repeating one then at most once a real UTC day (I7)."""
+    if goal is None or not goal.repeat:
+        return True
+    told = bond_state(state).setdefault("goals_told", {})
+    if told.get(goal.name) == utc_day(at):
+        return False
+    told[goal.name] = utc_day(at)
+    return True
+
+
 def goal_report(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:
     """The inbox's mirror of a reached goal: a promise kept when it is the goal the owner asked for
-    (the bond grows and the request ends), else the plain report."""
+    (the bond grows and the request ends), else the plain report (a repeating goal's at most once a
+    real UTC day, I7). A promise that ran out is told (I5), and one waiting for this goal, or for the
+    next goal choice, starts its clock."""
     bond = bond_state(state)
     request = bond.get("request")
     goal = GOALS.get(request["goal"]) if request else None
-    if (goal is not None and request["at"] <= event["at"] < request.get("until", 0.0)
+    if (goal is not None and request["at"] <= event["at"] and lasting(request, event["at"])
             and event["text"].endswith(f": {lower(goal.title)}.")):
         grow_bond(state, "promise", now, present=False)
         bond["request"] = None
         post_item(db, event["at"], "report", f"You asked me to {to_do(goal)}, and I did it! I kept my promise.",
                   {"event": event["id"], "promise": goal.name})
         return
-    if request and now >= request.get("until", 0.0):
-        bond["request"] = None  # fix round 1 (Minor 3): it lapsed, and a promise kept too late pays nothing
-    report(db, state, event, now, scale)
+    reached = goal_titled(event["text"])
+    if request and not lasting(request, now):
+        lapse(db, state, now)
+    elif request and request.get("until") is None and request["at"] <= event["at"]:
+        waits = [name for name in request.get("waits") or [] if reached is None or name != reached.name]
+        if request.get("rival") or not waits:
+            start_clock(request, event["at"], scale)  # the next goal choice, or the last goal it waited for
+        else:
+            request["waits"] = waits
+    if worth_reporting(state, reached, event["at"]):
+        report(db, state, event, now, scale)
 
 
 mirror(CONSUMER, "goal", goal_report)  # replaces the inbox's plain report of a goal (bonding imports inbox first)
+
+
+def plan_seen(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:
+    """The inbox's mirror of a "plan" event: the goal Mimo worked on set aside is the next goal choice, so a
+    promise made for after that goal starts its clock (I5)."""
+    request = bond_state(state).get("request")
+    if (request and request.get("until") is None and request.get("rival") and request["at"] <= event["at"]
+            and " set a goal aside for now: " in event["text"]):
+        start_clock(request, event["at"], scale)
+
+
+mirror(CONSUMER, "plan", plan_seen)
+
+
+def promise_clock(db: sqlite3.Connection, state: dict, now: float, scale: float) -> bool:
+    """A chore (I5): a promise that ran out, or waited WAIT_DAYS for its goal, is told to the owner once;
+    every CLOCK_CHECK game seconds a waiting one starts its clock when its goal is Mimo's own now or every
+    goal it waits for (one that does not repeat) is settled."""
+    request = bond_state(state).get("request")
+    if not request:
+        return False
+    waited = (now - request["at"]) * scale >= WAIT_DAYS * DAY_SECONDS
+    if not lasting(request, now) or (request.get("until") is None and waited):
+        lapse(db, state, now)
+        return True
+    if request.get("until") is not None or (now - request.get("checked_at", request["at"])) * scale < CLOCK_CHECK:
+        return False
+    request["checked_at"] = now
+    goal = GOALS.get(request["goal"])
+    view = copy.deepcopy(state)
+    ensure_actions(view)
+    s = from_db(db, view, now, scale)
+    if goal is not None and status_of(s, goal) == "current":
+        start_clock(request, now, scale)
+    elif not request.get("rival"):
+        waits = [name for name in request.get("waits") or [] if not (name in GOALS and not GOALS[name].repeat
+                                                                   and settled(s, name))]
+        if waits:
+            request["waits"] = waits
+        else:
+            start_clock(request, now, scale)
+    return True
+
+
+CHORES.append(promise_clock)
 
 
 def lesson_seen_true(db: sqlite3.Connection, state: dict, thing: str, now: float) -> None:
@@ -637,10 +818,14 @@ CONFIRMED.append(lesson_seen_true)
 
 
 def request_view(state: dict, now: float) -> dict | None:
-    """The request Mimo took up, while it lasts, for /api/mimo: {"goal", "title", "until"}; else None."""
+    """The request Mimo took up, while it lasts, for /api/mimo: {"goal", "title", "until", and (Bond's
+    final fix wave) "after" (the title of the goal a waiting promise waits for, I5: its "until" is None
+    meanwhile) and "maybe" (a shy maybe, m6)}; else None."""
     request = (state.get("bond") or {}).get("request")
-    if not request or now >= request.get("until", 0.0):
+    if not lasting(request, now):
         return None
     goal = GOALS.get(request["goal"])
+    waits = [GOALS[name].title for name in request.get("waits") or [] if name in GOALS]
     return {"goal": request["goal"], "title": goal.title if goal else request["goal"].replace("_", " "),
-            "until": request["until"]}
+            "until": request.get("until"), "after": waits[-1] if waits and request.get("until") is None else None,
+            "maybe": bool(request.get("maybe"))}

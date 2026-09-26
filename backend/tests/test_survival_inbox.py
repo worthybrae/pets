@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from backend.api.bond import PlaceName, ReadUpTo, answer_inbox, get_inbox, read_inbox
 from backend.api.lives import hatch_egg
 from backend.api.mimo import get_mimo
+from backend.survival.bond import utc_day
 from backend.survival.care import give_care
 from backend.survival.choosing import InlineExecutor
 from backend.survival.hatch import hatch
@@ -92,8 +93,9 @@ class InboxTests(unittest.TestCase):
         self.chores(BORN + 10)
         self.chores(BORN + 20)
         asks = [(item["text"], item["data"]) for item in self.items() if item["kind"] == "ask"]
-        self.assertEqual(asks, [("Sam, I'm really hungry. Could you spare a snack?", {"care": "snack"}),
-                                ("Sam, I got badly hurt. Could you bandage me?", {"care": "bandage"})])
+        today = utc_day(BORN + 10)  # Bond's final fix wave (m14): the day the ask is for
+        self.assertEqual(asks, [("Sam, I'm really hungry. Could you spare a snack?", {"care": "snack", "day": today}),
+                                ("Sam, I got badly hurt. Could you bandage me?", {"care": "bandage", "day": today})])
 
     def test_no_ask_for_care_already_given_today(self):
         self.edit(lambda state, db: state.update(last_tick_at=BORN + 9))
@@ -124,9 +126,9 @@ class InboxTests(unittest.TestCase):
         with self.world.connect() as db:
             [cave] = places(db, ("cave",))
             self.assertEqual(cave["data"]["name"], "Echo Hollow")
-            self.assertEqual(owner_facts(db)[0], ("named", f"{ask['data']['words']} Echo Hollow"))
+            self.assertEqual(owner_facts(db)[0], ("named", f"{ask['data']['words']}, called Echo Hollow"))  # m8
             thanks = db.execute("SELECT who, text FROM mimo_chat ORDER BY id DESC LIMIT 1").fetchone()
-        self.assertEqual(tuple(thanks), ("mimo", "Echo Hollow! I love it. That's what I'll call it."))
+        self.assertEqual(tuple(thanks), ("mimo", "Echo Hollow! I love it. I'll remember that."))
         with self.assertRaises(ValueError):
             name_place(self.world, ask["id"], "Another", BORN + 31)
         with self.assertRaises(LookupError):

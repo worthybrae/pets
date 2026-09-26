@@ -27,7 +27,10 @@ DAILY = {"hello": 3, "chat": 10}  # how many of these count a real UTC day
 GRACE = 86_400.0  # real seconds away before the bond starts to fade
 FADE = 3.0  # points a real day after that
 REAL_DAY = 86_400.0
-FEELINGS = ((75.0, "devoted"), (50.0, "close"), (25.0, "friendly"), (0.0, "shy"))
+FRIENDLY_FROM, CLOSE_FROM, DEVOTED_FROM = 25.0, 50.0, 75.0
+# The one table of how close Mimo feels (Bond's final fix wave, m2): the HUD's words, and where the
+# replies, the requests' answers and the story's closing turn shy or warm (replies.SHY, replies.CLOSE).
+FEELINGS = ((DEVOTED_FROM, "devoted"), (CLOSE_FROM, "close"), (FRIENDLY_FROM, "friendly"), (0.0, "shy"))
 
 
 def utc_day(timestamp: float) -> str:
@@ -49,8 +52,8 @@ def bond_level(state: dict, now: float) -> float:
     value = float(bond.get("value", START))
     seen = bond.get("seen_at")
     if seen is None:
-        return value
-    return max(0.0, value - FADE * max(0.0, now - seen - GRACE) / REAL_DAY)
+        return min(TOP, value)
+    return min(TOP, max(0.0, value - FADE * max(0.0, now - seen - GRACE) / REAL_DAY))
 
 
 def visit(state: dict, now: float) -> float:
@@ -85,7 +88,9 @@ def grow_bond(state: dict, kind: str, now: float, present: bool = True) -> float
     counted = bond["gains"].get(kind, 0)
     if kind not in DAILY or counted < DAILY[kind]:
         bond["gains"][kind] = counted + 1
-        bond["value"] = round(min(TOP, bond["value"] + GAINS.get(kind, 0.0)), 3)
+        # Bond's final fix wave (m13): the gain is capped by the level's headroom, not the stored value's,
+        # so a promise kept while a full bond has faded still counts (the fade stays unsettled: not a visit).
+        bond["value"] = round(bond["value"] + min(GAINS.get(kind, 0.0), max(0.0, TOP - bond_level(state, now))), 3)
     return bond_level(state, now)
 
 

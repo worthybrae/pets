@@ -18,6 +18,9 @@ as well (backend.survival.talk's reply keeper).
 A kept fact lives in the world's memory_knowledge as fact "owner" with the subject
 "<kind>:<words>" (words at most FACT_WORDS characters). At most FACTS_KEPT are kept: past that the
 oldest are forgotten first. A new name replaces the old one, and a fact heard again is fresh again.
+Bond's final fix wave (I3): the owner's name never counts toward FACTS_KEPT, so it is never forgotten,
+and the places the owner named ("named") are kept apart, the newest NAMED_KEPT, so naming places never
+pushes out what the owner said about themselves.
 B2 adds the kinds "asked" (a request Mimo turned down) and "named" (a place the owner named).
 Whatever else follows the owner's facts registers in FACT_MIRRORS (Mind makes each a "told" memory):
 it hears every fact kept, from the chat or from B2, in the same transaction.
@@ -39,7 +42,8 @@ logger = logging.getLogger(__name__)
 
 FACT = "owner"  # the memory_knowledge fact
 FACT_KINDS = ("name", "likes", "dislikes", "about", "asked", "named")
-FACTS_KEPT = 40
+FACTS_KEPT = 40  # facts kept besides the owner's name and the places named (I3)
+NAMED_KEPT = 10  # places the owner named, kept on their own (I3)
 FACT_WORDS = 80
 NAME_LIMIT = 24
 NONE = "none"
@@ -202,7 +206,8 @@ def rules_fact(noticed: Noticed) -> str:
 
 def remember_fact(db: sqlite3.Connection, kind: str, words: str, at: float) -> bool:
     """Keep a fact about the owner. True when it is new. A new name replaces the old one; a fact heard
-    again is fresh again; past FACTS_KEPT the oldest are forgotten."""
+    again is fresh again; past FACTS_KEPT (the name and the places named aside) or NAMED_KEPT (the places
+    named) the oldest are forgotten."""
     words = trimmed(words)
     if kind not in FACT_KINDS or not words:
         return False
@@ -213,8 +218,11 @@ def remember_fact(db: sqlite3.Connection, kind: str, words: str, at: float) -> b
     new = know(db, subject, FACT, at)
     if not new:
         db.execute("UPDATE memory_knowledge SET learned_at=? WHERE fact=? AND subject=?", (at, FACT, subject))
-    db.execute("DELETE FROM memory_knowledge WHERE fact=? AND rowid NOT IN (SELECT rowid FROM memory_knowledge "
-               "WHERE fact=? ORDER BY learned_at DESC, rowid DESC LIMIT ?)", (FACT, FACT, FACTS_KEPT))
+    others = "subject NOT LIKE 'name:%' AND subject NOT LIKE 'named:%'"
+    for which, kept in ((others, FACTS_KEPT), ("subject LIKE 'named:%'", NAMED_KEPT)):
+        db.execute(f"DELETE FROM memory_knowledge WHERE fact=? AND {which} AND rowid NOT IN (SELECT rowid FROM "
+                   f"memory_knowledge WHERE fact=? AND {which} ORDER BY learned_at DESC, rowid DESC LIMIT ?)",
+                   (FACT, FACT, kept))
     for write in list(FACT_MIRRORS):
         db.execute("SAVEPOINT fact_mirror")
         try:

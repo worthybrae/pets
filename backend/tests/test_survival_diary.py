@@ -150,22 +150,24 @@ class StoryTests(unittest.TestCase):
                 log_event(db, BORN + offset, kind, text)
             state = read_state(db)
             found = highlights_of(db, state, 1, SCALE)
-        self.assertEqual(found, ["My plan was to gather blocks for the walls and raise my walls.",
-                                 "I finished building a hut and moved in.", "I met my first skitter.",
-                                 "A gloomling hit me 2 times, but I made it through."])
+        # Bond's final fix wave (m15): the most telling first, by RANKS.
+        self.assertEqual(found, ["I finished building a hut and moved in.", "I met my first skitter.",
+                                 "A gloomling hit me twice, but I made it through.",
+                                 "My plan was to gather blocks for the walls and raise my walls."])
         self.visit(BORN + 10)
         self.talker().poll(self.registry, BORN + 61)
         [story] = self.stories()
         self.assertEqual(len(sentences(story["text"])), 6)
-        self.assertTrue(story["text"].startswith("Day 1 was a busy one. My plan was to gather blocks"), story["text"])
-        self.assertTrue(story["text"].endswith("Maybe you'll visit tomorrow?"), story["text"])  # a shy bond
+        self.assertTrue(story["text"].startswith("Day 1 was a busy one. I finished building a hut"), story["text"])
+        # Bond's final fix wave (I4): the owner was there that day, so the closing thanks them.
+        self.assertTrue(story["text"].endswith("Thanks for keeping me company, Sam!"), story["text"])
 
     def test_the_story_tells_how_far_along_the_goal_is(self):
         with self.world.transaction() as db:
             state = read_state(db)
             state["brain"] = {"goal": {"name": "iron_tools", "progress": 0.4, "plan": [], "picker": "utility", "since": BORN}}
             write_state(db, state)
-            self.assertEqual(highlights_of(db, state, 1, SCALE), ["I'm 40% of the way to iron tools."])
+            self.assertEqual(highlights_of(db, state, 1, SCALE), ["Now I'm working toward iron tools: 40% done."])
 
     def test_luna_writes_it_once_a_utc_day_from_the_highlights_and_never_the_owners_words(self):
         luna = FakeLuna()
@@ -234,7 +236,7 @@ class StoryTests(unittest.TestCase):
         [story] = self.stories()
         self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 5, "writer": "rules"})
         self.assertEqual(story["text"], "Days 1 to 5 were good ones. On day 2, I reached a goal: iron tools. "
-                                        "On day 4, I ate 1 time: berries. Maybe you'll visit tomorrow?")
+                                        "On day 4, I ate berries. Maybe you'll visit tomorrow?")
         self.assertIsNone(story["read_at"])
         with self.world.transaction() as db:
             db.execute("UPDATE mimo_inbox SET read_at=? WHERE id=?", (BORN + 400, story["id"]))
@@ -243,7 +245,8 @@ class StoryTests(unittest.TestCase):
 
     def test_a_story_written_late_tells_every_day_since_the_visit(self):
         """Pre-flight 2: the worker was down after the visit; the story written at last tells every day
-        since, at most MAX_STORY_DAYS, the newest."""
+        since. Bond's final fix wave (m16): it names every day of the absence however long, and reads the
+        events of the newest MAX_STORY_DAYS of them."""
         self.visit(BORN + 10)
         with self.world.transaction() as db:
             log_event(db, BORN + 70, "goal", f"{self.name} reached a goal: iron tools.")  # day 2
@@ -254,7 +257,21 @@ class StoryTests(unittest.TestCase):
         with patch("backend.survival.diary.MAX_STORY_DAYS", 3), self.world.connect() as db:
             state = read_state(db)
             state["bond"].pop("storied")
-            self.assertEqual(story_span(db, state, BORN + 1 + 60 * 5, SCALE), (3, 5, None))
+            self.assertEqual(story_span(db, state, BORN + 1 + 60 * 5, SCALE), (1, 5, None))  # every day named
+        with self.world.transaction() as db:
+            db.execute("DELETE FROM mimo_inbox WHERE kind='story'")
+            state = read_state(db)
+            state["bond"].pop("storied")
+            state["bond"].pop("story")
+            write_state(db, state)
+            log_event(db, BORN + 250, "goal", f"{self.name} reached a goal: a herd of its own.")  # day 5
+        with patch("backend.survival.diary.MAX_STORY_DAYS", 3):
+            self.talker().poll(self.registry, BORN + 1 + 60 * 5)
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 5, "writer": "rules"})
+        self.assertTrue(story["text"].startswith("Days 1 to 5 were "), story["text"])
+        self.assertIn("On day 5, I reached a goal: a herd of my own.", story["text"])
+        self.assertNotIn("iron tools", story["text"])  # day 2 is past the three days whose events are read
 
     def test_luna_is_told_the_days_memories_and_writes_only_a_new_story(self):
         """Pre-flight 2: carry 7 (mind.story_memories in Luna's payload) and Luna's one call a UTC day:
@@ -306,7 +323,7 @@ class StoryTests(unittest.TestCase):
                           {"day": 1, "last": 4, "writer": "luna", "lead": len(STORY), "lead_last": 1})
         self.assertTrue(story["text"].startswith(STORY))  # still Luna's lead, still untouched
         self.assertEqual(story["text"].count("Since then, "), 1)  # updated in place, not appended again
-        self.assertIn("On day 4, I ate 1 time: berries.", story["text"])
+        self.assertIn("On day 4, I ate berries.", story["text"])
         self.assertEqual(len(luna.bodies), 1)  # Luna was asked once, for the original story only
         self.assertFalse(story["read_at"])
 

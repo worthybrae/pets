@@ -90,6 +90,9 @@ GIST_PHRASES = (
     (re.compile(r"^came home from my expedition: (\d+) blocks out\b.*$"),
      lambda found: f"came home from my expedition {found[1]} blocks out"),
     (re.compile(r"^nearly died: (an? .+?) almost got me$"), lambda found: f"was nearly killed by {found[1]}"),
+    # Bond's final fix wave (the controller's gist fragments): a moment told as it happened ("I am
+    # starving.") is a day gone by in the gist: "was starving".
+    (re.compile(r"^am (.+)$"), lambda found: f"was {found[1]}"),
 )
 
 

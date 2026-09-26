@@ -214,8 +214,8 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(self.request()["goal"], "armor_up")
 
     def test_an_impossible_request_is_declined_with_a_reason_and_remembered(self):
-        self.assertEqual(self.say("could you build a tower by the lake?"),
-                         "I don't know how to do that yet. I could make iron tools instead.")
+        self.assertEqual(self.say("could you build a tower by the lake?"),  # Bond's final fix wave (I6)
+                         "That's not one of my goals yet. I could make iron tools instead.")
         self.assertIsNone(self.request())
         with self.world.connect() as db:
             self.assertEqual(owner_facts(db)[0], ("asked", "could you build a tower by the lake?"))
@@ -223,7 +223,7 @@ class RequestTests(unittest.TestCase):
     def test_asking_for_what_it_does_already_or_did_already(self):
         self.with_goal("herd")
         self.assertEqual(self.say("go raise a herd"), "That's what I'm doing right now: 0% done!")
-        self.assertEqual(self.say("please build a shelter"), "I already did that one: a home of its own!")
+        self.assertEqual(self.say("please build a shelter"), "I already did that one: a home of my own!")
         self.assertIsNone(self.request())
 
     def test_jev_reads_the_request_and_mimo_answers_it(self):
@@ -323,7 +323,7 @@ class RequestTests(unittest.TestCase):
     def test_a_promise_kept_too_late_or_a_goal_reached_before_the_request_is_a_plain_report(self):
         """Fix round 1 (Minor 3): the promise is kept only by a goal reached while the request lasts,
         from when it was made (goal_report's `request["at"] <= event["at"] < until`); a lapsed request
-        is cleared."""
+        is cleared. Bond's final fix wave (I5): and told to the owner, once."""
         self.say("please make iron tools")
         run_chores(self.world, self.now, 1.0)  # the inbox starts
         request, before = self.request(), bond_level(self.world.state(), self.now)
@@ -341,7 +341,8 @@ class RequestTests(unittest.TestCase):
         self.assertAlmostEqual(bond_level(state, request["at"] + 20), before)  # no promise credit
         with self.world.connect() as db:
             texts = [item["text"] for item in inbox_items(db)]
-        self.assertEqual(texts, ["I reached a goal: iron tools.", "I reached a goal: iron tools."])
+        self.assertEqual(texts, ["I reached a goal: iron tools.", "I couldn't make iron tools in time. Ask me again?",
+                                 "I reached a goal: iron tools."])
 
     def test_everyday_lines_keep_the_reply_and_leave_no_asked_fact(self):
         """Fix round 1 (Important 2): through the rules (no key), no everyday line is answered as a
@@ -359,14 +360,15 @@ class RequestTests(unittest.TestCase):
         the rules read as a request too."""
         def jev(url, headers, body, timeout):
             return {"answers": {"reply": {"choice": "mood"}, "request": {"choice": "cant"}}}
-        self.assertTrue(self.say("you make me happy", JEV, jev).startswith("I don't know how to do that yet."))
+        self.assertTrue(self.say("you make me happy", JEV, jev).startswith("That's not one of my goals yet."))
         with self.world.connect() as db:
             self.assertEqual(owner_facts(db), [])
 
     def test_a_command_is_read_as_a_request_and_a_statement_teaches(self):
         """Pre-flight 2 (carry 5): "please make a bow" is a command: the request question answers it and
         nothing is learned. "you can make a bow from sticks and string" teaches, and is no request."""
-        self.assertEqual(self.say("please make a bow"), "I don't know how to do that yet. I could make iron tools instead.")
+        self.assertEqual(self.say("please make a bow"),
+                         "That's not one of my goals yet. I could make iron tools instead.")
         self.assertEqual(self.say("you can make a bow from sticks and string"),
                          "Oh, a bow takes three sticks and three string, at a crafting table. Thank you for teaching me!")
         with self.world.connect() as db:

@@ -12,7 +12,9 @@ from backend.api.mimo import active_world
 from backend.survival.bond_view import note_visit
 from backend.survival.clock import time_scale
 from backend.survival.diary import DIARY_SHOWN, diary_entries
-from backend.survival.inbox import ITEMS_SHOWN, inbox_items, mark_one, mark_read, name_place, unread
+from backend.survival.inbox import (
+    ITEMS_SHOWN, MARKED_AT_MOST, inbox_items, mark_ids, mark_one, mark_read, name_place, unread,
+)
 from backend.survival.talk import ChatLimited, owner_says
 from backend.survival.world import LifeOver
 
@@ -26,6 +28,7 @@ class ChatLine(BaseModel):
 class ReadUpTo(BaseModel):
     up_to: int | None = None  # every item up to this id
     id: int | None = None  # B3: this one only (the story the owner just read)
+    ids: list[int] | None = None  # Bond's final fix wave (I7): the items the inbox listed, and only those
 
 
 class PlaceName(BaseModel):
@@ -66,13 +69,21 @@ def get_inbox():
 
 @router.post("/mimo/inbox/read")
 def read_inbox(request: ReadUpTo):
-    """Mark Mimo's messages read up to an id, or one message. Returns how many are still unread."""
-    if (request.up_to is None) == (request.id is None):
-        raise HTTPException(status_code=400, detail="Give up_to or id")
+    """Mark Mimo's messages read up to an id, one message, or the ones listed (ids). Returns how many are
+    still unread."""
+    if sum(given is not None for given in (request.up_to, request.id, request.ids)) != 1:
+        raise HTTPException(status_code=400, detail="Give one of up_to, id or ids")
+    if request.ids is not None and len(request.ids) > MARKED_AT_MOST:
+        raise HTTPException(status_code=400, detail=f"At most {MARKED_AT_MOST} ids")
     _, world = active_world(open_registry())
-    if request.id is not None:
-        return {"unread": mark_one(world, request.id, time.time())}
-    return {"unread": mark_read(world, request.up_to, time.time())}
+    try:
+        if request.ids is not None:
+            return {"unread": mark_ids(world, request.ids, time.time())}
+        if request.id is not None:
+            return {"unread": mark_one(world, request.id, time.time())}
+        return {"unread": mark_read(world, request.up_to, time.time())}
+    except LifeOver as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.post("/mimo/inbox/{item_id}/answer")

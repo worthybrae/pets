@@ -46,7 +46,7 @@ from backend.survival.events import CURSORS, mirror, mirror_events
 from backend.survival.mind import add_memory, mind_state, rehearse
 from backend.survival.once import log_once
 from backend.survival.owner_facts import FACT_MIRRORS
-from backend.survival.replies import echoed, first_person, told
+from backend.survival.replies import echoed, in_my_voice, told
 from backend.survival.steps import label
 from backend.survival.talker import CHORES
 from backend.survival.triggers import HOUR
@@ -109,9 +109,11 @@ PLAN_MOMENTS = ((" set a new goal: ", Moment(4, 1)), (" finished a step toward "
 AGAIN = {"goal": 4, "camp": 4}
 # What a plan memory leaves out (I3): the reason in brackets and the goal's quoted thought.
 _ASIDE = re.compile(r'\s*\([^)]*\)|\s*"[^"]*"')
-# What the owner told about themselves, as Mimo remembers it (owner_facts' kinds).
+# What the owner told about themselves, as Mimo remembers it (owner_facts' kinds), and (Bond's final fix
+# wave, m8) a place the owner named: "You helped me name a lake south of home, called Echo Hollow.".
 TOLD_FACTS = {"name": "You told me your name is {words}.", "likes": "You told me you like {words}.",
-              "dislikes": "You told me you don't like {words}.", "about": "You told me {words}."}
+              "dislikes": "You told me you don't like {words}.", "about": "You told me {words}.",
+              "named": "You helped me name {words}."}
 
 
 def followed(kind: str, write=None) -> None:
@@ -154,9 +156,9 @@ def from_the_start(db: sqlite3.Connection, state: dict, now: float, scale: float
 
 def voice(text: str, name: str) -> str:
     """An event in Mimo's own voice: about it ("Pip met its first skitter." -> "I met my first
-    skitter.") or about the owner and it ("You gave Pip a snack." -> "You gave me a snack.")."""
-    text = first_person(text, name).replace(" in my walls", " in its walls")  # a cave mouth's walls
-    return text.replace(f"{name}'s ", "my ").replace(f" {name}", " me")
+    skitter.") or about the owner and it ("You gave Pip a snack." -> "You gave me a snack."). Bond's
+    final fix wave (I1): the one voicing every surface uses, replies.in_my_voice."""
+    return in_my_voice(text, name)
 
 
 def moment_of(event: dict, name: str) -> Moment | None:

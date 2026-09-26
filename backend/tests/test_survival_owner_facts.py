@@ -107,15 +107,16 @@ class RememberingTests(unittest.TestCase):
         self.assertEqual(owner_name(facts), "Samantha")
 
     def test_at_most_forty_facts_the_oldest_forgotten_first(self):
+        """Bond's final fix wave (I3): the owner's name is kept apart from the forty, however old."""
         with self.world.transaction() as db:
             remember_fact(db, "name", "Sam", BORN)
             for number in range(FACTS_KEPT + 5):
                 remember_fact(db, "likes", f"thing {number}", BORN + 1 + number)
             facts = owner_facts(db)
-        self.assertEqual(len(facts), FACTS_KEPT)
+        self.assertEqual(len(facts), FACTS_KEPT + 1)
         self.assertEqual(facts[0], ("likes", f"thing {FACTS_KEPT + 4}"))
-        self.assertEqual(facts[-1], ("likes", "thing 5"))
-        self.assertEqual(owner_name(facts), "")  # the name was the oldest
+        self.assertEqual(facts[-2:], [("likes", "thing 5"), ("name", "Sam")])
+        self.assertEqual(owner_name(facts), "Sam")  # the oldest, and still remembered
 
     def test_long_words_are_trimmed(self):
         with self.world.transaction() as db:

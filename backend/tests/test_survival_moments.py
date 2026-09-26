@@ -43,7 +43,7 @@ class MomentTests(unittest.TestCase):
                  (BORN + 6, "purpose", f'{self.name} decided to rest. "Ahh."'))
         run_chores(self.world, BORN + 10, 1.0)
         self.assertEqual(self.items(), [("found", "I met my first skitter."), ("found", "I found water."),
-                                         ("found", "A creature seed grew into a sheep.")])
+                                         ("hatched", "My creature seed grew into a sheep!")])
 
     def test_danger_is_told_at_most_once_a_game_hour(self):
         self.log((BORN + 2, "threat", f"{self.name} saw a gloomling coming."),

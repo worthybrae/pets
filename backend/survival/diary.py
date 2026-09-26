@@ -39,6 +39,14 @@ visit too, closing a gap of more than a day between what it already tells and th
 (the owner returning before the Talker's first poll since the machine slept), rather than being
 abandoned for a fresh, gap-skipping one; a visit that leaves no gap (a watching owner's very next day)
 still gets its own fresh story, as round 1 has it.
+
+Bond's final fix wave: every event text is said through the one voicing (replies.in_my_voice), so the
+pet's name and "it" never leak (I1); meals are told by food, never with a count the list does not show;
+the plan told is the day's last, left out when a goal was reached or set after it, and the progress line
+is said now and left out for a goal taken up after the last day told (I2); danger is told by what it was
+(m3); a promise kept leads, a day's goals share one sentence and one day is ranked as a long absence is
+(m15); an absence is told from its first day, reading the events of its newest MAX_STORY_DAYS (m16); and a
+one-day story for an owner who was seen that day thanks them for the company (I4, `present`).
 """
 
 from __future__ import annotations
@@ -53,14 +61,13 @@ from dataclasses import dataclass
 from backend.survival.bond import bond_level, bond_state, feeling, utc_day
 from backend.survival.bond_tables import missing_table
 from backend.survival.clock import DAY_SECONDS, clock_at
-from backend.survival.episodes import voice
-from backend.survival.goals import goal_view, lower
+from backend.survival.goals import goal_view
 from backend.survival.inbox import STORY, post_item
 from backend.survival.mind import story_memories
 from backend.survival.models import LUNA_TIMEOUT, Http, ModelError, luna_configured, luna_json
 from backend.survival.once import log_once
 from backend.survival.owner_facts import owner_facts, owner_name
-from backend.survival.replies import CLOSE, SENTENCE_END, SHY, first_person
+from backend.survival.replies import CLOSE, SENTENCE_END, SHY, in_my_voice, voiced, working_on
 from backend.survival.talker import LANES, Job
 from backend.survival.world import SurvivalWorld, read_state, write_state
 
@@ -71,15 +78,27 @@ HIGHLIGHTS = 4  # sentences of highlights at most
 STORY_LIMIT = 700  # characters in a story
 STORY_TOKENS = 400  # Luna's answer, outside gpt-6-luna's own limit
 GIVE_UP_AFTER = 15.0  # seconds past Luna's timeout before the story call is given up
-DANGER = ("hurt", "threat", "trapped", "starving", "freezing", "fall")
 STORY_INSTRUCTIONS = ("Write the pet's diary entry about {days} in its own voice: 3 to 6 short sentences, "
                       "first person, plain text, only about the highlights and memories given (say it was a quiet "
-                      "time if there are none), warm to its owner as its bond allows. Answer {{\"story\": \"<entry>\"}}.")
-MAX_STORY_DAYS = 30  # game days one story tells at most: the newest, after a long absence (pre-flight 2)
+                      "time if there are none), warm to its owner as its bond allows. When \"present\" is true its "
+                      "owner kept it company then: never say it missed them. Answer {{\"story\": \"<entry>\"}}.")
+# Game days of events one story reads at most, the newest, after a long absence (pre-flight 2). Bond's final
+# fix wave (m16): the story still names every day of the absence, and the bound is some ten real days at the
+# production scale, so a weekend away is told whole.
+MAX_STORY_DAYS = 240
 STORY_MEMORIES = 5  # memories a day Luna is told (mind.story_memories: never the owner's words)
 MEMORIES_SHOWN = 12  # memories Luna is told at most, the newest days first
 # How notable a highlight is, the most first, when a story tells several days (pre-flight 2).
-RANKS = {"goal": 0, "built": 1, "found": 2, "set": 3, "danger": 4, "plan": 5, "ate": 6, "progress": 7}
+# Bond's final fix wave (m15): a promise kept ranks first, and one day's story is ranked this way too.
+RANKS = {"promise": 0, "goal": 1, "built": 2, "found": 3, "set": 4, "danger": 5, "plan": 6, "ate": 7, "progress": 8}
+# Danger besides a blow, in the story's words (the final fix wave's m3), the first of these that happened
+# that day told ("threat" names the creature).
+DANGER_WORDS = (("trapped", "I got stuck in a pit and had to dig my way out."), ("starving", "I got very hungry."),
+                ("freezing", "I got very cold."), ("fall", "I fell and got hurt."),
+                ("threat", "I saw {what} coming, but I kept safe."))
+COUNTS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve")
+# What a meal was (m1 of the live findings): "1 raw rabbit it had no room to carry" -> "raw rabbit".
+MEAL = re.compile(r"^(?:\d+ )?(.+?)(?: it had no room to carry)?$")
 # Marks where the rules' growth paragraph starts in a Luna story that grew (the Bond ledger's ruling).
 SINCE_THEN = "Since then, "
 
@@ -108,45 +127,118 @@ def after(text: str, marker: str) -> str:
 def events_between(db: sqlite3.Connection, state: dict, first: int, last: int, scale: float) -> list[dict]:
     """Every event of game days `first` to `last`, oldest first, each with its "day"; one read."""
     start, end = day_bounds(state, first, scale)[0], day_bounds(state, last, scale)[1]
-    rows = db.execute("SELECT at, kind, text FROM mimo_events WHERE at >= ? AND at < ? ORDER BY id", (start, end))
+    rows = db.execute("SELECT id, at, kind, text FROM mimo_events WHERE at >= ? AND at < ? ORDER BY id", (start, end))
     return [{**dict(row), "day": clock_at(state["born_at"], row["at"], scale)["day_number"]} for row in rows]
 
 
-def day_highlights(events: list[dict], state: dict) -> list[tuple[str, str]]:
-    """One day's highlights as (what, sentence in Mimo's voice), the most telling first, from that day's
-    events and the goal Mimo works on ("progress", only on a day it reached no goal)."""
-    name, found = state["name"], []
-    for event in events:
-        if event["kind"] == "goal":
-            found.append(("goal", first_person(event["text"], name)))
-        elif event["kind"] == "plan" and "set a new goal: " in event["text"]:
-            title = after(first_person(event["text"], name), "set a new goal: ").split(".")[0]  # "a home of my own"
-            found.append(("set", f"I set myself a new goal: {title}."))
-    plan = next((event["text"] for event in events
-                 if event["kind"] == "plan" and event["text"].startswith(f"{name}'s plan for today: ")), "")
-    if plan:
-        steps = re.sub(r"\bits\b", "my", after(plan, "plan for today: "))
-        found.append(("plan", f"My plan was to {steps}"))
+def kept_promises(db: sqlite3.Connection) -> dict[int, str]:
+    """{goal event id: "You asked me to look into a cave, and I did it!"}: the promises Mimo kept, as the
+    inbox told them (backend.survival.requests), for the story (the final fix wave's m15)."""
+    kept = {}
+    for row in db.execute("SELECT text, data FROM mimo_inbox WHERE kind='report' AND data LIKE '%\"promise\"%'"):
+        data = json.loads(row["data"] or "{}")
+        if data.get("promise") and data.get("event") is not None:
+            kept[data["event"]] = SENTENCE_END.split(row["text"])[0]
+    return kept
+
+
+def counted(n: int) -> str:
+    return COUNTS[n] if 0 <= n < len(COUNTS) else str(n)
+
+
+def times(n: int) -> str:
+    return "once" if n == 1 else "twice" if n == 2 else f"{counted(n)} times"
+
+
+def listed(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+def meal_line(foods: list[str]) -> str:
+    """ "I ate cooked beef.", "I ate five meals: bread three times, cooked fish and raw rabbit.", or with more
+    than three foods "I ate seven meals, among them bread, cooked fish and raw rabbit.": never a count the
+    list does not show (the final fix wave's I1)."""
+    if len(foods) == 1:
+        return f"I ate {foods[0]}."
+    each = Counter(foods)
+    if len(each) <= 3:
+        each_food = [food if n == 1 else f"{food} {times(n)}" for food, n in each.items()]
+        return f"I ate {counted(len(foods))} meals: {listed(each_food)}."
+    return f"I ate {counted(len(foods))} meals, among them {listed([food for food, _ in each.most_common(3)])}."
+
+
+def reached_title(text: str) -> str:
+    """ "Pip reached a goal: a home of its own." -> "a home of my own"."""
+    return voiced(after(text, "reached a goal: ").rstrip("."))
+
+
+def progress_line(goal: dict) -> str:
+    """How far along the goal Mimo works on now is, said now (I2): "Now I'm working toward iron tools: 40% done."."""
+    return f"Now I'm working {working_on(goal['title'])}: {round(goal['progress'] * 100)}% done."
+
+
+def goal_now(state: dict, until: float | None) -> dict | None:
+    """The goal Mimo works on, unless it took it up after `until` (the end of the last day a story tells,
+    I2): a goal chosen at this dawn is no part of yesterday."""
     goal = goal_view(state.get("brain"))
-    if goal is not None and not any(event["kind"] == "goal" for event in events):
-        found.append(("progress", f"I'm {round(goal['progress'] * 100)}% of the way to {lower(goal['title'])}."))
-    found += [("built", first_person(event["text"], name)) for event in events if event["kind"] == "built"]
-    sights = [voice(event["text"], name).rstrip(".") for event in events  # "a cave mouth ... in its walls"
+    if goal is None or (until is not None and (goal.get("since") or 0.0) >= until):
+        return None
+    return goal
+
+
+def day_highlights(events: list[dict], state: dict, until: float | None = None,
+                   kept: dict[int, str] | None = None) -> list[tuple[str, str]]:
+    """One day's highlights as (what, sentence in Mimo's voice), the most telling first (RANKS), from that
+    day's events and the goal Mimo works on ("progress", only on a day it reached no goal and only for a
+    goal it took up before `until`).
+
+    Bond's final fix wave: every event text in the one voice (I1, replies.in_my_voice); the day's last plan,
+    left out when a goal was reached or set after it (I2); a promise kept (`kept`, by goal event id) above
+    the goals, a day's goals in one sentence, and a goal set that day left out when it was reached that day
+    too (m15); danger by kind (m3); meals by food, never a count the list does not show (I1)."""
+    name, kept, found = state["name"], kept or {}, []
+    goals = [event for event in events if event["kind"] == "goal"]
+    reached = {reached_title(event["text"]) for event in goals}
+    found += [("promise", words) for words in dict.fromkeys(kept[event["id"]] for event in goals
+                                                           if event.get("id") in kept)]
+    titles = list(dict.fromkeys(reached_title(event["text"]) for event in goals if event.get("id") not in kept))
+    if titles:
+        found.append(("goal", f"I reached a goal: {titles[0]}." if len(titles) == 1
+                      else f"I reached {counted(len(titles))} goals: {listed(titles)}."))
+    set_titles = [after(in_my_voice(event["text"], name), "set a new goal: ").split(".")[0]
+                  for event in events if event["kind"] == "plan" and "set a new goal: " in event["text"]]
+    unreached = [title for title in set_titles if title and title not in reached]
+    if unreached:
+        found.append(("set", f"I set myself a new goal: {unreached[-1]}."))
+    plans = [place for place, event in enumerate(events)
+             if event["kind"] == "plan" and event["text"].startswith(f"{name}'s plan for today: ")]
+    if plans and not any(event["kind"] == "goal" or (event["kind"] == "plan" and "set a new goal: " in event["text"])
+                         for event in events[plans[-1] + 1:]):
+        found.append(("plan", f"My plan was to {voiced(after(events[plans[-1]]['text'], 'plan for today: '))}"))
+    goal = goal_now(state, until)
+    if goal is not None and not goals:
+        found.append(("progress", progress_line(goal)))
+    found += [("built", in_my_voice(event["text"], name)) for event in events if event["kind"] == "built"]
+    sights = [in_my_voice(event["text"], name).rstrip(".") for event in events  # "a cave mouth ... in its walls"
               if event["kind"] in ("found", "discovered")]
     if sights:
         found.append(("found", " and ".join(sights[:2]) + "."))
     hits = [after(event["text"], "was hit by a ").rstrip(".") for event in events if event["kind"] == "hurt"]
     if hits:
-        kind, times = Counter(hits).most_common(1)[0]
-        found.append(("danger", f"A {kind} hit me {'once' if times == 1 else f'{times} times'}, but I made it through."))
-    elif any(event["kind"] in DANGER for event in events):
-        found.append(("danger", "There was some danger, but I kept safe."))
-    meals = [after(event["text"], " ate ").rstrip(".") for event in events if event["kind"] == "ate"]
-    if meals:
-        foods = list(dict.fromkeys(meals))[:3]
-        listed = foods[0] if len(foods) == 1 else f"{', '.join(foods[:-1])} and {foods[-1]}"
-        found.append(("ate", f"I ate {len(meals)} {'time' if len(meals) == 1 else 'times'}: {listed}."))
-    return found
+        kind, n = Counter(hits).most_common(1)[0]
+        found.append(("danger", f"A {kind} hit me {times(n)}, but I made it through."))
+    else:
+        for kind, words in DANGER_WORDS:
+            event = next((event for event in events if event["kind"] == kind), None)
+            if event is not None:
+                what = after(event["text"], " saw ").removesuffix(" coming.") or "something"
+                found.append(("danger", words.format(what=what)))
+                break
+    foods = [MEAL.match(after(event["text"], " ate ").rstrip(".")).group(1) for event in events
+             if event["kind"] == "ate" and after(event["text"], " ate ")]
+    if foods:
+        found.append(("ate", meal_line(foods)))
+    return sorted(found, key=lambda item: RANKS[item[0]])
 
 
 def on_day(day: int, text: str) -> str:
@@ -155,20 +247,25 @@ def on_day(day: int, text: str) -> str:
     return f"On day {day}, {kept}"
 
 
-def absence_highlights(events: list[dict], state: dict, first: int, last: int) -> list[str]:
+def absence_highlights(events: list[dict], state: dict, first: int, last: int, until: float | None = None,
+                       kept: dict[int, str] | None = None) -> list[str]:
     """The highlights of game days `first` to `last` (a long absence, pre-flight 2): the most notable
     first (RANKS), the most recent among equals, at most HIGHLIGHTS, told in day order with their day;
-    how far along Mimo's goal is now closes them when there is room."""
+    how far along Mimo's goal is now closes them when there is room (a goal taken up before `until`)."""
+    by_day: dict[int, list[dict]] = {}
+    for event in events:
+        by_day.setdefault(event["day"], []).append(event)
     ranked = []
-    for day in range(first, last + 1):
-        for what, text in day_highlights([event for event in events if event["day"] == day], state):
-            if what != "progress":
-                ranked.append((RANKS[what], -day, day, text))
+    for day in sorted(by_day):
+        if first <= day <= last:
+            for what, text in day_highlights(by_day[day], state, kept=kept):
+                if what != "progress":
+                    ranked.append((RANKS[what], -day, day, text))
     chosen = sorted(sorted(ranked)[:HIGHLIGHTS], key=lambda item: (item[2], item[0]))
     found = [on_day(day, text) for _, _, day, text in chosen]
-    goal = goal_view(state.get("brain"))
+    goal = goal_now(state, until)
     if goal is not None and len(found) < HIGHLIGHTS:
-        found.append(f"I'm {round(goal['progress'] * 100)}% of the way to {lower(goal['title'])}.")
+        found.append(progress_line(goal))
     return found
 
 
@@ -180,9 +277,12 @@ def busiest_of(events: list[dict]) -> str:
     return Counter(phrases).most_common(1)[0][0] if phrases else ""
 
 
-def rules_story(day: int, found: list[str], doing: str, owner: str, level: float, last: int | None = None) -> str:
+def rules_story(day: int, found: list[str], doing: str, owner: str, level: float, last: int | None = None,
+                present: bool = False) -> str:
     """The rules' entry: an opening, the highlights (or what the day went on), a closing: 3 to 6 sentences.
-    A story of several days (pre-flight 2) opens with them all ("Days 1 to 5 were busy ones.")."""
+    A story of several days (pre-flight 2) opens with them all ("Days 1 to 5 were busy ones."). Bond's final
+    fix wave (I4): for an owner who was there (`present`), the closing thanks them for the company, never
+    "I missed you" or "Maybe you'll visit tomorrow?"."""
     if last is not None and last > day:
         kind = "busy ones" if len(found) >= 3 else "good ones" if found else "quiet ones"
         opening, spent = f"Days {day} to {last} were {kind}.", "I spent most of my time"
@@ -191,8 +291,11 @@ def rules_story(day: int, found: list[str], doing: str, owner: str, level: float
         opening, spent = f"Day {day} was {kind}.", "I spent most of it"
     body = found or [f"{spent} trying to {doing}." if doing else "I stayed close to home and kept safe."]
     to = f", {owner}" if owner else ""
-    closing = (f"Come back soon{to}, I missed you!" if level >= CLOSE else "Maybe you'll visit tomorrow?" if level < SHY
-               else f"I hope you visit again soon{to}.")
+    if present:
+        closing = f"Thanks for keeping me company{to}!"
+    else:
+        closing = (f"Come back soon{to}, I missed you!" if level >= CLOSE else "Maybe you'll visit tomorrow?"
+                   if level < SHY else f"I hope you visit again soon{to}.")
     return " ".join([opening, *body, closing])
 
 
@@ -287,8 +390,9 @@ def write_story(ask: StoryAsk, env, http: Http) -> StoryAnswer:
 
 def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) -> tuple[int, int, int | None] | None:
     """The game days a story is due to tell, first and last, and the story it rewrites (None: a new one),
-    or None: from the day of the owner's last visit to the day before now, at most MAX_STORY_DAYS (the
-    newest), once a game dawn came since the visit (pre-flight 2). A new story for a new visit; while the
+    or None: from the day of the owner's last visit to the day before now, once a game dawn came since the
+    visit (pre-flight 2; Bond's final fix wave, m16: every day of the absence, however long, while
+    `story_job` reads the events of at most MAX_STORY_DAYS of them, the newest). A new story for a new visit; while the
     owner stays away, the visit's story, still unread, grows at every later dawn to tell the whole
     absence; one the owner read stays as it is.
 
@@ -322,8 +426,7 @@ def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) ->
                 if story_last >= last:
                     return None
                 story_first = json.loads(row["data"] or "{}").get("day", story_last)
-                start = max(story_first, last - MAX_STORY_DAYS + 1)
-                return (start, last, item) if start <= last else None
+                return (story_first, last, item) if story_first <= last else None
     if bond.get("storied") == seen:
         return None
     since = bond.get("owed_from") if bond.get("owed_from") is not None else seen
@@ -333,8 +436,7 @@ def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) ->
         first = told + 1  # not at the visit's own day, or the days between are never told at all
     if last < first:
         return None
-    start = max(first, last - MAX_STORY_DAYS + 1)
-    return start, last, None
+    return first, last, None
 
 
 def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None:
@@ -349,7 +451,12 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
     (bond["story_luna_day"]) right here, in a short write transaction of its own, before the Job is
     returned and its model call dispatched to the lane's thread -- not later, when the answer is stored.
     So a worker that restarts while that call is still in flight does not ask Luna again the same UTC
-    day; the fresh `story_job` this function's caller runs after the restart already sees the attempt."""
+    day; the fresh `story_job` this function's caller runs after the restart already sees the attempt.
+
+    Bond's final fix wave: the story names every day of an absence but reads the events of the newest
+    MAX_STORY_DAYS (m16); its highlights know the promises Mimo kept (m15) and leave out a goal taken up
+    after the last day told (I2); and a one-day story for an owner who was seen since that day began is
+    for an owner who was there (I4: `present`, told to Luna too)."""
     with world.connect() as db:
         state = read_state(db)
         span = story_span(db, state, now, scale)
@@ -357,6 +464,9 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
             return None
         first, last, item = span
         owner, level = owner_name(owner_facts(db)), bond_level(state, now)
+        until, kept = day_bounds(state, last, scale)[1], kept_promises(db)
+        seen = (state.get("bond") or {}).get("seen_at")
+        present = first == last and seen is not None and seen >= day_bounds(state, last, scale)[0]
         writer, lead_text, lead_len, lead_last, day = None, None, None, None, first
         if item is not None:
             row = db.execute("SELECT text, data FROM mimo_inbox WHERE id=?", (item,)).fetchone()
@@ -370,15 +480,19 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
         if lead_text is not None:
             since_start = max(lead_last + 1, last - MAX_STORY_DAYS + 1)
             events = events_between(db, state, since_start, last, scale)
-            found = absence_highlights(events, state, since_start, last)
+            found = absence_highlights(events, state, since_start, last, until, kept)
             rules = since_then_story(lead_text, found)
         else:
-            events = events_between(db, state, first, last, scale)
-            found = (absence_highlights(events, state, first, last) if last > first
-                     else [text for _, text in day_highlights(events, state)][:HIGHLIGHTS])
-            rules = rules_story(first, found, busiest_of(events), owner, level, last)
-        remembered = [memory.text for d in range(last, first - 1, -1)
-                      for memory in story_memories(db, d, STORY_MEMORIES)][:MEMORIES_SHOWN]
+            events = events_between(db, state, max(first, last - MAX_STORY_DAYS + 1), last, scale)
+            found = (absence_highlights(events, state, first, last, until, kept) if last > first
+                     else [text for _, text in day_highlights(events, state, until, kept)][:HIGHLIGHTS])
+            rules = rules_story(first, found, busiest_of(events), owner, level, last, present)
+        remembered = []
+        for told in range(last, max(first, last - MAX_STORY_DAYS + 1) - 1, -1):
+            remembered += [memory.text for memory in story_memories(db, told, STORY_MEMORIES)]
+            if len(remembered) >= MEMORIES_SHOWN:
+                break
+        remembered = remembered[:MEMORIES_SHOWN]
     luna = item is None and luna_configured(env) and (state.get("bond") or {}).get("story_luna_day") != utc_day(now)
     if luna:
         with SurvivalWorld(world.path).transaction() as write_db:
@@ -387,7 +501,7 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
             write_state(write_db, attempt)
     payload = {"pet": state["name"], "day": day, "last": last, "traits": dict(state.get("traits", {})),
                "mood": round(state["vitals"]["mood"]), "bond": feeling(level), "owner": owner or None,
-               "highlights": found, "memories": remembered}
+               "present": present, "highlights": found, "memories": remembered}
     ask = StoryAsk(day, state["bond"]["seen_at"], rules, payload, luna, now, last, item, writer, lead_len, lead_last)
     return Job("story", luna, now, LUNA_TIMEOUT + GIVE_UP_AFTER, lambda env, http: write_story(ask, env, http),
                lambda: StoryAnswer(ask.rules, "rules", "luna: no answer, gave up"),
