@@ -33,7 +33,9 @@ is one whose progress has not risen for IDLE game seconds of daylight while noth
 it is on offer (`workable`). At dawn it writes the day plan (a routine "plan" event) and asks for a
 goal choice: Jev may keep the goal or pick another, the rules picker keeps it. A goal whose
 progress has not risen for a game day is given up at dawn instead. A goal given up is not offered
-again for a game day. A step of the day's plan Mimo finishes is a routine "plan" event too, once a
+again for a game day. A goal that holds Mimo to it now (`Goal.holds`, the L4b final fix wave's I2:
+an expedition out from home) is offered alone at a goal choice and never idles; only the dawn stall
+ends it early. A step of the day's plan Mimo finishes is a routine "plan" event too, once a
 plan (the final fix wave, for Bond to read: "Pip finished a step toward iron tools: mine 3 iron
 ore."; `told`). With no goal, a goal choice is asked for at once, then every IDLE_RETRY game
 seconds while none is open. The worker's Chooser answers goal choices (backend.survival.choosing).
@@ -117,6 +119,9 @@ class Goal:
     valid: Callable[[Situation], bool] = always
     reward: float = GOAL_MOOD
     repeat: bool = False  # on offer again once reached (its milestones count from when it was set)
+    # L4b final fix wave, I2: while this is true of Mimo's goal (an expedition out from home), a goal
+    # choice keeps it (`offers` offers it alone) and `idle` never sets it aside; `stalled` still does.
+    holds: Callable[[Situation], bool] | None = None
 
 
 GOALS: dict[str, Goal] = {}
@@ -193,6 +198,18 @@ def is_open(s: Situation, goal: Goal) -> bool:
         log_once(logger, f"goal {goal.name} validity", error)
         return False
     return valid and not complete(s, goal)
+
+
+def holding(s: Situation, goal: Goal) -> bool:
+    """The goal holds Mimo to it now (Goal.holds, I2). A check that crashes counts as not holding
+    (logged once), like a validity check."""
+    if goal.holds is None:
+        return False
+    try:
+        return bool(goal.holds(s))
+    except Exception as error:
+        log_once(logger, f"goal {goal.name} holds", error)
+        return False
 
 
 # The brain's goal ------------------------------------------------------------------------------
@@ -474,7 +491,9 @@ def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> No
     if dawn and stalled(s):
         give_up_goal(state, context, goal.name, at, "no progress for a day", s.scale)
         return
-    if not dawn and idle(s, goal):
+    # I2: a goal that holds (an expedition out from home) is never set aside for idling: out past its
+    # target with the land around walked out, it waits for the night's camp, not a goal choice.
+    if not dawn and not holding(s, goal) and idle(s, goal):
         give_up_goal(state, context, goal.name, at, "nothing to do for it now", s.scale)
         return
     if dawn or current["plan"] is None:
@@ -549,14 +568,19 @@ def rules_score(s: Situation, goal: Goal, can: bool | None = None) -> float:
 def offers(s: Situation) -> list[tuple[Goal, str, float]]:
     """The goals on offer as (goal, facts, rules score), best first: the current one while it is
     open, the best goal that repeats (L4's discovery goals are always on offer), and the best
-    others, OFFERED in all. Goals given up lately are left out."""
+    others, OFFERED in all. Goals given up lately are left out. L4b final fix wave, I2: while the
+    current goal is open and holds (Goal.holds: an expedition out from home), it is offered alone,
+    so the rules keep it and no model is asked (choosing.goal_route: one goal goes to the rules)."""
+    current = active(s)
+    if current is not None and is_open(s, current) and holding(s, current):
+        can = workable(s, current)
+        return [(current, goal_facts(s, current, can), rules_score(s, current, can))]
     found = []
     for _, goal in sorted(GOALS.items()):
         if is_open(s, goal) and not penalized(s, goal.name):
             can = workable(s, goal)  # the final fix wave: once per goal, for its facts and its score both
             found.append((goal, goal_facts(s, goal, can), rules_score(s, goal, can)))
     found.sort(key=lambda entry: -entry[2])
-    current = active(s)
     kept = [entry for entry in found if current is not None and entry[0].name == current.name]
     if not any(entry[0].repeat for entry in kept):
         kept += [entry for entry in found if entry[0].repeat][:1]

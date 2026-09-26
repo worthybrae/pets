@@ -2,6 +2,7 @@ import random
 import tempfile
 import unittest
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -238,6 +239,31 @@ class TendTests(unittest.TestCase):
             self.tend(1.0)
             brain = self.tend(IDLE + 70.0)  # never workable is False for ONLY: never idle
             self.assertIsNotNone(brain["goal"])
+
+    def test_a_goal_that_holds_never_idles_but_still_stalls_at_dawn(self):
+        """L4b final fix wave, I2: a goal that holds (an expedition out from home) is never set aside
+        for idling -- LATER alone is, at IDLE + 70 (the test above) -- but a day with no progress
+        still ends it at dawn."""
+        held = replace(LATER, holds=lambda s: True)
+        with only_goals(WOOD, held):
+            adopt_goal(self.state, "later", "jev", "Some day.", 0.0)  # nothing digs stone: not workable
+            self.tend(1.0)
+            self.assertIsNotNone(self.tend(IDLE + 70.0)["goal"])
+            brain = self.tend(DAY_SECONDS + 5.0, "dawn")
+            self.assertIsNone(brain["goal"])
+            self.assertEqual(self.events[-1][2], "Pip set a goal aside for now: later (no progress for a day).")
+
+    def test_a_crashing_holds_counts_as_not_holding_and_is_logged_once(self):
+        forget_logged()
+        broken = replace(LATER, holds=lambda s: 1 / 0)
+        with only_goals(WOOD, broken):
+            adopt_goal(self.state, "later", "jev", "Some day.", 0.0)
+            with self.assertLogs("backend.survival.goals", level="ERROR") as logs:
+                self.tend(1.0)
+                self.tend(IDLE - 10.0)
+                brain = self.tend(IDLE + 70.0)  # idles as a goal that does not hold
+            self.assertIsNone(brain["goal"])
+        self.assertEqual(len(logs.output), 1)
 
     def test_a_goal_that_idles_at_night_is_kept(self):
         night = ActionContext(grid=forest(), clock_at=lambda at: NIGHT, planner=lambda *args: [],

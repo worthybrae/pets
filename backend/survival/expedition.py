@@ -378,6 +378,13 @@ def home_share(s: Situation) -> float:
     return 1.0 if phase_of(s) == "home" else 0.0
 
 
+def out_from_home(s: Situation) -> bool:
+    """The expedition holds Mimo to it (goals.Goal.holds, the final fix wave's I2) from setting out
+    until home: a dawn goal choice (Jev's among them) and the idle rule used to drop it 150-200
+    blocks out, ending it with no word in the feed. Only the dawn stall ends it early now."""
+    return phase_of(s) in ("out", "homeward")
+
+
 register_goal(Goal(
     GOAL, "An expedition",
     "Pack food and torches, travel past the lands it knows, camp out and come home with what it found.",
@@ -388,7 +395,7 @@ register_goal(Goal(
      Milestone("Map new ground", map_share, ("explore", "investigate")),
      Milestone("Come home with its finds", home_share, ("come_home",))),
     score=expedition_score, thought="I want to see what lies past the lands I know. Pack up, let's go!",
-    after=("first_shelter",), valid=expedition_valid, reward=20.0, repeat=True))
+    after=("first_shelter",), valid=expedition_valid, reward=20.0, repeat=True, holds=out_from_home))
 
 
 def more_food(s: Situation) -> float:

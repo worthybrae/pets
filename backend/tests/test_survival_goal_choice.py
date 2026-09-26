@@ -244,6 +244,46 @@ class GoalChoiceTests(unittest.TestCase):
                          ("later", BORN, "utility"))
         self.assertFalse(any("set a new goal" in event["text"] for event in self.world.events(100)))
 
+    def test_a_goal_that_holds_is_kept_at_dawn_with_no_jev_call(self):
+        """L4b final fix wave, I2: a goal that holds (an expedition out from home) is offered alone,
+        so the dawn choice goes to the rules, which keep it: Jev, which would switch, is never asked."""
+        hold = {"on": True}
+        trek = Goal("trek", "A trek", "Far away.", LATER.milestones, score=lambda s: 10.0, thought="",
+                    holds=lambda s: hold["on"])
+
+        def dawn(state):
+            adopt_goal(state, "trek", "jev", "Off we go.", BORN)
+            ensure_brain(state)["pending"] = None  # no purpose choice waits: this is about the goal
+            ask_for_goal(state, "dawn", BORN + 1)
+
+        with only_goals(WOOD, trek):
+            self.edit(dawn)
+            ask = self.ask(JEV)
+            self.assertEqual((ask.route, [option.name for option in ask.options]), ("utility", ["trek"]))
+            http = Recorder({"answers": {"goal": {"choice": "woodpile"}}})  # Jev would switch, were it asked
+            Chooser(env=JEV, http=http, executor=InlineExecutor(), rng=random.Random(1), scale=1.0).poll(
+                self.registry, BORN + 5)
+            brain = self.brain()
+            self.assertEqual((brain["goal"]["name"], brain["goal"]["since"], brain["goal_due"]), ("trek", BORN, None))
+            self.assertFalse(any("goal" in body["questions"] for body in http.bodies))
+            self.assertEqual(brain["calls"]["model"], 0)
+            hold["on"] = False  # home again: the dawn choice is Jev's as before
+            self.edit(lambda state: ask_for_goal(state, "dawn", BORN + 10))
+            ask = self.ask(JEV)
+            self.assertEqual((ask.route, [option.name for option in ask.options]), ("jev", ["trek", "woodpile"]))
+
+    def test_a_crashing_holds_offers_the_goals_as_usual_and_is_logged_once(self):
+        forget_logged()
+        trek = Goal("trek", "A trek", "Far away.", LATER.milestones, score=lambda s: 10.0, thought="",
+                    holds=lambda s: 1 / 0)
+        with only_goals(WOOD, trek):
+            with self.assertLogs("backend.survival.goals", level="ERROR") as logs:
+                s = goal_situation()
+                adopt_goal(s.state, "trek", "jev", "", 0.0)
+                self.assertEqual([goal.name for goal, _, _ in offers(s)], ["trek", "woodpile"])
+                self.assertEqual([goal.name for goal, _, _ in offers(s)], ["trek", "woodpile"])
+        self.assertEqual(len(logs.output), 1)
+
     def test_a_stale_goal_answer_is_thrown_away(self):
         with only_goals(WOOD, LATER):
             self.edit(lambda state: ask_for_goal(state, "no_goal", BORN))

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from backend.survival import brain  # noqa: F401  (registers every goal, purpose and reason)
 from backend.survival import purposes, storage
+from backend.survival.choosing import goal_route
 from backend.survival.creatures.gear import GEAR_MATERIALS
 from backend.survival.curiosity import curiosity_state
 from backend.survival.exploring import COMPASS
@@ -11,7 +12,9 @@ from backend.survival.expedition import (
     trek_value,
 )
 from backend.survival.foraging import food_need
-from backend.survival.goals import GOALS, adopt_goal, check_goal, complete, is_open, progress_of
+from backend.survival.goals import (
+    GOALS, IDLE, STALL, adopt_goal, check_goal, complete, is_open, offers, progress_of,
+)
 from backend.survival.memory import know, mark_explored
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, away
@@ -254,6 +257,58 @@ class HomewardTests(unittest.TestCase):
             pet.tend(2.0)
             pet.tend(3.0)
         self.assertEqual(len(logs.output), 1)
+
+
+class HoldTests(unittest.TestCase):
+    """L4b final fix wave, I2: every night out was followed by a dawn goal choice, and under Jev any
+    goal on offer could replace the expedition 150-200 blocks from home (9 of 14 fake-Jev expeditions
+    never came home as one); the idle rule set it aside too, out past its target by midday. From
+    setting out until home the expedition holds (Goal.holds): it is offered alone, so the rules keep
+    it and Jev is not asked, and it never idles; only the dawn stall ends it early."""
+
+    def test_out_from_home_it_is_the_only_goal_on_offer_and_the_rules_keep_it(self):
+        pet = Expedition()
+        adopt_goal(pet.state, "expedition", "utility", "", 1.0)
+        pet.tend(2.0)
+        packing = [goal.name for goal, _, _ in offers(pet.situation())]
+        self.assertIn("expedition", packing)
+        self.assertGreater(len(packing), 1)  # packing at home: another goal may still be chosen
+        pet.state["inventory"] = dict(PACKED)
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            pet.tend(3.0)
+        pet.go(101, 1)
+        for phase in ("out", "homeward"):
+            pet.state["brain"]["expedition"]["phase"] = phase
+            s = pet.situation(MORNING)
+            found = offers(s)
+            self.assertEqual([goal.name for goal, _, _ in found], ["expedition"])
+            self.assertEqual(goal_route(s.brain, 10.0, {"TYPESAFE_API_KEY": "k"}, 10.0, len(found)), "utility")
+
+    def test_out_past_its_target_with_nothing_to_do_it_never_idles_but_a_stall_still_ends_it(self):
+        pet = Expedition()
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            pet.set_out()
+        pet.go(101, 1)
+        trek = pet.state["brain"]["expedition"]
+        trek["far"] = trek["target"]
+        check_goal(pet.state, pet.context(MORNING), 10.0, False)  # progress read: best_at 10
+        with patch("backend.survival.goals.workable", return_value=False):  # the land around is walked out
+            context = pet.context(MORNING)
+            check_goal(pet.state, context, 10.0 + IDLE + 70.0, False)
+            self.assertEqual(pet.state["brain"]["goal"]["name"], "expedition")
+            self.assertEqual(context.events, [])
+            trek["phase"] = "packing"  # not out from home: the same idling sets it aside
+            check_goal(pet.state, context, 10.0 + IDLE + 140.0, False)
+            self.assertIsNone(pet.state["brain"]["goal"])
+        pet = Expedition()
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            pet.set_out()
+        pet.go(101, 1)
+        check_goal(pet.state, pet.context(MORNING), 10.0, True)
+        context = pet.context(MORNING)
+        check_goal(pet.state, context, 10.0 + STALL + 1.0, True)  # a day out with no progress at all
+        self.assertIsNone(pet.state["brain"]["goal"])
+        self.assertEqual(context.events[-1][2], "Pip set a goal aside for now: an expedition (no progress for a day).")
 
 
 class CrashGuardTests(unittest.TestCase):
