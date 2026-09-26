@@ -106,8 +106,8 @@ class Talker:
     `executor_factory` makes each lane's executor, and the one that replaces an executor stuck on a
     hung call (tests pass one; the default is a new single-thread pool)."""
 
-    def __init__(self, env: Env | None = None, http: Http = post_json, executor_factory: Callable[[], object] | None = None,
-                 scale: float | None = None):
+    def __init__(self, env: Env | None = None, http: Http = post_json,
+                 executor_factory: Callable[[], object] | None = None, scale: float | None = None):
         from backend.survival import bonding  # noqa: F401  (every Bond job and chore registers on import)
         self.env = os.environ if env is None else env
         self.http = http

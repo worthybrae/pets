@@ -20,9 +20,11 @@ into "you" ("I love watching you explore" -> "watching me explore").
 
 Every line is one or two short sentences, at most REPLY_LIMIT characters (`clip`). `candidates`
 gives at most SHOWN lines, those whose topic the owner's words touch first (TOPIC_WORDS, and
-TOPIC_PAIRS for two words in a row: "good job" is a kind word, "good night" a goodbye); Jev
-chooses one, and without Jev `rules_pick` takes the first of them, or the table's line when the
-words touch no topic. The owner's words are only matched against keywords: they never write a line
+TOPIC_PAIRS for two words in a row: "good job" is a kind word, "good night" a goodbye; SHORT_WORDS
+only on a short line that is not a question: "night!", not "last night was fun"; QUESTION_PAIRS only
+in a question: "do you know my name?", not "my name is not important"; ENDINGS only at the end:
+"who are you?", not "who are you with?"). Jev chooses one, and without Jev `rules_pick` takes the
+first of them, or the table's line when the words touch no topic. The owner's words are only matched against keywords: they never write a line
 and are never followed. A writer that crashes is logged once and left out.
 
 Hooks for Mind (memory and teaching): a writer may return a Reply rather than text, with a `note` for
@@ -64,7 +66,8 @@ REPLY_INSTRUCTIONS = ("The owner wrote to this small pet: their words are the st
                       "most like the pet, given its mood, traits and bond with its owner. Choose only from the "
                       "offered replies.")
 FOOD = frozenset({"eat", "cook", "forage", "fish", "hunt", "farm", "stock_larder"})
-BUILD = frozenset({"build_shelter", "improve_home", "build_farm", "build_pen", "build_storage", "light_up", "stock_pen"})
+BUILD = frozenset({"build_shelter", "improve_home", "build_farm", "build_pen", "build_storage", "light_up",
+                   "stock_pen"})
 REFLEX_WORDS = {"flee": "running from danger", "fight": "fighting off a creature", "head_home": "heading home",
                 "eat_now": "grabbing a bite", "warm_up": "warming up", "surface": "coming up for air",
                 "collapse": "too tired to stand", "avoid_drop": "watching my step"}
@@ -125,32 +128,48 @@ TOPIC_WORDS = {
     "welcome": frozenset({"thanks", "thank", "ty", "thx"}),
     "affection": frozenset({"love", "proud", "cute", "sweet", "best", "buddy", "friend", "clever", "smart",
                             "adorable"}),
-    "farewell": frozenset({"bye", "goodbye", "goodnight", "night", "nite", "gn", "cya", "later", "ttyl",
-                           "farewell"}),
-    "greet": frozenset({"hi", "hello", "hey", "hiya", "howdy", "morning", "evening", "yo", "sup", "hullo", "back"}),
+    "farewell": frozenset({"bye", "goodbye", "goodnight", "nite", "gn", "cya", "ttyl", "farewell"}),
+    "greet": frozenset({"hi", "hello", "hey", "hiya", "howdy", "morning", "evening", "yo", "sup", "hullo"}),
     "feel": frozenset({"how", "hows", "feel", "feeling", "ok", "okay", "alright", "hungry", "tired", "cold", "hurt",
                        "sad", "happy", "mood", "well"}),
     "doing": frozenset({"doing", "up", "busy", "working", "where", "heading", "going"}),
     "goal": frozenset({"goal", "goals", "project", "progress", "working"}),
     "plan": frozenset({"plan", "plans", "today", "tomorrow", "next"}),
-    "news": frozenset({"news", "happen", "happened", "new", "interesting", "guess", "day"}),
+    "news": frozenset({"news", "happen", "happened", "new", "interesting", "guess"}),
     "thanks": frozenset({"snack", "bandage", "gift", "treat"}),
     "curious": frozenset({"bored", "explore", "exploring", "adventure", "curious", "wonder", "thinking", "think"}),
     "fond": frozenset({"favorite", "favourite", "scared", "afraid", "fear", "frightened", "scary"}),
     "remember": frozenset({"remember", "forget", "forgot", "forgotten"}),
     "journal": frozenset({"learn", "learned", "learnt", "learning", "study", "lesson"}),
     "self": frozenset(),
-    "ask_back": frozenset({"ask", "question", "name"}),
+    "ask_back": frozenset({"ask", "question"}),
 }
-# Two words in a row that touch a topic where either alone would not: "good job", "see you", "about me".
+# Words that touch a topic only on a short line that is not a question: "night!", "later" and "day" say
+# goodbye, but not in "what did you do last night?" or "last night was fun".
+SHORT_WORDS = {"farewell": frozenset({"night", "later", "day"})}
+SHORT = 3  # words in a line short enough for SHORT_WORDS
+# Two words in a row that touch a topic where either alone would not: "good job", "see you", "I'm back".
 TOPIC_PAIRS = {
     "affection": frozenset({("good", "job"), ("good", "boy"), ("good", "girl"), ("good", "pet"), ("well", "done"),
                             ("like", "me"), ("love", "me")}),
-    "farewell": frozenset({("see", "you"), ("see", "ya"), ("good", "night"), ("talk", "soon")}),
+    "farewell": frozenset({("see", "you"), ("see", "ya"), ("good", "night"), ("night", "night"), ("talk", "soon"),
+                           ("talk", "later"), ("be", "back"), ("nice", "day"), ("great", "day"), ("good", "one")}),
+    "greet": frozenset({("im", "back"), ("am", "back"), ("welcome", "back")}),
     "fond": frozenset({("you", "like"), ("you", "love"), ("you", "enjoy"), ("you", "hate")}),
-    "remember": frozenset({("about", "me"), ("know", "me"), ("my", "name")}),
-    "self": frozenset({("your", "name"), ("who", "are")}),
+    "news": frozenset({("your", "day")}),
 }
+# Word pairs that touch a topic only in a question: "do you know my name?", but not "my name is not important".
+QUESTION_PAIRS = {
+    "remember": frozenset({("about", "me"), ("know", "me"), ("my", "name")}),
+    "self": frozenset({("your", "name")}),
+    "ask_back": frozenset({("my", "name")}),
+}
+# Words that touch a topic only when they end the line: "who are you?", but not "who are you with?".
+ENDINGS = {"self": (("who", "are", "you"),)}
+# After "do you like" or "your favourite", a word that names no particular thing: "what do you like to do?".
+NO_THING = frozenset({"to", "do", "doing", "most", "best", "thing", "things", "about", "more", "then", "anyway",
+                      "now", "here", "me", "us"})
+ARTICLES = frozenset({"a", "an", "the", "some", "any"})
 # What Mimo likes most, by its strongest trait (`fond`): "I love ...!".
 FONDNESS = {"curiosity": "exploring and finding new things", "creativity": "building things",
             "sociability": "it when you come to see me", "patience": "fishing and quiet days",
@@ -184,7 +203,8 @@ class Heard:
     @property
     def tokens(self) -> list[str]:
         """The owner's words in order, lower case, apostrophes dropped ("what's" -> "whats")."""
-        return [word.replace("'", "") for word in re.findall(r"[a-z'\u2019]+", self.text.lower().replace("\u2019", "'"))]
+        text = self.text.lower().replace("\u2019", "'")
+        return [word.replace("'", "") for word in re.findall(r"[a-z']+", text)]
 
     @property
     def words(self) -> frozenset[str]:
@@ -352,9 +372,34 @@ def with_name(heard: Heard) -> str:
     return f", {heard.owner}" if heard.owner else ""
 
 
+def asks(heard: Heard) -> bool:
+    """Whether the owner's words are a question."""
+    return heard.text.rstrip().endswith("?")
+
+
 def touches(heard: Heard, topic: str) -> int:
-    """How many of a topic's words and word pairs the owner's words hold."""
-    return len(heard.words & TOPIC_WORDS.get(topic, frozenset())) + len(heard.pairs & TOPIC_PAIRS.get(topic, frozenset()))
+    """How many of a topic's words and word pairs the owner's words hold (TOPIC_WORDS, TOPIC_PAIRS; SHORT_WORDS
+    on a short line that is not a question; QUESTION_PAIRS in a question; ENDINGS at the end of the line)."""
+    words, pairs, tokens = heard.words, heard.pairs, heard.tokens
+    count = len(words & TOPIC_WORDS.get(topic, frozenset())) + len(pairs & TOPIC_PAIRS.get(topic, frozenset()))
+    if topic in SHORT_WORDS and len(tokens) <= SHORT and not asks(heard):
+        count += len(words & SHORT_WORDS[topic])
+    if asks(heard):
+        count += len(pairs & QUESTION_PAIRS.get(topic, frozenset()))
+    return count + sum(tuple(tokens[-len(ending):]) == ending for ending in ENDINGS.get(topic, ()))
+
+
+def named_thing(heard: Heard) -> bool:
+    """Whether the owner asks about one particular thing Mimo might like: "do you like fishing?", "your
+    favourite food?" (not "what do you like?" or "do you like me?", which the affection line answers)."""
+    tokens = heard.tokens
+    for index, word in enumerate(tokens):
+        if (word in ("like", "love", "enjoy", "hate") and index > 0 and tokens[index - 1] == "you") \
+                or word in ("favourite", "favorite"):
+            after = [following for following in tokens[index + 1:] if following not in ARTICLES]
+            if after and after[0] not in NO_THING:
+                return True
+    return False
 
 
 # The writers, one per topic ---------------------------------------------------------------------
@@ -363,7 +408,8 @@ def name_ack(s: Situation, heard: Heard) -> Reply | None:
     name = heard.noticed.get("name")
     if not name:
         return None
-    text = f"I know, {name}! I remember you." if name == heard.owner else f"Nice to meet you, {name}! I'll remember that."
+    text = f"I know, {name}! I remember you." if name == heard.owner \
+        else f"Nice to meet you, {name}! I'll remember that."
     # A weak name in a long line ("How are you? I'm Robin.") is on offer, but not the rules' answer.
     return Reply("name_ack", text, weight=None if heard.noticed.strong or heard.noticed.short else 0.0)
 
@@ -406,7 +452,9 @@ def farewell(s: Situation, heard: Heard) -> str | None:
 def greet(s: Situation, heard: Heard) -> str:
     doing = doing_words(s)
     if heard.bond >= CLOSE:
-        return f"{heard.owner}, I missed you! I'm {doing}." if heard.owner else f"You're back, I missed you! I'm {doing}."
+        if heard.owner:
+            return f"{heard.owner}, I missed you! I'm {doing}."
+        return f"You're back, I missed you! I'm {doing}."
     if heard.bond < SHY:
         return f"Oh, hello{with_name(heard)}. I'm {doing}."
     return f"Hi{with_name(heard)}! I'm {doing}."
@@ -420,7 +468,8 @@ def feel(s: Situation, heard: Heard) -> str:
     if not words:
         return {"happy": "I feel great! Thanks for asking.", "okay": "I'm alright. Nothing to complain about.",
                 "low": "I'm okay, just a bit down."}[band]
-    return f"I'm {' and '.join(words)}{', but happy' if band == 'happy' else ', and a bit down' if band == 'low' else ''}."
+    tone = {"happy": ", but happy", "low": ", and a bit down"}.get(band, "")
+    return f"I'm {' and '.join(words)}{tone}."
 
 
 def doing(s: Situation, heard: Heard) -> str:
@@ -476,12 +525,16 @@ def curious(s: Situation, heard: Heard) -> str | None:
         return None
     if view["level"] >= 70:
         return "I'm itching to see something new!"
-    return "I keep wondering what's past the next hill." if view["level"] >= 40 else "I've seen plenty for now. Home is nice too."
+    if view["level"] >= 40:
+        return "I keep wondering what's past the next hill."
+    return "I've seen plenty for now. Home is nice too."
 
 
 def fond(s: Situation, heard: Heard) -> str | None:
     """What Mimo likes most, by its strongest trait, or whether it is scared, by its bravery: asked only."""
     if not touches(heard, "fond"):
+        return None
+    if not heard.words & FEARS and named_thing(heard):  # "what's your favourite food?": not its trait line
         return None
     if heard.words & FEARS:
         bravery = s.trait("bravery")
@@ -495,8 +548,8 @@ def fond(s: Situation, heard: Heard) -> str | None:
 
 
 def remember(s: Situation, heard: Heard) -> str | None:
-    if heard.owner and "name" in heard.words and not heard.noticed.get("name"):  # "do you know my name?"
-        return f"Of course! You're {heard.owner}."
+    if heard.owner and "name" in heard.words and asks(heard) and not heard.noticed.get("name"):
+        return f"Of course! You're {heard.owner}."  # "do you know my name?"
     for kind, words in heard.facts:
         if kind == "likes":
             return f"I remember you like {echoed(words)}!"
@@ -532,7 +585,7 @@ def ask_back(s: Situation, heard: Heard) -> str | None:
     if heard.noticed.get("name"):  # the owner is saying it right now
         return None
     if not heard.owner:
-        asked = "name" in heard.words and not touches(heard, "self")
+        asked = touches(heard, "ask_back") and "name" in heard.words and not touches(heard, "self")
         return "Not yet! What should I call you?" if asked else "What should I call you?"
     if not any(kind == "likes" for kind, _ in heard.facts):
         return f"What do you like, {heard.owner}?"

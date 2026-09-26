@@ -226,7 +226,8 @@ class ReplyTests(unittest.TestCase):
 
     def test_what_the_owner_likes_is_said_back_in_mimos_words(self):
         for text, like in (("I like your little house", "Ooh, my little house? I'll remember that you like it."),
-                           ("I love watching you explore!", "Ooh, watching me explore? I'll remember that you like it."),
+                           ("I love watching you explore!",
+                            "Ooh, watching me explore? I'll remember that you like it."),
                            ("I hate it when you get hurt", "You don't like it when I get hurt? I'll remember that."),
                            ("I dont like the dark", "You don't like the dark? I'll remember that."),
                            ("I cant stand spiders", "You don't like spiders? I'll remember that."),

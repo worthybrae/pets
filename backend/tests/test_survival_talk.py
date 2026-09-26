@@ -46,7 +46,8 @@ class OwnerLinesTests(unittest.TestCase):
         self.assertEqual(said["text"], "Hello there, Mimo!")
         self.assertEqual(said["left"], {"hour": HOUR_LIMIT - 1, "day": DAY_LIMIT - 1})
         [row] = self.rows()
-        self.assertEqual((row["id"], row["who"], row["text"], row["status"]), (said["id"], "owner", "Hello there, Mimo!", WAITING))
+        self.assertEqual((row["id"], row["who"], row["text"], row["status"]),
+                         (said["id"], "owner", "Hello there, Mimo!", WAITING))
         self.assertEqual((row["at"], row["game_at"]), (BORN + 10, 600.0))
 
     def test_an_empty_or_too_long_line_is_refused_and_nothing_is_written(self):

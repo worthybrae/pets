@@ -403,7 +403,8 @@ def keep_answers(db: sqlite3.Connection, state: dict, ask: ChatAsk, answer: Chat
         db.execute("RELEASE keeper")
         if line:
             lines.setdefault(question.name, line)
-    order = [name for name in KEEPER_PRECEDENCE if name in lines] + [name for name in lines if name not in KEEPER_PRECEDENCE]
+    order = ([name for name in KEEPER_PRECEDENCE if name in lines]
+             + [name for name in lines if name not in KEEPER_PRECEDENCE])
     return lines[order[0]] if order else None
 
 

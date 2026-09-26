@@ -19,7 +19,7 @@ from backend.survival.hatch import hatch
 from backend.survival.once import forget_logged
 from backend.survival.owner_facts import owner_facts, remember_fact
 from backend.survival.registry import LifeRegistry
-from backend.survival.replies import REPLY_LIMIT, TITLE_VERBS, candidates
+from backend.survival.replies import REPLY_LIMIT, TITLE_VERBS, candidates, rules_pick
 from backend.survival.situation import from_db
 from backend.survival.talk import hear, owner_says
 from backend.survival.talker import Talker
@@ -52,7 +52,8 @@ def building(state, db):
     state["vitals"].update(hunger=80, energy=70, mood=75, warmth=80, health=100)
     state["brain"].update(purpose="gather_wood", reflex=None, trip=None)
     state["brain"]["goal"] = {"name": "first_shelter", "since": BORN, "picker": "rules", "progress": 0.2, "best": 0.2,
-                              "best_at": NOW - 60, "plan": [{"text": "Gather blocks for the walls", "done": False, "step": 0},
+                              "best_at": NOW - 60,
+                              "plan": [{"text": "Gather blocks for the walls", "done": False, "step": 0},
                                        {"text": "Raise the walls and roof", "done": False, "step": 1}]}
 
 
@@ -68,7 +69,8 @@ def known_owner(state, db):
     state["vitals"].update(hunger=80, energy=70, mood=60, warmth=80, health=100)
     state["brain"].update(purpose="gather_wood", reflex=None, trip=None)
     state["brain"]["goal"] = {"name": "cave", "since": BORN, "picker": "rules", "progress": 0.1, "best": 0.1,
-                              "best_at": NOW - 60, "plan": [{"text": "Look into a cave mouth or sinkhole", "done": False, "step": 0}]}
+                              "best_at": NOW - 60,
+                              "plan": [{"text": "Look into a cave mouth or sinkhole", "done": False, "step": 0}]}
     for at, (kind, words) in enumerate((("about", "I work nights"), ("likes", "blue"), ("name", "Sam"))):
         remember_fact(db, kind, words, BORN + at)
 
@@ -105,6 +107,7 @@ GOLDEN = [
     ("A", "thanks for waiting for me", "You're welcome!", None, [], None),
     ("A", "good night!", "Good night! Sleep well.", None, [], None),
     ("A", "I'm back!", "Hi! I'm exploring to travel past the lands I know.", None, [], None),
+    ("A", "good morning!", "Hi! I'm exploring to travel past the lands I know.", None, [], None),
     ("A", "where are you going?", "I'm heading east to travel past the lands I know.", None, [], None),
     ("B", "what are you doing?", "I'm gathering wood. It's for my goal: a home of my own.", None, [], None),
     ("C", "you look hungry, are you ok?", "I'm really hungry and worn out, and a bit down.", None, [], None),
@@ -124,6 +127,28 @@ GOLDEN = [
     ("A", "I work nights", "I'm exploring. Who knows what I'll find?",
      "Hi! I'm exploring to travel past the lands I know.", [], [("about", "I work nights")]),
 ]
+
+
+# Everyday lines that must not be read as a goodbye, a greeting or Mimo's own name (the scoped re-review's
+# probe4): each answered by the rules in state D, with the topic it must not take and the line it gets.
+NOT_THESE = ("farewell", "greet", "self")
+NEGATIVE = [
+    ("what did you do last night?", "Busy, busy. There's always work."),
+    ("last night was fun", "Busy, busy. There's always work."),
+    ("is it night yet?", "Busy, busy. There's always work."),
+    ("I'll check on you later", "Busy, busy. There's always work."),
+    ("my back hurts", "Busy, busy. There's always work."),
+    ("who are you with?", "Busy, busy. There's always work."),
+    ("I had a good day", "Busy, busy. There's always work."),
+    ("My name is not important", "Busy, busy. There's always work."),
+    ("what's your favourite food?", "Busy, busy. There's always work."),
+    ("would you like a snack?", "Busy, busy. There's always work."),
+    ("do you like fishing?", "Busy, busy. There's always work."),
+    ("I'm not sure", "Busy, busy. There's always work."),
+]
+# ...and lines that must: a goodbye only when it is one.
+GOODBYES = [("have a nice day!", "Bye, Sam! Come back soon."), ("I'll be back tomorrow", "Bye, Sam! Come back soon."),
+            ("night night", "Good night, Sam! Sleep well."), ("see you tomorrow", "Bye, Sam! Come back soon.")]
 
 
 def live_like(text):
@@ -193,12 +218,28 @@ class GoldenTranscriptTests(unittest.TestCase):
                                  (jev_said or said, "jev", facts if jev_facts is None else jev_facts))
                 self.assertEqual(jev.calls, 1)
 
+    def test_everyday_lines_are_not_read_as_a_goodbye_a_greeting_or_its_name(self):
+        registry, world = self.world_in("D")
+        with world.connect() as db:
+            s = from_db(db, read_state(db), NOW, 1.0)
+            for text, said in NEGATIVE + GOODBYES:
+                with self.subTest(owner=text):
+                    found = candidates(s, hear(db, s, text))
+                    pick = rules_pick(found, hear(db, s, text))
+                    self.assertEqual(next(reply.text for reply in found if reply.name == pick), said)
+                    if (text, said) in NEGATIVE:
+                        self.assertNotIn(pick, NOT_THESE)
+                        self.assertNotIn(pick, ("remember", "fond"))
+        for text, said in NEGATIVE[:3]:
+            with self.subTest(route="talker", owner=text):
+                self.assertEqual(self.answer("D", text), (said, "rules", D_FACTS))
+
     def test_every_line_offered_in_every_state_keeps_the_voice(self):
         for state_name in STATES:
             registry, world = self.world_in(state_name)
             with world.connect() as db:
                 s = from_db(db, read_state(db), NOW, 1.0)
-                for _, text, *_ in GOLDEN:
+                for text in [row[1] for row in GOLDEN] + [text for text, _ in NEGATIVE + GOODBYES]:
                     for reply in candidates(s, hear(db, s, text)):
                         with self.subTest(state=state_name, owner=text, line=reply.text):
                             self.assertLessEqual(len(reply.text), REPLY_LIMIT)

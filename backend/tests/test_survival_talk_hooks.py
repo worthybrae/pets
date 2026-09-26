@@ -93,8 +93,8 @@ class ChatHookTests(unittest.TestCase):
             asked.append(dict(heard.context))
             return None
         with patch.dict(HEARING, {"broken": broken, "teach": shortlist}), \
-                patch.dict(REPLIES, {"teach_ack": lambda s, heard: Reply("teach_ack", "Leather? Tell me more!", weight=9.0)
-                                     if heard.context.get("teach") else None}):
+                patch.dict(REPLIES, {"teach_ack": lambda s, heard: Reply(
+                    "teach_ack", "Leather? Tell me more!", weight=9.0) if heard.context.get("teach") else None}):
             QUESTIONS.insert(0, teach)
             try:
                 with self.assertLogs("backend.survival.talk", level="ERROR") as logs:
@@ -117,10 +117,32 @@ class ChatHookTests(unittest.TestCase):
             with patch.dict(KEEPERS, keepers):
                 self.assertEqual(self.say("could you raise a herd?")[0], "Okay! I'll raise a herd next.")
                 with patch.dict(KEEPERS, {"request": lambda *args: None}):
-                    self.assertEqual(self.say("cows give leather", at=BORN + 10)[0], "I'll remember that cows give leather.")
+                    self.assertEqual(self.say("cows give leather", at=BORN + 10)[0],
+                                     "I'll remember that cows give leather.")
         finally:
             for asked in extra:
                 QUESTIONS.remove(asked)
+
+    def test_r4_a_keeper_that_crashes_is_rolled_back_with_its_state_and_the_others_still_keep(self):
+        def broken(db, state, heard, question, pick, now):
+            know(db, "half written", "test", now)
+            state["half"] = True
+            raise RuntimeError("boom")
+        extra = lambda s, heard: Question("teach", "Choose.", (option("a"), option("b")), "a")  # noqa: E731
+        QUESTIONS.append(extra)
+        try:
+            with patch.dict(KEEPERS, {"teach": broken}):
+                with self.assertLogs("backend.survival.talk", level="ERROR") as logs:
+                    said = self.say("My name is Sam. I love the lake.")
+                    self.say("My name is Sam. I love the lake.", at=BORN + 10)
+        finally:
+            QUESTIONS.remove(extra)
+        self.assertEqual(said[0], "Nice to meet you, Sam! I'll remember that.")  # the reply is still stored
+        self.assertEqual(len(logs.records), 1)  # logged once
+        with self.world.connect() as db:
+            self.assertEqual(known(db, "test"), [])  # the keeper's write is rolled back...
+            self.assertEqual(sorted(owner_facts(db)), [("likes", "the lake"), ("name", "Sam")])  # ...the others' kept
+        self.assertNotIn("half", self.world.state())  # and so is its change to the state
 
     def test_r5_an_unoffered_pick_falls_back_for_that_question_alone(self):
         jev = FakeJev(lambda name, criteria: "like_ack" if name == "reply" else "a_secret" if name == "fact"

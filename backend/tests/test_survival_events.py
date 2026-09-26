@@ -63,11 +63,13 @@ class EventMirrorTests(unittest.TestCase):
         mirror("memory", "goal", self.writer("memory"))
         mirror("inbox", "goal", self.writer("inbox"))
         self.run_mirrors()  # both start at the newest event: old news is never delivered
-        self.log(("found", "Pip met its first skitter."), ("sleep", "Pip went to sleep."), ("goal", "Pip reached a goal."))
+        self.log(("found", "Pip met its first skitter."), ("sleep", "Pip went to sleep."),
+                 ("goal", "Pip reached a goal."))
         changed, state = self.run_mirrors()
         self.assertTrue(changed)
         self.assertEqual(self.seen, [("memory", "found", "Pip met its first skitter."),
-                                     ("memory", "goal", "Pip reached a goal."), ("inbox", "goal", "Pip reached a goal.")])
+                                     ("memory", "goal", "Pip reached a goal."),
+                                     ("inbox", "goal", "Pip reached a goal.")])
         self.assertEqual(state[CURSORS]["memory"], state[CURSORS]["inbox"])
         self.seen.clear()
         mirror("diary", "goal", self.writer("diary"))  # a consumer that comes later starts at the newest too
@@ -86,7 +88,8 @@ class EventMirrorTests(unittest.TestCase):
         self.run_mirrors()
         self.log(("goal", "Pip reached a goal."))
         self.run_mirrors()
-        self.assertEqual(self.seen, [("promise", "goal", "Pip reached a goal."), ("memory", "goal", "Pip reached a goal.")])
+        self.assertEqual(self.seen, [("promise", "goal", "Pip reached a goal."),
+                                     ("memory", "goal", "Pip reached a goal.")])
 
     def test_a_writer_that_crashes_is_rolled_back_logged_once_and_passed_over(self):
         def broken(db, state, event, now, scale):
@@ -108,6 +111,26 @@ class EventMirrorTests(unittest.TestCase):
         self.seen.clear()
         self.run_mirrors()
         self.assertEqual(self.seen, [])
+
+    def test_a_consumer_ahead_of_another_is_never_given_an_event_twice(self):
+        mirror("memory", "found", self.writer("memory"))
+        self.run_mirrors()
+        self.log(("found", "e1"))
+        self.run_mirrors()
+        del MIRRORS["found"][0]  # memory goes missing for a while (its module failed to import)...
+        mirror("inbox", "found", self.writer("inbox"))  # ...while the inbox starts, at the newest event
+        self.run_mirrors()
+        self.log(*[("found", f"e{number}") for number in range(2, 7)])
+        self.run_mirrors()  # the inbox sees e2 to e6; memory's cursor stays at e1
+        mirror("memory", "found", self.writer("memory"))  # memory is back with a backlog; the inbox is ahead
+        self.log(("found", "e7"))
+        with patch("backend.survival.events.MIRROR_BATCH", 2):
+            for _ in range(4):  # memory catches up two events a run, reading events the inbox saw already
+                changed, state = self.run_mirrors()
+        seen = {consumer: [text for who, _, text in self.seen if who == consumer] for consumer in ("memory", "inbox")}
+        self.assertEqual(seen["memory"], [f"e{number}" for number in range(1, 8)])
+        self.assertEqual(seen["inbox"], [f"e{number}" for number in range(2, 8)])  # each exactly once
+        self.assertEqual(state[CURSORS]["memory"], state[CURSORS]["inbox"])
 
     def test_a_run_reads_at_most_a_batch_and_the_next_run_goes_on(self):
         mirror("memory", "found", self.writer("memory"))
