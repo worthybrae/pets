@@ -31,6 +31,14 @@ or update one "Since then, ..." paragraph after it, for the days since Luna's ow
 so its one call a UTC day is unchanged, and the item's data keeps its original "writer" (never
 overwritten while it grows) so a later dawn still knows whether its lead text is Luna's. A story the
 owner read is never rewritten, and an absence of a game day or less gets the story the plan wrote.
+
+Fix round 2: growing an item always reads its own persisted "day" (`story_span`), never "seen_at" or
+"owed_from", which store_story clears once a story is written -- rederiving it from either would erase
+an owed story at its very next dawn. And a still-growing, unread story keeps growing across a newer
+visit too, closing a gap of more than a day between what it already tells and that visit's own day
+(the owner returning before the Talker's first poll since the machine slept), rather than being
+abandoned for a fresh, gap-skipping one; a visit that leaves no gap (a watching owner's very next day)
+still gets its own fresh story, as round 1 has it.
 """
 
 from __future__ import annotations
@@ -217,18 +225,23 @@ def since_then_story(lead: str, found: list[str]) -> str:
     Fix round 1: item 4, the paragraph's first letter is lowercased to follow the comma only when it
     begins "On day" (a highlight in another shape, such as the goal-progress closer, keeps its own
     capital: "Since then, I'm 40% ..." not "i'm"). Item 5, kept within STORY_LIMIT by dropping whole
-    highlights, the oldest first, until it fits, rather than cutting a sentence in half; it never leaves
-    a bare "Since then," with nothing after it, and the lead is never touched, even when it alone
-    already leaves no room to spare."""
+    highlights, the oldest first, until it fits, rather than cutting a sentence in half.
+
+    Fix round 2, item 3: when nothing fits beside the lead, not even "Since then, it's been quiet."
+    (the reviewer's probe: a 691-character lead plus a reached goal came to 720 characters), the lead
+    is returned alone, over STORY_LIMIT only if it already was on its own (clean_story already caps
+    Luna's own text at STORY_LIMIT, so this is a defensive floor, not an expected case)."""
     body = list(found)
-    while True:
-        sentence = " ".join(body) if body else "it's been quiet."
-        if body and sentence.startswith("On day"):
+    while body:
+        sentence = " ".join(body)
+        if sentence.startswith("On day"):
             sentence = sentence[:1].lower() + sentence[1:]
         text = f"{lead} {SINCE_THEN}{sentence}"
-        if len(text) <= STORY_LIMIT or not body:
+        if len(text) <= STORY_LIMIT:
             return text
         body = body[1:]  # drop the oldest highlight and try again
+    quiet = f"{lead} {SINCE_THEN}it's been quiet."
+    return quiet if len(quiet) <= STORY_LIMIT else lead[:STORY_LIMIT]
 
 
 @dataclass(frozen=True)
@@ -279,29 +292,41 @@ def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) ->
     owner stays away, the visit's story, still unread, grows at every later dawn to tell the whole
     absence; one the owner read stays as it is.
 
-    Fix round 1, item 3: "first" starts from bond["owed_from"] instead of "seen_at" when the visit is
-    still owed a story and a later visit has already moved "seen_at" on (bond.visit records this); the
-    "seen" identity used below to detect a new visit and to grow the existing item is still "seen_at"
-    itself, unaffected."""
+    Fix round 2 (a regression from round 1's item 3, and item 2's own gap): growing an item never
+    re-derives its first day from "seen_at" or "owed_from" (round 1's item 3 fix, which store_story
+    clears once the story is written) -- it always reads the item's own persisted "day", so a later
+    visit moving "seen_at" on can never erase what an unread, still-growing story already told. And the
+    item keeps growing across a new visit, not just the one it was written for, whenever that new visit
+    would otherwise leave a gap of more than one day untold between the item's own "last" and the visit's
+    day -- the owner returning before the Talker's first poll since a machine's sleep must not skip the
+    days in between (item 2). A watching owner's very next day, with no day skipped, still gets its own
+    fresh story, exactly as round 1 has it: the gap there is never more than one day."""
     bond = state.get("bond") or {}
     seen = bond.get("seen_at")
     if seen is None or state.get("died_at") is not None:
         return None
+    last = clock_at(state["born_at"], now, scale)["day_number"] - 1
+    story = bond.get("story") or {}
+    item = story.get("item")
+    if item is not None:
+        row = db.execute("SELECT data, read_at FROM mimo_inbox WHERE id=? AND kind=?", (item, STORY)).fetchone()
+        if row is not None and row["read_at"] is None:
+            seen_day = clock_at(state["born_at"], seen, scale)["day_number"]
+            story_last = story.get("last", 0)
+            if bond.get("storied") == seen or seen_day - story_last > 1:
+                if story_last >= last:
+                    return None
+                story_first = json.loads(row["data"] or "{}").get("day", story_last)
+                start = max(story_first, last - MAX_STORY_DAYS + 1)
+                return (start, last, item) if start <= last else None
+    if bond.get("storied") == seen:
+        return None
     since = bond.get("owed_from") if bond.get("owed_from") is not None else seen
     first = clock_at(state["born_at"], since, scale)["day_number"]
-    last = clock_at(state["born_at"], now, scale)["day_number"] - 1
     if last < first:
         return None
     start = max(first, last - MAX_STORY_DAYS + 1)
-    if bond.get("storied") != seen:
-        return start, last, None
-    story = bond.get("story") or {}
-    if story.get("seen") != seen or story.get("last", last) >= last:
-        return None
-    row = db.execute("SELECT read_at FROM mimo_inbox WHERE id=? AND kind=?", (story.get("item"), STORY)).fetchone()
-    if row is None or row["read_at"] is not None:
-        return None
-    return start, last, story["item"]
+    return start, last, None
 
 
 def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None:
@@ -369,7 +394,14 @@ def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: f
     a later dawn still knows whether its lead text is Luna's; a growing Luna item's "lead" (its own text's
     length) and "lead_last" (its own last day) are carried the same way, never recomputed from the grown
     answer (fix round 1, items 1 and 2). Item 3: "owed_from" is cleared once a story is written, its job
-    over (bond.py's `visit` sets it; diary.story_span reads it)."""
+    over (bond.py's `visit` sets it; diary.story_span reads it).
+
+    Fix round 2, item 2: growth no longer requires `bond["storied"] == ask.seen` -- a job built by
+    story_span to close a gap left by a newer visit is built with `ask.seen` already the newer visit's
+    time, while `bond["storied"]` still lags behind it until this very write updates it (growth is
+    always a rules-only job, decided and stored in the same synchronous step, so this can never race
+    with another write). `story.get("item") == ask.item` and the freshly re-read "last" are still
+    checked, so a stale or already-applied job still changes nothing."""
     if answer.error:
         log_once(logger, "story", ModelError(answer.error))
     with world.transaction() as db:
@@ -391,7 +423,7 @@ def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: f
             item = post_item(db, now, STORY, answer.text, data)
         else:
             story = bond.get("story") or {}
-            if bond.get("storied") != ask.seen or story.get("item") != ask.item or story.get("last", last) >= last:
+            if story.get("item") != ask.item or story.get("last", last) >= last:
                 return None
             item = ask.item
             if not db.execute("UPDATE mimo_inbox SET text=?, data=? WHERE id=? AND read_at IS NULL",

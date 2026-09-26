@@ -324,8 +324,10 @@ class StoryTests(unittest.TestCase):
         self.assertNotIn("C" * 100, grown)  # day 4's too: neither fits even alone
         self.assertEqual(grown, lead + " Since then, it's been quiet.")  # never a bare "Since then,"
         self.assertEqual(story_lead(grown, len(lead)), lead)  # the lead is recoverable, unshortened
+        # fix round 2, item 3: an over-long lead is capped at STORY_LIMIT too, never left whole and over
         over = "A" * (STORY_LIMIT + 50)
-        self.assertTrue(since_then_story(over, found).startswith(over))  # the lead is kept whole regardless
+        self.assertEqual(since_then_story(over, found), over[:STORY_LIMIT])
+        self.assertEqual(len(since_then_story(over, found)), STORY_LIMIT)
 
     def test_a_luna_story_that_says_since_then_itself_keeps_every_sentence_when_it_grows(self):
         """Fix round 1, item 1: story_lead used to split on the first " Since then, ", which Luna can
@@ -391,6 +393,76 @@ class StoryTests(unittest.TestCase):
         self.assertEqual(story["text"], "Days 1 to 8 were good ones. On day 2, I reached a goal: iron tools. "
                                         "Maybe you'll visit tomorrow?")
         self.assertIsNone(self.world.state()["bond"].get("owed_from"))  # cleared once the story is written
+
+    def test_the_owed_story_survives_the_next_dawn_unread(self):
+        """Fix round 2, item 1 (a regression from round 1): growing a story must read the item's own
+        first day, never re-derive it from "seen_at" or "owed_from" -- "owed_from" is cleared once the
+        first dawn writes the story (store_story), so a later dawn recomputing "first" from "seen_at"
+        instead would replace "Days 1 to 8 were ..." with "Day 8 was a quiet one ...", losing everything.
+        The reviewer's exact probe."""
+        self.visit(BORN + 10)  # day 1
+        with self.world.transaction() as db:
+            log_event(db, BORN + 70, "goal", f"{self.name} reached a goal: iron tools.")  # day 2
+        self.visit(BORN + 421)  # day 8: the owner is back, before the Talker has ever polled since day 1
+        talker = self.talker()
+        talker.poll(self.registry, BORN + 481)  # the Talker's first poll since: the dawn of day 9
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 8, "writer": "rules"})
+        self.assertTrue(story["text"].startswith("Days 1 to 8 were"), story["text"])
+        with self.world.transaction() as db:
+            log_event(db, BORN + 490, "ate", f"{self.name} ate berries.")  # day 9
+        talker.poll(self.registry, BORN + 541)  # the dawn of day 10: it must grow, never be replaced
+        self.assertEqual(len(self.stories()), 1)  # the same item, not a second one
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 9, "writer": "rules"})
+        self.assertTrue(story["text"].startswith("Days 1 to 9 were"), story["text"])
+        self.assertIn("iron tools", story["text"])  # day 2's goal, still told, three dawns later
+
+    def test_a_growing_story_absorbs_the_days_the_machine_slept_through(self):
+        """Fix round 2, item 2 (still open after round 1): the story already covered days 1-2 through
+        ordinary growth (no race here -- the owner never revisited while it grew). Then the machine
+        slept. A goal was reached on day 4 while it caught up on waking. The owner's viewer reconnected
+        on day 8, calling /mimo/visit before the Talker's first poll since the sleep. The day-4 goal
+        must still be told: a new visit must never let a gap between it and the still-growing, unread
+        story go untold."""
+        talker = self.talker()
+        self.visit(BORN + 10)  # day 1
+        talker.poll(self.registry, BORN + 61)  # dawn of day 2: creates the item, day 1 only
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "writer": "rules"})
+        talker.poll(self.registry, BORN + 121)  # dawn of day 3: grows to days 1-2, still no new visit
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 2, "writer": "rules"})
+        with self.world.transaction() as db:
+            log_event(db, BORN + 190, "goal", f"{self.name} reached a goal: iron tools.")  # day 4
+        self.visit(BORN + 421)  # day 8: the owner is back, before the Talker has polled since day 3's dawn
+        talker.poll(self.registry, BORN + 481)  # the Talker's first poll since: the dawn of day 9
+        self.assertEqual(len(self.stories()), 1)  # the same item grew; a second was never started
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 8, "writer": "rules"})
+        self.assertIn("iron tools", story["text"])  # day 4's goal: never lost to the gap
+
+    def test_a_watching_owners_next_day_still_gets_its_own_fresh_story(self):
+        """Fix round 2 guard: item 2's fix must not turn every visit into growth. A story that already
+        covers through yesterday relative to today's new visit (no day skipped) still starts a fresh
+        story for the new visit, exactly as round 1 has it -- the existing
+        test_luna_writes_it_once_a_utc_day_... already covers this with Luna; this is the plain-rules
+        case, checked directly against story_span."""
+        self.visit(BORN + 10)  # day 1
+        self.talker().poll(self.registry, BORN + 61)  # dawn of day 2: creates the item, day 1 only
+        self.visit(BORN + 70)  # day 2: the owner is back the very next day, watching
+        with self.world.connect() as db:
+            state = read_state(db)
+            self.assertEqual(story_span(db, state, BORN + 121, SCALE), (2, 2, None))  # a fresh story, not growth
+
+    def test_a_grown_luna_story_returns_the_lead_alone_when_nothing_else_fits(self):
+        """Fix round 2, item 3: when not even "Since then, it's been quiet." fits beside the lead, the
+        rules return the lead alone rather than let the total run past STORY_LIMIT. The reviewer's
+        probe: a 691-character lead plus a reached goal came to 720 characters."""
+        lead = "A" * 691
+        found = ["On day 2, I reached a goal: iron tools."]
+        self.assertEqual(since_then_story(lead, found), lead)
+        self.assertLessEqual(len(since_then_story(lead, found)), STORY_LIMIT)
 
     def test_growing_a_story_never_asks_luna_again_even_on_a_new_utc_day(self):
         """Fix round 1, item 6: growth never asks Luna (diary.py's `item is None` guard), regardless of

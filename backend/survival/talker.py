@@ -68,7 +68,9 @@ class Job:
 
 
 # {lane: [provide(world, now, scale, env) -> Job | None]}: what each lane does, first first. `world`
-# is read-only.
+# is read-only, with one exception: diary.story_job writes one small transaction of its own, through a
+# fresh connection to `world.path`, to record a Luna attempt before its Job is returned (Bond fix round
+# 1, item 7) -- never through `world` itself, which stays read-only throughout.
 LANES: dict[str, list] = {"chat": [], "story": []}
 # chore(db, state, now, scale) -> True when it changed the state: rules-only upkeep. The event log's
 # mirrors come first (Mind hook R7: Mind's memories and B2's inbox register their writers there), then B2's
