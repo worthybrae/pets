@@ -36,6 +36,7 @@ import re
 import sqlite3
 
 from backend.survival.clock import clock_at, time_scale
+from backend.survival.creatures.kinds import KINDS
 from backend.survival.episodes import followed
 from backend.survival.goals import lower
 from backend.survival.journal import LESSONS, TAUGHT, journal_state, learn_lesson
@@ -73,9 +74,21 @@ def heard_claims(heard: Heard) -> Claims:
 
 
 def without_name(text: str, name: str) -> str:
-    """`text` with the pet's own name dropped (fix round 1, Important 1): a pet named after a real
-    lesson's subject ("Moss") is never itself the claim."""
-    return re.sub(rf"\b{re.escape(name)}\b", "", text, flags=re.IGNORECASE) if name else text
+    """`text` with the pet's own name dropped, but only where it is used as address -- next to a
+    comma, or as the first or last word before punctuation ("Moss, I love you", "good job Moss!") --
+    so a pet named after a real lesson's subject ("Moss") is never itself the claim there, yet is
+    still taught it when the words are actually about it ("Moss grows on the forest floor" teaches
+    the moss lesson, not birch_forest; fix round 1, Important 1; fix round 2, residual 3)."""
+    if not name:
+        return text
+    escaped = re.escape(name)
+    address = re.compile(
+        rf"(?<=,)\s*\b{escaped}\b"        # right after a comma: "..., Moss"
+        rf"|\b{escaped}\b\s*(?=,)"         # right before a comma: "Moss, ..."
+        rf"|^\s*{escaped}\b(?=[!.?])"      # the first word, right before punctuation: "Moss! ..."
+        rf"|\b{escaped}\b(?=[!.?]*\s*$)",  # the last word, right before trailing punctuation or the end
+        re.IGNORECASE)
+    return address.sub("", text)
 
 
 def hear_lessons(db: sqlite3.Connection, s: Situation, heard: Heard) -> Claims:
@@ -158,21 +171,34 @@ def say(db: sqlite3.Connection, state: dict, text: str, now: float, scale: float
     add_line(db, state, "mimo", text, now, scale, "rules")
 
 
-# Bond B2's ruling (fix round 1, Minor 7): a sighting confirms only a habits lesson (Mimo has seen
-# how the creature lives); a drops lesson needs a hunt or a kill of that kind; a recipe lesson needs
-# a craft of the item itself -- never a sighting, since seeing a cow says nothing of its recipe.
-SIGHTING = frozenset({"found"})
+# Bond B2's ruling (fix round 1, Minor 7): a habits lesson (Mimo has seen how the creature lives) is
+# confirmed by a sighting or a threat, and also by a hunt or a fight (fix round 2, residual 4: one
+# taught after the first meeting can still be seen true); a drops lesson needs a hunt or a kill of
+# that kind; a recipe lesson needs a craft of the item itself -- never a sighting, since seeing a
+# cow says nothing of its recipe.
+SIGHTING = frozenset({"found", "threat"})
 HUNTING = frozenset({"hunt", "fight"})
 
 
+def l4b_drops_lesson(thing: str) -> bool:
+    """An L4b creature lesson (no Mind suffix) is a drops lesson when its own fact names one of the
+    kind's drops (cow, sheep, chicken, rabbit); the rest (fish, gloomling, skitter, whose drops --
+    gloom_dust, string -- go unmentioned) are habits lessons (fix round 2, Important 1)."""
+    kind, lesson = KINDS.get(thing), LESSONS.get(thing)
+    if kind is None or lesson is None or not kind.drops:
+        return False
+    said = set(tokens(lesson.fact))
+    return any(set(tokens(item)) & said for item in kind.drops)
+
+
 def confirms(thing: str, kind: str) -> bool:
-    if thing.endswith(":habits"):
-        return kind in SIGHTING
-    if thing.endswith(":drops"):
+    if thing.endswith(":drops") or (":" not in thing and l4b_drops_lesson(thing)):
         return kind in HUNTING
     if thing.startswith("recipe:"):
         return kind == "craft"
-    return True  # L4b's own lessons (no Mind suffix): any seeing kind, as before
+    if thing.endswith(":habits") or (":" not in thing and thing in KINDS):
+        return kind in SIGHTING or kind in HUNTING
+    return True  # L4b's other lessons (gravel, moss, diamonds, ...): any seeing kind, as before
 
 
 def see_it_true(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:

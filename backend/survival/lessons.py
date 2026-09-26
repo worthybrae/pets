@@ -28,12 +28,17 @@ diamonds, and is `doubtful`.
 A short statement that starts by naming a known subject (a creature kind or a recipe item) and is
 directly followed by a claim no lesson supports at all is `doubtful` too, even when its verb is
 outside TEACH_VERBS: "cows fly", "cows fly, it is true" (controller ruling, Task 5 and Task 6
-review). A copula right after the subject only describes it ("cows are cute") unless more follows
-too ("skitters are friendly and sing", still doubtful); talk of the owner ("I", "you", "we", "my",
-"your", "let's"), checked on the raw words, never is ("Moss, I love you", the pet named after the
-moss lesson's own subject) -- nor is anything that does not start with the subject at all ("good
-morning cows", "nice sword!", a place or a compliment mentioned in passing). Words that seem to
-teach about things no lesson is about are `unknown` ("bread is made from wheat"). A question never
+review). A copula right after the subject only describes it ("cows are cute", "cows are cute and
+friendly", both describing words) unless a non-describing word follows too ("skitters are friendly
+and sing", still doubtful); a word that only exclaims or observes ("cows look happy today", "cows
+rule!", "cow spotted near the lake") or a comma right after the subject (an exclamation or address:
+"skitters, yikes", "chickens, chickens everywhere") never is either, nor is talk of the owner ("I",
+"you", "we", "my", "your", "let's", "me", "us", "our", "mine", "u", "he", "him", "she", "her",
+"they", "them"), checked on the raw words ("Moss, I love you", the pet named after the moss
+lesson's own subject) -- nor is anything that does not start with the subject at all ("good morning
+cows", "nice sword!", a place or a compliment mentioned in passing). Words that seem to teach about
+things no lesson is about are `unknown`, narrowed the same way: "bread is made from wheat" stays
+unknown ("bread" is a thing), "keep the torch lit" does not ("keep" is not). A question never
 teaches.
 """
 
@@ -67,7 +72,7 @@ TEACH_SYNONYMS = (
     {"cap", "helmet", "hat"}, {"tunic", "shirt", "chestplate"}, {"pickaxe", "pick"}, {"sword", "blade"},
     {"cow", "cattle"}, {"skitter", "spider"}, {"gloomling", "zombie"}, {"rabbit", "bunny"},
     {"give", "drop"}, {"take", "need", "cost"}, {"make", "made", "craft"}, {"dark", "light", "shadow", "night"},
-    {"sun", "sunlight", "day", "daylight", "light"}, {"fade", "avoid", "fear", "burn"}, {"mountain", "alpine"},
+    {"sun", "sunlight", "day", "daylight", "light"}, {"fade", "burn"}, {"mountain", "alpine"},
     {"ingot", "bar"}, {"wooden", "wood"}, {"stone", "cobblestone"},
 )
 TEACH_VERBS = frozenset({"give", "make", "made", "need", "take", "drop", "come", "live", "grow", "burn", "hide",
@@ -75,11 +80,21 @@ TEACH_VERBS = frozenset({"give", "make", "made", "need", "take", "drop", "come",
 QUESTION_WORDS = frozenset({"do", "does", "did", "can", "could", "is", "are", "was", "what", "how", "why", "where",
                             "when", "who", "which", "should", "would", "will"})
 # "cows are cute": a copula right after a known subject only describes it, not a claim to check,
-# unless more follows too ("skitters are friendly and sing", controller ruling, Task 6 review).
+# unless more follows too ("skitters are friendly and sing", controller ruling, Task 6 review); "X
+# are A and B", both describing words, is chat too, even with more than one ("cows are cute and
+# friendly", fix round 2, residual 7). Fillers ("so", "very") are already STOPWORDS.
 COPULA = frozenset({"is", "are", "was", "were"})
-# Talk of the owner, not a claim about the subject ("Moss, I love you", "let's go fishing"), checked
-# on the raw words (the pet's own name is dropped before this, teaching.hear_lessons).
-PERSON_WORDS = frozenset({"i", "you", "we", "my", "your", "let"})
+DESCRIBING = frozenset({"cute", "fluffy", "friendly", "soft", "happy", "big", "small", "scary", "nice", "funny",
+                        "lovely", "sweet", "fat", "loud", "quiet", "fast", "slow"})
+# Talk of the owner, not a claim about the subject ("Moss, I love you", "let's go fishing", "cows
+# love u"), checked on the raw words (the pet's own name is dropped before this, teaching.hear_lessons,
+# fix round 2, residual 5).
+PERSON_WORDS = frozenset({"i", "you", "we", "my", "your", "let", "me", "us", "our", "mine", "u", "he", "him", "she",
+                          "her", "they", "them"})
+# A word right after the subject that only exclaims or observes, not a claim ("cows look happy
+# today", "cows rule!", "cow spotted near the lake", fix round 2, residual 6).
+SKIP_WORDS = frozenset({"look", "looks", "seem", "seems", "rule", "rules", "rock", "rocks", "everywhere", "again",
+                        "spotted"})
 _RAW_WORD = re.compile(r"[a-z]+")
 # A sentence boundary (., ! or ?) followed by space, but not inside a "..." pause (replies.clip's own
 # pattern): a false or foreign word in one sentence never spoils a lesson a later one teaches cleanly.
@@ -235,18 +250,21 @@ def keys_of(lesson: Lesson) -> Keys:
     return Keys(tuple(sorted(subjects, key=sorted)), frozenset(set().union(*(widened(word) for word in said))))
 
 
-_keys: tuple[int, dict[str, Keys], frozenset[str]] | None = None
+_keys: tuple[int, dict[str, Keys], frozenset[str], frozenset[frozenset[str]]] | None = None
 
 
-def lesson_keys() -> tuple[dict[str, Keys], frozenset[str]]:
-    """{thing: Keys} for every lesson, and the world's words (things' names), built again when a
-    lesson is added."""
+def lesson_keys() -> tuple[dict[str, Keys], frozenset[str], frozenset[frozenset[str]]]:
+    """{thing: Keys} for every lesson, the world's words (things' names), and every lesson's own
+    subject (so "iron" (iron_ore) + "sword" is seen as continuing into "iron sword"
+    (recipe:iron_sword)'s own longer subject, not a claim about iron ore; fix round 2, residual 6),
+    built again when a lesson is added."""
     global _keys
     if _keys is None or _keys[0] != len(LESSONS):
         keys = {thing: keys_of(lesson) for thing, lesson in LESSONS.items()}
         world = set(vocabulary()) | {word for found in keys.values() for subject in found.subjects for word in subject}
-        _keys = (len(LESSONS), keys, frozenset(world))
-    return _keys[1], _keys[2]
+        all_subjects = frozenset(subject for found in keys.values() for subject in found.subjects)
+        _keys = (len(LESSONS), keys, frozenset(world), all_subjects)
+    return _keys[1], _keys[2], _keys[3]
 
 
 @dataclass(frozen=True)
@@ -266,23 +284,39 @@ def raw_words(text: str) -> list[str]:
     return [singular(word) for word in _RAW_WORD.findall(text.lower())]
 
 
-def bare_claim(raw: list[str], subject: frozenset[str], found_words: frozenset[str]) -> bool:
+def comma_after(text: str, width: int) -> bool:
+    """A comma right after the first `width` words: an exclamation or address ("Skitters, yikes",
+    "Chickens, chickens everywhere", fix round 2, residual 6)."""
+    matches = list(_RAW_WORD.finditer(text.lower()))
+    if len(matches) < width:
+        return False
+    return text[matches[width - 1].end():].lstrip().startswith(",")
+
+
+def bare_claim(text: str, raw: list[str], subject: frozenset[str], found_words: frozenset[str],
+              all_subjects: frozenset[frozenset[str]]) -> bool:
     """A short statement that starts by naming a known subject and is directly followed by a claim
     no lesson supports at all ("cows fly", doubtful even though "fly" is outside TEACH_VERBS): a
-    copula right after the subject only describes it ("cows are cute") unless more follows too
-    ("skitters are friendly and sing"); talk of the owner never is (controller ruling, Task 6
-    review)."""
+    copula right after the subject only describes it ("cows are cute", "cows are cute and
+    friendly") unless a non-describing word follows too ("skitters are friendly and sing"); a word
+    that only exclaims or observes ("cows look happy today", "cows rule!"), a comma right after the
+    subject (an exclamation or address: "skitters, yikes"), or a word that only continues into
+    another, longer known subject ("iron" (iron_ore) followed by "sword": "iron swords rock" is
+    about recipe:iron_sword's subject, not a claim about iron ore) never is either; nor is talk of
+    the owner (controller ruling, Task 6 review; fix round 2, residuals 5-7)."""
     if PERSON_WORDS & set(raw):
         return False
     width = len(subject)
     if set(raw[:width]) != subject:
         return False
+    if comma_after(text, width):
+        return False
     rest = raw[width:]
-    if not rest:
+    if not rest or rest[0] in SKIP_WORDS or (subject | {rest[0]}) in all_subjects:
         return False
     copula = rest[0] in COPULA
     content = tokens(" ".join(rest[1:] if copula else rest))
-    if not content or (copula and len(content) <= 1):
+    if not content or (copula and (len(content) <= 1 or set(content) <= DESCRIBING)):
         return False
     return bool(set(content) - found_words)
 
@@ -291,7 +325,7 @@ def claims_one(text: str) -> Claims:
     """`claims`, judged for one sentence alone."""
     if asks(text):
         return Claims((), False, False)
-    keys, world = lesson_keys()
+    keys, world, all_subjects = lesson_keys()
     said = set(tokens(text))
     things = said & world
     raw = raw_words(text)
@@ -307,10 +341,14 @@ def claims_one(text: str) -> Claims:
             doubtful = True
         elif claim:
             fits.append((-(len(claim) + len(subject)), index, thing))
-        elif bare_claim(raw, subject, found.words):
+        elif bare_claim(text, raw, subject, found.words, all_subjects):
             doubtful = True
     fits.sort()
-    unknown = not fits and not doubtful and bool(things) and bool(said & TEACH_VERBS)
+    # Narrowed the way bare_claim narrows doubt (fix round 2, Important 2): no person words, and the
+    # line must start with a recognized thing ("bread is made from wheat" stays unknown; "keep the
+    # torch lit" does not, since "keep" is not a thing).
+    unknown = (not fits and not doubtful and bool(things) and bool(said & TEACH_VERBS)
+              and not (PERSON_WORDS & set(raw)) and bool(raw) and raw[0] in things)
     return Claims(tuple(thing for _, _, thing in fits[:SHORTLIST]), doubtful and not fits, unknown)
 
 

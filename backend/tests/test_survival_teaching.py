@@ -129,6 +129,18 @@ class TeachingTests(unittest.TestCase):
         self.assertNotIn(UNKNOWN, reply)
         self.assertEqual(self.knowledge("taught"), [])
 
+    def test_the_pets_name_is_dropped_only_when_used_as_address(self):
+        # Fix round 2, residual 3: "Moss grows on the forest floor" is about the moss lesson (its
+        # own subject), not address, and is taught it -- unlike round 1's blanket drop, which lost
+        # this to birch_forest instead.
+        with self.world.transaction() as db:
+            state = read_state(db)
+            state["name"] = "Moss"
+            write_state(db, state)
+        self.assertEqual(self.say("Moss grows on the forest floor"),
+                         "Oh, moss grows on the forest floor. Thank you for teaching me!")
+        self.assertEqual(self.knowledge("taught"), ["moss"])
+
     def test_seen_true_never_matches_the_pets_own_name(self):
         # Fix round 1, Important 2: an ordinary event that just names the pet ("Moss crafted
         # planks") must not confirm a lesson ("moss") only because the pet's own name matches it.
@@ -172,6 +184,26 @@ class TeachingTests(unittest.TestCase):
             log_event(db, BORN + 50, "craft", f"{self.name} crafted iron sword.")  # a craft
         run_chores(self.world, BORN + 51, 1.0)
         self.assertEqual(sorted(self.knowledge("seen_true")), ["cow:drops", "cow:habits", "recipe:iron_sword"])
+
+    def test_an_l4b_creature_lesson_with_drops_content_needs_a_hunt_not_a_sighting(self):
+        # Fix round 2, Important 1: "cow" and "sheep" (L4b's own lessons) name their kind's drops in
+        # their own fact, so only a hunt or a fight confirms them, like cow:drops; "skitter" (L4b's
+        # own lesson) does not (its fact never mentions "string"), so a sighting still confirms it.
+        self.say("Cows give leather!")  # teaches "cow" (the L4b lesson), not "cow:drops"
+        self.say("Sheep give mutton and wool.", at=BORN + 10)
+        self.say("Skitters come out of caves at night.", at=BORN + 20)
+        self.assertEqual(sorted(self.knowledge("taught")), ["cow", "sheep", "skitter"])
+        with self.world.transaction() as db:
+            log_event(db, BORN + 30, "found", f"{self.name} met its first cow.")
+            log_event(db, BORN + 31, "found", f"{self.name} met its first sheep.")
+            log_event(db, BORN + 32, "found", f"{self.name} met its first skitter.")
+        run_chores(self.world, BORN + 33, 1.0)
+        self.assertEqual(self.knowledge("seen_true"), ["skitter"])  # not the two drops-content lessons
+        with self.world.transaction() as db:
+            log_event(db, BORN + 40, "hunt", f"{self.name} hunted a cow.")
+            log_event(db, BORN + 41, "hunt", f"{self.name} hunted a sheep.")
+        run_chores(self.world, BORN + 42, 1.0)
+        self.assertEqual(sorted(self.knowledge("seen_true")), ["cow", "sheep", "skitter"])
 
     def test_mimo_says_so_when_it_sees_a_taught_lesson_true(self):
         seen = []

@@ -49,7 +49,9 @@ class LunaNeverHearsTheOwnerTests(unittest.TestCase):
             talker.close()
         name = self.life["name"]
         with self.world.transaction() as db:
-            log_event(db, BORN + 30, "found", f"{name} met its first cow.")
+            # Fix round 2, Important 1: "cow" (an L4b lesson) is drops content (beef, leather), so
+            # only a hunt confirms it now, not a sighting.
+            log_event(db, BORN + 30, "hunt", f"{name} hunted a cow.")
             # Fix round 1, Minor 5: a "seen true" memory (also about the owner) must stay out too.
             log_event(db, BORN + 40, "craft", f"{name} crafted planks.")
             log_event(db, BORN + 50, "craft", f"{name} crafted an iron cap.")
@@ -61,8 +63,9 @@ class LunaNeverHearsTheOwnerTests(unittest.TestCase):
             seen = [row[0] for row in db.execute("SELECT text FROM mind_memories WHERE source='seen_true'")]
             story = list(story_memories(db, 1, limit=50))
         self.assertEqual(len(told), 5)  # three facts about the owner, two lessons taught
-        # The found cow confirms the "cow" lesson taught (an L4b lesson, any sighting) and the craft
-        # of an iron cap confirms the taught recipe (fix round 1, Minor 7: a craft, not a sighting).
+        # The hunted cow confirms the "cow" lesson taught (an L4b lesson, drops content) and the
+        # craft of an iron cap confirms the taught recipe (fix round 1, Minor 7: a craft, not a
+        # sighting).
         self.assertEqual(len(seen), 2)
         for right in seen:
             self.assertIn("You were right", right)

@@ -117,6 +117,49 @@ class ClaimsTests(unittest.TestCase):
         self.assertEqual(claims("I like the lake.").taught, ())
         self.assertIn("skitter:habits", claims("I like the lake. Skitters hate light.").taught)
 
+    def test_fix_round_2_unknown_is_narrowed_the_way_doubt_is(self):
+        # Important 2: "keep the torch lit" no longer answers "I don't understand that yet" ("keep"
+        # is not a thing); "bread is made from wheat" still does ("bread" is).
+        for text in ("keep the torch lit", "I made you a bed", "we need more wood", "I grow tomatoes at home"):
+            self.assertEqual((claims(text).unknown, claims(text).doubtful, claims(text).taught),
+                             (False, False, ()), text)
+        self.assertTrue(claims("bread is made from wheat").unknown)
+
+    def test_fix_round_2_subject_first_exclamations_and_observations_are_not_doubted(self):
+        # Residual 6: a comma right after the subject (an exclamation or address), or a word that
+        # only exclaims or observes right after it, is not a claim.
+        for text in ("cows look happy today", "cows seem happy", "cows rule!", "iron swords rock",
+                     "gloomlings everywhere, run!", "skitters, yikes", "chickens, chickens everywhere",
+                     "cow spotted near the lake"):
+            found = claims(text)
+            self.assertEqual((found.taught, found.doubtful, found.unknown), ((), False, False), text)
+
+    def test_fix_round_2_a_copula_followed_by_two_describing_words_is_not_doubted(self):
+        # Residual 7: "X are A and B", both describing words, is chat; a non-describing word after
+        # the copula ("skitters are friendly and sing") is still doubted.
+        for text in ("rabbits are cute and fluffy", "cows are cute and friendly", "sheep are so fluffy and soft"):
+            self.assertFalse(claims(text).doubtful, text)
+        self.assertTrue(claims("skitters are friendly and sing").doubtful)
+
+    def test_fix_round_2_more_pronouns_are_never_a_claim(self):
+        # Residual 5: me, us, our, mine, u, he, him, she, her, they and them, added to PERSON_WORDS.
+        for text in ("skitters scare me", "cows follow us around", "that sword is mine", "cows love u",
+                     "cows remind him of home"):
+            self.assertFalse(claims(text).doubtful, text)
+
+    def test_fix_round_2_fear_and_avoid_no_longer_teach_a_habits_lesson(self):
+        # Residual 8: "fear" and "avoid" were synonyms of "fade" (skitter:habits' own fact); removed,
+        # so "I fear skitters" and "I avoid skitters" teach nothing. "skitters fear light" still
+        # teaches through "light" alone.
+        self.assertEqual(claims("I fear skitters").taught, ())
+        self.assertEqual(claims("I avoid skitters").taught, ())
+        self.assertIn("skitter:habits", claims("skitters fear light").taught)
+
+    def test_fix_round_2_a_known_subject_that_continues_into_a_longer_one_is_not_doubted(self):
+        # "iron" (iron_ore's own subject) followed by "sword" continues into recipe:iron_sword's own
+        # longer subject, not a claim about iron ore.
+        self.assertFalse(claims("iron swords rock").doubtful)
+
     def test_questions_and_small_talk_teach_nothing(self):
         for text in ("do cows give leather?", "Can you make a bow?", "cows are cute", "I love you", "my name is Sam",
                      "hi Mimo, how are you?"):

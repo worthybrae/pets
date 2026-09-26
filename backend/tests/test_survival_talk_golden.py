@@ -145,6 +145,20 @@ NEGATIVE = [
     ("would you like a snack?", "Busy, busy. There's always work."),
     ("do you like fishing?", "Busy, busy. There's always work."),
     ("I'm not sure", "Busy, busy. There's always work."),
+    # Mind M2 fix rounds 1-2: everyday lines a teach verb and a real thing once made "unknown"
+    # (weight 10, ahead of everything), and lines that merely brush a known subject once made
+    # "doubtful" the same way; both must still fall through to the ordinary mood line here.
+    ("I made you a bed", "Busy, busy. There's always work."),
+    ("we need more wood", "Busy, busy. There's always work."),
+    ("keep the torch lit", "Busy, busy. There's always work."),
+    ("I grow tomatoes at home", "Busy, busy. There's always work."),
+    ("cows rule!", "Busy, busy. There's always work."),
+    ("iron swords rock", "Busy, busy. There's always work."),
+    ("gloomlings everywhere, run!", "Busy, busy. There's always work."),
+    ("skitters, yikes", "Busy, busy. There's always work."),
+    ("chickens, chickens everywhere", "Busy, busy. There's always work."),
+    ("cow spotted near the lake", "Busy, busy. There's always work."),
+    ("I avoid skitters", "Busy, busy. There's always work."),
 ]
 # ...and lines that must: a goodbye only when it is one.
 GOODBYES = [("have a nice day!", "Bye, Sam! Come back soon."), ("I'll be back tomorrow", "Bye, Sam! Come back soon."),
