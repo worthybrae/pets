@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, newestItem } from './bond'
+import { answeredLine, canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, unreadIds } from './bond'
 import type { InboxItem } from './bondTypes'
+import { useEscape } from './escape'
 
-/** Mimo's messages to its owner, newest first. Opening it marks them read; a naming ask takes a name.
- * B3: where the owner turns browser notifications on or off. */
+/** Mimo's messages to its owner, newest first. Opening it marks read the ones it lists (Bond's final fix
+ * wave, I7: never the ones it does not show); a naming ask takes a name. B3: where the owner turns
+ * browser notifications on or off. */
 export default function InboxPanel({ name, notify, canNotify, onNotify, onChanged, onClose }: {
   name: string
   /** Notifications are on. */
@@ -19,15 +21,16 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
   const [items, setItems] = useState<InboxItem[] | null>(null)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [error, setError] = useState('')
+  useEscape(onClose)
 
   useEffect(() => {
     let cancelled = false
     fetchInbox().then(async (inbox) => {
       if (cancelled) return
       setItems(inbox.items)
-      const newest = newestItem(inbox.items)
-      if (inbox.unread > 0 && newest > 0) {
-        await markInboxRead(newest)
+      const listed = unreadIds(inbox.items)
+      if (listed.length > 0) {
+        await markInboxRead(listed)
         await onChanged()
       }
     }).catch((failure: unknown) => {
@@ -70,7 +73,7 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
                 {kindLabel(item.kind)} · {new Date(item.at * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
               </p>
               <p className="mt-1 leading-5">{item.text}</p>
-              {item.data.answer && <p className="mt-1 text-xs text-[#54726e]">You named it {item.data.answer}.</p>}
+              {answeredLine(item) && <p className="mt-1 text-xs text-[#54726e]">{answeredLine(item)}</p>}
               {canName(item) && (
                 <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void answer(item) }}>
                   <input value={drafts[item.id] ?? ''} maxLength={48} aria-label="A name for the place"

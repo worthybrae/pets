@@ -389,7 +389,7 @@ export interface LegacyState {
   last_thought: string
 }
 
-export interface LifeDetail {
+export interface LifeDetail extends DiaryFields {
   life: LifeRow
   notable_events: MimoEvent[]
   state: LegacyState | SurvivalState

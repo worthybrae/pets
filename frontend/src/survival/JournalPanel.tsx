@@ -1,3 +1,5 @@
+import { useEscape } from './escape'
+import FromYouBadge from './FromYouBadge'
 import { journalEntries, journalTitle } from './journal'
 import type { JournalEntry } from './types'
 
@@ -7,6 +9,7 @@ export default function JournalPanel({ name, journal, onClose }: {
   journal: readonly JournalEntry[] | undefined
   onClose: () => void
 }) {
+  useEscape(onClose)
   const entries = journalEntries(journal, name)
   const title = journalTitle(name)
   return (
@@ -28,7 +31,7 @@ export default function JournalPanel({ name, journal, onClose }: {
           {entries.map((entry) => (
             <li key={entry.key} className="rounded-xl bg-[#e9f2eb] px-4 py-3 text-sm leading-6">
               <span className="mr-2 rounded-md bg-white/70 px-2 py-0.5 text-xs font-semibold text-[#315e58]">{entry.label}</span>
-              {entry.fromYou && <span className="mr-2 rounded-md bg-[#f3e3c4] px-2 py-0.5 text-xs font-semibold text-[#8a6a2f]">From you</span>}
+              {entry.fromYou && <FromYouBadge />}
               <span className="italic text-[#243e3d]">“{entry.line}”</span>
               {entry.fact && <p className="mt-1 text-xs text-[#54726e]">{entry.fact}</p>}
               {entry.unlocks && <p className="mt-1 text-xs font-semibold text-[#3c7a68]">{entry.unlocks}</p>}

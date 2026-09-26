@@ -34,8 +34,12 @@ export interface BondView {
 export interface RequestView {
   goal: string
   title: string
-  /** Server time it lapses. */
-  until: number
+  /** Server time it lapses; Bond's final fix wave (I5): null while it waits for its goal to open. */
+  until: number | null
+  /** The title of the goal a waiting promise waits for (I5; an older API sends none). */
+  after?: string | null
+  /** A shy "maybe", not a promise (m6). */
+  maybe?: boolean
 }
 
 /** One message from Mimo (backend/survival/inbox.py). */
@@ -43,13 +47,14 @@ export interface InboxItem {
   id: number
   /** Server time. */
   at: number
-  /** "ask", "report"; B3 adds "found", "danger" and "story". */
+  /** "ask", "report"; B3 adds "found", "danger" and "story"; Bond's final fix wave "hatched". */
   kind: string
   text: string
-  /** A naming ask: {ask: "name", words, answer once named}; a care ask: {care}; a story: {day, last,
+  /** A naming ask: {ask: "name", words, answer once named}; a care ask: {care, day (its UTC day), done once
+   * that day's care was given (Bond's final fix wave, m14)}; a story: {day, last,
    * writer, and, for one Luna wrote and the rules later grew, lead, lead_last (Task 13's fix rounds)}. */
-  data: { ask?: string; words?: string; answer?: string; care?: string; day?: number; last?: number;
-    writer?: string; lead?: number; lead_last?: number }
+  data: { ask?: string; words?: string; answer?: string; care?: string; day?: number | string; last?: number;
+    writer?: string; lead?: number; lead_last?: number; done?: boolean }
   read: boolean
 }
 

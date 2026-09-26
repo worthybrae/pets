@@ -1,5 +1,6 @@
-import { workshopLine, workshopRows, workshopTitle } from './workshop'
+import { useEscape } from './escape'
 import type { WorkshopView } from './types'
+import { workshopLine, workshopRows, workshopTitle } from './workshop'
 
 /** Making: the Workshop panel, the machines Mimo built and what each shows now, oldest first. */
 export default function WorkshopPanel({ name, workshop, onClose }: {
@@ -7,6 +8,7 @@ export default function WorkshopPanel({ name, workshop, onClose }: {
   workshop: WorkshopView | undefined
   onClose: () => void
 }) {
+  useEscape(onClose)
   const rows = workshopRows(workshop)
   const line = workshopLine(workshop)
   const title = workshopTitle(name)

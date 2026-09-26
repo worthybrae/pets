@@ -1,4 +1,5 @@
 import { AIR, BLOCKS } from '../engine/blocks'
+import { useEscape } from './escape'
 import { chestText } from './hud'
 import type { Chests, Recipe } from './types'
 
@@ -17,6 +18,7 @@ export default function CraftingPanel({ name, inventory, chests, recipes, statio
   onAction: (action: string, item: string) => void
   onClose: () => void
 }) {
+  useEscape(onClose)
   const owned = Object.entries(inventory).filter(([, amount]) => amount > 0)
   const stored = chestText(chests)
   return (

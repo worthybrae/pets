@@ -21,8 +21,9 @@ export function inboxLabel(inbox: InboxView | undefined): string {
   return inbox && inbox.unread > 0 ? `Inbox (${inbox.unread})` : 'Inbox'
 }
 
+// Bond's final fix wave (m1): a find, a first sighting among them, is a discovery; a seed hatching has its own.
 const KIND_LABELS: Record<string, string> = {
-  ask: 'Asks you', report: 'News', found: 'First sighting', danger: 'Danger', story: 'While you were away',
+  ask: 'Asks you', report: 'News', found: 'Discovery', hatched: 'Hatched', danger: 'Danger', story: 'While you were away',
 }
 
 /** A message's kind in words. */
@@ -43,14 +44,31 @@ export function nameProblem(text: string): string | null {
   return null
 }
 
-/** "Promised: A herd of its own", while a request of the owner's lasts; '' otherwise. */
+/** "Promised: A herd of its own", while a request of the owner's lasts; '' otherwise. Bond's final fix
+ * wave: a promise waiting for its goal (I5, no `until` yet) says what it waits for, "Promised, after first
+ * circuits: A thinking machine", and a shy maybe (m6) says "Maybe later: Look into a cave". */
 export function promiseLine(taken: RequestView | null | undefined, serverTime: number): string {
-  return taken && serverTime < taken.until ? `Promised: ${taken.title}` : ''
+  if (!taken || (taken.until !== null && serverTime >= taken.until)) return ''
+  if (taken.maybe) return `Maybe later: ${taken.title}`
+  if (taken.until === null && taken.after) return `Promised, after ${taken.after.charAt(0).toLowerCase()}${taken.after.slice(1)}: ${taken.title}`
+  return `Promised: ${taken.title}`
 }
 
-/** The newest message id, to mark everything shown read. */
+/** The newest message id. */
 export function newestItem(items: InboxItem[]): number {
   return items.reduce((newest, item) => Math.max(newest, item.id), 0)
+}
+
+/** The unread messages among those listed: the ones opening the inbox marks read (Bond's final fix wave, I7). */
+export function unreadIds(items: InboxItem[]): number[] {
+  return items.filter((item) => !item.read).map((item) => item.id)
+}
+
+/** What answered one of Mimo's asks: the name given, or (m14) the day's snack or bandage; '' while it waits. */
+export function answeredLine(item: InboxItem): string {
+  if (item.data.answer) return `You named it ${item.data.answer}.`
+  if (item.data.care && item.data.done) return `You gave it a ${item.data.care}.`
+  return ''
 }
 
 /** Whether to tell the world the owner is here again: never sent, or VISIT_EVERY_MS since, with the tab showing. */
@@ -62,6 +80,6 @@ export const fetchInbox = () => request<{ items: InboxItem[]; unread: number }>(
 const postJson = <T>(path: string, body?: unknown) => request<T>(path, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}),
 })
-export const markInboxRead = (upTo: number) => postJson<{ unread: number }>('/api/mimo/inbox/read', { up_to: upTo })
+export const markInboxRead = (ids: number[]) => postJson<{ unread: number }>('/api/mimo/inbox/read', { ids })
 export const namePlace = (id: number, text: string) => postJson<{ item: InboxItem }>(`/api/mimo/inbox/${id}/answer`, { text })
 export const noteVisit = () => postJson<{ bond: BondView }>('/api/mimo/visit')

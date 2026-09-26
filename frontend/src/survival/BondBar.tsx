@@ -3,7 +3,10 @@ import { HEARTS, heartMeter, inboxLabel, noteVisit, promiseLine, visitDue } from
 import DiaryPanel from './DiaryPanel'
 import InboxPanel from './InboxPanel'
 import StoryPanel from './StoryPanel'
-import { loadNotify, markStoryRead, newestUnread, notifyPlan, saveNotify, storyToShow } from './story'
+import {
+  awayLongEnough, gameDayMs, loadNotify, markStoryRead, newestUnread, notifyPlan, notifyShown, openedStoryId, saveNotify,
+  storyOnOpen,
+} from './story'
 import TalkPanel from './TalkPanel'
 import { newestReply, talkLabel } from './talk'
 import type { AliveResponse } from './types'
@@ -12,7 +15,9 @@ const browserStorage = () => window.localStorage
 const canNotify = () => typeof Notification !== 'undefined'
 
 /** Bond, under the care buttons: the heart meter, talking with Mimo, its inbox and (B3) its diary; the
- * newest story first while it is unread, and opt-in browser notifications. */
+ * newest story first while it is unread, and opt-in browser notifications. Bond's final fix wave (I4): only the
+ * story waiting when the viewer opened (or when the tab came back after a game day hidden) pops up; one written
+ * while the owner watches goes quietly into the inbox and the diary. */
 export default function BondBar({ state, onChanged }: { state: AliveResponse; onChanged: () => Promise<void> }) {
   const [talking, setTalking] = useState(false)
   const [reading, setReading] = useState(false)
@@ -21,6 +26,11 @@ export default function BondBar({ state, onChanged }: { state: AliveResponse; on
   const lastVisit = useRef<number | null>(null)
   const [diaryOpen, setDiaryOpen] = useState(false)
   const [closedStory, setClosedStory] = useState(0)
+  // The story waiting when the viewer opened: the only one that pops up (I4).
+  const [openedStory, setOpenedStory] = useState(() => openedStoryId(state.story))
+  const latestStory = useRef(state.story)
+  const hiddenAt = useRef<number | null>(null)
+  const dayMs = gameDayMs(state.clock)
   const [notify, setNotify] = useState(() => loadNotify(browserStorage))
   // Messages already there when the viewer opens never notify.
   const notified = useRef(newestUnread(state.inbox))
@@ -45,10 +55,27 @@ export default function BondBar({ state, onChanged }: { state: AliveResponse; on
     }
   }, [lifeId])
 
+  // Back after a game day hidden: the story waiting then pops up, as when the viewer opens (I4).
+  useEffect(() => {
+    latestStory.current = state.story
+  }, [state.story])
+  useEffect(() => {
+    const seen = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt.current = Date.now()
+        return
+      }
+      if (awayLongEnough(hiddenAt.current, Date.now(), dayMs)) setOpenedStory(openedStoryId(latestStory.current))
+      hiddenAt.current = null
+    }
+    document.addEventListener('visibilitychange', seen)
+    return () => document.removeEventListener('visibilitychange', seen)
+  }, [dayMs])
+
   // Opted in: one browser notification for the messages that came since the last one told.
   const { inbox } = state
   useEffect(() => {
-    const plan = notifyPlan(inbox, notified.current, name)
+    const plan = notifyPlan(inbox, notified.current, name, document.visibilityState === 'visible')
     if (!plan) return
     notified.current = plan.upTo
     if (notify && canNotify() && Notification.permission === 'granted') {
@@ -62,7 +89,7 @@ export default function BondBar({ state, onChanged }: { state: AliveResponse; on
     setNotify(granted)
     saveNotify(browserStorage, granted)
   }
-  const story = storyToShow(state.story, closedStory)
+  const story = storyOnOpen(openedStory, state.story, closedStory)
   const closeStory = (id: number) => {
     setClosedStory(id)
     markStoryRead(id).then(onChanged).catch(() => undefined)
@@ -94,7 +121,8 @@ export default function BondBar({ state, onChanged }: { state: AliveResponse; on
       </div>
       {promise && <p className="mt-1 truncate text-xs text-[#54726e]">{promise}</p>}
       {talking && <TalkPanel name={name} chat={state.chat} onSent={onChanged} onClose={closeTalk} />}
-      {reading && <InboxPanel name={name} notify={notify} canNotify={canNotify()} onNotify={(on) => { void chooseNotify(on) }}
+      {reading && <InboxPanel name={name} notify={notifyShown(notify, canNotify() ? Notification.permission : undefined)}
+        canNotify={canNotify()} onNotify={(on) => { void chooseNotify(on) }}
         onChanged={onChanged} onClose={() => setReading(false)} />}
       {story && <StoryPanel name={name} story={story} onClose={() => closeStory(story.id)}
         onDiary={() => { closeStory(story.id); setDiaryOpen(true) }} />}

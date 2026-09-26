@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { DiaryEntry } from './bondTypes'
+import { useEscape } from './escape'
 import { diaryDay, fetchDiary } from './story'
 
 /** Mimo's diary: the newest stories, newest first. */
 export default function DiaryPanel({ name, onClose }: { name: string; onClose: () => void }) {
   const [entries, setEntries] = useState<DiaryEntry[] | null>(null)
   const [error, setError] = useState('')
+  useEscape(onClose)
   useEffect(() => {
     let cancelled = false
     fetchDiary().then((diary) => { if (!cancelled) setEntries(diary.entries) }).catch((failure: unknown) => {

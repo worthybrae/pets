@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChatView } from './bondTypes'
+import { useEscape } from './escape'
 import {
-  TEXT_LIMIT, canSend, charactersLeft, closesOnKey, draftProblem, limitText, sendChat, sendsOnKey, speaker, waitingText,
+  TEXT_LIMIT, canSend, charactersLeft, draftProblem, limitText, sendChat, sendsOnKey, speaker, waitingText,
 } from './talk'
 
 /** Talking with Mimo: the newest lines and a box to write in, over the world and the HUD. */
@@ -24,6 +25,7 @@ export default function TalkPanel({ name, chat, onSent, onClose }: {
   const newest = lines.length > 0 ? lines[lines.length - 1].id : 0
   const waiting = Boolean(chat?.waiting)
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [newest, waiting])
+  useEscape(onClose)
 
   const send = async () => {
     if (busy.current || sending) return
@@ -55,12 +57,6 @@ export default function TalkPanel({ name, chat, onSent, onClose }: {
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-end justify-end bg-[#203b38]/25 p-3 sm:items-stretch sm:p-6" role="presentation" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-label={`Talk with ${name}`} onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (closesOnKey(event.key)) {
-            event.stopPropagation()
-            onClose()
-          }
-        }}
         className="flex max-h-[80vh] w-full flex-col rounded-3xl bg-[#f5faf7] text-[#243e3d] shadow-2xl sm:max-h-none sm:w-96">
         <div className="flex items-center justify-between gap-3 border-b border-[#d6e5dc] px-5 py-3">
           <h2 className="text-lg font-semibold">Talk with {name}</h2>

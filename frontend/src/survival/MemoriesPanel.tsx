@@ -1,3 +1,5 @@
+import { useEscape } from './escape'
+import FromYouBadge from './FromYouBadge'
 import { memoriesTitle, memorySections } from './memories'
 import type { MemoriesView } from './mindTypes'
 
@@ -9,6 +11,7 @@ export default function MemoriesPanel({ name, memories, onClose }: {
   memories: MemoriesView | undefined
   onClose: () => void
 }) {
+  useEscape(onClose)
   const sections = memorySections(memories)
   const title = memoriesTitle(name)
   return (
@@ -33,7 +36,7 @@ export default function MemoriesPanel({ name, memories, onClose }: {
               {section.lines.map((line) => (
                 <li key={line.key} className="rounded-xl bg-[#e9f2eb] px-4 py-2.5 text-sm leading-6">
                   <span className="mr-2 rounded-md bg-white/70 px-2 py-0.5 text-xs font-semibold text-[#315e58]">{line.day}</span>
-                  {line.fromYou && <span className="mr-2 rounded-md bg-[#f3e3c4] px-2 py-0.5 text-xs font-semibold text-[#8a6a2f]">From you</span>}
+                  {line.fromYou && <FromYouBadge />}
                   <span className="text-[#243e3d]">{line.text}</span>
                   {line.mood && <span className="ml-2 text-xs text-[#8aa39d]" aria-hidden>{MOOD_MARKS[line.mood]}</span>}
                 </li>

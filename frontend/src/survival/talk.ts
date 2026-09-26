@@ -1,4 +1,5 @@
 import { request } from './api'
+import { closesOnEscape } from './escape'
 import type { ChatLeft, ChatLine, ChatView } from './bondTypes'
 
 /** Characters in one line to Mimo (backend/survival/talk.py TEXT_LIMIT). */
@@ -52,9 +53,9 @@ export function sendsOnKey({ key, shiftKey, isComposing }: TalkKey): boolean {
   return key === 'Enter' && !shiftKey && !isComposing
 }
 
-/** Whether a key closes the talk panel: Escape. */
+/** Whether a key closes the talk panel: Escape, as every panel (escape.ts). */
 export function closesOnKey(key: string): boolean {
-  return key === 'Escape'
+  return closesOnEscape(key)
 }
 
 /** What the limits leave, in words; '' while there is plenty. */
