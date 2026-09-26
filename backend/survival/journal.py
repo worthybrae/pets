@@ -74,6 +74,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 FACT = "lesson"  # the memory_knowledge fact for a lesson learned
+TAUGHT = "taught"  # Mind M2: the memory_knowledge fact for a lesson the owner taught (backend.survival.teaching)
 NEW_LESSON = 5.0  # curiosity a lesson takes away
 INVESTIGATE_REACH = 32.0
 CREATURE_SIGHT = 24.0
@@ -409,10 +410,12 @@ register(Purpose(
 
 def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     """The lessons Mimo learned, newest first: {thing, kind, fact, line (Jev's pick, or the fact),
-    unlocks, at}. A world from before L3 read as an archive has learned nothing."""
+    unlocks, at, from_you (Mind M2: the owner taught it)}. A world from before L3 read as an archive
+    has learned nothing."""
     words = ((brain or {}).get("journal") or {}).get("words", {})
     try:
         rows = learned(db)
+        taught = {row[0] for row in db.execute("SELECT subject FROM memory_knowledge WHERE fact=?", (TAUGHT,))}
     except sqlite3.OperationalError:  # no memory_knowledge table: an archive from before L3
         return []
     found = []
@@ -421,7 +424,8 @@ def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
         if lesson is None:
             continue
         found.append({"thing": thing, "kind": lesson.kind, "words": lesson.words, "fact": lesson.fact,
-                      "line": words.get(thing) or lesson.fact, "unlocks": lesson.unlocks, "at": at})
+                      "line": words.get(thing) or lesson.fact, "unlocks": lesson.unlocks, "at": at,
+                      "from_you": thing in taught})
     return found[:limit]
 
 

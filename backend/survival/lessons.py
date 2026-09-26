@@ -21,12 +21,15 @@ the words name what it is about (one of its `subjects`: "iron sword", or "iron a
 armor, TEACH_SYNONYMS widening them), say something it says too (another of its `words`), and name
 no other thing of the world (mind.vocabulary) that it does not: "cows give leather" fits the cow
 lessons, "cows give diamonds" fits none, since no cow lesson speaks of diamonds, and is `doubtful`.
-Words that seem to teach about things no lesson is about are `unknown` ("bread is made from
-wheat"). A question never teaches.
+A claim about a known subject with a verb no lesson says at all, "cows fly", is `doubtful` too
+(controller ruling, Task 5 review); small talk about the same subject with no verb of its own to
+check, "cows are cute" ("are" a copula, not a claim), is not. Words that seem to teach about things
+no lesson is about are `unknown` ("bread is made from wheat"). A question never teaches.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from backend.services.crafting import RECIPES
@@ -61,6 +64,10 @@ TEACH_VERBS = frozenset({"give", "make", "made", "need", "take", "drop", "come",
                          "keep", "craft", "dig", "smelt", "cook", "spawn", "hate", "fear", "use", "turn", "melt"})
 QUESTION_WORDS = frozenset({"do", "does", "did", "can", "could", "is", "are", "was", "what", "how", "why", "where",
                             "when", "who", "which", "should", "would", "will"})
+# "cows are cute": a copula, not a claim (controller ruling, Task 5 review: "cows fly" is doubtful,
+# small talk that only describes a known subject through "is"/"are" is not).
+COPULA = frozenset({"is", "are", "was", "were"})
+_RAW_WORD = re.compile(r"[a-z]+")
 
 
 def number(n: int) -> str:
@@ -245,6 +252,9 @@ def claims(text: str) -> Claims:
     keys, world = lesson_keys()
     said = set(tokens(text))
     things = said & world
+    # A copula ("cows are cute") only describes a known subject; it makes no claim to check, unlike
+    # a verb of its own ("cows fly") that no lesson says at all (controller ruling, Task 5 review).
+    describing = bool(COPULA & set(_RAW_WORD.findall(text.lower())))
     fits, doubtful = [], False
     for index, (thing, found) in enumerate(keys.items()):
         named = [subject for subject in found.subjects if subject <= said]
@@ -257,6 +267,8 @@ def claims(text: str) -> Claims:
             doubtful = True
         elif claim:
             fits.append((-(len(claim) + len(subject)), index, thing))
+        elif not describing and (said - subject) - found.words:
+            doubtful = True  # a known subject, and a claim about it that no lesson supports at all
     fits.sort()
     unknown = not fits and not doubtful and bool(things) and bool(said & TEACH_VERBS)
     return Claims(tuple(thing for _, _, thing in fits[:SHORTLIST]), doubtful and not fits, unknown)

@@ -77,7 +77,8 @@ class ChatHookTests(unittest.TestCase):
             self.assertEqual(self.say("hi!")[0], "I remember the night the skitter chased me.")  # 5 beats a greeting
         with patch.dict(REPLIES, {"teach_ack": lambda s, heard: "Oh! Cows give leather?"}), \
                 patch.dict(TOLD, {"teach_ack": 10.0}):
-            self.assertEqual(self.say("hi! cows give leather", at=BORN + 10)[0], "Oh! Cows give leather?")
+            # Mind M2: words that teach no real lesson, so Mind's own teaching does not answer them.
+            self.assertEqual(self.say("hi! guess what?", at=BORN + 10)[0], "Oh! Cows give leather?")
 
     def test_r3_hearing_hooks_run_once_a_job_and_their_findings_reach_questions_and_writers(self):
         calls, asked = [], []
@@ -92,16 +93,16 @@ class ChatHookTests(unittest.TestCase):
         def teach(s, heard):
             asked.append(dict(heard.context))
             return None
-        with patch.dict(HEARING, {"broken": broken, "teach": shortlist}), \
+        with patch.dict(HEARING, {"broken": broken, "teach": shortlist}, clear=True), \
                 patch.dict(REPLIES, {"teach_ack": lambda s, heard: Reply(
                     "teach_ack", "Leather? Tell me more!", weight=9.0) if heard.context.get("teach") else None}):
             QUESTIONS.insert(0, teach)
             try:
                 with self.assertLogs("backend.survival.talk", level="ERROR") as logs:
-                    said = self.say("cows give leather")
+                    said = self.say("leather is soft")  # Mind M2: no real lesson, so no teaching of Mind's
             finally:
                 QUESTIONS.remove(teach)
-        self.assertEqual(calls, ["cows give leather"])
+        self.assertEqual(calls, ["leather is soft"])
         self.assertEqual(asked, [{"teach": ("leather",)}])  # the crashing hook is left out
         self.assertEqual(len(logs.records), 1)
         self.assertEqual(said[0], "Leather? Tell me more!")

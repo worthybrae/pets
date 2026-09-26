@@ -82,6 +82,14 @@ class ClaimsTests(unittest.TestCase):
             found = claims(text)
             self.assertEqual((found.taught, found.doubtful), ((), True), text)
 
+    def test_a_verb_no_lesson_says_at_all_is_doubted_too_but_a_question_or_small_talk_is_not(self):
+        # Controller ruling (Task 5 review): "cows fly" names a known subject and makes a claim no
+        # lesson supports, so it is doubtful even though "fly" is outside TEACH_VERBS; "do you like
+        # cows?" is a question, not a claim, and stays chit-chat; "cows give leather" is still taught.
+        self.assertEqual((claims("cows fly").taught, claims("cows fly").doubtful), ((), True))
+        self.assertEqual((claims("do you like cows?").taught, claims("do you like cows?").doubtful), ((), False))
+        self.assertEqual(claims("cows give leather").taught, ("cow", "cow:drops"))
+
     def test_questions_and_small_talk_teach_nothing(self):
         for text in ("do cows give leather?", "Can you make a bow?", "cows are cute", "I love you", "my name is Sam",
                      "hi Mimo, how are you?"):
