@@ -307,7 +307,8 @@ def parts_left(s: Situation, blueprint: Blueprint) -> list[Planned]:
 
 def machine_needs(s: Situation) -> dict[str, int]:
     """making.NEEDS: the parts still missing from the machine Mimo started, or all the parts of the next
-    one (from its layout: no site is looked for here)."""
+    one (from its layout: no site is looked for here; for the automatic door, the plates its design at
+    home's door really lays: the final fix wave's I4, one on uneven ground)."""
     found = started(s)
     if found is not None:
         blocks = [planned.block for planned in parts_left(s, blueprint_of(found))]
@@ -315,8 +316,11 @@ def machine_needs(s: Situation) -> dict[str, int]:
         machine = next_machine(s)
         if machine is None:
             return {}
-        blocks = ["pressure_plate", "pressure_plate"] if machine.where == "door" else [
-            PLAIN[kind] for _, _, _, kind, _, _ in parse(machine.layout) if kind != "door"]
+        if machine.where == "door":
+            blueprint = door_design(s, machine)
+            blocks = [planned.block for planned in blueprint.parts(PART)] if blueprint is not None else []
+        else:
+            blocks = [PLAIN[kind] for _, _, _, kind, _, _ in parse(machine.layout) if kind != "door"]
     wanted: dict[str, int] = {}
     for block in blocks:
         wanted[block] = wanted.get(block, 0) + 1

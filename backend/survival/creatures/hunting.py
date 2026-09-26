@@ -72,12 +72,30 @@ def prey(s: Situation) -> list[dict]:
     return s.sensed("prey", look)
 
 
+# Making (the final fix wave, I3): functions of the Situation giving the kinds a hunt goes after first
+# while Mimo lacks no food (the cozy home's sheep and cows, backend.survival.cozy).
+PREY_WANTED: list = []
+
+
+def wanted_prey(s: Situation) -> set[str]:
+    """The kinds PREY_WANTED name now; one that crashes names none (logged once)."""
+    found: set[str] = set()
+    for wants in PREY_WANTED:
+        try:
+            found.update(wants(s))
+        except Exception as error:
+            log_once(logger, "prey wanted", error)
+    return found
+
+
 def quarry(s: Situation) -> dict | None:
-    """The animal this hunt is after: the nearest prey when the hunt starts, then the same one while
-    it lives and stays in range."""
+    """The animal this hunt is after: the nearest prey when the hunt starts (Making: the nearest of a
+    kind PREY_WANTED names, when one is in range and Mimo lacks no food), then the same one while it
+    lives and stays in range."""
     found = prey(s)
     if s.brain["batches"] == 0 and s.brain["replans"] == 0:
-        return found[0] if found else None
+        kinds = wanted_prey(s) if found and food_need(s) <= 0 else set()
+        return next((creature for creature in found if creature["kind"] in kinds), found[0] if found else None)
     chased = s.brain.get("prey")
     return next((creature for creature in found if creature["id"] == chased), None)
 

@@ -49,7 +49,7 @@ class RecipeTests(unittest.TestCase):
         "sign": ({"planks": 6, "sticks": 1}, {"sign": 3}),
         "barrel": ({"planks": 6, "slab": 2}, {"barrel": 1}),
         "composter": ({"slab": 7}, {"composter": 1}),
-        "candle": ({"tallow": 1, "string": 1}, {"candle": 1}),
+        "candle": ({"tallow": 1, "sticks": 1}, {"candle": 1}),  # the final fix wave: a stick, not string
     }
 
     def test_the_new_recipes_make_what_they_say(self):

@@ -79,7 +79,7 @@ RECIPES.update({
     "sign": {"ingredients": {"planks": 6, "sticks": 1}, "output": {"sign": 3}, "station": "crafting_table"},
     "barrel": {"ingredients": {"planks": 6, "slab": 2}, "output": {"barrel": 1}, "station": "crafting_table"},
     "composter": {"ingredients": {"slab": 7}, "output": {"composter": 1}},
-    "candle": {"ingredients": {"tallow": 1, "string": 1}, "output": {"candle": 1}},
+    "candle": {"ingredients": {"tallow": 1, "sticks": 1}, "output": {"candle": 1}},  # final fix wave: no string
 })
 # Making (T2): the parts of a machine. A copper ingot draws into twelve wires; the gates take torches for
 # their sparks, as redstone torches would.

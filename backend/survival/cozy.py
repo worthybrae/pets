@@ -8,7 +8,8 @@ from the home's own design: its size, its door side and its anchor):
 - a glass pane in the window high in the middle of each side wall; a home built without windows gets
   them by taking that wall block out first (a pane is solid, so the wall stays whole);
 - a bookshelf in the middle of the back wall, in place of its lower block;
-- a rug of Mimo's favourite colour (making.favourite_colour) on each passage cell from the door in;
+- a rug of Mimo's favourite colour (making.favourite_colour) on each passage cell from the second in
+  (the final fix wave's I4: the first, just inside the door, is the automatic door's pressure plate);
 - a flower pot in the front right corner inside and a candle (light 12) in the front left;
 - a sign outside by the door, on the side the campfire is not;
 - a composter at the corner of the farm by home, when there is one: crops within COMPOST_REACH of a
@@ -20,7 +21,14 @@ built, near it, when it can make a touch now: it makes up to TOUCHES_PER_BATCH w
 in, taking a wall block out first where a touch replaces one. Work band: 50 plus a tenth of
 creativity. While the cozy home is the goal, its touches are what making wants (making.NEEDS), so
 gather_materials brings the sugar cane, flowers, clay and sand, and Mimo hunts though fed while it
-lacks the leather, wool or tallow a touch takes (hunting.HUNT_FOR).
+lacks the leather, wool or tallow a touch takes (hunting.HUNT_FOR). The Making final fix wave (I3): such
+a hunt waits HIDE_HUNT_GAP after the last kill, as L4's hunt for hides does, and counts only while an
+animal that drops what is missing is in sight (GOODS_FROM: sheep for wool and tallow, cows for leather),
+which the hunt then goes after first (hunting.PREY_WANTED); only such a hunt works toward the cozy home
+(goals.ADVANCES), so a hunt for food is no longer boosted and labelled as one. A candle is tallow and a
+stick (the final fix wave's ruling: string only came from skitters). The flower pot waits while the
+workshop still wants its kiln (`waiting`: both are fired from the rare clay, and the kiln is on the way to
+the computer); what the touches will take is kept meanwhile (making.LATER).
 
 Waking at dawn in a home with a bookshelf, Mimo is content: BOOKSHELF_MOOD more mood (`tend_comfort`,
 from brain.notice_step).
@@ -40,15 +48,19 @@ from backend.services.blocks import is_replaceable
 from backend.survival.blueprints import Blueprint, local_to_world
 from backend.survival.creatures import hunting
 from backend.survival.foraging import reach_steps
-from backend.survival.goals import Goal, Milestone, active, register_goal
+from backend.survival.goals import ADVANCES, Goal, Milestone, active, reached, register_goal
 from backend.survival.grid import Cell
 from backend.survival.home import by_home, home_structure
-from backend.survival.making import NEEDS, craft_plan, favourite_colour, ingredients, needs, place_steps
+from backend.survival.life_goals import HIDE_HUNT_GAP
+from backend.survival.making import (
+    LATER, NEEDS, craft_plan, favourite_colour, in_chests, ingredients, needs, place_steps,
+)
 from backend.survival.once import log_once
 from backend.survival.pens import near_home
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.structures import blueprint_of
+from backend.survival.workshop import kiln_wanted
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -60,6 +72,7 @@ TOUCHES_PER_BATCH = 4
 DECORATE_BATCHES = 3
 BOOKSHELF_MOOD = 5.0
 ANIMAL_GOODS = ("leather", "wool", "tallow")
+GOODS_FROM = {"leather": ("cow",), "wool": ("sheep",), "tallow": ("sheep",)}  # I3: who drops each
 
 
 @dataclass(frozen=True)
@@ -106,7 +119,7 @@ def touches(s: Situation) -> list[Touch]:
                        replaces=s.grid.solid(world(i, middle, floor + 2))) for i in (-1, width)]
         found.append(Touch("bookshelf", world(door, depth, floor + 1), "bookshelf", replaces=True))
         found += [Touch("rug", world(door, j, floor + 1), f"rug_{favourite_colour(s.state)}")
-                  for j in range(0, middle + 1)]
+                  for j in range(1, middle + 1)]  # I4: the cell inside the door is the automatic door's plate
         found.append(Touch("pot", world(width - 1, 0, floor + 1), "flower_pot"))
         found.append(Touch("candle", world(0, 0, floor + 1), "candle"))
         for i in (door + 1, door - 1):
@@ -133,26 +146,69 @@ def cozying(s: Situation) -> bool:
     return goal is not None and goal.name == GOAL
 
 
-def cozy_needs(s: Situation) -> dict[str, int]:
-    """making.NEEDS: the touches still missing, while the cozy home is Mimo's goal."""
-    if not cozying(s):
-        return {}
+def waiting(s: Situation, touch: Touch) -> bool:
+    """The Making final fix wave: the flower pot waits while the workshop still wants its kiln (workshop.
+    kiln_wanted): both are fired from clay, which is rare (3 to 12 columns within 96 blocks of the gate's six
+    homes), and the kiln is on the way to the computer."""
+    return touch.kind == "pot" and kiln_wanted(s)
+
+
+def touches_wanted(s: Situation) -> dict[str, int]:
+    """The blocks of the touches still missing that can be made now (not `waiting`)."""
     wanted: dict[str, int] = {}
     for touch in touches_left(s):
-        wanted[touch.block] = wanted.get(touch.block, 0) + 1
+        if not waiting(s, touch):
+            wanted[touch.block] = wanted.get(touch.block, 0) + 1
     return wanted
 
 
-def hunt_for_goods(s: Situation) -> bool:
-    """hunting.HUNT_FOR: the cozy home wants leather, wool or tallow Mimo does not carry."""
+def cozy_needs(s: Situation) -> dict[str, int]:
+    """making.NEEDS: the touches still missing, while the cozy home is Mimo's goal."""
+    return touches_wanted(s) if cozying(s) else {}
+
+
+def cozy_later(s: Situation) -> dict[str, int]:
+    """making.LATER: the same, while the cozy home is not Mimo's goal and not reached yet."""
+    return {} if cozying(s) or GOAL in reached(s) else touches_wanted(s)
+
+
+def goods_missing(s: Situation) -> list[str]:
+    """The leather, wool or tallow the cozy home's touches take that Mimo neither carries nor keeps in a
+    chest (build_storage takes that out)."""
     if not cozying(s):
-        return False
+        return []
     chain = ingredients(needs(s))
-    return any(item in chain and s.count(item) == 0 for item in ANIMAL_GOODS)
+    return [item for item in ANIMAL_GOODS if item in chain and s.count(item) == 0 and not in_chests(s).get(item)]
+
+
+def prey_for_goods(s: Situation) -> tuple[str, ...]:
+    """hunting.PREY_WANTED (I3): the kinds that drop what the cozy home lacks."""
+    return tuple(sorted({kind for item in goods_missing(s) for kind in GOODS_FROM[item]}))
+
+
+def hunt_for_goods(s: Situation) -> bool:
+    """hunting.HUNT_FOR: the cozy home wants leather, wool or tallow Mimo does not have, an animal that
+    drops it is in sight, and (I3) Mimo killed nothing for HIDE_HUNT_GAP, as L4's hunt for hides waits."""
+    kinds = prey_for_goods(s)
+    if not kinds:
+        return False
+    hunted_at = s.state.get("hunted_at")
+    if hunted_at is not None and (s.at - hunted_at) * s.scale < HIDE_HUNT_GAP:
+        return False
+    return any(creature["kind"] in kinds for creature in hunting.prey(s))
+
+
+def hunt_advances(s: Situation, goal: Goal) -> bool:
+    """goals.ADVANCES (I3): a hunt works toward the cozy home only as a hunt for its goods; toward any other
+    goal whose milestone names it (armor's leather), as before."""
+    return goal.name != GOAL or hunt_for_goods(s)
 
 
 NEEDS.append(cozy_needs)
+LATER.append(cozy_later)
 hunting.HUNT_FOR.append(hunt_for_goods)
+hunting.PREY_WANTED.append(prey_for_goods)
+ADVANCES["hunt"] = hunt_advances
 
 
 # decorate_home -----------------------------------------------------------------------------------
@@ -162,6 +218,8 @@ def chosen_touches(s: Situation) -> list[Touch]:
     def look() -> list[Touch]:
         chosen: list[Touch] = []
         for touch in touches_left(s):
+            if waiting(s, touch):
+                continue
             trial: dict[str, int] = {}
             for block in [entry.block for entry in chosen] + [touch.block]:
                 trial[block] = trial.get(block, 0) + 1
