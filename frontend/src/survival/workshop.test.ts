@@ -4,7 +4,7 @@ import type { MachineRow, WorkshopView } from './types'
 
 const lamp: MachineRow = { id: 3, name: 'a lamp on a lever', machine: 'lamp_lever', status: 'done', x: 1, y: 1, z: 1, lamps: 1 }
 const computer: MachineRow = {
-  id: 9, name: 'a computer', machine: 'computer', status: 'done', x: 20, y: 1, z: 20, lamps: 3,
+  id: 9, name: "Pip's computer", machine: 'computer', status: 'done', x: 20, y: 1, z: 20, lamps: 3,
   readout: { value: 13, bits: '1101', shown: true },
 }
 const view = (machines: MachineRow[], workshop: WorkshopView['workshop'] = null): WorkshopView =>
@@ -28,16 +28,20 @@ describe('the workshop', () => {
       .toEqual([
         { key: 3, name: 'A lamp on a lever', status: 'Working', detail: '1 lamp lit' },
         { key: 4, name: 'A lamp on a lever', status: 'Working', detail: '' },
-        { key: 9, name: 'A computer', status: 'Working', detail: 'Counting: 1101 (13)' },
-        { key: 9, name: 'A computer', status: 'Working', detail: 'Counting: 0101 (5), display off' },
-        { key: 10, name: 'A computer', status: 'Being built', detail: '' },
+        { key: 9, name: "Pip's computer", status: 'Working', detail: 'Counting: 1101 (13)' },
+        { key: 9, name: "Pip's computer", status: 'Working', detail: 'Counting: 0101 (5), display off' },
+        { key: 10, name: "Pip's computer", status: 'Being built', detail: '' },
       ])
   })
 
   it("captions the computer's lamps with the day they spell", () => {
     expect(computerCaption('Pip', view([lamp, computer]), 13)).toBe("Pip's computer: day 13 = 1101")
     const wrapped = { ...computer, readout: { value: 1, bits: '0001', shown: true } }
-    expect(computerCaption('Pip', view([wrapped]), 17)).toBe("Pip's computer: 0001, day 17 counted to 15 and round")
+    expect(computerCaption('Pip', view([wrapped]), 17)).toBe("Pip's computer: 0001 = 1 (day 17)")
+    const later = { ...computer, readout: { value: 14, bits: '1110', shown: true } }
+    expect(computerCaption('Pip', view([later]), 62)).toBe("Pip's computer: 1110 = 14 (day 62)")
+    // The longest name a pet is given still leaves room on the HUD's 800 px line and a phone's.
+    expect(computerCaption('Juniper', view([later]), 62)!.length).toBeLessThanOrEqual(40)
     expect(computerCaption('Pip', view([computer]), 14)).toBe("Pip's computer: 1101 = 13")  // just before its dawn step
     expect(computerCaption('Pip', view([{ ...computer, readout: { ...computer.readout!, shown: false } }]), 13)).toBeNull()
     expect(computerCaption('Pip', view([{ ...computer, status: 'building' }]), 13)).toBeNull()

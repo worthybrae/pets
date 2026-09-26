@@ -20,6 +20,7 @@ from backend.tests.test_survival_workshop import Yard, shares
 DAY = 3600.0
 MORNING = 600.0
 NOON = 1200.0
+TICK = 60  # the night tests' tick, in game seconds
 
 
 def circuit_of(rows):
@@ -197,18 +198,19 @@ class RunTests(unittest.TestCase):
 
     @staticmethod
     def noons_after(first, out=None, back=None):
-        """The computer alone at 1x, first run at `first`, a tick every game second up to noon on day 4
-        (its lowest lamp taken out at `out` and put back at `back`): its lamps at noon on days 2-4."""
+        """The computer alone at 1x, first run at `first`, a tick every TICK game seconds (the final fix wave:
+        it was every game second, 11,400 ticks a test) up to noon on day 4 (its lowest lamp taken out at the
+        first tick from `out` and put back at the first from `back`): its lamps at noon on days 2-4."""
         yard = Yard()
         origin = (20, 1, 20)
         machine(yard, COMPUTER, origin=origin, name="computer")
         yard.grid.put(origin[0] + 19, 1, origin[2] + 9, "lever_on")
         lamps = [(origin[0] + column, 1, origin[2] + 7) for column in DAY_COLUMNS]
         shown = []
-        for second in range(int(first), int(3 * DAY + NOON) + 1):
-            if second == out:
+        for second in range(int(first), int(3 * DAY + NOON) + 1, TICK):
+            if out is not None and second - TICK < out <= second:
                 yard.grid.put(*lamps[0], "air")
-            if second == back:
+            if back is not None and second - TICK < back <= second:
                 yard.grid.put(*lamps[0], "lamp")
             run_signals(yard.state, yard.context(), float(second))
             if second % DAY == NOON and second > DAY:
@@ -282,7 +284,7 @@ class GoalTests(unittest.TestCase):
         yard.state["brain"]["machines_tried"] = list(built)  # tried out already
         self.assertEqual(next_machine(yard.situation()).name, "computer")
         yard.build("build_machine", batches=20)
-        self.assertIn((1.0, "built", "Pip built a computer."), yard.events)
+        self.assertIn((1.0, "built", "Pip built Pip's computer."), yard.events)  # M1: named for Mimo
         self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)
         (computer,) = [row for row in structures(yard.db, ("machine",)) if row["id"] not in built]
         lever = next(tuple(part[:3]) for part in computer["data"]["style"]["circuit"] if part[3] == "lever")

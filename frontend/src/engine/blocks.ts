@@ -26,7 +26,9 @@ export interface BlockDef {
   textures: FaceTextures
   glow: boolean
   fluid: boolean
-  /** L3: a cutout block drawn as a see-through cube (cactus, ladder, fence), not crossed sprites. */
+  /** The block has a `shape` in the registry ("cube", "slab" or "flat"): a cutout one is drawn as a see-through
+   * box `height` tall, not crossed sprites (L3's cactus, ladder and fence; Making's rugs, panes, bars, trapdoors
+   * and wiring). */
   cube: boolean
   /** Making: how tall that cube is drawn, 1 for a whole block, SLAB_HEIGHT for a slab (`shape` "slab")
    * and FLAT_HEIGHT for a plate lying on the ground (`shape` "flat": rugs, wire, trapdoors). */

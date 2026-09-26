@@ -89,7 +89,9 @@ LANDMARK_NEAR = 8.0
 
 @dataclass(frozen=True)
 class Lesson:
-    thing: str  # a block, plant, creature or biome name, or a landmark ("cave_mouth", "sinkhole", "lake")
+    # a block, plant, creature or biome name, a landmark ("cave_mouth", "sinkhole", "lake"), a making lesson
+    # ("copper_spark", "clock") or one of Mind's ("recipe:bow", "cow:drops")
+    thing: str
     kind: str  # "block", "plant", "creature", "biome", "landmark", "recipe" (Mind) or "making"
     words: str  # "gravel", "a sheep"
     fact: str  # "Gravel sometimes hides flint."
@@ -108,8 +110,8 @@ def teach(*lessons: Lesson) -> None:
 teach(
     Lesson("gravel", "block", "gravel", "Gravel sometimes hides flint.", "digs gravel for flint",
            ("Dig enough gravel and a flint turns up. Arrows!", "Gravel crunches, and there was flint inside!")),
-    Lesson("sand", "block", "sand", "Sand lies in the desert and under the lakes, and cactus grows on it.", "",
-           ("Sand everywhere in the desert, and under the water too.", "Soft sand. Cactus likes it.")),
+    Lesson("sand", "block", "sand", "Sand lies in the desert, on shores and under the lakes, and cactus grows on it.",
+           "", ("Sand everywhere in the desert, and under the water too.", "Soft sand. Cactus likes it.")),
     Lesson("snow", "block", "snow", "Snow lies on the cold taiga and high in the mountains.", "",
            ("Cold, white and crunchy: snow.", "Snow only lies where it is cold.")),
     Lesson("mud", "block", "mud", "Mud lies wet in the swamp.", "",

@@ -60,15 +60,17 @@ export function workshopRows(workshop: WorkshopView | null | undefined): Worksho
 
 /**
  * The HUD's caption for Mimo's computer (the spec: "Mimo's computer: day 13 = 1101"): the day its lamps
- * spell while they are shown. Its 4 bits count to 15 and round again, so from day 16 the caption says so
- * ("Pip's computer: 0001, day 17 counted to 15 and round"). Null without a working computer, or while its
- * lever hides the lamps.
+ * spell while they are shown. Its 4 bits count to 15 and round again, so from day 16 the caption gives the
+ * count and the day ("Pip's computer: 1110 = 14 (day 62)", short enough for the HUD's line on a phone). Null
+ * without a working computer, or while its lever hides the lamps.
  */
 export function computerCaption(name: string, workshop: WorkshopView | null | undefined, day: number): string | null {
   const computer = (workshop?.machines ?? []).filter((machine) => done(machine) && machine.machine === 'computer').at(-1)
   const readout = computer?.readout
   if (!readout || !readout.shown) return null
   if (readout.value === day) return `${name}'s computer: day ${day} = ${readout.bits}`
-  if (day >= 16 && readout.value === day % 16) return `${name}'s computer: ${readout.bits}, day ${day} counted to 15 and round`
+  if (day >= 16 && readout.value === day % 16) {
+    return `${name}'s computer: ${readout.bits} = ${readout.value} (day ${day})`
+  }
   return `${name}'s computer: ${readout.bits} = ${readout.value}`
 }

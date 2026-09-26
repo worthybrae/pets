@@ -1,5 +1,6 @@
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from backend.services.crafting import craft
 from backend.survival.grid import Grid
@@ -119,6 +120,37 @@ class LampTests(unittest.TestCase):
         lamp = tuple(found["data"]["style"]["circuit"][3][:3])
         self.assertEqual(yard.grid.material(*lamp), "lamp_lit")
         self.assertEqual(next_machine(yard.situation()).name, "auto_door")
+
+
+    def test_a_try_out_that_did_not_happen_is_tried_again(self):
+        """The Making final fix wave, M3: the machine was marked tried when the flip was planned, so a walk or
+        flip cut short (a reflex, out of reach) left its lever off for good. It is marked once the flip is done."""
+        yard = wired()
+        yard.build("build_machine", batches=1)
+        found = machine_named(yard, "lamp_lever")
+        steps = yard.plan("build_machine")  # the try-out is planned, then cut short before the flip
+        (flip,) = [step for step in steps if step["kind"] == "flip"]
+        self.assertEqual(flip["machine"], found["id"])
+        self.assertEqual(yard.state["brain"].get("machines_tried", []), [])
+        self.assertIsNotNone(untried(yard.situation()))  # so it is tried again
+        for walk in [step for step in steps if step["kind"] == "walk"]:
+            yard.state["position"] = dict(zip("xyz", map(float, walk["target"])))
+        running = start_step(flip, yard.state, yard.grid, 0.0)
+        finish_step(running, yard.state, yard.grid, 0.3)
+        self.assertEqual(yard.state["brain"]["machines_tried"], [found["id"]])
+        yard.grid.put(*flip["target"], "lever")  # thrown back off later: tried already, it stays as it is
+        self.assertIsNone(untried(yard.situation()))
+
+    def test_mimos_computer_is_named_for_it(self):
+        """The Making final fix wave, M1: "Pip built a computer." read like the planted one; it is Pip's."""
+        yard = wired(goal="thinking_machine")
+        for lesson in ("clock", "latch", "adder"):
+            know(yard.db, lesson, "lesson", 0.0)
+        s = yard.situation()
+        with patch("backend.survival.machines.next_machine", lambda s: MACHINES["computer"]):
+            self.assertEqual(design(s, MACHINES["computer"]).name, "Pip's computer")
+            self.assertIn("building Pip's computer:", PURPOSES["build_machine"].facts(s))
+        self.assertEqual(design(s, MACHINES["clock"]).name, "a clock")
 
 
 class DoorAndNightTests(unittest.TestCase):

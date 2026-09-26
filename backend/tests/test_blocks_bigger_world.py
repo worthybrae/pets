@@ -13,7 +13,7 @@ PLANTS = ("cactus", "sugar_cane", "fern", "dead_bush", "creature_sprout")
 
 
 class BiggerWorldBlockTests(unittest.TestCase):
-    def test_the_new_blocks_come_last_so_older_ids_never_change(self):
+    def test_the_bigger_worlds_blocks_follow_the_door_so_older_ids_never_change(self):
         names = [block["name"] for block in BLOCK_LIST]
         start = BLOCK_IDS["granite"]
         self.assertEqual(names[start:start + len(BIGGER_WORLD)], list(BIGGER_WORLD))

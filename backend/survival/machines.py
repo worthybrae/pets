@@ -24,10 +24,13 @@ PARTS_PER_BATCH parts Mimo can make now (making.craft_plan: at the workshop's ow
 is a finished workshop, walking in there first, else where it stands) and puts them in, in the layout's
 order; when the last part is in, the machine is done ("Pip built a lamp on a lever.",
 building.finish_if_built) and its circuit runs. Then one more batch tries it out: it throws its levers
-and presses its first button. Work band: 55 plus a tenth of creativity. While a making goal is Mimo's
-goal, the parts of its next machine are what making wants (making.NEEDS): copper ore for mine_ore
-(and gather_stone, with a stone pickaxe, digs on to prospect for copper it has not seen yet:
-work.prospecting) and sand for gather_materials.
+and presses its first button; it counts as tried once a flip is done (the final fix wave's M3), so a
+try-out that a reflex or a failed walk cut short is tried again. Work band: 55 plus a tenth of
+creativity. While a making goal is Mimo's goal, the parts of its next machine are what making wants
+(making.NEEDS): copper ore for mine_ore (and gather_stone, with a stone pickaxe, digs on to prospect
+for copper it knows none of within reach: work.prospecting) and sand for gather_materials. The
+automatic door wants the plates its design really lays (the final fix wave's I4), and the computer is
+named for Mimo ("Pip's computer": a Machine's title may name it, the final fix wave's M1).
 
 The first circuits (T2), the goal "First circuits" (after the workshop): copper mined, the lesson that
 copper carries a spark (backend.survival.tinker), then three machines: a lamp on a lever (its first
@@ -87,7 +90,7 @@ structures.STANDS_IN.update({off: (off, on) for off, on in MATERIALS.values() if
 @dataclass(frozen=True)
 class Machine:
     name: str  # "lamp_lever"
-    title: str  # "a lamp on a lever": the structure's name
+    title: str  # "a lamp on a lever": the structure's name ("{name}'s computer": formatted with Mimo's name)
     lesson: str  # the lesson it takes (backend.survival.tinker)
     layout: tuple[str, ...] = ()  # signals.parse's rows ("door" machines have none)
     where: str = "yard"  # "yard", "porch" or "door"
@@ -150,7 +153,7 @@ def ring_of(ox: int, oz: int, width: int, depth: int) -> list[tuple[int, int]]:
             if i in (-1, width) or j in (-1, depth)]
 
 
-def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int) -> Blueprint | None:
+def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int, owner: str = "Mimo") -> Blueprint | None:
     """The machine where its layout, levelled, costs the least digging and filling plus distance from
     `center` (T3): its parts on the floor, the cells to clear (dug down, then what grows there) and the
     floor blocks to fill; a walkway round it clear of water and of what Mimo built, and stands on it where
@@ -201,16 +204,22 @@ def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int) -> Blu
             stands.append((x, found[0] + 1, z))
     stands += [(ox + i, floor + 1, oz + j) for j in range(depth) for i in range(width) if (ox + i, oz + j) not in taken]
     clear.sort(key=lambda cell: (-cell[1], cell))
-    return machine_blueprint(machine, (ox, floor + 1, oz), parts, tuple(stands), fill, clear)
+    return machine_blueprint(machine, (ox, floor + 1, oz), parts, tuple(stands), fill, clear, owner)
+
+
+def title_of(machine: Machine, owner: str) -> str:
+    """The machine's name: its title formatted with Mimo's name (the final fix wave's M1: "Pip's computer")."""
+    return machine.title.format(name=owner)
 
 
 def machine_blueprint(machine: Machine, anchor: Cell, parts: list[list], stands: tuple[Cell, ...],
-                      floors: list[Cell] = (), clear: list[Cell] = ()) -> Blueprint:
-    """The design: the yard's cells to clear and its floor blocks (T3), then the parts."""
+                      floors: list[Cell] = (), clear: list[Cell] = (), owner: str = "Mimo") -> Blueprint:
+    """The design: the yard's cells to clear and its floor blocks (T3), then the parts; named `title_of`."""
     cells = tuple(Planned(cell, CLEAR, "air") for cell in clear)
     cells += tuple(Planned(cell, "floor", "dirt") for cell in floors)
     cells += tuple(Planned((x, y, z), PART, PLAIN[kind]) for x, y, z, kind, _, _ in parts if kind != "door")
-    return Blueprint(KIND, machine.title, anchor, cells, stands, style={"machine": machine.name, "circuit": parts})
+    return Blueprint(KIND, title_of(machine, owner), anchor, cells, stands,
+                     style={"machine": machine.name, "circuit": parts})
 
 
 def door_design(s: Situation, machine: Machine) -> Blueprint | None:
@@ -226,7 +235,7 @@ def door_design(s: Situation, machine: Machine) -> Blueprint | None:
     inside = (2 * door[0] - front[0], door[1], 2 * door[2] - front[2])
     plates = [cell for cell in (front, inside) if cell[1] == door[1]]
     parts = [[*cell, "plate", "", 0] for cell in plates] + [[*door, "door", "", 0]]
-    return machine_blueprint(machine, door, parts, tuple(blueprint.stands) + (front,))
+    return machine_blueprint(machine, door, parts, tuple(blueprint.stands) + (front,), owner=s.state["name"])
 
 
 def design(s: Situation, machine: Machine) -> Blueprint | None:
@@ -236,10 +245,10 @@ def design(s: Situation, machine: Machine) -> Blueprint | None:
             return door_design(s, machine)
         home = home_structure(s)
         if machine.where == "porch" and home is not None and blueprint_of(home).front is not None:
-            return layout_design(s.grid, machine, blueprint_of(home).front, PORCH_REACH)
+            return layout_design(s.grid, machine, blueprint_of(home).front, PORCH_REACH, s.state["name"])
         workshop = current_workshop(s)
         center = workshop_front(workshop) if workshop is not None and workshop["status"] == "done" else site_center(s)
-        return layout_design(s.grid, machine, center, machine.reach)
+        return layout_design(s.grid, machine, center, machine.reach, s.state["name"])
     return s.sensed(f"machine design {machine.name}", look)
 
 
@@ -356,16 +365,18 @@ def at_workshop(s: Situation) -> Situation:
     return replace(s, state={**s.state, "position": dict(zip("xyz", map(float, anchor)))}, memo={})
 
 
-def flips(s: Situation, blueprint: Blueprint) -> list[tuple[Cell, list[dict]]]:
-    """Throw each lever that is not on, and press the first button."""
+def flips(s: Situation, blueprint: Blueprint, number: int | None = None) -> list[tuple[Cell, list[dict]]]:
+    """Throw each lever that is not on, and press the first button (each flip naming the machine's
+    structure `number`, when given, so finish_flip marks it tried)."""
+    mark = {} if number is None else {"machine": number}
     jobs = []
     for x, y, z, kind, _, _ in blueprint.style.get("circuit", []):
         cell = (x, y, z)
         if kind == "lever" and s.grid.material(*cell) == "lever":
-            jobs.append((cell, [{"kind": "flip", "target": [x, y, z]}]))
+            jobs.append((cell, [{"kind": "flip", "target": [x, y, z], **mark}]))
     buttons = [(x, y, z) for x, y, z, kind, _, _ in blueprint.style.get("circuit", []) if kind == "button"]
     if buttons:
-        jobs.append((buttons[0], [{"kind": "flip", "target": list(buttons[0])}]))
+        jobs.append((buttons[0], [{"kind": "flip", "target": list(buttons[0]), **mark}]))
     return jobs
 
 
@@ -427,7 +438,8 @@ def machine_facts(s: Situation) -> str:
         return f"{trying[0]['name']} is built; time to try it out"
     machine, blueprint, _ = working(s)
     left = parts_left(s, blueprint)
-    return f"building {machine.title}: {len(left)} parts to go, {len(makeable(s, blueprint))} it can make now"
+    return (f"building {title_of(machine, s.state['name'])}: {len(left)} parts to go, "
+            f"{len(makeable(s, blueprint))} it can make now")
 
 
 def plan_machine(s: Situation, context: ActionContext) -> list[dict]:
@@ -436,9 +448,7 @@ def plan_machine(s: Situation, context: ActionContext) -> list[dict]:
     trying = untried(s)
     if trying is not None:
         found, blueprint = trying
-        tried = ensure_brain(s.state).setdefault("machines_tried", [])
-        tried.append(found["id"])
-        return place_steps(s, blueprint.stands, flips(s, blueprint))
+        return place_steps(s, blueprint.stands, flips(s, blueprint, found["id"]))
     machine, blueprint, found = working(s)
     if found is None:
         start(s.db, s.grid, blueprint, s.at)
@@ -461,16 +471,23 @@ def start_flip(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
     if grid.material(*target) not in ("lever", "lever_on", "button"):
         raise StepFailed("there is no lever or button there", "gone")
     return {"kind": "flip", "started_at": at, "ends_at": round(at + PLACE_SECONDS / scale, 3),
-            "target": as_point(target), "block": grid.material(*target)}
+            "target": as_point(target), "block": grid.material(*target),
+            **({"machine": spec["machine"]} if spec.get("machine") is not None else {})}
 
 
 def finish_flip(step: dict, state: dict, grid: Grid, at: float) -> None:
+    """Throw the lever or press the button. A machine's try-out flip marks it tried only now (the final fix
+    wave's M3: marked when planned, a walk or flip cut short left it untried for good)."""
     target = as_cell(step["target"])
     material = grid.material(*target)
     flipped = {"lever": "lever_on", "lever_on": "lever", "button": "button_on"}.get(material)
     if flipped is None:
         raise StepFailed("there is no lever or button there", "gone")
     grid.put(*target, flipped)
+    if step.get("machine") is not None:
+        tried = ensure_brain(state).setdefault("machines_tried", [])
+        if step["machine"] not in tried:
+            tried.append(step["machine"])
     return None
 
 

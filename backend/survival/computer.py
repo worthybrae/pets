@@ -19,6 +19,7 @@ it out by watching the machine before):
   joiner that ands each stage's bit with the lever's line). When it is first run it is set to the days
   Mimo has lived (STARTS: today's dawn counted, by day or by night), so it shows the game day in
   binary, the highest bit west, as long as it stands: "day 13 = 1101". 4 bits count to 15.
+  It is named for Mimo (the final fix wave's M1): "Pip built Pip's computer."
 A machine's parts are laid out as the rows below read (signals.parse). When Mimo throws the computer's
 lever the first time: a notable "computer" event ("Pip built a machine that remembers how long it has
 been alive!"). The readout (signals.READOUTS: the count, its bits and whether the lamps are shown) goes
@@ -89,7 +90,7 @@ COMPUTER_ROWS = (2, 3)
 register_machine(Machine("clock", "a clock", "clock", CLOCK))
 register_machine(Machine("memory_cell", "a memory cell", "latch", MEMORY))
 register_machine(Machine("counter", "a counter", "adder", COUNTER, try_out=False, reach=24))
-register_machine(Machine("computer", "a computer", "adder", COMPUTER, reach=24))
+register_machine(Machine("computer", "{name}'s computer", "adder", COMPUTER, reach=24))  # M1: Pip's computer
 MACHINE_GOALS[GOAL] = ("clock", "memory_cell", "counter", "computer")
 
 
