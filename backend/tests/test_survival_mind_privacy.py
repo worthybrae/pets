@@ -50,13 +50,22 @@ class LunaNeverHearsTheOwnerTests(unittest.TestCase):
         name = self.life["name"]
         with self.world.transaction() as db:
             log_event(db, BORN + 30, "found", f"{name} met its first cow.")
+            # Fix round 1, Minor 5: a "seen true" memory (also about the owner) must stay out too.
+            log_event(db, BORN + 40, "craft", f"{name} crafted planks.")
+            log_event(db, BORN + 50, "craft", f"{name} crafted an iron cap.")
             log_event(db, BORN + 2300, "sleep", f"{name} fell asleep.")  # the day's gist
         run_chores(self.world, BORN + 2301, 1.0)
         with self.world.connect() as db:
             told = [tuple(row) for row in db.execute(
                 "SELECT text, source FROM mind_memories WHERE kind='told' ORDER BY id")]
-            story = [memory.text for memory in story_memories(db, 1, limit=50)]
+            seen = [row[0] for row in db.execute("SELECT text FROM mind_memories WHERE source='seen_true'")]
+            story = list(story_memories(db, 1, limit=50))
         self.assertEqual(len(told), 5)  # three facts about the owner, two lessons taught
+        # The found cow confirms the "cow" lesson taught (an L4b lesson, any sighting) and the craft
+        # of an iron cap confirms the taught recipe (fix round 1, Minor 7: a craft, not a sighting).
+        self.assertEqual(len(seen), 2)
+        for right in seen:
+            self.assertIn("You were right", right)
         with self.world.transaction() as db:
             state = read_state(db)
             mark_trigger(state, "hello", BORN + 2310)
@@ -64,12 +73,16 @@ class LunaNeverHearsTheOwnerTests(unittest.TestCase):
         ask = prepare(SurvivalWorld(self.world.path, read_only=True), BORN + 2311, 1.0, LUNA)
         self.assertEqual(ask.route, "luna")
         self.assertTrue(story)
-        sent = json.dumps([ask.payload, story])
+        # No memory of the day's story is about the owner at all, "seen true" included (better: both
+        # a structural check on every story memory's own tags, and a text check below).
+        for memory in story:
+            self.assertNotIn("owner", memory.about)
+        sent = json.dumps([ask.payload, [memory.text for memory in story]])
         # What the owner said of themselves ("you like purple kites"), their own words and any told memory, whole
         # or retold ("You taught Pip that ..."). A lesson's fact is the world's, not the owner's: the journal shows it.
         facts = [text.split(" me ", 1)[-1] for text, source in told if source == "owner_fact"]
-        for words in (*(text for text, _ in told), *facts, *TAUGHT, "you taught", "you told me", "purple kites",
-                      "bakery"):
+        for words in (*(text for text, _ in told), *facts, *TAUGHT, *seen, "you taught", "you told me",
+                      "purple kites", "bakery", "you were right"):
             self.assertNotIn(words.rstrip(".!").lower(), sent.lower())
 
 
