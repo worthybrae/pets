@@ -8,10 +8,13 @@ from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.brain import brain_plan
 from backend.survival.choosing import Choice, apply_choice
 from backend.survival.creatures.hunting import in_a_cave
-from backend.survival.escape import SURFACE_SEARCH, TRAP_WINDOW, escape_plan, staircase, way_out
+from backend.survival.escape import (
+    POCKET, SURFACE_SEARCH, TRAP_WINDOW, escape_plan, on_surface, roomy, staircase, way_out,
+)
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables
 from backend.survival.pathing import moves
+from backend.survival.steps import as_cell
 from backend.survival.triggers import ensure_brain
 from backend.survival.vitals import START_VITALS
 
@@ -32,6 +35,36 @@ def pit(wall="dirt", width=1):
 
 def flat():
     return Grid(lambda x, y, z: "stone" if y <= 0 else "air")
+
+
+def ground():
+    """Open ground on the natural surface (y 5 and up is air, as EscapeTests patches it)."""
+    return Grid(lambda x, y, z: "stone" if y <= 4 else "air")
+
+
+def dune_pit(depth=2):
+    """L4b final fix wave, C1: open ground at y 5 (the natural surface, as EscapeTests patches it)
+    with a sand dune on it, 7 by 7 and `depth` high (y 5 up), and a 1x1 pit in its middle at (0, 0)
+    whose floor, y 5, lies above the natural surface: the seed-21 life's trap."""
+    def rule(x, y, z):
+        if y <= 4:
+            return "stone"
+        if abs(x) <= 3 and abs(z) <= 3 and y < 5 + depth and (x, z) != (0, 0):
+            return "sand"
+        return "air"
+
+    return Grid(rule)
+
+
+def carry_out(grid, state, steps):
+    """Do escape steps at once, the way they would end: mines open cells, places fill them, walks move Mimo."""
+    for step in steps:
+        if step["kind"] == "mine":
+            grid.put(*step["target"], "air")
+        elif step["kind"] == "place":
+            grid.put(*step["target"], step["block"])
+        elif step["kind"] == "walk":
+            state["position"] = dict(zip("xyz", map(float, step["target"])))
 
 
 def fenced_pit(width=5):
@@ -152,7 +185,10 @@ class EscapeTests(unittest.TestCase):
         ramp = overridden_pit({(1, 2, 0): "air", (1, 3, 0): "air", (2, 3, 0): "air", (2, 4, 0): "air", (3, 4, 0): "air"})
         self.assertTrue(way_out(ramp, (0, 1, 0), "1"))
         self.assertFalse(way_out(flat(), (0, 1, 0), "1"))  # a cave floor as wide as the search: no way up in reach
-        self.assertTrue(way_out(flat(), (0, 5, 0), "1"))  # on the surface already
+        # On the surface already. (L4b final fix wave, C1: this stood in flat()'s air at y 5, over a cave
+        # floor at y 1, where Mimo can walk nowhere; a cell above the surface is free only when Mimo can
+        # walk on from it, so the pet stands on real ground now.)
+        self.assertTrue(way_out(ground(), (0, 5, 0), "1"))
         self.assertEqual(SURFACE_SEARCH, 2000)
 
     def test_digs_a_staircase_out_of_a_dirt_pit(self):
@@ -340,6 +376,47 @@ class EscapeTests(unittest.TestCase):
         self.assertEqual(ctx.searches_left, 2)  # on the surface the check needs no search at all
 
 
+@patch("backend.survival.escape.terrain_height", lambda x, z, seed: 4)
+class PitAboveTheSurfaceTests(unittest.TestCase):
+    """L4b final fix wave, C1: routes drop 3 blocks but climb 1, and a 1x1 pit a dune or a boulder
+    leaves has its floor above the natural surface. Every cell above the surface counted as free, so
+    a pet a walk dropped in never dug out (the seed-21 fake-Jev life starved there on day 9)."""
+
+    def test_a_pit_above_the_surface_is_a_trap_and_the_brain_digs_out_of_it(self):
+        grid = dune_pit()
+        self.assertEqual(flood(grid, (0, 5, 0)), 1)  # nowhere to walk from the pit's floor
+        self.assertTrue(on_surface((0, 5, 0), "1"))  # yet above the natural surface: once "free"
+        self.assertFalse(roomy(grid, (0, 5, 0)))
+        self.assertFalse(way_out(grid, (0, 5, 0), "1"))
+        state = stuck(position={"x": 0.0, "y": 5.0, "z": 0.0})
+        ctx = brainy(grid)
+        steps = brain_plan(state, ctx, 2.0)
+        self.assertEqual({step["purpose"] for step in steps}, {"escape"})
+        self.assertEqual(ctx.events[-1][1:], ("trapped", "Pip is stuck in a pit and starts digging out."))
+        carry_out(grid, state, steps)
+        out = as_cell(state["position"])
+        self.assertEqual(out, (1, 6, 0))  # one stair up and out: the dune top is a step from there
+        self.assertGreater(flood(grid, out), POCKET)
+        self.assertTrue(way_out(grid, out, "1"))
+
+    def test_a_deeper_pit_climbs_on_until_a_stair_leads_somewhere(self):
+        grid = dune_pit(depth=3)
+        steps = escape_plan(grid, (0, 5, 0), {}, "1")
+        self.assertEqual(steps[-1], walk(2, 7, 0))  # the first stair above the surface is still in a pit
+        state = pet(position={"x": 0.0, "y": 5.0, "z": 0.0})
+        carry_out(grid, state, steps)
+        self.assertTrue(way_out(grid, as_cell(state["position"]), "1"))
+
+    def test_open_ground_above_the_surface_is_free_with_no_search(self):
+        state = stuck(position={"x": 2.0, "y": 7.0, "z": 2.0})  # on the dune top, beside the pit
+        ctx = brainy(dune_pit())
+        self.assertTrue(roomy(ctx.grid, (2, 7, 2)))
+        brain_plan(state, ctx, 2.0)
+        self.assertIsNone(state["brain"]["purpose"])  # not trapped: the failure is reported as usual
+        self.assertIn("explore", state["brain"]["penalties"])
+        self.assertEqual(ctx.searches_left, 2)  # the small flood takes no search from the tick's budget
+
+
 # The seed-11 life of the L3 final review (fake Jev): at game day 2.349 a hunt took Mimo down its own
 # staircase after a chicken, and off its side where it passes a natural cave opening, 3 blocks down
 # into a 393-cell pocket with no way up. Every walk failed "no way there" for most of a game day.
@@ -381,6 +458,31 @@ class Seed11PocketTests(unittest.TestCase):
         self.assertEqual({step["purpose"] for step in steps}, {"escape"})
         end = steps[-1]["target"]
         self.assertGreater(end[1], terrain_height(end[0], end[2], SEED_11))  # it ends on the natural surface
+
+
+# L4b final fix wave, C1: the seed-21 life of the L4b final review (fake Jev, sim pace). A wander walk
+# ended at the bottom of a 1x1 pit in a desert's sandstone, 3 deep, whose floor lies above the natural
+# surface. From day 4.28 every walk failed "no way there" (204 explores, 39 go-homes), and on day 9.07
+# the pet starved. The pit is worldgen's own: Mimo dug nothing there.
+SEED_21 = "58672336141078560"  # the world hatch(random.Random(21)) makes
+
+
+class Seed21PitTests(unittest.TestCase):
+    def test_the_pit_is_a_trap_now_and_mimo_digs_out_of_it(self):
+        grid = Grid(lambda x, y, z: block_at(x, y, z, SEED_21))
+        here = (5931, 10, 571)
+        self.assertGreater(here[1], terrain_height(here[0], here[2], SEED_21))  # its floor: above the natural surface
+        self.assertEqual(flood(grid, here), 1)
+        self.assertFalse(way_out(grid, here, SEED_21))
+        state = stuck(world_seed=SEED_21, position={"x": 5931.0, "y": 10.0, "z": 571.0})
+        state["recent_actions"] = [failed_walk(1.0, "explore"), failed_walk(2.0, "go_home")]
+        state["brain"].update(purpose="go_home", chosen_at=1.5, replans=0)
+        steps = brain_plan(state, brainy(grid), 2.0)
+        self.assertEqual({step["purpose"] for step in steps}, {"escape"})
+        carry_out(grid, state, steps)
+        out = as_cell(state["position"])
+        self.assertGreater(flood(grid, out), POCKET)
+        self.assertTrue(way_out(grid, out, SEED_21))
 
 
 if __name__ == "__main__":

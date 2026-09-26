@@ -25,6 +25,14 @@ first staircase that brings Mimo above the natural surface within 24 stairs, at 
 real seconds. There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
 to place, stays a trap.
 
+L4b final fix wave, C1: a cell above the natural surface is free only when Mimo can walk from it to
+more than POCKET cells (`free`). Worldgen's decorations (a sand dune, a granite boulder) leave 1x1
+pits whose floor lies above the natural surface; a walk dropped a pet into one, every cell above
+the surface counted as free, so no staircase was dug and it starved there (seed 21, fake Jev, day
+9). Such a pit is a trap now: `plan_escape` checks it (the small flood needs no search from the
+tick's budget), `way_out` looks past it, and a staircase ends only on a stair that is free once its
+own digging is done (`Dug`).
+
 Its steps carry `keep: "escape"`, so a new choice landing mid-escape (apply_choice's kept_steps)
 keeps digging out instead of cutting the escape short (follow-up fix, the minors). Unlike a
 portable station's mine-back `keep: True`, that only rides out a new choice: a step that fails on
@@ -40,7 +48,7 @@ from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, LOGS, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext, take_search
-from backend.survival.grid import Cell, Grid, supports
+from backend.survival.grid import FLUIDS, Cell, Grid, supports
 from backend.survival.home import home_cell
 from backend.survival.pathing import moves
 from backend.survival.purposes import walk_to
@@ -60,7 +68,9 @@ TRAP_WINDOW = 300.0  # game seconds: two walks with no path this close together 
 MAX_STAIRS = 24
 ESCAPE_RETRY = 60.0
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
-FLUIDS = ("water", "lava")
+# L4b final fix wave, C1: a cell above the natural surface from which Mimo can walk to no more than
+# this many cells (itself included) is a pit, not open ground. The seed-21 pit held 1.
+POCKET = 16
 # Blocks Mimo will place to stand on, cheapest first.
 PLACEABLE = ("dirt", "cobblestone", "sand", "gravel", "clay", "planks", "birch_planks", "spruce_planks", "stone_bricks",
              "oak_log", "birch_log", "spruce_log")
@@ -84,14 +94,33 @@ def on_surface(cell: Cell, seed: str) -> bool:
     return cell[1] > terrain_height(cell[0], cell[2], seed)
 
 
+def roomy(grid: Grid | Dug, start: Cell, limit: int = POCKET) -> bool:
+    """Mimo can walk from `start` to more than `limit` cells (itself included): not a pit (C1)."""
+    seen, frontier = {start}, deque([start])
+    while frontier:
+        for step in moves(grid, frontier.popleft()):
+            if step not in seen:
+                seen.add(step)
+                if len(seen) > limit:
+                    return True
+                frontier.append(step)
+    return False
+
+
+def free(grid: Grid | Dug, cell: Cell, seed: str) -> bool:
+    """Open ground: above the natural surface, and not a pit there (`roomy`, C1)."""
+    return on_surface(cell, seed) and roomy(grid, cell)
+
+
 def way_out(grid: Grid, start: Cell, seed: str, homes: frozenset[Cell] | set[Cell] = frozenset(),
             limit: int = SURFACE_SEARCH) -> bool:
-    """Whether Mimo can walk from `start` to a cell at or above the natural surface, or to one of
-    `homes`, looking at no more than `limit` cells, nearest first. False means trapped."""
+    """Whether Mimo can walk from `start` to open ground (`free`: above the natural surface and not
+    a pit there), or to one of `homes`, looking at no more than `limit` cells, nearest first. False
+    means trapped."""
     seen, frontier = {start}, deque([start])
     while frontier:
         cell = frontier.popleft()
-        if cell in homes or on_surface(cell, seed):
+        if cell in homes or free(grid, cell, seed):
             return True
         for step in moves(grid, cell):
             if step not in seen and len(seen) < limit:
@@ -102,6 +131,29 @@ def way_out(grid: Grid, start: Cell, seed: str, homes: frozenset[Cell] | set[Cel
 
 def look(grid: Grid, changed: dict[Cell, str], cell: Cell) -> str:
     return changed.get(cell) or grid.material(*cell)
+
+
+class Dug:
+    """The grid as a staircase plan would leave it: the cells it mines or places (`changed`) over
+    the rest, with the few Grid rules `pathing.moves` reads (C1: a stair is checked for a pit
+    with its own digging done)."""
+
+    def __init__(self, grid: Grid, changed: dict[Cell, str]):
+        self.grid, self.changed = grid, changed
+
+    def material(self, x: int, y: int, z: int) -> str:
+        return look(self.grid, self.changed, (x, y, z))
+
+    def passable(self, cell: Cell) -> bool:
+        material = self.material(*cell)
+        return material not in FLUIDS and not is_solid(material)
+
+    def supported(self, cell: Cell) -> bool:
+        x, y, z = cell
+        return supports(self.material(x, y - 1, z), self.material(x, y, z))
+
+    def standable(self, cell: Cell) -> bool:
+        return self.passable(cell) and self.supported(cell)
 
 
 def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps: list[dict],
@@ -134,7 +186,8 @@ def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps
 
 
 def staircase(grid: Grid, here: Cell, heading: tuple[int, int], inventory: dict, seed: str) -> list[dict] | None:
-    """Stairs up from `here` toward `heading` until Mimo stands above the natural surface, or None."""
+    """Stairs up from `here` toward `heading` until Mimo stands on open ground (`free` once the
+    stairs are dug: above the natural surface, and not a pit there, C1), or None."""
     changed: dict[Cell, str] = {}
     stock, steps = dict(inventory), []
     x, y, z = here
@@ -161,7 +214,7 @@ def staircase(grid: Grid, here: Cell, heading: tuple[int, int], inventory: dict,
             stock[block] -= 1
             changed[support] = block
         steps.append(walk_to(stair))
-        if stair[1] > terrain_height(stair[0], stair[2], seed):
+        if free(Dug(grid, changed), stair, seed):
             return steps
     return None
 
@@ -179,7 +232,8 @@ def plan_escape(state: dict, context: ActionContext, at: float) -> list[dict] | 
     """A staircase out when Mimo is trapped, its steps tagged "escape".
 
     [] when Mimo is not trapped, tried to escape less than a minute ago, or has no way out.
-    None when the trap check needs a search and none is left this tick.
+    None when the trap check needs a search and none is left this tick. On open ground (`free`,
+    whose small flood needs no search) Mimo is not trapped; in a pit above the surface it may be (C1).
     """
     brain = ensure_brain(state)
     if not walks_failed_twice(state, at, context.clock_at(at)["time_scale"]):
@@ -187,7 +241,7 @@ def plan_escape(state: dict, context: ActionContext, at: float) -> list[dict] | 
     if brain["escaped_at"] is not None and at - brain["escaped_at"] < ESCAPE_RETRY:
         return []
     here, seed = as_cell(state["position"]), state["world_seed"]
-    if on_surface(here, seed):
+    if free(context.grid, here, seed):
         return []
     if not take_search(context):
         return None
