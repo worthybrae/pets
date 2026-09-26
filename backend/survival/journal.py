@@ -415,7 +415,8 @@ def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     words = ((brain or {}).get("journal") or {}).get("words", {})
     try:
         rows = learned(db)
-        taught = {row[0] for row in db.execute("SELECT subject FROM memory_knowledge WHERE fact=?", (TAUGHT,))}
+        # fix round 1, Minor 9: "from_owner", not "taught" -- that name already means journal.taught()
+        from_owner = {row[0] for row in db.execute("SELECT subject FROM memory_knowledge WHERE fact=?", (TAUGHT,))}
     except sqlite3.OperationalError:  # no memory_knowledge table: an archive from before L3
         return []
     found = []
@@ -425,7 +426,7 @@ def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
             continue
         found.append({"thing": thing, "kind": lesson.kind, "words": lesson.words, "fact": lesson.fact,
                       "line": words.get(thing) or lesson.fact, "unlocks": lesson.unlocks, "at": at,
-                      "from_you": thing in taught})
+                      "from_you": thing in from_owner})
     return found[:limit]
 
 

@@ -115,6 +115,19 @@ def game_seconds(state: dict, now: float, scale: float) -> float:
     return max(0.0, now - state["born_at"]) * scale
 
 
+def add_line(db: sqlite3.Connection, state: dict, who: str, text: str, now: float, scale: float,
+             picker: str) -> str:
+    """Insert one chat line and prune to LINES_KEPT (today's lines all kept too, so the daily limit
+    counts them all): the one write `store_chat` and Mind's teaching.say both need (fix round 1,
+    Task 6 review, Important 4). Returns the clipped text."""
+    text = clip(text)
+    db.execute("INSERT INTO mimo_chat(at, game_at, who, text, picker) VALUES (?, ?, ?, ?, ?)",
+               (now, game_seconds(state, now, scale), who, text, picker))
+    db.execute("DELETE FROM mimo_chat WHERE at < ? AND id NOT IN (SELECT id FROM mimo_chat ORDER BY id DESC "
+               "LIMIT ?)", (day_start(now), LINES_KEPT))
+    return text
+
+
 def lines_left(db: sqlite3.Connection, now: float, game_at: float) -> dict[str, int]:
     """How many more owner lines the game hour's and the UTC day's limits allow."""
     hour = db.execute("SELECT COUNT(*) FROM mimo_chat WHERE who='owner' AND game_at > ?",
@@ -423,11 +436,7 @@ def store_chat(world: SurvivalWorld, ask: ChatAsk, answer: ChatAnswer, now: floa
                       for option in question.options if option.name == answer.picks.get("reply", question.rules)), None)
         reply = clip(keep_answers(db, state, ask, answer, now) or reply or LOST_LINE)
         db.execute("UPDATE mimo_chat SET status=? WHERE id=?", (ANSWERED, ask.line_id))
-        db.execute("INSERT INTO mimo_chat(at, game_at, who, text, picker) VALUES (?, ?, 'mimo', ?, ?)",
-                   (now, game_seconds(state, now, ask.scale), reply, answer.picker))
-        # Today's lines stay, so the daily limit counts them all; older ones past the newest LINES_KEPT go.
-        db.execute("DELETE FROM mimo_chat WHERE at < ? AND id NOT IN (SELECT id FROM mimo_chat ORDER BY id DESC "
-                   "LIMIT ?)", (day_start(now), LINES_KEPT))
+        add_line(db, state, "mimo", reply, now, ask.scale, answer.picker)
         write_state(db, state)
         return reply
 

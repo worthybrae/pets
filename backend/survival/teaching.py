@@ -32,6 +32,7 @@ a lesson (fact SEEN); then the CONFIRMED hooks run (Bond B2's bond counts it as 
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from backend.survival.clock import clock_at, time_scale
@@ -42,9 +43,9 @@ from backend.survival.lessons import Claims, claims, named, tokens
 from backend.survival.memory import know
 from backend.survival.mind import add_memory
 from backend.survival.pickers import Option
-from backend.survival.replies import REPLIES, TOLD, Heard, clip
+from backend.survival.replies import REPLIES, TOLD, Heard, Reply, clip
 from backend.survival.situation import Situation
-from backend.survival.talk import HEARING, KEEPERS, LINES_KEPT, QUESTIONS, Question, day_start, game_seconds
+from backend.survival.talk import HEARING, KEEPERS, QUESTIONS, Question, add_line
 
 NONE = "none"
 SEEN = "seen_true"  # the memory_knowledge fact for a taught lesson Mimo saw true
@@ -71,9 +72,22 @@ def heard_claims(heard: Heard) -> Claims:
     return found if isinstance(found, Claims) else claims(heard.text)
 
 
+def without_name(text: str, name: str) -> str:
+    """`text` with the pet's own name dropped (fix round 1, Important 1): a pet named after a real
+    lesson's subject ("Moss") is never itself the claim."""
+    return re.sub(rf"\b{re.escape(name)}\b", "", text, flags=re.IGNORECASE) if name else text
+
+
 def hear_lessons(db: sqlite3.Connection, s: Situation, heard: Heard) -> Claims:
     """talk.HEARING["teach"]: what the owner's words could teach, worked out once a chat job."""
-    return claims(heard.text)
+    return claims(without_name(heard.text, s.state.get("name") or ""))
+
+
+def hear_day(db: sqlite3.Connection, s: Situation, heard: Heard) -> int:
+    """talk.HEARING["teach_day"]: this chat job's own game day (s.clock, built with the scale this
+    call was given), so a lesson taught is dated by it and not a second clock read fresh
+    (time_scale(), fix round 1, Minor 8)."""
+    return s.clock["day_number"]
 
 
 def teach_question(s: Situation, heard: Heard) -> Question | None:
@@ -87,10 +101,13 @@ def teach_question(s: Situation, heard: Heard) -> Question | None:
         lesson = LESSONS[thing]
         options.append(Option(thing, lesson.words, f"Learn from the owner: {lesson.fact}",
                               "Mimo knows it already" if thing in known else "new to Mimo", 0.0))
-    return Question("teach", TEACH_INSTRUCTIONS, tuple(options), found.taught[0])
+    # Prefer the first offered lesson Mimo doesn't know yet (fix round 1, Minor 6): re-teaching a
+    # known lesson alongside a new one should still teach the new one, not just say "I know that!".
+    rules = next((thing for thing in found.taught if thing not in known), found.taught[0])
+    return Question("teach", TEACH_INSTRUCTIONS, tuple(options), rules)
 
 
-def teach_lesson(db: sqlite3.Connection, state: dict, thing: str, now: float) -> bool:
+def teach_lesson(db: sqlite3.Connection, state: dict, thing: str, now: float, day: int) -> bool:
     """Learn a lesson the owner taught, from them. False when Mimo knew it already."""
     lesson = LESSONS[thing]
     if not learn_lesson(state, Told(db), now, thing):
@@ -99,7 +116,6 @@ def teach_lesson(db: sqlite3.Connection, state: dict, thing: str, now: float) ->
     journal = journal_state(state)
     journal["unphrased"] = [waiting for waiting in journal["unphrased"] if waiting != thing]
     journal["words"] = {**journal["words"], thing: f"You told me that {lower(lesson.fact)}"}
-    day = clock_at(state["born_at"], now, time_scale())["day_number"]
     add_memory(db, now, day, "told", f"You taught me that {lower(lesson.fact)}", ("owner",), 7, 1, source="taught")
     return True
 
@@ -110,18 +126,27 @@ def keep_teach(db: sqlite3.Connection, state: dict, heard: Heard, question: Ques
     lesson = LESSONS.get(pick)
     if pick == NONE or lesson is None:
         return None
-    if not teach_lesson(db, state, pick, now):
+    day = heard.context.get("teach_day")
+    if not isinstance(day, int):
+        day = clock_at(state["born_at"], now, time_scale())["day_number"]  # the hearing hook was left out
+    if not teach_lesson(db, state, pick, now, day):
         return clip(f"I know that one! {lesson.fact}")
     return clip(f"Oh, {lower(lesson.fact)} Thank you for teaching me!")
 
 
-def unsure(s: Situation, heard: Heard) -> str | None:
-    """A reply writer: words that get a lesson wrong, or teach what no lesson is about."""
+def unsure(s: Situation, heard: Heard) -> str | Reply | None:
+    """A reply writer: words that get a lesson wrong (weighted as just told, TOLD, so it comes
+    first), or teach what no lesson is about (weighted low, fix round 1, Minor 3: everyday lines
+    that merely brush a real subject and a teach verb, "I made you a bed", should still lose to
+    B1's own reply for them, not answer "I don't understand that yet" ahead of everything)."""
     found = heard_claims(heard)
-    return UNSURE if found.doubtful else UNKNOWN if found.unknown else None
+    if found.doubtful:
+        return UNSURE
+    return Reply("unsure", UNKNOWN, weight=0.5) if found.unknown else None
 
 
 HEARING["teach"] = hear_lessons
+HEARING["teach_day"] = hear_day
 QUESTIONS.append(teach_question)
 KEEPERS["teach"] = keep_teach
 REPLIES["unsure"] = unsure
@@ -130,21 +155,34 @@ TOLD["unsure"] = 10.0
 
 def say(db: sqlite3.Connection, state: dict, text: str, now: float, scale: float) -> None:
     """A line of Mimo's own in the chat, as the rules wrote it."""
-    db.execute("INSERT INTO mimo_chat(at, game_at, who, text, picker) VALUES (?, ?, 'mimo', ?, 'rules')",
-               (now, game_seconds(state, now, scale), clip(text)))
-    # As talk.store_chat prunes: today's lines stay, so the daily limit counts them all.
-    db.execute("DELETE FROM mimo_chat WHERE at < ? AND id NOT IN (SELECT id FROM mimo_chat ORDER BY id DESC "
-               "LIMIT ?)", (day_start(now), LINES_KEPT))
+    add_line(db, state, "mimo", text, now, scale, "rules")
+
+
+# Bond B2's ruling (fix round 1, Minor 7): a sighting confirms only a habits lesson (Mimo has seen
+# how the creature lives); a drops lesson needs a hunt or a kill of that kind; a recipe lesson needs
+# a craft of the item itself -- never a sighting, since seeing a cow says nothing of its recipe.
+SIGHTING = frozenset({"found"})
+HUNTING = frozenset({"hunt", "fight"})
+
+
+def confirms(thing: str, kind: str) -> bool:
+    if thing.endswith(":habits"):
+        return kind in SIGHTING
+    if thing.endswith(":drops"):
+        return kind in HUNTING
+    if thing.startswith("recipe:"):
+        return kind == "craft"
+    return True  # L4b's own lessons (no Mind suffix): any seeing kind, as before
 
 
 def see_it_true(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:
     """A Mind writer: an event that shows a taught lesson true, once a lesson."""
-    said = set(tokens(event["text"]))
+    said = set(tokens(event["text"])) - set(tokens(state["name"]))  # the pet's own name is not the lesson
     rows = db.execute("SELECT subject FROM memory_knowledge WHERE fact=? AND learned_at < ? AND subject NOT IN "
                       "(SELECT subject FROM memory_knowledge WHERE fact=?)", (TAUGHT, event["at"], SEEN)).fetchall()
     for (thing,) in rows:
         lesson = LESSONS.get(thing)
-        if lesson is None or not set(tokens(named(lesson))) <= said:
+        if lesson is None or not confirms(thing, event["kind"]) or not set(tokens(named(lesson))) <= said:
             continue
         know(db, thing, SEEN, event["at"])
         words = f"You were right: {lower(lesson.fact).rstrip('.')}. I saw it myself!"
