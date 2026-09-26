@@ -10,6 +10,7 @@ from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, finish_structure, know, set_home
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
+from backend.survival.steps import finish_step, start_step
 from backend.survival.structures import start
 from backend.survival.vitals import START_VITALS
 
@@ -293,6 +294,42 @@ class DropWhenStuckTests(unittest.TestCase):
         for cell in [(-1, 1, 0), (-1, 2, 0), (3, 1, 0)]:
             dirt.grid.put(*cell, "air")
         self.assertEqual(dirt.plan("drop_items"), [{"kind": "drop", "item": "dirt", "amount": 37}])
+
+
+class ClearOutTests(unittest.TestCase):
+    """Making wave 2: on the gate's route runs both of each pet's chests were full by day 150, of dirt (up to 128),
+    seeds (up to 239) and berries, so nothing could be put away and a making goal's copper had no room."""
+
+    CHEST = {"dirt": 96, "seeds": 60, "gravel": 3, "red_mushroom": 4, **{f"thing_{n}": 32 for n in range(17)}}  # 24
+
+    def test_a_full_chest_is_cleared_of_rubble_and_spare_seeds_to_make_room(self):
+        home = Home({"iron_ore": 20, "coal": 20, **{f"item_{n}": 1 for n in range(12)}}, chest=dict(self.CHEST))
+        know(home.db, "red_mushroom", "poisonous", 0.0)
+        s = home.situation()
+        self.assertEqual(stacks(home.state["chests"]["2,1,2"]), 24)
+        self.assertEqual(storage.to_store(s, (2, 1, 2)), [])  # no room as it stands...
+        self.assertEqual(storage.to_clear(s), [((2, 1, 2), "dirt", 32), ((2, 1, 2), "dirt", 32),
+                                               ((2, 1, 2), "gravel", 3), ((2, 1, 2), "red_mushroom", 4)])
+        self.assertTrue(PURPOSES["build_storage"].valid(s))  # ...but some once the rubble is out
+        steps = home.plan("build_storage")
+        self.assertEqual(steps[:2], [{"kind": "take", "target": [2, 1, 2], "item": "dirt", "amount": 32, "away": True},
+                                     {"kind": "take", "target": [2, 1, 2], "item": "dirt", "amount": 32, "away": True}])
+        self.assertEqual([(step["kind"], step["item"]) for step in steps[4:]],
+                         [("store", "coal"), ("store", "iron_ore")])
+        # the take step leaves them behind at once: no room in Mimo's arms is needed
+        home.state["inventory"].update({f"item_{n}": 1 for n in range(12, 14)})  # 16 stacks
+        before = dict(home.state["inventory"])
+        step = start_step(steps[0], home.state, home.grid, 0.0, 1.0)
+        finish_step(step, home.state, home.grid, 1.0)
+        self.assertEqual((home.state["chests"]["2,1,2"]["dirt"], home.state["inventory"]), (64, before))
+
+    def test_a_chest_with_room_or_nothing_to_put_away_is_left_as_it_is(self):
+        home = Home({"iron_ore": 16, **{f"item_{n}": 1 for n in range(12)}}, chest=dict(self.CHEST))
+        self.assertEqual(storage.to_clear(home.situation()), [])  # iron is kept: nothing to put away
+        roomy = dict(self.CHEST)
+        del roomy["thing_0"]
+        home = Home({"iron_ore": 20, "coal": 20, **{f"item_{n}": 1 for n in range(12)}}, chest=roomy)
+        self.assertEqual(storage.to_clear(home.situation()), [])  # the coal fits as it is
 
 
 class CarriedChestTests(unittest.TestCase):

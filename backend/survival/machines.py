@@ -16,7 +16,9 @@ dug down and one up to LEVEL below is filled with dirt, and what grows on it (a 
 CLEAR_UP above the floor, anything else up to head height) comes out. Of the spots within reach, the one
 with the least digging and filling, plus its distance, is chosen; every other spot is tried for the wide
 machines (the counter and the computer may stand farther out). The walkway round it is where the ground
-lies within a block of the floor.
+lies within a block of the floor. Making wave 2: a column whose trunk Mimo chopped, or whose flower it
+picked, is still natural ground (`taken_away`); a wide machine with no spot within its reach looks out to
+WIDE_REACH, and its site is looked for once a game day (`wide_design`, kept in state["brain"][SITES]).
 
 build_machine ("build a machine") works on the machine a making goal is up to (MACHINE_GOALS, in order,
 the first not built whose lesson Mimo knows), or on one it started: by day, by home. A batch makes up to
@@ -37,6 +39,9 @@ copper carries a spark (backend.survival.tinker), then three machines: a lamp on
 circuit), an automatic door (pressure plates by home's door, so it opens as Mimo comes), and a
 night-light (a daylight sensor feeds an inverter, which drives a lamp: dark by day, lit at night). A lit
 lamp gives light 15, like a lantern (backend.survival.light), so the night-light keeps home's door lit.
+Making wave 2: while one of its machines is started, a machine goal scores workshop.UNDER_WAY more
+(`under_way`), and taking its copper out of the chest, or making room for it, works toward it
+(build_storage: making.storage_advances).
 
 The flip step (registered here): throw a lever within reach (lever <-> lever_on) or press a button
 (button_on, which the engine lets back up a second later).
@@ -50,30 +55,35 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Callable
 
 from backend.services.worldgen import TREE_LEAVES, TREE_LOGS
-from backend.survival.blueprints import SCAN, Blueprint, Planned, open_cell
+from backend.survival.blueprints import SCAN, Blueprint, Planned, from_data, open_cell
 from backend.survival.building import site_center, structural_batch
 from backend.survival.foraging import whole_walk
 from backend.survival.goals import Goal, Milestone, active, register_goal
 from backend.survival.grid import Cell, Grid
 from backend.survival.home import all_structures, home_structure
 from backend.survival.memory import structures as structure_rows
-from backend.survival.making import NEEDS, craft_plan, place_steps
+from backend.survival.making import NEEDS, craft_plan, place_steps, spare_parts
 from backend.survival.pens import near_home
 from backend.survival.purposes import Purpose, register
 from backend.survival.signals import KIND, MATERIALS, machine_state, parse
 from backend.survival.situation import Situation
 from backend.survival.steps import (
-    PLACE_SECONDS, StepFailed, StepKind, as_cell, as_point, in_reach, register_step,
+    PLACE_SECONDS, REACH, StepFailed, StepKind, as_cell, as_point, in_reach, register_step,
 )
-from backend.survival import structures
-from backend.survival.structures import blueprint_of, clearing, start, todo
+from backend.survival import storage, structures
+from backend.survival.structures import blueprint_of, clearing, missing, start, todo
 from backend.survival.triggers import ensure_brain
-from backend.survival.workshop import current_workshop
+from backend.survival.workshop import UNDER_WAY, current_workshop
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
 YARD_REACH = 12
+WIDE_REACH = 48  # Making wave 2: how far out a wide machine (the counter, the computer) looks when none fits nearer
+SITES = "machine_sites"  # state["brain"]: a wide machine's site, found once a game day
+# And the same by world file, for the process: the Chooser weighs goals on a read-only copy of the state, so
+# what it finds in state["brain"] is lost (the final fix wave's re-review, I1, found the far scan's cache so).
+SITE_CACHE: dict = {}
 PORCH_REACH = 6
 PARTS_PER_BATCH = 12
 MACHINE_BATCHES = 6
@@ -116,16 +126,26 @@ register_machine(Machine("night_light", "a night-light", "copper_spark", ("S n>*
 
 # Designs -----------------------------------------------------------------------------------------
 
+def taken_away(grid: Grid, cell: Cell, material: str) -> bool:
+    """Making wave 2: the cell is open where worldgen put something that grows or a plant: Mimo chopped the
+    trunk, the leaves decayed, a flower was picked. The column is still natural ground for a yard."""
+    natural = grid.natural_material(*cell)
+    return open_cell(material) and (open_cell(natural) or natural in GROWTH)
+
+
 def yard_column(grid: Grid, x: int, z: int, reference: int) -> tuple[int, list[Cell]] | None:
     """T3: a column's natural ground under what grows on it, and the cells of that growth (a tree's logs and
     leaves, a cactus, a pumpkin or a melon), looked for from SCAN above `reference` down; None where the
     column holds water, or anything Mimo placed, dug or claimed, or (fix round 1, as blueprints.look_at's
-    firm check does) where the ground does not rest on something solid."""
+    firm check does) where the ground does not rest on something solid. Making wave 2: growth Mimo only took
+    away (`taken_away`) leaves the column usable; on the gate's route runs a chopped tree or a picked flower
+    ruled out the counter's every spot near three pets' workshops."""
     growth: list[Cell] = []
     for y in range(reference + SCAN, reference - SCAN - 1, -1):
         cell = (x, y, z)
         material = grid.material(*cell)
-        if material == "water" or grid.claimed(cell) or material != grid.natural_material(*cell):
+        if material == "water" or grid.claimed(cell) or (material != grid.natural_material(*cell)
+                                                         and not taken_away(grid, cell, material)):
             return None
         if material in GROWTH:
             growth.append(cell)
@@ -153,15 +173,16 @@ def ring_of(ox: int, oz: int, width: int, depth: int) -> list[tuple[int, int]]:
             if i in (-1, width) or j in (-1, depth)]
 
 
-def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int, owner: str = "Mimo") -> Blueprint | None:
+def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int, owner: str = "Mimo",
+                  columns: dict | None = None) -> Blueprint | None:
     """The machine where its layout, levelled, costs the least digging and filling plus distance from
     `center` (T3): its parts on the floor, the cells to clear (dug down, then what grows there) and the
     floor blocks to fill; a walkway round it clear of water and of what Mimo built, and stands on it where
     its ground is within a block of the floor. Every other spot is tried for the wide machines. None when
-    nothing fits."""
+    nothing fits. `columns`: the columns read so far, shared by a second, wider look."""
     width, depth = len(machine.layout[0]) // 2, len(machine.layout)
     cx, cy, cz = center
-    columns: dict[tuple[int, int], tuple[int, list[Cell]] | None] = {}
+    columns = {} if columns is None else columns
 
     def column(x: int, z: int) -> tuple[int, list[Cell]] | None:
         if (x, z) not in columns:
@@ -187,8 +208,10 @@ def layout_design(grid: Grid, machine: Machine, center: Cell, reach: int, owner:
         for (x, z), (ground, growth) in found.items():
             clear += [(x, y, z) for y in range(ground, floor, -1)]
             fill += [(x, y, z) for y in range(ground + 1, floor + 1)]
-            clear += [cell for cell in growth if cell[1] <= floor + 2
-                      or (cell[1] <= floor + CLEAR_UP and grid.material(*cell) in LOGS)]
+            # Making wave 2: growth at the floor's height or under it is floor (a trunk's foot where the column is
+            # filled up); cleared too, it was dug out and filled in again for good (Hazel's computer, 93 game days).
+            clear += [cell for cell in growth if floor < cell[1] and (
+                cell[1] <= floor + 2 or (cell[1] <= floor + CLEAR_UP and grid.material(*cell) in LOGS))]
         cost = len(clear) + len(fill) + distance
         if best is None or cost < best[0]:
             best = (cost, ox, oz, floor, clear, fill)
@@ -239,7 +262,7 @@ def door_design(s: Situation, machine: Machine) -> Blueprint | None:
 
 
 def design(s: Situation, machine: Machine) -> Blueprint | None:
-    """Where the machine goes (read once per Situation)."""
+    """Where the machine goes (read once per Situation; a wide one's site once a game day, `wide_design`)."""
     def look() -> Blueprint | None:
         if machine.where == "door":
             return door_design(s, machine)
@@ -248,8 +271,54 @@ def design(s: Situation, machine: Machine) -> Blueprint | None:
             return layout_design(s.grid, machine, blueprint_of(home).front, PORCH_REACH, s.state["name"])
         workshop = current_workshop(s)
         center = workshop_front(workshop) if workshop is not None and workshop["status"] == "done" else site_center(s)
+        if machine.reach > YARD_REACH:
+            return wide_design(s, machine, center)
         return layout_design(s.grid, machine, center, machine.reach, s.state["name"])
     return s.sensed(f"machine design {machine.name}", look)
+
+
+def still_free(grid: Grid, blueprint: Blueprint) -> bool:
+    """None of the design's cells has been claimed by something Mimo built since, or flooded."""
+    return not any(grid.claimed(planned.cell) or grid.material(*planned.cell) == "water" for planned in blueprint.cells)
+
+
+def wide_design(s: Situation, machine: Machine, center: Cell) -> Blueprint | None:
+    """Making wave 2: a wide machine's site (the counter, the computer). Within its own reach first, then out
+    to WIDE_REACH: on the gate's route runs three of six pets had no spot for the counter within 24 blocks of
+    their workshop by day 100 (a lake, their farm and pen, what they dug), and all six had one within 48.
+    The look reads thousands of columns (up to 3 s on a real world, the review's M4), so its answer is kept
+    in state["brain"][SITES] for the rest of the game day, while its cells stay free, until the machine is
+    started."""
+    sites = s.brain.setdefault(SITES, {})
+    day, known = s.clock.get("day_number"), sites.get(machine.name)
+    world = world_file(s)
+    if not (isinstance(known, dict) and known.get("day") == day and known.get("center") == list(center)):
+        known = SITE_CACHE.get((world, machine.name)) if world else None  # the Chooser's copy of the brain is lost
+    if isinstance(known, dict) and known.get("day") == day and known.get("center") == list(center):
+        data = known.get("design")
+        if data is None:
+            return None
+        blueprint = from_data(data)
+        if still_free(s.grid, blueprint):
+            return blueprint
+    columns: dict = {}
+    found = (layout_design(s.grid, machine, center, machine.reach, s.state["name"], columns)
+             or layout_design(s.grid, machine, center, WIDE_REACH, s.state["name"], columns))
+    sites[machine.name] = {"day": day, "center": list(center), "design": found.to_data() if found else None}
+    if world:
+        SITE_CACHE[(world, machine.name)] = sites[machine.name]
+    return found
+
+
+def world_file(s: Situation) -> str:
+    """The file of the world's database ("" for one in memory, as the tests' are): what SITE_CACHE is kept by."""
+    if s.db is None:
+        return ""
+    try:
+        row = s.db.execute("PRAGMA database_list").fetchone()
+    except sqlite3.Error:
+        return ""
+    return (row[2] or "") if row is not None else ""
 
 
 def workshop_front(workshop: dict) -> Cell:
@@ -339,6 +408,19 @@ def machine_needs(s: Situation) -> dict[str, int]:
 NEEDS.append(machine_needs)
 
 
+def yard_dirt(s: Situation, item: str) -> float:
+    """storage.KEEPS_MORE (Making wave 2): the dirt a started machine's yard is still to be filled in with stays on
+    Mimo (the ground its yard is dug down by, and a staircase's, bring it); the wood and stone its parts take are
+    kept out of the fill (making.spared_for_making)."""
+    if item != "dirt":
+        return 0.0
+    found = started(s)
+    return float(len(todo(s.grid, blueprint_of(found), ("floor",)))) if found is not None else 0.0
+
+
+storage.KEEPS_MORE.append(yard_dirt)
+
+
 # build_machine -----------------------------------------------------------------------------------
 
 def makeable(s: Situation, blueprint: Blueprint) -> list[Planned]:
@@ -381,8 +463,16 @@ def flips(s: Situation, blueprint: Blueprint, number: int | None = None) -> list
 
 
 def yard_left(s: Situation, blueprint: Blueprint) -> list[Planned]:
-    """T3: the yard's cells still to clear, the highest first."""
-    return [planned for planned in blueprint.parts(CLEAR) if not open_cell(s.grid.material(*planned.cell))]
+    """T3: the yard's cells still to clear, the highest first. Making wave 2: never a cell the yard's floor is
+    filled in at (a design made before `layout_design` left growth at the floor alone: the cell was dug out and
+    filled in again, batch after batch, and no part ever went in), nor one whose part is in (ground dug down to
+    the floor holds a part once it is in: the next batch dug the parts of the one before out again, and on
+    the gate's route Sorrel's computer went round so from day 99 to 150)."""
+    floors = {planned.cell for planned in blueprint.parts("floor")}
+    parts = {planned.cell: planned for planned in blueprint.parts(PART)}
+    return [planned for planned in blueprint.parts(CLEAR)
+            if planned.cell not in floors and not open_cell(s.grid.material(*planned.cell))
+            and (planned.cell not in parts or missing(s.grid, parts[planned.cell]))]
 
 
 def yard_stands(s: Situation, blueprint: Blueprint) -> list[Cell]:
@@ -393,20 +483,38 @@ def yard_stands(s: Situation, blueprint: Blueprint) -> list[Cell]:
     return [cell for cell in cells if open_cell(s.grid.material(*cell)) and s.grid.solid((cell[0], cell[1] - 1, cell[2]))]
 
 
+def footing(s: Situation, blueprint: Blueprint) -> tuple[Cell, ...]:
+    """Making wave 2: the design's stands Mimo can stand on now: open, with ground under. A stand in the
+    layout's gaps is over a floor block still to fill until it is in: on the gate's route Willow walked for
+    one over the air of its counter's unfilled floor and gave up (no way there) from day 10 to past 57."""
+    return tuple(cell for cell in blueprint.stands
+                 if open_cell(s.grid.material(*cell)) and s.grid.solid((cell[0], cell[1] - 1, cell[2])))
+
+
+def filling(s: Situation, blueprint: Blueprint, stands: tuple[Cell, ...]) -> Blueprint:
+    """The design with only these stands, and the floor blocks they reach first (in the design's order):
+    the ones further in wait until the floor under their stands is in."""
+    near = {planned.cell for planned in todo(s.grid, blueprint)
+            if any(math.dist(stand, planned.cell) <= REACH for stand in stands)}
+    return replace(blueprint, stands=stands, cells=tuple(sorted(blueprint.cells, key=lambda p: p.cell not in near)))
+
+
 def machine_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
     """The yard cleared (T3: what is too high dug down, what grows there taken out) and its floor blocks
     put in (building.structural_batch), then make the next parts (at the workshop, walking in there first,
-    when there is one) and put them in."""
+    when there is one) and put them in, from the stands Mimo can stand on now (footing)."""
     digging = yard_left(s, blueprint)
     if digging:
         jobs = [(planned.cell, [{"kind": "mine", "target": list(planned.cell)}])
                 for planned in digging[:PARTS_PER_BATCH]]
         return place_steps(s, yard_stands(s, blueprint), jobs)
+    stands = footing(s, blueprint)
     if todo(s.grid, blueprint):
-        if not blueprint.stands:
+        if not stands:
             return []
-        stand = s.here if s.here in blueprint.stands else blueprint.stands[0]
-        work = structural_batch(s, blueprint, stand)
+        stand = s.here if s.here in stands else min(stands, key=lambda cell: (math.dist(cell, s.here), cell))
+        # Making wave 2: not the parts' wood and stone
+        work = structural_batch(spare_parts(s), filling(s, blueprint, stands), stand)
         return ([] if stand == s.here else [whole_walk(stand)]) + work if work else []
     chosen = makeable(s, blueprint)
     if not chosen:
@@ -420,7 +528,7 @@ def machine_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
     jobs = [(planned.cell, [*clearing(s.grid, planned.cell),
                             {"kind": "place", "target": list(planned.cell), "block": planned.block}])
             for planned in chosen]
-    return walk + crafting + place_steps(s, blueprint.stands, jobs, at=where.here if walk else None)
+    return walk + crafting + place_steps(s, stands, jobs, at=where.here if walk else None)
 
 
 def machine_valid(s: Situation) -> bool:
@@ -448,10 +556,12 @@ def plan_machine(s: Situation, context: ActionContext) -> list[dict]:
     trying = untried(s)
     if trying is not None:
         found, blueprint = trying
-        return place_steps(s, blueprint.stands, flips(s, blueprint, found["id"]))
+        return place_steps(s, footing(s, blueprint), flips(s, blueprint, found["id"]))
     machine, blueprint, found = working(s)
     if found is None:
         start(s.db, s.grid, blueprint, s.at)
+        s.brain.get(SITES, {}).pop(machine.name, None)  # started: its site is the structure's now
+        SITE_CACHE.pop((world_file(s), machine.name), None)
     return machine_batch(s, blueprint)
 
 
@@ -505,6 +615,17 @@ def whole(done: bool) -> float:
     return 1.0 if done else 0.0
 
 
+def under_way(s: Situation, goal: str) -> float:
+    """Making wave 2: a machine goal scores workshop.UNDER_WAY more while one of its machines is started and not
+    finished, as the workshop does once its walls stand (finishing what it started comes first). On the gate's
+    route runs the counters stood half built for 20 to 70 game days: restless, a pet chose a discovery goal
+    (30, seven tenths of curiosity and 100 more) over "A thinking machine" at nearly every dawn, even while it
+    was its goal and could be worked on."""
+    found = started(s)
+    machine = found["data"].get("style", {}).get("machine") if found is not None else None
+    return UNDER_WAY if machine in MACHINE_GOALS.get(goal, ()) else 0.0
+
+
 def copper_mined(s: Situation) -> float:
     if built(s, "lamp_lever"):
         return 1.0
@@ -531,13 +652,15 @@ def machine_share(name: str) -> Callable[[Situation], float]:
 register_goal(Goal(
     FIRST, "First circuits",
     "Copper carries a spark: with a lever, wire and a lamp Mimo can make light, open doors and more.",
-    (Milestone("Mine copper", copper_mined, ("mine_ore", "gather_stone")),
-     Milestone("Learn that copper carries a spark", knows("copper_spark"), ("tinker", "mine_ore")),
-     Milestone("Build a lamp on a lever", machine_share("lamp_lever"), ("build_machine", "mine_ore"), ("lamp",)),
-     Milestone("Build an automatic door", machine_share("auto_door"), ("build_machine",), ("pressure_plate",)),
-     Milestone("Build a night-light", machine_share("night_light"), ("build_machine", "gather_materials", "mine_ore"),
-               ("daylight_sensor",))),
-    score=lambda s: 40.0 + s.trait("curiosity") / 10 + s.trait("creativity") / 10,
+    (Milestone("Mine copper", copper_mined, ("mine_ore", "gather_stone", "build_storage")),
+     Milestone("Learn that copper carries a spark", knows("copper_spark"), ("tinker", "mine_ore", "build_storage")),
+     Milestone("Build a lamp on a lever", machine_share("lamp_lever"), ("build_machine", "mine_ore", "build_storage"),
+               ("lamp",)),
+     Milestone("Build an automatic door", machine_share("auto_door"), ("build_machine", "build_storage"),
+               ("pressure_plate",)),
+     Milestone("Build a night-light", machine_share("night_light"),
+               ("build_machine", "gather_materials", "mine_ore", "build_storage"), ("daylight_sensor",))),
+    score=lambda s: 40.0 + s.trait("curiosity") / 10 + s.trait("creativity") / 10 + under_way(s, FIRST),
     thought="Copper, a lever, a lamp... I want to make a spark.", after=("workshop",)))
 
 

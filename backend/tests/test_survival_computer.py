@@ -4,16 +4,19 @@ from unittest.mock import patch
 
 from backend.survival import brain, signals
 from backend.survival.computer import (
-    CLOCK, COMPUTER, COMPUTER_ROWS, COUNTER, COUNTER_ROWS, DAY_COLUMNS, MEMORY, REMEMBERS, computer_start,
+    CLOCK, COMPUTER, COMPUTER_ROWS, COUNTER, COUNTER_ROWS, DAY_COLUMNS, MEMORY, REMEMBERS, TRIED_OUT, computer_start,
     observe_computer, readout,
 )
-from backend.survival.goals import GOALS
+from backend.survival.goals import GOALS, advancing, day_plan
 from backend.survival.machines import CLEAR, MACHINES, design, next_machine
-from backend.survival.memory import know, structures
+from backend.survival.making import needs, raw_needs
+from backend.survival.memory import know, remember, structures
+from backend.survival.purposes import PURPOSES
 from backend.survival.signals import (
     FULL, MAX_CELLS, compile_circuit, corner_of, fresh_state, machine_state, parse, run_signals, settle, step,
     step_bound,
 )
+from backend.survival.work import ore_targets
 from backend.tests.test_survival_machines import furrowed, rough, wired
 from backend.tests.test_survival_signals import Bench, machine
 from backend.tests.test_survival_workshop import Yard, shares
@@ -287,6 +290,51 @@ class GoalTests(unittest.TestCase):
         know(yard.db, "latch", "lesson", 0.0)
         self.assertEqual(next_machine(yard.situation()).name, "memory_cell")
 
+    def test_with_the_memory_cell_built_the_counters_copper_sends_mine_ore_eighty_blocks_out(self):
+        """Making wave 2: the counter takes 11 copper ingots and the computer 16, and on the gate's route runs
+        Juniper reached the memory cell with 8 copper ore on hand. The whole next machine's copper is wanted,
+        and a mine trip for it reaches MAKING_ORE_RANGE, as it does for the workshop's iron."""
+        yard = wired({"copper_ingot": 0, "iron_pickaxe": 1, "coal": 20}, goal="thinking_machine")
+        for lesson in ("clock", "latch", "adder"):
+            know(yard.db, lesson, "lesson", 0.0)
+        machine(yard, CLOCK, origin=(60, 1, 60), name="clock")
+        machine(yard, MEMORY, origin=(90, 1, 60), name="memory_cell")
+        s = yard.situation()
+        self.assertEqual(next_machine(s).name, "counter")
+        self.assertEqual(needs(s)["copper_wire"], 53)
+        self.assertGreaterEqual(raw_needs(s)["copper_ore"], 9)  # 53 wires (5 ingots) and 4 lamps
+        yard.state["inventory"]["copper_ore"] = 8  # what Juniper carried: not enough
+        s = yard.situation()
+        self.assertGreaterEqual(raw_needs(s)["copper_ore"], 1)
+        # With none known within reach, the day plan says so rather than stalling in silence.
+        self.assertIn({"text": "Find more copper for the computer", "kind": "copper", "done": False, "step": None},
+                      day_plan(s, GOALS["thinking_machine"]))
+        far = (92, -4, 1)  # 80 blocks from Mimo
+        yard.grid.put(*far, "copper_ore")
+        remember(yard.db, "ore", far, 0.0, "copper_ore")
+        s = yard.situation()
+        self.assertNotIn("copper", [entry.get("kind") for entry in day_plan(s, GOALS["thinking_machine"])])
+        self.assertEqual([(place["x"], place["y"], place["z"]) for place in ore_targets(s)], [far])
+        self.assertTrue(PURPOSES["mine_ore"].valid(s))
+        self.assertIn("mine_ore", advancing(s, GOALS["thinking_machine"]))
+        self.assertEqual(PURPOSES["mine_ore"].plan(s, yard.context())[-1], {"kind": "mine", "target": list(far)})
+
+    def test_a_machine_goal_with_a_machine_started_pulls_harder(self):
+        """Making wave 2: on the gate's route runs the counters stood half built for 20 to 70 game days, while a
+        restless pet chose a discovery goal at nearly every dawn."""
+        yard = wired({"copper_ingot": 20, "cobblestone": 96, "coal": 20, "sticks": 20, "planks": 30},
+                     goal="thinking_machine")
+        yard.state["traits"] = {"curiosity": 50, "creativity": 50, "diligence": 40}
+        for lesson in ("clock", "latch", "adder"):
+            know(yard.db, lesson, "lesson", 0.0)
+        built = [machine(yard, CLOCK, origin=(60, 1, 60), name="clock"),
+                 machine(yard, MEMORY, origin=(90, 1, 60), name="memory_cell")]
+        yard.state["brain"]["machines_tried"] = built
+        self.assertEqual(GOALS["thinking_machine"].score(yard.situation()), 57.0)
+        yard.build("build_machine", batches=1)  # the counter is started
+        self.assertEqual(GOALS["thinking_machine"].score(yard.situation()), 82.0)
+        self.assertEqual(GOALS["first_circuits"].score(yard.situation()), 50.0)  # not one of its machines
+
     def test_mimo_builds_its_computer_part_by_part_then_throws_its_lever(self):
         yard = wired({"copper_ingot": 20, "cobblestone": 96, "coal": 20, "sticks": 20, "planks": 30, "glass": 3},
                      goal="thinking_machine")
@@ -299,10 +347,14 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(next_machine(yard.situation()).name, "computer")
         yard.build("build_machine", batches=20)
         self.assertIn((1.0, "built", "Pip built Pip's computer."), yard.events)  # M1: named for Mimo
-        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)
         (computer,) = [row for row in structures(yard.db, ("machine",)) if row["id"] not in built]
         lever = next(tuple(part[:3]) for part in computer["data"]["style"]["circuit"] if part[3] == "lever")
         self.assertEqual(yard.grid.material(*lever), "lever_on")  # tried out: its lamps are shown
+        # Making wave 2: the milestone is whole once the lever's throw is a moment Mimo remembers (the tick's
+        # observe_step; this yard carries steps out without it).
+        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], TRIED_OUT)
+        observe_computer(yard.state, {"kind": "flip", "target": list(lever)}, yard.context(), 2.0)
+        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)
         # The clock and the counter spend most of each tick's budget; each machine goes first one tick in four.
         for at in range(600, 1260, 60):
             run_signals(yard.state, yard.context(), float(at))

@@ -364,12 +364,13 @@ def goal_score(s: Situation) -> float:
 register_goal(Goal(
     GOAL, "A workshop",
     "Making things wants a place of its own: a crafting table, a furnace, a kiln and a barrel under one roof.",
-    (Milestone("Fire bricks for a kiln", bricks_fired, ("gather_materials", "build_workshop"), ("kiln",)),
+    (Milestone("Fire bricks for a kiln", bricks_fired, ("gather_materials", "build_workshop", "build_storage"),
+               ("kiln",)),
      Milestone("Raise the workshop's walls and roof", raised, ("build_workshop", "gather_wood", "gather_stone")),
      Milestone("Put in a crafting table, a furnace, a kiln and a barrel", lambda s: fixtures_in(s, FITTED),
-               ("build_workshop", "gather_materials", "gather_stone", "gather_wood")),
+               ("build_workshop", "gather_materials", "gather_stone", "gather_wood", "build_storage")),
      Milestone("Fit bars, a hatch, a seat and a sign", lambda s: fixtures_in(
-         s, ("iron_bars", "trapdoor", "stairs", "sign")), ("build_workshop", "mine_ore", "gather_wood"),
+         s, ("iron_bars", "trapdoor", "stairs", "sign")), ("build_workshop", "mine_ore", "gather_wood", "build_storage"),
                ("iron_bars",))),
     score=lambda s: goal_score(s),
     thought="A workshop, with a kiln! Then I can make anything.", after=("first_shelter", "iron_tools")))

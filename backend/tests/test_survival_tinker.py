@@ -10,6 +10,7 @@ from backend.survival.making import needs, raw_needs
 from backend.survival.memory import know, remember
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
+from backend.survival.storage import kept
 from backend.survival.tinker import (
     BENCH, DEEP_COPPER, MANUAL_CHANNEL, MANUAL_ODDS, SPARK, TINKER_REST, bench_needs, next_idea, observe_tinker,
     tinker_state,
@@ -119,6 +120,30 @@ class TinkerTests(unittest.TestCase):
         self.assertEqual([yard.grid.material(*step["target"]) for step in places[-3:]], ["air"] * 3)
         self.assertEqual([yard.state["inventory"].get(item) for item in ("lever", "copper_wire", "lamp")], [1, 12, 1])
 
+    def test_with_a_workshop_the_bench_is_made_at_its_own_table_and_furnace(self):
+        """Making wave 2: once the workshop's own table and furnace are in, Mimo's go in the chest
+        (workshop.stations_at_home), and on the gate's route runs four of six pets with the copper in hand and
+        first circuits their goal never tinkered: the bench's copper wanted a furnace where Mimo stood."""
+        from backend.survival.structures import blueprint_of
+        from backend.survival.workshop import current_workshop
+        from backend.tests.test_survival_workshop import BLOCKS_FOR_IT, FITTINGS
+
+        yard = curious(Yard({**BLOCKS_FOR_IT, **FITTINGS}))
+        yard.goal("workshop")
+        yard.build()
+        anchor = blueprint_of(current_workshop(yard.situation())).anchor
+        yard.goal("first_circuits")
+        yard.state["inventory"] = {"copper_ore": 2, "coal": 3, "sticks": 2, "planks": 4, "cobblestone": 1}
+        yard.state["position"] = {"x": 12.0, "y": 1.0, "z": 1.0}
+        s = yard.situation()
+        self.assertTrue(PURPOSES["tinker"].valid(s))
+        steps = yard.plan("tinker")
+        self.assertEqual(steps[0], {"kind": "walk", "target": list(anchor), "reach": 0.0, "whole": True})
+        back = next(index for index, step in enumerate(steps) if index and step["kind"] == "walk")
+        self.assertEqual(steps[back]["target"], [12, 1, 1])
+        self.assertNotIn("furnace", [step.get("block") for step in steps])  # the workshop's own is used
+        self.assertEqual([step["block"] for step in steps[back + 1:back + 4]], list(BENCH))
+
     def test_a_session_that_finds_nothing_waits_before_the_next(self):
         yard = curious(wired(lesson=False))
         tinker = PURPOSES["tinker"]
@@ -174,6 +199,20 @@ class CopperFirstTests(unittest.TestCase):
         self.assertEqual(mine, {"kind": "mine", "target": list(cell)})
         observe_tinker(yard.state, {**mine, "block": "copper_ore"}, yard.context(), 5.0)
         self.assertIn(SPARK, lessons(yard))  # the manual, on its own
+        self.assertEqual(bench_needs(yard.situation()), {})
+
+    def test_the_benchs_copper_is_kept_while_the_first_circuits_are_open_not_only_while_they_are_its_goal(self):
+        """Making wave 2: wanted only while "First circuits" was its goal, the bench's copper went in the chest the
+        rest of the time; a restless pet chose that goal once or twice in 40 game days, and on the gate's route
+        runs four of six never tinkered."""
+        yard = curious(Yard({**self.KIT, "copper_ore": 2}))
+        self.assertEqual(bench_needs(yard.situation()), {})  # no workshop yet: the first circuits are not open
+        know(yard.db, "workshop", "goal", 0.0)
+        s = yard.situation()
+        self.assertEqual(bench_needs(s), {item: 1 for item in BENCH})  # open, though not its goal
+        self.assertEqual(kept(s, "copper_ore"), 2)  # so the chest does not take it
+        self.assertTrue(PURPOSES["tinker"].valid(s))
+        know(yard.db, SPARK, "lesson", 0.0)
         self.assertEqual(bench_needs(yard.situation()), {})
 
     def test_copper_seen_only_far_off_or_underfoot_is_gone_after_or_dug_for(self):

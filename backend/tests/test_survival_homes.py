@@ -11,7 +11,7 @@ from backend.survival.lighting import home_blueprint
 from backend.survival.memory import places, structures
 from backend.survival.pens import home_done
 from backend.survival.purposes import PURPOSES
-from backend.survival.storage import chest_spot, storage_valid, to_take
+from backend.survival.storage import chest_spot, storage_valid, to_clear, to_store, to_store_all, to_take
 from backend.survival.structures import blueprint_of
 from backend.survival.trips import REASONS
 from backend.tests.test_survival_building import DAY
@@ -209,6 +209,38 @@ class AfterTheMoveTests(unittest.TestCase):
         stored = world.state["chests"][f"{new_chest[0]},{new_chest[1]},{new_chest[2]}"]
         self.assertEqual(stored, {"dirt": 20, "cooked_fish": 2})
         self.assertEqual(chest_food(world.situation()), 90.0)  # both chests: 1 fish in the old, 2 in the new
+
+    def test_with_home_s_chest_full_what_mimo_puts_away_goes_in_the_old_home_s(self):
+        """Making wave 2: on the gate's route runs every home's chest was full (24 stacks) by day 100 while the
+        older home's beside it had room: nothing could be put away, so a making goal's copper had no room."""
+        world, first, first_chest, new_chest = self.moved()
+        world.state["chests"][f"{new_chest[0]},{new_chest[1]},{new_chest[2]}"] = {f"thing_{n}": 32 for n in range(24)}
+        world.state["position"] = dict(zip("xyz", map(float, blueprint_of(structures(world.db)[1]).anchor)))
+        world.state["inventory"] = {"dirt": 20, **{f"item_{n}": 1 for n in range(12)}}  # 13 stacks
+        s = world.situation()
+        self.assertEqual(to_store(s, new_chest), [])  # home's own chest has no room...
+        self.assertTrue(storage_valid(s))  # ...but the old home's has
+        steps = PURPOSES["build_storage"].plan(s, world.context())
+        old_home = (first["x"], first["y"], first["z"])
+        self.assertIn({"kind": "walk", "target": list(old_home), "reach": 0.0, "whole": True}, steps)
+        self.assertEqual(act(world, steps, until=240.0), [])
+        self.assertEqual(world.state["chests"][f"{first_chest[0]},{first_chest[1]},{first_chest[2]}"].get("dirt"), 20)
+        self.assertNotIn("dirt", world.state["inventory"])
+
+    def test_with_every_chest_full_one_stack_of_dirt_seeds_and_wheat_is_kept_in_all_of_them(self):
+        """Making wave 2: kept in each chest, on the gate's route Juniper's two full chests each held 32 dirt, 32 seeds
+        and 32 wheat, so nothing could be put away, and its computer's last part waited 59 game days for the room
+        to carry 3 cobblestone."""
+        world, first, first_chest, new_chest = self.moved()
+        hoard = {"dirt": 32, "seeds": 32, "wheat": 32, **{f"thing_{n}": 32 for n in range(21)}}  # 24 stacks each
+        world.state["chests"] = {f"{x},{y},{z}": dict(hoard) for x, y, z in (new_chest, first_chest)}
+        world.state["position"] = dict(zip("xyz", map(float, blueprint_of(structures(world.db)[1]).anchor)))
+        world.state["inventory"] = {"gravel": 20, **{f"item_{n}": 1 for n in range(12)}}  # 13 stacks
+        s = world.situation()
+        self.assertEqual(sorted(item for _, item, _ in to_clear(s)), ["dirt", "seeds", "wheat"])  # one chest's
+        self.assertEqual({cell for cell, _, _ in to_clear(s)}, {tuple(first_chest)})  # home's own keeps its stacks
+        self.assertEqual(to_store_all(s), [(tuple(first_chest), "gravel", 20)])
+        self.assertTrue(storage_valid(s))
 
     def test_a_failed_walk_into_the_old_home_holds_its_chest_off(self):
         world, first, first_chest, new_chest = self.moved()

@@ -4,11 +4,12 @@ from unittest.mock import patch
 from backend.services.crafting import craft, smelt
 from backend.survival import brain  # noqa: F401  (registers every purpose)
 from backend.survival.making import (
-    COLOURS, FAR, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, favourite_colour, gathered_wanted, kept_for_making,
-    needs, place_steps, raw_needs, sources,
+    COLOURS, FAR, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, favourite_colour, gathered_wanted,
+    kept_for_making, making_room, needs, place_steps, raw_needs, sources,
 )
 from backend.survival.building import spared, sparing
-from backend.survival.carrying import GIVES_WAY_TO_FOOD, LOW_VALUE, settle
+from backend.survival.carrying import GIVES_WAY_TO_FOOD, LOW_VALUE, settle, stacks
+from backend.survival.goals import GOALS, adopt_goal, advancing, workable
 from backend.survival.memory import know, remember
 from backend.survival.purposes import PURPOSES
 from backend.survival.storage import junk, kept, loose_blocks, to_store, to_take
@@ -350,6 +351,7 @@ class ChestTests(unittest.TestCase):
         taken out too (never made, and kept only with full arms, where L4a's own keep is none)."""
         home = Home({"sticks": 2, "coal": 2, "copper_ingot": 1}, chest={"cobblestone": 80})
         know(home.db, "workshop", "goal", 0.0)
+        know(home.db, "first_circuits", "goal", 0.0)  # (Making wave 2: no tinker bench wants copper)
         want(self, {"lever": 1, "lamp": 1})
         s = home.situation()
         self.assertEqual(raw_needs(s), {})
@@ -373,6 +375,7 @@ class ChestTests(unittest.TestCase):
     def test_build_storage_takes_back_out_what_a_project_needs_and_does_not_put_it_back(self):
         home = Home({"planks": 12, "cobblestone": 8, "sticks": 2}, chest={"clay": 5, "copper_ore": 3, "wool": 2})
         know(home.db, "workshop", "goal", 0.0)  # (no kiln waits for it later)
+        know(home.db, "first_circuits", "goal", 0.0)  # (Making wave 2: nor a tinker bench)
         s = home.situation()
         self.assertEqual(to_take(s), [])  # no project wants anything (and the chest holds no food)
         want(self, {"kiln": 1, "copper_wire": 1})
@@ -387,6 +390,100 @@ class ChestTests(unittest.TestCase):
         s = home.situation()
         self.assertEqual([entry for entry in to_take(s) if entry[1] in ("clay", "copper_ore")], [])
         self.assertEqual([entry for entry in to_store(s, (2, 1, 2)) if entry[0] in ("clay", "copper_ore")], [])
+
+
+class RoomTests(unittest.TestCase):
+    """Making wave 2: on the gate's route runs Willow and Clover carried 16 stacks of what L4a keeps on hand
+    (seeds, saplings, iron, logs, coal) and four kinds of food, so their copper was "not wanted" (no room)
+    and the first circuits idled; Pip had the spark and the copper, but the lamp's torch chain had no room."""
+
+    # 16 stacks: gear (4), a day's food (2), and what L4a keeps for its own goals (10).
+    ARMS = {"iron_pickaxe": 1, "iron_sword": 1, "iron_cap": 1, "iron_tunic": 1, "cooked_beef": 1, "berries": 3,
+            "seeds": 8, "sapling": 4, "wheat": 6, "iron_ore": 16, "feather": 4, "flint": 4, "gold_ore": 3,
+            "coal": 8, "oak_log": 8, "sticks": 8}
+
+    def home(self):
+        home = Home(dict(self.ARMS), chest={"copper_ore": 3, "cobblestone": 20})
+        know(home.db, "workshop", "goal", 0.0)
+        return home
+
+    def test_with_first_circuits_the_goal_full_arms_put_away_what_other_goals_keep(self):
+        home = self.home()
+        s = home.situation()
+        self.assertEqual(stacks(s.inventory), 16)
+        self.assertFalse(making_room(s))  # no making goal: L4a keeps all of it
+        self.assertEqual(to_store(s, (2, 1, 2)), [])
+        adopt_goal(home.state, "first_circuits", "rules", "", 0.0)
+        s = home.situation()
+        self.assertTrue(making_room(s))
+        self.assertEqual(needs(s), {"lever": 1, "copper_wire": 1, "lamp": 1})  # the tinker bench (C2)
+        stored = dict(to_store(s, (2, 1, 2)))
+        self.assertEqual(stored, {"seeds": 8, "sapling": 4, "wheat": 6, "iron_ore": 16, "feather": 4, "flint": 4,
+                                  "gold_ore": 3})
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        # Fuel, wood, food and gear stay: the bench's torch burns coal on a stick, and the copper is smelted.
+        for item in ("coal", "oak_log", "sticks"):
+            self.assertGreaterEqual(kept(s, item), 8, item)
+        steps = home.plan("build_storage")
+        self.assertEqual({step["item"]: step["amount"] for step in steps if step["kind"] == "store"}, stored)
+        for item, amount in stored.items():
+            home.state["inventory"][item] -= amount
+        home.state["inventory"] = {item: count for item, count in home.state["inventory"].items() if count}
+        s = home.situation()
+        self.assertEqual(stacks(s.inventory), 9)
+        self.assertFalse(making_room(s))  # room enough: L4a's keep holds again, nothing more goes in
+        self.assertEqual(sorted((item, amount) for _, item, amount in to_take(s)),
+                         [("cobblestone", 1), ("copper_ore", 2)])  # the bench's copper and the lever's stone
+        home.state["inventory"].update(copper_ore=2, cobblestone=1)
+        home.grid.put(0, 1, 0, "crafting_table")  # the workshop's own stations
+        home.grid.put(0, 1, 2, "furnace")
+        self.assertIsNotNone(craft_plan(home.situation(), {"lever": 1, "copper_wire": 1, "lamp": 1}))
+        home.state["inventory"] = dict(self.ARMS, copper_ore=2, cobblestone=1)  # and without the room made:
+        self.assertIsNone(craft_plan(home.situation(), {"lever": 1, "copper_wire": 1, "lamp": 1}))
+
+    def test_taking_the_goals_copper_out_of_the_chest_works_toward_it(self):
+        """Hazel's chest held 5 copper ore while "First circuits" was its goal 14 times: build_storage would have
+        taken the bench's copper out, but it counted toward no goal, so the goal was set aside ("nothing to do for
+        it now") within half a game day each time."""
+        home = Home({"coal": 4, "sticks": 4, "oak_log": 4, "iron_pickaxe": 1},
+                    chest={"copper_ore": 5, "cobblestone": 9})
+        know(home.db, "workshop", "goal", 0.0)
+        adopt_goal(home.state, "first_circuits", "rules", "", 0.0)
+        s = home.situation()
+        goal = GOALS["first_circuits"]
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        self.assertIn("build_storage", advancing(s, goal))
+        self.assertTrue(workable(s, goal))
+        home.state["inventory"].update(copper_ore=2, cobblestone=1)  # taken out: nothing more to take
+        home.state["chests"]["2,1,2"].update(copper_ore=3, cobblestone=8)
+        s = home.situation()
+        self.assertNotIn("build_storage", advancing(s, goal))
+        adopt_goal(home.state, "armor_up", "rules", "", 1.0)
+        home.state["inventory"].update(copper_ore=0, cobblestone=0)
+        self.assertNotIn("build_storage", advancing(home.situation(), GOALS["armor_up"]))  # not a making goal
+
+    def test_full_arms_and_full_chests_never_drop_the_cobblestone_a_machine_takes(self):
+        """On the gate's route runs Pip's computer lacked 54 cobblestone for its repeaters: with both chests full,
+        drop_items left all but gather_stone's own 12 behind."""
+        full_chest = {f"thing_{n}": 32 for n in range(24)}
+        home = Home({"cobblestone": 40, **{f"item_{n}": 1 for n in range(15)}}, chest=full_chest)  # 16 stacks
+        know(home.db, "workshop", "goal", 0.0)
+        know(home.db, "first_circuits", "goal", 0.0)  # (Making wave 2: no tinker bench wants copper)
+        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 28}])
+        want(self, {"repeater": 10})  # 30 cobblestone
+        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "cobblestone", "amount": 10}])
+
+    def test_what_the_goal_needs_stays_and_other_goals_keep_theirs(self):
+        home = self.home()
+        adopt_goal(home.state, "workshop", "rules", "", 0.0)
+        want(self, {"iron_bars": 1})  # the workshop's windows: iron stays
+        s = home.situation()
+        self.assertTrue(making_room(s))
+        self.assertNotIn("iron_ore", dict(to_store(s, (2, 1, 2))))
+        self.assertIn("seeds", dict(to_store(s, (2, 1, 2))))
+        adopt_goal(home.state, "armor_up", "rules", "", 1.0)  # not a making goal: L4a keeps its own
+        self.assertFalse(making_room(home.situation()))
+        self.assertEqual(to_store(home.situation(), (2, 1, 2)), [])
 
 
 if __name__ == "__main__":

@@ -37,6 +37,9 @@ a thing it cannot make yet is left for later.
   working on now (LATER: the workshop's kiln until it is in, the cozy home's touches; `saved`), and no wall
   is raised with them (building.SPARED). What making made and no project needs now (a glass pane recipe
   makes 16, iron bars 16) goes in the chest (MADE, storage.KEEP) and comes back out when one does.
+  Making wave 2: while a making goal is Mimo's goal and its arms are getting full (ROOM_FROM stacks), what
+  L4a keeps on hand for its other goals (ROOM_KEPT: seeds, saplings, wheat, iron, gold, hides...) goes in
+  the chest too unless the needs take it (`making_room`), so the goal's copper and torch chain fit.
 
 `craft_plan(s, items)` is the craft and smelt steps that make `items` from what Mimo carries, with
 the stations the recipes need (a crafting table; a furnace, or a kiln for clay and sand): used as
@@ -53,13 +56,15 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import COOKING, KILN_FIRED, LOGS, PLANKS, RECIPES, craft, smelt, take_items
 from backend.services.worldgen import SEA_LEVEL, hash32, surface_material, swamp_pool, terrain_height
 from backend.survival import building, storage, work
-from backend.survival.carrying import CARRY_STACKS, STACK, crafts_fit, full, room_for
+from backend.survival.carrying import CARRY_STACKS, STACK, crafts_fit, full, room_for, stacks
 from backend.survival.foraging import STAND, reach_steps, whole_walk
+from backend.survival.goals import ADVANCES, active
 from backend.survival.grid import Cell
 from backend.survival.home import home_cell
 from backend.survival.once import log_once
@@ -108,6 +113,14 @@ MADE = ("paper", "book", "dye_orange", "dye_pink", "dye_yellow", "wool_orange", 
         "rug_orange", "rug_pink", "rug_yellow", "bookshelf", "kiln", "stairs", "slab", "glass_pane", "trapdoor",
         "iron_bars", "flower_pot", "sign", "barrel", "composter", "candle", "tallow", "copper_wire", "lever",
         "button", "pressure_plate", "daylight_sensor", "repeater", "inverter", "joiner", "lamp", "bell")
+# Making wave 2: the making goals (backend.survival.workshop, cozy, machines and computer register them), and
+# what L4a keeps on hand for its own goals that one of them puts in the chest to make room, when it does not
+# need it (`making_room`). Never food, tools, fuel (coal, wood), stone or torches: every project burns or
+# builds with them, and L4a gathers them by its own rules.
+MAKING_GOALS = ("workshop", "cozy_home", "first_circuits", "thinking_machine")
+ROOM_KEPT = ("seeds", "sapling", "wheat", "iron_ore", "iron_ingot", "gold_ore", "gold_ingot", "leather", "feather",
+             "rabbit_hide", "string", "flint", "stone_bricks")
+ROOM_FROM = storage.STORE_FROM  # stacks carried from which a making goal makes room
 
 
 def favourite_colour(state: dict) -> str:
@@ -258,6 +271,16 @@ def saved(s: Situation) -> dict[str, int]:
     return s.sensed("making saved", look)
 
 
+def making_room(s: Situation) -> bool:
+    """Making wave 2: a making goal is Mimo's goal and its arms are getting full (ROOM_FROM stacks, where
+    build_storage's trip home is worth it), so what L4a keeps on hand for other goals (ROOM_KEPT) and this
+    one does not need goes in the chest to make room for its materials (read once per Situation)."""
+    def look() -> bool:
+        goal = active(s)
+        return goal is not None and goal.name in MAKING_GOALS and stacks(s.inventory) >= ROOM_FROM
+    return s.sensed("making room", look)
+
+
 def kept_for_making(s: Situation, item: str) -> float:
     """storage.KEEPS_MORE: as many of an item as what the projects need takes of it (carried, or to be
     taken out of a chest), and no more (the Making final fix wave, I1: it was a whole stack more of every
@@ -266,7 +289,13 @@ def kept_for_making(s: Situation, item: str) -> float:
     clay within 96 blocks of home was dug, then built into walls or dropped as a loose block while
     another goal was Mimo's, and no kiln was ever made). Wood and stone only with full arms: otherwise
     L4a's own keep (16 cobblestone, 16 planks, 8 logs, 8 sticks) already holds what the needs take, but full
-    arms put every building block in the chest, and a lever's one cobblestone went in and out for good."""
+    arms put every building block in the chest, and a lever's one cobblestone went in and out for good.
+    Making wave 2: none of what L4a keeps for other goals (ROOM_KEPT: seeds, saplings, iron, hides...) that
+    the needs do not take, while a making goal is Mimo's goal and its arms are getting full (`making_room`:
+    on the gate's route runs 16 stacks of them and food left the lamp's torch chain no room, and copper
+    none at all)."""
+    if item in ROOM_KEPT and making_room(s) and item not in ingredients(needs(s)):
+        return -float(storage.KEEP.get(item, 0))
     if item in WOOD_AND_STONE and not full(s.inventory):
         return 0.0
     used, taken = allotted(s)
@@ -277,6 +306,18 @@ def from_chests(s: Situation) -> dict[str, int]:
     """storage.TAKES_MORE: what the projects need that Mimo's chests hold (the Making final fix wave, I1:
     only food and seeds ever came back out, so what went in stayed there while Mimo went for more)."""
     return dict(allotted(s)[1])
+
+
+def storage_advances(s: Situation, goal) -> bool:
+    """goals.ADVANCES (Making wave 2): build_storage, which each making goal's milestones name, works toward
+    it only while it would make room for its materials (`making_room`) or take out of a chest what its
+    needs take (`from_chests`). On the gate's route runs Hazel's chest held 5 copper ore while "First
+    circuits" was its goal 14 times: nothing that took it out counted toward the goal, so the goal was set
+    aside for "nothing to do for it now" within half a game day each time."""
+    if goal.name not in MAKING_GOALS:
+        return False
+    wanted = from_chests(s)
+    return making_room(s) or any(item in wanted for _, item, _ in storage.to_take(s))
 
 
 def ores_for_making(s: Situation) -> list[str]:
@@ -291,8 +332,23 @@ def spared_for_making(s: Situation) -> dict[str, int]:
     return {item: round(kept_for_making(s, item)) for item in SAVED}
 
 
+def spare_parts(s: Situation) -> Situation:
+    """`s` without the wood and stone Mimo carries that the needs take (`allot`: a repeater's and a joiner's 3
+    cobblestone, a lever's, the planks for sticks and slabs), for filling a machine's yard in (Making wave 2:
+    on the gate's route runs a yard's floor was filled in with them, 96 cobblestone under a counter on rough
+    ground, and a pet's 29 under its computer in one batch, while its repeaters waited for more)."""
+    used = allotted(s)[0]
+    spared = {item: count - used.get(item, 0) if item in WOOD_AND_STONE else count
+              for item, count in s.inventory.items()}
+    if spared == dict(s.inventory):
+        return s
+    return replace(s, state={**s.state, "inventory": {item: count for item, count in spared.items() if count > 0}},
+                   memo={})
+
+
 storage.KEEPS_MORE.append(kept_for_making)
 storage.TAKES_MORE.append(from_chests)
+ADVANCES["build_storage"] = storage_advances
 building.SPARED.append(spared_for_making)
 storage.KEEP.update({item: 0 for item in MADE if item not in storage.KEEP})
 work.MORE_ORES.append(ores_for_making)

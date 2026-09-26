@@ -3,7 +3,8 @@ backend.survival.steps.
 
 - store(cell, item, amount): put carried items into the chest at the cell, within reach. What the
   chest has no room for (24 stacks of 32, backend.survival.carrying) stays with Mimo.
-- take(cell, item, amount): take items out of the chest, as many as it holds and Mimo can carry.
+- take(cell, item, amount): take items out of the chest, as many as it holds and Mimo can carry. Making
+  wave 2: take(..., away=True) leaves them behind at once (clearing rubble out of a full chest).
 - drop(item, amount): leave carried items behind for good. There are no item entities in the
   world, so dropped things are gone.
 Each takes 0.3 s, like placing a block. Chest contents live in the state, in state["chests"]
@@ -80,20 +81,26 @@ def start_take(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
     target = chest_in_reach(spec, state, grid)
     if chest_items(state, target).get(item, 0) < 1:
         raise StepFailed(f"no {label(item)} in the chest", "missing_item")
-    if room_for(state["inventory"], item, CARRY_STACKS) < 1:
+    away = spec.get("away") is True
+    if not away and room_for(state["inventory"], item, CARRY_STACKS) < 1:
         raise StepFailed("its arms are full", "blocked")
-    return running("take", at, scale, item, amount, target)
+    return {**running("take", at, scale, item, amount, target), **({"away": True} if away else {})}
 
 
 def finish_take(step: dict, state: dict, grid: Grid, at: float) -> None:
+    """Take the items out; one `away` (Making wave 2: clearing a full chest of rubble) leaves them behind at
+    once, as a drop does, so it needs no room in Mimo's arms."""
     target = chest_in_reach(step, state, grid)
     chest, item = chest_items(state, target), step["item"]
-    moved = min(step["amount"], chest.get(item, 0), room_for(state["inventory"], item, CARRY_STACKS))
+    away = step.get("away") is True
+    room = step["amount"] if away else room_for(state["inventory"], item, CARRY_STACKS)
+    moved = min(step["amount"], chest.get(item, 0), room)
     if moved > 0:
         chest[item] -= moved
         if chest[item] == 0:
             del chest[item]
-        add_item(state["inventory"], item, moved)
+        if not away:
+            add_item(state["inventory"], item, moved)
     return None
 
 

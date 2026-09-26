@@ -28,6 +28,15 @@ to the viewer for its caption.
 The goal: work out the clock, build it, work out the latch, build the memory cell, work out counting,
 build the counter, build the computer. Rules score 45 plus a tenth of curiosity and of creativity and a
 twentieth of diligence; reward 30 mood.
+
+Making wave 2, the route to the computer:
+- While one of its machines is started and not finished, the goal scores workshop.UNDER_WAY more
+  (machines.under_way), as the first circuits do and the workshop does once its walls stand.
+- Taking the machines' copper and stone out of the chest (build_storage) and digging their cobblestone, or on
+  for copper it knows none of (gather_stone, `stone_advances`), work toward each machine (BUILDING).
+- The computer's milestone is whole once Mimo has thrown its lever and remembered the moment
+  (`computer_share`), so the try-out is part of the goal.
+- When the machines want copper and Mimo knows of none within reach, the day plan says so (`copper_short`).
 """
 
 from __future__ import annotations
@@ -35,14 +44,18 @@ from __future__ import annotations
 import logging
 
 from backend.survival.clock import NIGHT_PHASES, clock_at
-from backend.survival.goals import Goal, Milestone, register_goal
-from backend.survival.machines import MACHINE_GOALS, Machine, knows, machine_share, register_machine
+from backend.survival.goals import ADVANCES, PLAN_EXTRAS, Goal, Milestone, register_goal
+from backend.survival.machines import (
+    FIRST, MACHINE_GOALS, Machine, knows, machine_share, register_machine, under_way,
+)
+from backend.survival.making import raw_needs
 from backend.survival.memory import structures
 from backend.survival.once import log_once
 from backend.survival.signals import FULL, READOUTS, STARTS, Circuit
 from backend.survival.steps import as_cell
 from backend.survival.structures import structure_at
 from backend.survival.triggers import ensure_brain
+from backend.survival.work import in_reach, prospecting
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +63,7 @@ GOAL = "thinking_machine"
 BITS = 4
 DAY_COLUMNS = (16, 11, 6, 1)  # each stage's column in the counter and the computer, the lowest bit first
 REMEMBERS = "I built a machine that remembers how long I've been alive!"
+TRIED_OUT = 0.95  # Making wave 2: the computer's milestone once it is built, until its lever is thrown
 
 CLOCK = ("w n>2>w . ",
          "w . . w * ",
@@ -92,6 +106,39 @@ register_machine(Machine("memory_cell", "a memory cell", "latch", MEMORY))
 register_machine(Machine("counter", "a counter", "adder", COUNTER, try_out=False, reach=24))
 register_machine(Machine("computer", "{name}'s computer", "adder", COMPUTER, reach=24))  # M1: Pip's computer
 MACHINE_GOALS[GOAL] = ("clock", "memory_cell", "counter", "computer")
+# What works toward building each of them. Making wave 2: taking their copper and stone out of the chest
+# (build_storage, when it would: making.storage_advances), and digging for their cobblestone, or on for copper
+# it knows none of (gather_stone, when it would: `stone_advances`). The counter takes 69 cobblestone, the
+# computer 88, and 12 and 19 copper ore.
+BUILDING = ("build_machine", "mine_ore", "build_storage", "gather_stone")
+
+
+def stone_advances(s, goal) -> bool:
+    """goals.ADVANCES (Making wave 2): gather_stone works toward a thinking machine only while making wants
+    cobblestone or it would dig on for copper it knows none of within reach (work.prospecting); toward any
+    other goal as before, whenever a milestone still to do names it."""
+    if goal.name != GOAL:
+        return True
+    return raw_needs(s).get("cobblestone", 0) > 0 or prospecting(s)
+
+
+ADVANCES["gather_stone"] = stone_advances
+
+# Making wave 2: what the day plan says when a machine goal's copper is short and Mimo knows of none it could
+# go for (work.in_reach: within mine_ore's MAKING_ORE_RANGE), so the goal does not stall in silence.
+COPPER_FOR = {FIRST: "Find more copper for a spark", GOAL: "Find more copper for the computer"}
+
+
+def copper_short(s, goal) -> dict | None:
+    """goals.PLAN_EXTRAS: "Pip's plan for today: build a counter and find more copper for the computer." while
+    the goal's machines want copper ore (making.raw_needs) and none Mimo remembers lies within reach;
+    gather_stone digs on for it meanwhile (work.prospecting)."""
+    if goal.name not in COPPER_FOR or raw_needs(s).get("copper_ore", 0) <= 0 or in_reach(s, "copper_ore"):
+        return None
+    return {"text": COPPER_FOR[goal.name], "kind": "copper"}
+
+
+PLAN_EXTRAS.append(copper_short)
 
 
 def pairs(circuit: Circuit, rows: tuple[int, int], corner) -> list[tuple[int | None, int | None]]:
@@ -163,17 +210,27 @@ def observe_computer(state: dict, step: dict, context, at: float) -> None:
         log_once(logger, "computer", error)
 
 
+def computer_share(s) -> float:
+    """The computer's milestone (Making wave 2): whole once Mimo has thrown its lever and remembered the moment
+    ("computer_told"), not merely once its last part is in. The try-out (build_machine) was the one step left
+    after the goal was reached, and a new goal's purposes crowd out a purpose that works toward none: its
+    lever might never be thrown, and the moment never come."""
+    share = machine_share("computer")(s)
+    return min(share, TRIED_OUT) if share >= 1.0 and not s.brain.get("computer_told") else share
+
+
 register_goal(Goal(
     GOAL, "A thinking machine",
     "People build computers out of redstone: Mimo can build one of copper that counts the days it has lived.",
     (Milestone("Work out how a clock ticks", knows("clock"), ("tinker",)),
-     Milestone("Build a clock", machine_share("clock"), ("build_machine", "mine_ore"), ("repeater",)),
+     Milestone("Build a clock", machine_share("clock"), BUILDING, ("repeater",)),
      Milestone("Work out how to remember", knows("latch"), ("tinker",)),
-     Milestone("Build a memory cell", machine_share("memory_cell"), ("build_machine", "mine_ore"), ("button",)),
+     Milestone("Build a memory cell", machine_share("memory_cell"), BUILDING, ("button",)),
      Milestone("Work out how to count", knows("adder"), ("tinker",)),
-     Milestone("Build a counter", machine_share("counter"), ("build_machine", "mine_ore"), ("repeater",)),
-     Milestone("Build a computer that counts its days", machine_share("computer"),
-               ("build_machine", "mine_ore", "gather_materials"), ("daylight_sensor", "bell"))),
-    score=lambda s: 45.0 + s.trait("curiosity") / 10 + s.trait("creativity") / 10 + s.trait("diligence") / 20,
+     Milestone("Build a counter", machine_share("counter"), BUILDING, ("repeater",)),
+     Milestone("Build a computer that counts its days", computer_share, BUILDING + ("gather_materials",),
+               ("daylight_sensor", "bell"))),
+    score=lambda s: (45.0 + s.trait("curiosity") / 10 + s.trait("creativity") / 10 + s.trait("diligence") / 20
+                     + under_way(s, GOAL)),
     thought="People build computers out of sparks. I want to build one that counts my days.",
     after=("first_circuits",), reward=30.0))

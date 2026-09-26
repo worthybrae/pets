@@ -15,14 +15,18 @@ the table teachable) and the journal shows them. Mimo gets them in two ways of i
   walks up to that machine and watches it for TINKER_SECONDS. When the look ends it has worked it out
   with a chance of 0.25 plus curiosity / 200 (a roll on the seed, the cell and the time): the lesson
   is learned (on the bench, the lamp lights up and the wire glows as it does); otherwise it tries
-  again after TINKER_REST. Day work in the work band, by home: 35 plus a quarter of curiosity.
+  again after TINKER_REST. Day work in the work band, by home: 35 plus a quarter of curiosity. Making
+  wave 2: with a finished workshop the bench's parts are made at its own table and furnace, as a
+  machine's are (machines.at_workshop), Mimo walking in there and back first.
 
 The Making final fix wave (C2): the first circuits' machines are only wanted once the spark is known, and
 the spark by tinkering (or the old manual) needs copper, so nothing asked for copper and the loop never
 broke without the owner. While "First circuits" is Mimo's goal and it does not know the spark, the bench
 (a lever, a copper wire and a lamp: two copper ingots, whose twelve wires and lamp then make the lamp on a
 lever too) is what making wants (making.NEEDS, `bench_needs`), so mine_ore goes after the copper ore Mimo
-remembers and gather_stone prospects for it; deep copper may turn up the old manual on the way.
+remembers and gather_stone prospects for it; deep copper may turn up the old manual on the way. Making
+wave 2: while "First circuits" is open too (the workshop settled), not only while it is Mimo's goal, so the
+bench's copper stays in hand and tinker and mine_ore can work toward it between other goals.
 """
 
 from __future__ import annotations
@@ -34,11 +38,11 @@ from backend.services.blocks import is_replaceable
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.curiosity import value_of
-from backend.survival.foraging import reach_steps
-from backend.survival.goals import active
+from backend.survival.foraging import reach_steps, whole_walk
+from backend.survival.goals import GOALS, active, is_open
 from backend.survival.grid import Cell
 from backend.survival.journal import LESSONS, Lesson, journal_ready, learn_lesson, taught, teach
-from backend.survival.machines import FIRST, built, machines_built
+from backend.survival.machines import FIRST, at_workshop, built, machines_built
 from backend.survival.making import NEEDS, craft_plan, place_steps
 from backend.survival.once import log_once
 from backend.survival.pens import near_home
@@ -133,10 +137,15 @@ def next_idea(s: Situation) -> str | None:
 
 
 def bench_needs(s: Situation) -> dict[str, int]:
-    """making.NEEDS (C2): the bench's lever, wire and lamp while the first circuits are Mimo's goal and it
-    does not know that copper carries a spark yet."""
+    """making.NEEDS (C2): the bench's lever, wire and lamp while it does not know that copper carries a spark
+    yet and the first circuits are Mimo's goal, or (Making wave 2) open to it: the workshop settled. Wanted only
+    while they were its goal, the bench's copper went in the chest the rest of the time, and a restless pet
+    chose "First circuits" once or twice in 40 game days: on the gate's route runs four of six never tinkered,
+    though tinker and mine_ore would have worked toward it in the gaps between other goals (goals.toward)."""
+    if SPARK in s.lessons:
+        return {}
     goal = active(s)
-    if goal is None or goal.name != FIRST or SPARK in s.lessons:
+    if (goal is None or goal.name != FIRST) and not is_open(s, GOALS[FIRST]):
         return {}
     return {item: 1 for item in BENCH}
 
@@ -167,11 +176,20 @@ def bench_cells(s: Situation) -> list[Cell] | None:
 
 
 def bench_plan(s: Situation) -> list[dict] | None:
-    """Make the bench's lever, wire and lamp, lay them out, throw the lever, fiddle, take them back."""
+    """Make the bench's lever, wire and lamp, lay them out, throw the lever, fiddle, take them back. Making
+    wave 2: with a finished workshop they are made at its own table and furnace, as build_machine makes a
+    machine's parts (machines.at_workshop), walking in there and back first. Made where Mimo stood, they took
+    a furnace it no longer carries once the workshop's own is in (workshop.stations_at_home): on the gate's
+    route runs four of six pets with the copper in hand and first circuits their goal never tinkered."""
     cells = bench_cells(s)
-    crafting = craft_plan(s, {item: 1 for item in BENCH}) if cells is not None else None
+    where = at_workshop(s)
+    crafting = craft_plan(where, {item: 1 for item in BENCH}) if cells is not None else None
+    if crafting is None and where is not s and cells is not None:
+        where, crafting = s, craft_plan(s, {item: 1 for item in BENCH})
     if crafting is None:
         return None
+    if crafting and where is not s and where.here != s.here:
+        crafting = [whole_walk(where.here), *crafting, whole_walk(s.here)]
     places = [{"kind": "place", "target": list(cell), "block": item} for cell, item in zip(cells, BENCH)]
     fiddle = [{"kind": "flip", "target": list(cells[0])},
               {"kind": "wait", "seconds": max(1.0, TINKER_SECONDS / s.scale)}]

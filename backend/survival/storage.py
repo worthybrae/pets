@@ -36,6 +36,10 @@ room, then tries again.
 The Making final fix wave: what making made and no project needs now goes in the chest too (making.MADE
 joins KEEP at none: a glass pane recipe makes 16, iron bars 16), and loose blocks never drop below what
 Mimo keeps of them (`kept`: the clay a project needs).
+
+Making wave 2: when home's chest is full, what Mimo puts away goes in any other chest it built (an older
+home's, which `to_take` already takes from), walking into that home first (`to_store_all`); on the gate's
+route runs every home's chest was full by day 100 while the older one beside it had room.
 """
 
 from __future__ import annotations
@@ -94,6 +98,13 @@ LEAST_USEFUL = ("moss", "gravel", "sand", "clay")
 # With full arms and no chest to use, what goes after LEAST_USEFUL, each only when nothing before it
 # is left to drop.
 LAST_RESORT = ("dirt", "cobblestone")
+# Making wave 2: what Mimo throws out of a full chest when what it has to put away does not fit (`to_clear`),
+# but for a stack of each of LEFT_IN_CHEST in all its chests; seeds and wheat (beyond that stack: the farm brings
+# more than bread takes) and known poison too.
+RUBBLE = ("dirt", "gravel", "moss", "basalt", "limestone", "sandstone")
+HOARDED = ("seeds", "wheat")
+LEFT_IN_CHEST = {"dirt": STACK, "seeds": STACK, "wheat": STACK}
+CLEAR_STACKS = 4  # stacks thrown out in one visit at most
 
 
 # L4b: functions of (Situation, item) giving how many more of an item Mimo keeps on it now, beyond
@@ -219,18 +230,88 @@ def kept(s: Situation, item: str) -> int:
     return max(0, (pooled(s, item, pool) if pool else KEEP[item]) + more)
 
 
+def spare(s: Situation) -> list[tuple[str, int]]:
+    """(item, amount) Mimo would rather not carry: beyond what it keeps (`kept`), and food beyond a day's."""
+    return [(item, count - kept(s, item)) for item, count in s.inventory.items()
+            if item in KEEP and count > kept(s, item)] + spare_food(s)
+
+
 def to_store(s: Situation, cell) -> list[tuple[str, int]]:
     """(item, amount) Mimo would put away, most first, as far as the chest has room."""
-    chest = chest_contents(s, cell)
-    wanted = [(item, count - kept(s, item)) for item, count in s.inventory.items()
-              if item in KEEP and count > kept(s, item)] + spare_food(s)
+    return [(item, amount) for _, item, amount in stored_in(s, [cell])]
+
+
+def stored_in(s: Situation, cells, cleared=(),
+              limit: int | None = STORE_STEPS) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(chest, item, amount) Mimo would put away, most first, in the first of `cells` with room for it, once
+    what `cleared` throws out of them is gone; the first `limit` of them."""
+    chests = [(cell, chest_contents(s, cell)) for cell in cells]
+    for cell, item, amount in cleared:
+        for known, chest in chests:
+            if known == cell:
+                chest[item] -= amount
+                if chest[item] <= 0:
+                    del chest[item]
     found = []
-    for item, amount in sorted(wanted, key=lambda entry: (-entry[1], entry[0])):
-        amount = min(amount, room_for(chest, item, CHEST_STACKS))
-        if amount > 0:
-            chest[item] = chest.get(item, 0) + amount
-            found.append((item, amount))
-    return found[:STORE_STEPS]
+    for item, amount in sorted(spare(s), key=lambda entry: (-entry[1], entry[0])):
+        for cell, chest in chests:
+            moved = min(amount, room_for(chest, item, CHEST_STACKS))
+            if moved > 0:
+                chest[item] = chest.get(item, 0) + moved
+                found.append((cell, item, moved))
+                amount -= moved
+            if amount <= 0:
+                break
+    return found[:limit]
+
+
+def storing_cells(s: Situation) -> list[tuple[int, int, int]]:
+    """Home's chest, then every other chest Mimo built that it can get to."""
+    home = chest_spot(s)
+    return [home] + [cell for cell, _ in reachable_chests(s) if cell != home]
+
+
+def to_store_all(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """Making wave 2: (chest, item, amount) to put away, in home's chest first and then in any other chest
+    Mimo built (an older home's, as `to_take` already takes from), once what `to_clear` throws out of a full
+    one is gone. On the gate's route runs every home's chest was full (24 stacks) by day 100, while the older
+    home's beside it had room, so nothing Mimo carried could be put away, and a making goal's copper and torch
+    chain had no room; by day 150 both were full, with dirt, seeds and berries."""
+    return stored_in(s, storing_cells(s), to_clear(s))
+
+
+def to_clear(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """Making wave 2: (chest, item, amount) Mimo throws out of a full chest when what it has to put away does
+    not all fit: rubble (RUBBLE, but a stack of dirt, which a machine's yard is filled with), seeds and wheat
+    beyond a stack (HOARDED: Juniper's chests held 160 wheat and 239 seeds), and food it knows is poisonous; up
+    to CLEAR_STACKS stacks a visit, home's chest first. The stack of each of LEFT_IN_CHEST is one in all its
+    chests, kept in one with room first: kept in each chest, on the gate's route Juniper's two full chests
+    each held 32 dirt, 32 seeds and 32 wheat, so nothing could be put away, and its computer's last part
+    waited from day 91 to 150 for the room to carry 3 cobblestone. They are taken out and left behind at once
+    (a take step `away`, needing no room in Mimo's arms)."""
+    cells = storing_cells(s)
+    unplaced = sum(amount for _, amount in spare(s)) - sum(amount for _, _, amount in stored_in(s, cells, limit=None))
+    if unplaced <= 0:
+        return []
+    chests = {cell: chest_contents(s, cell) for cell in cells}
+    left, keep = dict(LEFT_IN_CHEST), {}
+    for cell in sorted(cells, key=lambda cell: stacks(chests[cell]) >= CHEST_STACKS):  # those with room first
+        for item in sorted(left):
+            keep[(cell, item)] = min(chests[cell].get(item, 0), left[item])
+            left[item] -= keep[(cell, item)]
+    found: list[tuple[tuple[int, int, int], str, int]] = []
+    for cell in cells:
+        chest = chests[cell]
+        if stacks(chest) < CHEST_STACKS:
+            continue
+        for item in sorted(chest):
+            if item in RUBBLE or item in HOARDED or item in s.poisons:
+                amount = chest[item] - keep.get((cell, item), 0)
+                while amount > 0 and len(found) < CLEAR_STACKS:
+                    part = amount % STACK or STACK
+                    found.append((cell, item, part))
+                    amount -= part
+    return found
 
 
 def carried_food(s: Situation) -> float:
@@ -329,7 +410,7 @@ def storage_valid(s: Situation) -> bool:
     if not chest_placed(s, cell):
         can_have = s.count("chest") > 0 or chest_crafting(s) is not None
         return can_have and stacks(s.inventory) >= STORE_FROM
-    return (stacks(s.inventory) >= STORE_FROM and bool(to_store(s, cell))) or bool(to_take(s))
+    return (stacks(s.inventory) >= STORE_FROM and bool(to_store_all(s))) or bool(to_take(s))
 
 
 def storage_facts(s: Situation) -> str:
@@ -368,9 +449,17 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
             steps.extend(crafting)
         steps.extend(clearing(s.grid, cell))
         steps.append({"kind": "place", "target": list(cell), "block": "chest"})
-    steps.extend({"kind": "store", "target": list(cell), "item": item, "amount": amount}
-                 for item, amount in to_store(s, cell))
     stands, at = dict(chests_built(s)), cell
+    clears = [(chest_cell, item, amount, "away") for chest_cell, item, amount in to_clear(s)]
+    stores = [(chest_cell, item, amount, "store") for chest_cell, item, amount in to_store_all(s)]
+    for chest_cell, item, amount, kind in sorted(clears + stores, key=lambda entry: (entry[0] != cell, entry[0])):
+        if chest_cell != at:
+            steps.append(whole_walk(stands[chest_cell]))
+            at = chest_cell
+        if kind == "away":  # Making wave 2: out of a full chest, and left behind at once
+            steps.append({"kind": "take", "target": list(chest_cell), "item": item, "amount": amount, "away": True})
+        else:
+            steps.append({"kind": "store", "target": list(chest_cell), "item": item, "amount": amount})
     for chest_cell, item, amount in to_take(s):
         if chest_cell != at:
             steps.append(whole_walk(stands[chest_cell]))
@@ -387,9 +476,13 @@ register(Purpose(
 
 
 def no_chest_to_use(s: Situation) -> bool:
-    """No chest at home, or one with every stack taken."""
+    """No chest at home, or one with every stack taken and (Making wave 2, `to_store_all`) no other chest Mimo
+    built with a stack free."""
     cell = chest_spot(s)
-    return not chest_placed(s, cell) or stacks(chest_contents(s, cell)) >= CHEST_STACKS
+    if not chest_placed(s, cell):
+        return True
+    return all(stacks(chest_contents(s, chest)) >= CHEST_STACKS
+               for chest in [cell] + [other for other, _ in reachable_chests(s)])
 
 
 def shelter_blocks_left(s: Situation) -> int:
@@ -416,8 +509,10 @@ def loose_blocks(s: Situation) -> list[tuple[str, int]]:
         return []
     need = shelter_blocks_left(s) - sum(count for item, count in usable_supplies(s.inventory).items()
                                         if item not in LAST_RESORT and item not in LEAST_USEFUL)
-    keep = {"cobblestone": min(s.count("cobblestone"), STONE_GOAL + max(0, need))}
-    keep["dirt"] = min(s.count("dirt"), max(0, need - keep["cobblestone"]))
+    # Making wave 2: nor below what Mimo keeps of it (`kept`: a machine's repeaters take 3 cobblestone each; on
+    # the gate's route runs the computer's cobblestone went here while both chests were full).
+    keep = {"cobblestone": min(s.count("cobblestone"), max(STONE_GOAL + max(0, need), kept(s, "cobblestone")))}
+    keep["dirt"] = min(s.count("dirt"), max(0, need - keep["cobblestone"], kept(s, "dirt")))  # a machine's yard
     for item in LAST_RESORT:
         if s.count(item) > keep[item]:
             return [(item, s.count(item) - keep[item])]
