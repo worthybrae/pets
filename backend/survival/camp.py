@@ -23,6 +23,8 @@ only when it fits in Mimo's arms (`roof_fits`); otherwise the plan first drops a
 way to food (`spare_stack`: carrying.GIVES_WAY_TO_FOOD, never a material gear still wants nor an ore
 the pickaxe ladder counts), and with nothing to drop there is no spot, so Mimo sleeps on the surface,
 where it can flee or fight as ever. An outpost is gone back to only with a roof block in hand.
+Follow-up 4: a spare log will do for the roof when Mimo carries no building block (`roof_in`); the
+morning's roof mine gives it back.
 """
 
 from __future__ import annotations
@@ -31,8 +33,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from backend.services.blocks import hardness, is_replaceable, is_solid
-from backend.services.crafting import BLOCKS, can_harvest
-from backend.survival.blueprints import BUILDING
+from backend.services.crafting import BLOCKS, LOGS, can_harvest
+from backend.survival.blueprints import BUILDING, LOGS_KEPT
 from backend.survival.carrying import CARRY_STACKS, GIVES_WAY_TO_FOOD, STACK, room_for
 from backend.survival.cooking import made
 from backend.survival.creatures.hostiles import enclosed
@@ -63,12 +65,26 @@ GROUND = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))
 
 
 def roof_in(inventory: dict) -> str | None:
-    """A building block in `inventory` for the roof."""
-    return next((block for block in BUILDING if inventory.get(block, 0) > 0), None)
+    """A block in `inventory` for the roof: a building block (blueprints.BUILDING), or else a log
+    (follow-up 4: solid, placeable, and the morning's roof mine gives it back, since a log drops
+    itself). While no campfire is carried, LOGS_KEPT logs stay for one, oak first, as
+    blueprints.supplies keeps them. A log whose stack stays is taken first, so the morning's mine puts
+    it back in that stack even with full arms. Live, an established pet 195 blocks out carried 17
+    stacks with 8 oak logs, no building block and nothing it may drop, and slept on the surface."""
+    block = next((block for block in BUILDING if inventory.get(block, 0) > 0), None)
+    if block is not None:
+        return block
+    keep, spare = (LOGS_KEPT if inventory.get("campfire", 0) < 1 else 0), []
+    for log in LOGS:
+        extra = inventory.get(log, 0) - keep
+        keep = max(0, -extra)
+        if extra > 0:
+            spare.append(log)
+    return next((log for log in spare if inventory[log] > 1), spare[0] if spare else None)
 
 
 def roof_block(s: Situation) -> str | None:
-    """A building block Mimo carries for the roof."""
+    """A block Mimo carries for the roof (`roof_in`: a building block, or a spare log)."""
     return roof_in(s.inventory)
 
 

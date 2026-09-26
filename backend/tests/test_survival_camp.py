@@ -4,8 +4,9 @@ from unittest.mock import patch
 from backend.services.crafting import BLOCKS, add_item
 from backend.survival import brain  # registers every goal, purpose and reason; also used directly below
 from backend.survival.camp import (
-    camp_spot, in_camp, leave_camp, new_camp, observe_camp, outpost_near, roof_block, settled,
+    camp_spot, in_camp, leave_camp, new_camp, observe_camp, outpost_near, roof_block, roof_in, settled,
 )
+from backend.survival.creatures.defense import sealed_camp
 from backend.survival.carrying import full, settle
 from backend.survival.goals import meets_need
 from backend.survival.memory import places, remember
@@ -226,6 +227,43 @@ class FullArmsTests(unittest.TestCase):
         self.assertTrue(camp.valid(s))
         self.assertEqual([step["kind"] for step in camp.plan(s, self.pet.context(DUSK))],
                          ["craft", "place", "place", "place", "mine"])
+
+    def test_with_no_building_block_a_spare_log_roofs_the_camp_and_comes_back_in_the_morning(self):
+        # Follow-up 4 (live, 195 blocks out at dusk): an established pet carried 17 stacks -- gear,
+        # coal, sticks, 8 oak logs, ores, seeds, food, stations and a campfire -- but no building
+        # block and nothing it may drop; the dug block had no room, so it slept on the surface.
+        self.pet.state["inventory"] = {**FILLER, "bread": 4, "torch": 4, "campfire": 1, "oak_log": 8}  # 17 stacks
+        s = self.pet.situation(DUSK)
+        self.assertEqual(roof_block(s), "oak_log")
+        camp = PURPOSES["camp"]
+        self.assertTrue(camp.valid(s))
+        steps = camp.plan(s, self.pet.context(DUSK))
+        self.assertEqual([step["kind"] for step in steps], ["place", "place", "place", "mine"])  # no drop
+        self.carry(steps)
+        self.assertNotIn("dirt", self.pet.state["inventory"])  # the dug dirt had no room: left behind
+        self.pet.state["position"]["y"] = 0.0  # it dropped into the hole
+        roof = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
+        self.assertEqual(roof, [{"kind": "place", "target": [101, 1, 1], "block": "oak_log"}])
+        self.carry(roof)
+        observe_camp(self.pet.state, {**roof[0], "purpose": "camp"}, self.pet.context(DUSK), 10.0)
+        self.assertEqual(self.pet.state["inventory"]["oak_log"], 7)
+        night = self.pet.situation(NIGHT)
+        self.assertTrue(in_camp(night) and settled(night))  # sealed: a log is as solid as any roof
+        self.assertTrue(sealed_camp(night))
+        self.assertFalse(camp.valid(night))  # dug in: sleep takes over
+        self.pet.state["brain"]["purpose"] = "explore"
+        morning = leave_camp(self.pet.situation(MORNING), [{"kind": "walk", "target": [130, 1, 1], "reach": 3.0}])
+        self.assertEqual(morning[0], {"kind": "mine", "target": [101, 1, 1]})  # the roof comes off...
+        self.carry(morning[:1])
+        self.assertEqual(self.pet.state["inventory"]["oak_log"], 8)  # ...and back into its arms
+        self.assertEqual(self.pet.world.grid.material(101, 1, 1), "air")
+
+    def test_a_campfires_logs_are_kept_off_the_roof_while_no_campfire_is_carried(self):
+        self.assertEqual(roof_in({"oak_log": 2}), None)  # kept to make a campfire
+        self.assertEqual(roof_in({"oak_log": 3}), "oak_log")
+        self.assertEqual(roof_in({"oak_log": 2, "campfire": 1}), "oak_log")  # a campfire carried: none kept
+        self.assertEqual(roof_in({"oak_log": 1, "birch_log": 3}), "birch_log")  # oak kept first, as for planks
+        self.assertEqual(roof_in({"oak_log": 8, "cobblestone": 1}), "cobblestone")  # a building block first
 
     def test_with_full_arms_and_nothing_it_may_drop_it_does_not_camp(self):
         for spare in ({"leather": 3},  # gear still wants it: no armor yet
