@@ -10,7 +10,8 @@ from backend.survival.actions import ActionContext
 from backend.survival.brain import BRAIN
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.goals import (
-    IDLE, IDLE_RETRY, Goal, Milestone, active, adopt_goal, as_goal, ask_for_goal, goal_state, tend_goal, workable,
+    IDLE, IDLE_RETRY, REPEAT_REST, Goal, Milestone, active, adopt_goal, as_goal, ask_for_goal, goal_state, offers,
+    tend_goal, workable,
 )
 from backend.survival.hatch import hatch
 from backend.survival.memory import known
@@ -239,6 +240,35 @@ class TendTests(unittest.TestCase):
             self.tend(1.0)
             brain = self.tend(IDLE + 70.0)  # never workable is False for ONLY: never idle
             self.assertIsNotNone(brain["goal"])
+
+    def test_a_repeating_goal_rests_a_quarter_day_once_reached(self):
+        """L4b final fix wave, I4: a repeating goal was on offer again the moment it was reached and
+        the rules re-adopted it at once ("map the far hills" 59 times in the live life). It rests
+        REPEAT_REST now, in the set-aside map; another repeating goal is on offer meanwhile, and a
+        goal that does not repeat is not set aside at all."""
+        again = replace(WOOD, name="again", title="Again", repeat=True)
+        more = replace(LATER, name="more", title="More", repeat=True)
+        with only_goals(again, more):
+            adopt_goal(self.state, "again", "jev", "Once more.", 0.0)
+            self.tend(1.0)
+            self.state["inventory"].update(oak_log=4, wooden_pickaxe=1)
+            brain = self.tend(100.0)
+            self.assertEqual(self.events[-1][1:], ("goal", "Pip reached a goal: again."))
+            self.assertEqual(brain["goal_penalties"], {"again": 100.0 + REPEAT_REST})
+            self.assertEqual(REPEAT_REST, DAY_SECONDS / 4)
+            self.state["inventory"].clear()  # nothing done toward it any more: open again, but resting
+
+            def offered(at):
+                return sorted(goal.name for goal, _, _ in offers(replace(self.s, at=at, memo={})))
+
+            self.assertEqual(offered(100.0 + REPEAT_REST - 1.0), ["more"])
+            self.assertEqual(offered(100.0 + REPEAT_REST), ["again", "more"])
+        with only_goals(WOOD):
+            adopt_goal(self.state, "woodpile", "jev", "Wood first.", 200.0)
+            self.state["inventory"].update(oak_log=4, wooden_pickaxe=1)
+            brain = self.tend(300.0)
+            self.assertEqual(self.events[-1][1:], ("goal", "Pip reached a goal: a woodpile."))
+            self.assertNotIn("woodpile", brain["goal_penalties"])
 
     def test_a_goal_that_holds_never_idles_but_still_stalls_at_dawn(self):
         """L4b final fix wave, I2: a goal that holds (an expedition out from home) is never set aside

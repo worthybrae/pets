@@ -22,7 +22,8 @@ The brain keeps its goal in state["brain"]:
   plan's steps whose finishing was logged (the final fix wave).
 - goal_due: a goal choice Mimo waits for, {"id", "reasons", "since"}, or None (ids come from
   the brain's next_id, like pending purpose choices).
-- goal_penalties: {goal: server time until which it is not offered, after it was given up}.
+- goal_penalties: {goal: server time until which it is not offered, after it was given up, or (the
+  L4b final fix wave's I4) after a repeating goal was reached: REPEAT_REST}.
 - goal_idle_at: when a goal choice last found no goal open.
 The goals Mimo reached are remembered in its world (memory_knowledge, fact "goal").
 
@@ -86,6 +87,10 @@ CHECK_EVERY = 60.0  # game seconds between two readings of the goal's progress i
 STALL = DAY_SECONDS  # game seconds without progress after which a goal is given up at dawn
 IDLE = DAY_SECONDS / 3  # by day, this long without progress and nothing on offer for it: given up
 SET_ASIDE = DAY_SECONDS  # game seconds a goal given up is not offered again
+# L4b final fix wave, I4: game seconds a repeating goal is not offered again once reached (in the
+# set-aside map). "Map the far hills" was reached 59 times in the live life, 72-250 s apart at
+# scale 1, since the rules re-adopted it at once; a quarter day measured better than half a day.
+REPEAT_REST = DAY_SECONDS / 4
 IDLE_RETRY = 600.0  # game seconds between two goal choices while no goal is open
 STICK = 100.0  # the rules picker keeps the current goal (a stalled one was given up before)...
 WORKABLE = 20.0  # ...and otherwise prefers a goal something can be done for right now
@@ -442,16 +447,21 @@ def step_sentence(name: str, goal: Goal, milestone: Milestone) -> str:
     return f"{name} finished a step toward {lower(goal.title)}: {lower(milestone.text)}."
 
 
-def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float) -> None:
+def reach_goal(state: dict, context: ActionContext, goal: Goal, at: float, scale: float = 1.0) -> None:
     """A notable "goal" event, the goal's mood reward, the goal remembered, and new choices. A
     non-repeating goal already known as reached (a stale answer re-adopted it and it completed
-    again) gets neither: only its first reach is a celebration."""
-    goal_state(state)["goal"] = None
+    again) gets neither: only its first reach is a celebration. A repeating goal then rests for
+    REPEAT_REST game seconds (`scale`: game seconds per server one), set aside like a goal given up,
+    so `offers` and `toward` leave it be meanwhile (the final fix wave's I4)."""
+    brain = goal_state(state)
+    brain["goal"] = None
     first = know(context.db, goal.name, REACHED, at)
     if first or goal.repeat:
         context.events.append((at, "goal", f"{state['name']} reached a goal: {lower(goal.title)}."))
         state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + goal.reward)
         state["last_thought"] = f"I did it: {lower(goal.title)}!"
+    if goal.repeat:
+        brain["goal_penalties"][goal.name] = at + REPEAT_REST / scale
     ask_for_goal(state, "reached", at, fresh=True)
     mark_trigger(state, "goal", at, fresh=True)  # a purpose answer in flight no longer fits
 
@@ -479,7 +489,7 @@ def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> No
     if dawn:
         current["day_start"] = at
     if complete(s, goal):
-        reach_goal(state, context, goal, at)
+        reach_goal(state, context, goal, at, s.scale)
         return
     if not is_open(s, goal):
         give_up_goal(state, context, goal.name, at, "it cannot be done now", s.scale)

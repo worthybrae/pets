@@ -64,8 +64,11 @@ class DiscoveryGoalTests(unittest.TestCase):
     def test_far_hills_count_new_patches_far_from_home(self):
         world = built()
         adopt_goal(world.state, "far_hills", "utility", "", 10.0)
-        mark_explored(world.db, [(rx, 0) for rx in range(8, 8 + FAR_PATCHES)], 20.0)  # 64 blocks east and on
+        mark_explored(world.db, [(rx, 0) for rx in range(8, 20)], 20.0)  # 64 blocks east and on
         mark_explored(world.db, [(1, 1), (2, 2)], 20.0)  # near home: not far
+        self.assertEqual(far_walked(world.situation()), 12)
+        self.assertEqual(progress_of(world.situation(), GOALS["far_hills"]), 0.5)  # I4: 12 was the whole goal once
+        mark_explored(world.db, [(rx, 0) for rx in range(20, 8 + FAR_PATCHES)], 20.0)
         self.assertEqual(far_walked(world.situation()), FAR_PATCHES)
         self.assertTrue(complete(world.situation(), GOALS["far_hills"]))
 
