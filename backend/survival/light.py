@@ -22,7 +22,7 @@ from backend.survival.grid import Cell, Grid
 SKY_DAY = 15
 SKY_NIGHT = 4
 DARK = 7  # hostiles spawn only where the light is this or less
-BLOCK_LIGHT = {"torch": 14, "lantern": 15, "campfire": 13, "furnace": 13}
+BLOCK_LIGHT = {"torch": 14, "lantern": 15, "campfire": 13, "furnace": 13, "candle": 12}  # Making: candles
 LIGHT_REACH = max(BLOCK_LIGHT.values())  # the farthest any block light carries
 # Cells over the natural ground (or the cell, when it is higher) that can cover a cell: 8, and in any
 # case more than the highest tree or rock the generator makes (L3).

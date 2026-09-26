@@ -55,6 +55,8 @@ CROP_STAGE_WET = 12 * 60.0
 CROP_STAGE_DRY = 36 * 60.0
 FARMLAND_REVERT = 2 * DAY_SECONDS
 WATER_REACH = 4
+COMPOST_REACH = 4  # Making: crops this close to a composter grow faster...
+COMPOST_SPEED = 0.75  # ...each stage taking this share of the time
 MAX_APPLIED = 512  # entries one call applies at most; the rest wait for the next call
 LEAF_REACH = 4
 DECAY_SECONDS = (60.0, 360.0)
@@ -138,8 +140,10 @@ def watered(grid: Grid, farmland: Cell) -> bool:
 
 
 def stage_seconds(grid: Grid, crop: Cell) -> float:
+    """Making: a quarter less with a composter within COMPOST_REACH blocks (backend.survival.cozy)."""
     x, y, z = crop
-    return CROP_STAGE_WET if watered(grid, (x, y - 1, z)) else CROP_STAGE_DRY
+    seconds = CROP_STAGE_WET if watered(grid, (x, y - 1, z)) else CROP_STAGE_DRY
+    return seconds * COMPOST_SPEED if grid.placed_cells(x, z, COMPOST_REACH, ("composter",)) else seconds
 
 
 def step_to(cell: Cell, offset: tuple[int, int, int]) -> Cell:

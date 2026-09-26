@@ -54,7 +54,8 @@ from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, buil
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
-from backend.survival import making, workshop  # noqa: F401  (Making: gather_materials, the workshop)
+from backend.survival import cozy, making, workshop  # noqa: F401  (Making: gather_materials, the workshop, cozy)
+from backend.survival.cozy import tend_comfort
 from backend.survival.curiosity import note_discoveries, tend_curiosity
 from backend.survival.journal import observe_journal
 from backend.survival.expedition import observe_expedition, tend_expedition
@@ -283,6 +284,7 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
     tend_goal(state, context, at, phase)
     tend_curiosity(state, context, at)
     tend_expedition(state, context, at)
+    tend_comfort(state, context, at, phase)
     asleep = (state.get("action") or {}).get("kind") == "sleep"
     if brain["pending"] is None and not asleep and hour_passed(brain, at, clock["time_scale"]):
         mark_trigger(state, "hour", at)
