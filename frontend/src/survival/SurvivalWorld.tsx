@@ -6,6 +6,7 @@ import { DelayedBlocks } from './blockDelay'
 import { isCameraKey, loadCameraMode, nextMode, saveCameraMode, type AutoPick, type CameraMode } from './cameraModes'
 import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
+import JournalPanel from './JournalPanel'
 import { workerOnline } from './hud'
 import Minimap from './Minimap'
 import { isMapKey, loadMapOpen, mapShownByDefault, saveMapOpen } from './overheadMap'
@@ -43,6 +44,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
   const [message, setMessage] = useState('')
   const [syncError, setSyncError] = useState('')
   const [showCrafting, setShowCrafting] = useState(false)
+  const [showJournal, setShowJournal] = useState(false)
   const [craftMessage, setCraftMessage] = useState('')
   const [cameraMode, setCameraMode] = useState<CameraMode>(() => loadCameraMode(browserStorage))
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
@@ -158,12 +160,13 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
         busy={busy} message={message || connectionError || syncError}
         cameraMode={cameraMode} autoPick={autoPick} minimap={minimap} onCameraMode={chooseCamera}
         onCare={care} onHello={hello} onFollow={() => setFollowing(true)}
-        onCrafting={() => setShowCrafting(true)} onOpenLives={onOpenLives} />
+        onCrafting={() => setShowCrafting(true)} onJournal={() => setShowJournal(true)} onOpenLives={onOpenLives} />
       {showCrafting && (
         <CraftingPanel name={state.life.name} inventory={state.inventory} chests={state.chests} recipes={state.recipes} stations={stations}
           worldSeed={state.world_seed} message={craftMessage} onAction={(action, item) => { void craft(action, item) }}
           onClose={() => setShowCrafting(false)} />
       )}
+      {showJournal && <JournalPanel name={state.life.name} journal={state.journal} onClose={() => setShowJournal(false)} />}
     </main>
   )
 }

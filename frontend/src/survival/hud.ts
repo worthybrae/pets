@@ -93,6 +93,8 @@ const PURPOSE_TEXT: Record<string, string> = {
   craft_tools: 'Making a tool', explore: 'Exploring', go_home: 'Going home', sleep: 'Settling down to sleep',
   rest: 'Resting', eat: 'Having a meal', escape: 'Digging out of a pit', forage: 'Foraging for food',
   improve_home: 'Building a bigger home', stock_larder: 'Stocking the larder',
+  investigate: 'Taking a closer look', pack: 'Packing for an expedition', camp: 'Making camp',
+  come_home: 'Coming home from an expedition',
   fish: 'Fishing', farm: 'Tending the farm', cook: 'Cooking a meal', build_shelter: 'Building a shelter',
   build_farm: 'Laying out a farm', build_storage: 'Putting things away', drop_items: 'Dropping what it cannot use',
   light_up: 'Lighting torches', hunt: 'Hunting', make_gear: 'Making gear',

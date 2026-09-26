@@ -222,6 +222,37 @@ export interface Trip {
   found: string | null
 }
 
+/** A lesson Mimo learned (L4b, backend/survival/journal.py journal_view). */
+export interface JournalEntry {
+  /** What it learned about, like "gravel" or "skitter". */
+  thing: string
+  kind: 'block' | 'plant' | 'creature' | 'biome' | 'landmark'
+  /** The thing in words, like "a skitter". */
+  words: string
+  /** What it teaches, like "Skitters come out of caves at night." */
+  fact: string
+  /** The line in Mimo's voice Jev chose for its journal, or the fact. */
+  line: string
+  /** What the lesson lets Mimo do, like "digs gravel for flint"; "" for most. */
+  unlocks: string
+  /** When it learned it (server time). */
+  at: number
+}
+
+/** The expedition under way (L4b, backend/survival/expedition.py expedition_view). */
+export interface Expedition {
+  phase: 'packing' | 'out' | 'homeward' | 'home'
+  /** Its heading, like "east"; null while it packs. */
+  direction: string | null
+  /** The farthest it got from home, in blocks. */
+  far: number
+  /** How far out it means to go; null while it packs. */
+  target: number | null
+  nights: number
+  /** It is making camp right now. */
+  camping: boolean
+}
+
 /** How curious Mimo is (L4, backend/survival/curiosity.py curiosity_view). */
 export interface Curiosity {
   /** 0..100: it grows on known ground and falls with each discovery. */
@@ -287,6 +318,10 @@ export interface SurvivalState {
   trip?: Trip | null
   /** L4: how curious Mimo is and how it feels; null before its first tick (an older API sends none). */
   curiosity?: Curiosity | null
+  /** L4b: what Mimo learned, newest first (an older API sends none). */
+  journal?: JournalEntry[]
+  /** L4b: the expedition under way; null without one (an older API sends none). */
+  expedition?: Expedition | null
 }
 
 export interface AliveResponse extends SurvivalState {

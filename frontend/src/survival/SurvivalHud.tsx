@@ -5,6 +5,7 @@ import {
   actionText, careLabel, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay, purposeText, vitalBars, type VitalLevel,
 } from './hud'
 import { curiosityBar, goalHint, goalLine, planSteps, tripLines } from './goals'
+import { expeditionLine, journalButton } from './journal'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -55,7 +56,7 @@ function CameraSwitch({ mode, autoPick, onChange }: { mode: CameraMode; autoPick
   )
 }
 
-export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onOpenLives }: {
+export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onOpenLives }: {
   state: AliveResponse
   online: boolean
   busy: boolean
@@ -70,6 +71,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   onHello: () => void
   onFollow: () => void
   onCrafting: () => void
+  /** L4b: opens the knowledge journal. */
+  onJournal: () => void
   /** Shows a Lives button that opens the archive. */
   onOpenLives?: () => void
 }) {
@@ -82,6 +85,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const plan = planSteps(state.goal)
   const trip = state.reflex ? null : tripLines(state.trip)
   const curious = curiosityBar(state.curiosity)
+  const expedition = expeditionLine(state.expedition)
   return (
     <>
       {flash !== null && <HurtFlash key={state.hurt_at ?? 0} delay={flash} />}
@@ -118,6 +122,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
               )}
             </div>
           )}
+          {expedition && <p className="mt-1 truncate text-xs font-medium text-[#8a6a2f]">{expedition}</p>}
           {home && <p className="mt-0.5 truncate text-xs text-[#54726e]">{home}</p>}
           <p className="mt-0.5 text-xs text-[#54726e]">
             <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}
@@ -161,6 +166,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-medium text-[#315e58]">
             <button type="button" onClick={onFollow} className="underline decoration-[#8cafa2] underline-offset-4">Follow {life.name}</button>
             <button type="button" onClick={onCrafting} className="underline decoration-[#8cafa2] underline-offset-4">Blocks & crafting</button>
+            <button type="button" onClick={onJournal} className="underline decoration-[#8cafa2] underline-offset-4">{journalButton(state.journal)}</button>
             {onOpenLives && <button type="button" onClick={onOpenLives} className="underline decoration-[#8cafa2] underline-offset-4">Lives</button>}
           </div>
           <CameraSwitch mode={cameraMode} autoPick={autoPick} onChange={onCameraMode} />
