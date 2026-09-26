@@ -113,6 +113,7 @@ def new_survival_state(*, name: str, seed: str, spawn: dict, born_at: float, tra
 def create_world_tables(db: sqlite3.Connection) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS survival_state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS mimo_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
+    db.execute("CREATE INDEX IF NOT EXISTS mimo_events_by_kind ON mimo_events(kind, id)")
     create_block_tables(db)
     create_memory_tables(db)
     create_growth_table(db)

@@ -143,18 +143,48 @@ class EventMirrorTests(unittest.TestCase):
             self.run_mirrors()
         self.assertEqual([text for _, _, text in self.seen], [f"event {number}" for number in range(5)])
 
-    def test_events_no_one_follows_are_not_read_and_move_no_cursor(self):
+    def test_events_no_one_follows_are_not_delivered_and_the_cursor_catches_up_past_them(self):
         mirror("memory", "found", self.writer("memory"))
         self.run_mirrors()
         self.log(("sleep", "Pip went to sleep."), ("wake", "Pip woke up."))
         changed, state = self.run_mirrors()
-        self.assertFalse(changed)  # Mind M1: nothing for anyone, so no state is written every few seconds
+        self.assertTrue(changed)  # fix round 1: the cursor still catches up, so this stretch is never rescanned
+        self.assertEqual(self.seen, [])
+        with self.world.connect() as db:
+            self.assertEqual(state[CURSORS]["memory"], db.execute("SELECT MAX(id) FROM mimo_events").fetchone()[0])
+        changed, state = self.run_mirrors()
+        self.assertFalse(changed)  # already caught up: a second call with nothing new moves no cursor
         self.log(("found", "Pip met its first skitter."))
         changed, state = self.run_mirrors()
         self.assertTrue(changed)
         self.assertEqual(self.seen, [("memory", "found", "Pip met its first skitter.")])
         with self.world.connect() as db:
             self.assertEqual(state[CURSORS]["memory"], db.execute("SELECT MAX(id) FROM mimo_events").fetchone()[0])
+
+    def test_a_long_unfollowed_stretch_is_passed_once_and_never_rescanned(self):
+        """Fix round 1: `mirror_events` reads MAX(id) before its filtered SELECT, so a call that
+        matches fewer than MIRROR_BATCH rows has read every followed event up to that id, and every
+        consumer's cursor can catch up to it at once — a stretch nobody follows, however long, costs
+        one pass, not one every chore. An index on mimo_events(kind, id) keeps that one pass cheap."""
+        mirror("memory", "found", self.writer("memory"))
+        self.run_mirrors()
+        self.log(*[("sleep", f"tick {number}") for number in range(5000)], ("found", "Pip met its first skitter."))
+        with self.world.connect() as db:
+            plan = " ".join(row[3] for row in db.execute(
+                "EXPLAIN QUERY PLAN SELECT id, at, kind, text FROM mimo_events WHERE id > ? AND kind IN (?) "
+                "ORDER BY id LIMIT ?", (0, "found", 200)))
+        self.assertIn("mimo_events_by_kind", plan)
+        changed, state = self.run_mirrors()  # one call passes the whole stretch and delivers the one it follows
+        self.assertTrue(changed)
+        self.assertEqual(self.seen, [("memory", "found", "Pip met its first skitter.")])
+        with self.world.connect() as db:
+            newest = db.execute("SELECT MAX(id) FROM mimo_events").fetchone()[0]
+        self.assertEqual(state[CURSORS]["memory"], newest)
+        self.seen.clear()
+        changed, state = self.run_mirrors()  # a second call: nothing new, so it reads nothing and moves no cursor
+        self.assertFalse(changed)
+        self.assertEqual(self.seen, [])
+        self.assertEqual(state[CURSORS]["memory"], newest)
 
     def test_the_talker_runs_the_mirrors_as_its_first_chore(self):
         self.assertIs(CHORES[0], mirror_events)

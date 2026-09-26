@@ -9,12 +9,16 @@ write)]}, one writer a consumer and kind.
 `mirror_events` runs them. For each consumer it reads the events logged since that consumer last
 looked (its own cursor: state["mirrored"][consumer], the id of the last event it saw), oldest first,
 at most MIRROR_BATCH a run, and hands each event to the consumer's writer for its kind. Only events
-of a kind someone follows are read (Mind M1), so a run with nothing for anyone moves no cursor and
-writes no state. A consumer seen for the first time starts at the newest event, so old news is never
-delivered. A writer that crashes is rolled back (its database writes and state changes), logged once
-and passed over, so no consumer stalls on it and the others go on. It is a rules-only chore: the
-worker's Talker runs it every few seconds, outside the tick (backend.survival.talker.CHORES), in a
-transaction of its own. Nothing is written while nothing is registered.
+of a kind someone follows are read (Mind M1; an index on mimo_events(kind, id) keeps that search
+cheap even across a long stretch nobody follows). A run finds the newest event first: when fewer
+than MIRROR_BATCH events match, every followed event up to that newest id has been read, so every
+consumer's cursor catches up to it at once, and a stretch nobody follows, however long, is passed
+once and never rescanned. A consumer seen for the first time starts at the newest event, so old news
+is never delivered. A writer that crashes is rolled back (its database writes and state changes),
+logged once and passed over, so no consumer stalls on it and the others go on. It is a rules-only
+chore: the worker's Talker runs it every few seconds, outside the tick
+(backend.survival.talker.CHORES), in a transaction of its own. Nothing is written while nothing is
+registered.
 """
 
 from __future__ import annotations
@@ -61,16 +65,16 @@ def mirror_events(db: sqlite3.Connection, state: dict, now: float, scale: float)
         return False
     cursors = state.setdefault(CURSORS, {})
     changed = False
-    if any(name not in cursors for name in names):
-        newest = db.execute("SELECT COALESCE(MAX(id), 0) FROM mimo_events").fetchone()[0]
-        for name in names:
-            if name not in cursors:
-                cursors[name] = newest
-                changed = True
+    newest = db.execute("SELECT COALESCE(MAX(id), 0) FROM mimo_events").fetchone()[0]
+    for name in names:
+        if name not in cursors:
+            cursors[name] = newest
+            changed = True
+    start = min(cursors[name] for name in names)
     kinds = sorted(kind for kind, entries in MIRRORS.items() if entries)
     marks = ",".join("?" * len(kinds))
     rows = db.execute(f"SELECT id, at, kind, text FROM mimo_events WHERE id > ? AND kind IN ({marks}) ORDER BY id "
-                      "LIMIT ?", (min(cursors[name] for name in names), *kinds, MIRROR_BATCH)).fetchall()
+                      "LIMIT ?", (start, *kinds, MIRROR_BATCH)).fetchall()
     for row in rows:
         event = dict(row)
         for entry in list(MIRRORS.get(event["kind"], ())):
@@ -90,4 +94,14 @@ def mirror_events(db: sqlite3.Connection, state: dict, now: float, scale: float)
         for name in names:
             cursors[name] = max(cursors.get(name, 0), event["id"])
         changed = True
+    if len(rows) < MIRROR_BATCH:
+        # Fewer than a batch matched: every followed event up to `newest` (read above, before this
+        # query, so nothing could have been logged past it since) has been seen. A consumer with
+        # nothing left there catches up to it at once, so a stretch nobody follows is never read
+        # again, however long.
+        cursors = state.setdefault(CURSORS, {})
+        for name in names:
+            if cursors.get(name, 0) < newest:
+                cursors[name] = newest
+                changed = True
     return changed
