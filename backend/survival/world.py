@@ -22,6 +22,7 @@ from backend.services.block_table import (
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, craft, smelt, take_items
 from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
+from backend.survival.bond_tables import create_bond_tables
 from backend.survival.creatures.table import create_creature_tables
 from backend.survival.memory import create_memory_tables
 from backend.survival.renewal import create_growth_table
@@ -115,6 +116,7 @@ def create_world_tables(db: sqlite3.Connection) -> None:
     create_memory_tables(db)
     create_growth_table(db)
     create_creature_tables(db)
+    create_bond_tables(db)
 
 
 def read_state(db: sqlite3.Connection) -> dict:

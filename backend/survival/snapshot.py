@@ -10,6 +10,7 @@ from backend.services.block_table import blocks_seq
 from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
+from backend.survival.bond_view import bond_fields
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
 from backend.survival.creatures.harm import sheltered
@@ -194,7 +195,9 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
 
 
 def alive_snapshot(life: dict, world: SurvivalWorld, now: float, scale: float) -> dict:
-    return {"phase": "alive", "life": life_row(life, scale, now), **survival_view(world, now, scale)}
+    """The living pet for /api/mimo: its world's state and (Bond) the owner's side of it."""
+    return {"phase": "alive", "life": life_row(life, scale, now), **survival_view(world, now, scale),
+            **bond_fields(world, now, scale)}
 
 
 def goals_reached(world: SurvivalWorld, born_at: float, scale: float) -> list[dict]:
