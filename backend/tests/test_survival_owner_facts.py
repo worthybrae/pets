@@ -28,6 +28,12 @@ class NoticingTests(unittest.TestCase):
         self.assertEqual(notice("My favourite colour is blue.").get("likes"), "blue")
         self.assertEqual(notice("I really hate spiders, honestly").get("dislikes"), "spiders")
         self.assertEqual(notice("I love you").get("likes"), "")  # too vague to remember
+        for vague in ("I love you so much", "I love you too", "I like it here", "I like that"):
+            self.assertEqual(notice(vague).get("likes"), "", vague)
+        self.assertEqual(notice("I love it when you build").get("likes"), "it when you build")
+        self.assertEqual(notice("I dont like the dark").get("dislikes"), "the dark")
+        self.assertEqual(notice("I cant stand spiders").get("dislikes"), "spiders")
+        self.assertEqual(notice("I don\u2019t like thunder").get("dislikes"), "thunder")
         self.assertEqual(notice("I work nights at the bakery").get("about"), "I work nights at the bakery")
         self.assertEqual(notice("Do I look tired?").get("about"), "")  # a question tells nothing
         self.assertEqual(notice("How are you doing today?").found, {})
@@ -36,6 +42,8 @@ class NoticingTests(unittest.TestCase):
         noticed = notice("I'm Sam and I love fishing")
         self.assertEqual([option.name for option in fact_options(noticed)], [NONE, "name", "likes", "about"])
         self.assertIn('"Sam"', fact_options(noticed)[1].description)
+        self.assertEqual([option.facts for option in fact_options(notice("I work nights"))][1:],
+                         ["an about fact about the owner"])
         self.assertEqual(rules_fact(noticed), "name")
         self.assertEqual(rules_fact(notice("I hate the rain")), "dislikes")
         self.assertEqual(rules_fact(notice("I had a long day")), NONE)  # only Jev keeps words about themselves

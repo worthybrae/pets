@@ -35,13 +35,15 @@ NOT_NAMES = frozenset({
     "okay", "sorry", "sad", "happy", "tired", "hungry", "busy", "bored", "going", "gonna", "off", "on", "at", "in",
     "your", "you", "glad", "proud", "sure", "well", "done", "out", "up", "still", "also", "too", "all", "new",
 })
+# A like or dislike that starts with one of these says nothing Mimo can keep ("I love you so much", "I
+# like it here"), except "it when ..." ("I hate it when you get hurt").
 THINGS_TOO_VAGUE = frozenset({"you", "u", "it", "that", "this", "them", "him", "her", "me", "ya"})
 NAME = r"([A-Za-z][A-Za-z'-]{0,23})"
 NAMED = (re.compile(r"\bmy name(?:'s| is)\s+" + NAME, re.I), re.compile(r"\bcall me\s+" + NAME, re.I),
          re.compile(r"\b[Ii](?:'m| am)\s+([A-Z][a-z'-]{1,23})\b"))
 LIKES = (re.compile(r"\bmy fav(?:ou?rite)?(?:\s+\w+)?\s+(?:is|are)\s+([^.!?;,]+)", re.I),
          re.compile(r"\bi\s+(?:really\s+|just\s+)?(?:love|like|adore|enjoy)\s+([^.!?;,]+)", re.I))
-DISLIKES = (re.compile(r"\bi\s+(?:really\s+)?(?:hate|dislike|can't stand|cannot stand|don't like|do not like)\s+"
+DISLIKES = (re.compile(r"\bi\s+(?:really\s+)?(?:hate|dislike|can'?t stand|cannot stand|don'?t like|do not like)\s+"
                        r"([^.!?;,]+)", re.I),)
 ABOUT = re.compile(r"\b(?:i|i'm|i am|my|me|mine)\b", re.I)
 FACT_INSTRUCTIONS = ("Decide what, if anything, this small pet should remember about its owner from the owner's "
@@ -74,12 +76,19 @@ def name_in(text: str) -> str:
     return ""
 
 
+def vague(thing: str) -> bool:
+    """Whether a like or dislike is too vague to keep: it starts with "you", "it", "that"... ("you so
+    much", "it here"), but "it when ..." or "it if ..." says what."""
+    first, _, rest = thing.lower().partition(" ")
+    return first in THINGS_TOO_VAGUE and not (first == "it" and rest.split(" ", 1)[0] in ("when", "if", "whenever"))
+
+
 def thing_in(text: str, patterns: tuple) -> str:
     for pattern in patterns:
         match = pattern.search(text)
         if match:
             thing = trimmed(match.group(1), 60)
-            if thing and thing.lower() not in THINGS_TOO_VAGUE:
+            if thing and not vague(thing):
                 return thing
     return ""
 
@@ -104,7 +113,7 @@ def fact_options(noticed: Noticed) -> tuple[Option, ...]:
         words = noticed.get(kind)
         if words:
             found.append(Option(kind, words, f'Remember that {FACT_WORDING[kind]}: "{words}".',
-                                f"a {kind} fact about the owner", 0.0))
+                                f"{'an' if kind[0] in 'aeiou' else 'a'} {kind} fact about the owner", 0.0))
     return tuple(found)
 
 

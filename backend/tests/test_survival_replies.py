@@ -8,20 +8,26 @@ from pathlib import Path
 from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every purpose and goal registered)
+from backend.survival.goals import GOALS
 from backend.survival.hatch import hatch
 from backend.survival.memory import know
 from backend.survival.once import forget_logged
+from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
 from backend.survival.replies import (
-    MOOD, MOOD_LINES, REPLIES, REPLY_LIMIT, SHOWN, Heard, candidates, clip, first_person, gerund, reply_options,
-    rules_pick,
+    MOOD, MOOD_LINES, REPLIES, REPLY_LIMIT, SHOWN, Heard, Reply, candidates, clip, echoed, first_person, gerund,
+    goal_line, reply_options, rules_pick, voiced,
 )
 from backend.survival.situation import from_db
 from backend.survival.triggers import ensure_brain
+from backend.survival.trips import REASONS
 from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
 
 BORN = 1_000_000.0
 NOW = BORN + 300
+# A line that speaks of Mimo as "it" or in a broken first person.
+LEAK = re.compile(r"\bits\b|\bit (knows|has|does|is)\b|\bI (knows|has|does|is)\b")
+VERB_TITLED = {"armor_up", "cave", "far_hills", "map_land", "new_creature", "new_land", "water"}
 
 
 def sentences(text):
@@ -45,6 +51,32 @@ class ReplyWordsTests(unittest.TestCase):
         self.assertEqual(gerund("put things away"), "putting things away")
         self.assertEqual(gerund("drop what it cannot use"), "dropping what I cannot use")
         self.assertEqual(gerund("go home"), "going home")
+
+    def test_mimos_own_texts_are_said_in_its_own_voice(self):
+        self.assertEqual(voiced("travel past the lands it knows"), "travel past the lands I know")
+        self.assertEqual(voiced("A home of its own"), "A home of my own")
+        self.assertEqual(voiced("Meet a creature it has never met"), "Meet a creature I have never met")
+        self.assertEqual(voiced("Find water it does not know"), "Find water I do not know")
+        self.assertEqual(voiced("Find a site for it"), "Find a site for it")  # the site's "it" is not Mimo
+        self.assertEqual(gerund("come home from its expedition"), "coming home from my expedition")
+        texts = ([reason.words for reason in REASONS.values()] + [purpose.phrase for purpose in PURPOSES.values()]
+                 + [goal.title for goal in GOALS.values()]
+                 + [milestone.text for goal in GOALS.values() for milestone in goal.milestones])
+        for text in texts:
+            self.assertIsNone(LEAK.search(voiced(text)), f"{text!r} -> {voiced(text)!r}")
+
+    def test_a_line_is_quoted_for_jev_without_nested_quotes(self):
+        [option] = reply_options([Reply("like_ack", 'Ooh, the "big" lake? I\'ll remember that you like it.')])
+        self.assertEqual(option.description, 'Say: "Ooh, the \'big\' lake? I\'ll remember that you like it."')
+        self.assertEqual(option.phrase, 'Ooh, the "big" lake? I\'ll remember that you like it.')
+
+    def test_the_owners_words_are_turned_around_when_mimo_says_them(self):
+        for said, echo in (("watching you explore", "watching me explore"), ("your little house", "my little house"),
+                           ("it when you get hurt", "it when I get hurt"), ("when you're sad", "when I'm sad"),
+                           ("when you are sad", "when I am sad"), ("talking to you", "talking to me"),
+                           ("my dog", "your dog"), ("I work nights", "you work nights"),
+                           ("I am from Leeds", "you are from Leeds"), ("the lake", "the lake")):
+            self.assertEqual(echoed(said), echo, said)
 
     def test_the_table_has_a_line_for_every_mood_and_doing(self):
         for band in ("happy", "okay", "low"):
@@ -123,7 +155,53 @@ class ReplyTests(unittest.TestCase):
                                                          "why": "my pickaxe needs it", "direction": "north"})
         self.edit(exploring)
         lines = {reply.topic: reply.text for reply in self.replies("what are you up to")[0]}
-        self.assertEqual(lines["doing"], "I'm exploring to look for iron. My pickaxe needs it.")
+        self.assertEqual(lines["doing"], "I'm heading north to look for iron. My pickaxe needs it.")
+
+    def test_on_the_expedition_every_line_speaks_as_i_and_the_why_is_not_said_twice(self):
+        def trekking(state, db):
+            state["brain"].update(purpose="explore", reflex=None, trip={
+                "reason": "expedition", "words": "travel past the lands it knows", "direction": "east",
+                "why": "I want to see what lies past the lands I know"})
+            state["brain"]["goal"] = {"name": "expedition", "since": BORN, "picker": "jev", "progress": 0.35,
+                                      "plan": [{"text": "Pack food and torches", "done": True, "step": 0},
+                                               {"text": "Travel past the lands it knows", "done": False, "step": 1},
+                                               {"text": "Come home with its finds", "done": False, "step": 2}]}
+        self.edit(trekking)
+        for text in ("hi!", "what are you doing?", "what's your goal?", "what's the plan for today?"):
+            found, _ = self.replies(text)
+            for reply in found:
+                self.assertNotIn(" it knows", reply.text)
+                self.assertNotIn(" its ", f" {reply.text} ")
+                self.assertIsNone(LEAK.search(reply.text), reply.text)
+        lines = {reply.topic: reply.text for reply in self.replies("where are you going?")[0]}
+        self.assertEqual(lines["doing"], "I'm heading east to travel past the lands I know.")
+        self.assertEqual(lines["plan"], "Today I want to travel past the lands I know and come home with my finds.")
+
+    def test_every_goal_line_is_grammatical(self):
+        for name, goal in GOALS.items():
+            def working(state, db, name=name, goal=goal):
+                state["brain"]["goal"] = {"name": name, "since": BORN, "picker": "rules", "progress": 0.1,
+                                          "plan": [{"text": milestone.text, "done": False, "step": step}
+                                                   for step, milestone in enumerate(goal.milestones)]}
+            self.edit(working)
+            with self.world.connect() as db:
+                line = goal_line(from_db(db, read_state(db), NOW, 1.0), Heard("goal?"))
+            self.assertRegex(line, r"^I'm working (toward|to) ")
+            self.assertIsNone(LEAK.search(line), line)
+            self.assertTrue(line.startswith("I'm working to " if name in VERB_TITLED else "I'm working toward "), line)
+
+    def test_what_the_owner_likes_is_said_back_in_mimos_words(self):
+        for text, like in (("I like your little house", "Ooh, my little house? I'll remember that you like it."),
+                           ("I love watching you explore!", "Ooh, watching me explore? I'll remember that you like it."),
+                           ("I hate it when you get hurt", "You don't like it when I get hurt? I'll remember that."),
+                           ("I dont like the dark", "You don't like the dark? I'll remember that."),
+                           ("I cant stand spiders", "You don't like spiders? I'll remember that."),
+                           ("I love you so much", None), ("I love you too", None), ("I like it here", None)):
+            found, heard = self.replies(text)
+            lines = {reply.topic: reply.text for reply in found}
+            self.assertEqual(lines.get("like_ack"), like, text)
+        found, heard = self.replies("I love you so much")
+        self.assertEqual(rules_pick(found, heard), "affection")
 
     def test_its_goal_todays_plan_and_the_newest_notable_thing(self):
         def goal_and_news(state, db):
@@ -153,6 +231,12 @@ class ReplyTests(unittest.TestCase):
             "do you remember me?", owner="Sam", facts=(("likes", "the lake"), ("name", "Sam")))[0]}
         self.assertEqual(lines["remember"], "I remember you like the lake!")
         self.assertNotIn("ask_back", lines)
+        for facts, said in (((("about", "I work nights."),), "I remember you said you work nights."),
+                            ((("likes", "watching you explore"),), "I remember you like watching me explore!"),
+                            ((("dislikes", "it when you get hurt"),), "I remember you don't like it when I get hurt.")):
+            lines = {reply.topic: reply.text for reply in self.replies("do you remember me?", facts=facts)[0]}
+            self.assertEqual(lines["remember"], said)
+            self.assertNotIn('"', said)
 
     def test_what_it_learned_once_the_journal_is_in(self):
         self.edit(lambda state, db: know(db, "gravel", "lesson", NOW - 5))

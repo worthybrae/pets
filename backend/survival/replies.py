@@ -10,6 +10,12 @@ CLOSE, what happened lately and what it remembers of the owner come right after 
 about, and the rules answer small talk with the news. MOOD_LINES is the small table keyed on Mimo's
 mood and what it is doing; its line is always on offer.
 
+Mimo speaks as "I". The game's own texts about Mimo are written about "it" (a trip's words, a goal's
+title, a plan step: "travel past the lands it knows", "a home of its own"), so a line says them
+through `voiced` ("the lands I know", "a home of my own"). The owner's words are said back through
+`echoed`, which turns the owner's "you" and "your" into Mimo's "me" and "my" and the owner's "I"
+into "you" ("I love watching you explore" -> "watching me explore").
+
 Every line is one or two short sentences, at most REPLY_LIMIT characters (`clip`). `candidates`
 gives at most SHOWN lines, those whose topic the owner's words touch first (TOPIC_WORDS); Jev
 chooses one, and without Jev `rules_pick` takes the first of them, or the table's line when the
@@ -26,7 +32,7 @@ from typing import Callable
 
 from backend.survival.care import utc_day
 from backend.survival.curiosity import curiosity_view
-from backend.survival.goals import active, goal_purposes, goal_view, lower
+from backend.survival.goals import GOALS, active, goal_purposes, goal_view, lower
 from backend.survival.memory import known
 from backend.survival.once import log_once
 from backend.survival.owner_facts import Noticed, notice
@@ -54,6 +60,29 @@ REFLEX_WORDS = {"flee": "running from danger", "fight": "fighting off a creature
                 "eat_now": "grabbing a bite", "warm_up": "warming up", "surface": "coming up for air",
                 "collapse": "too tired to stand", "avoid_drop": "watching my step"}
 GERUNDS = {"go": "going", "put": "putting", "dig": "digging", "drop": "dropping", "lie": "lying", "stop": "stopping"}
+# The verbs after an "it" that means Mimo, in its own voice (`voiced`): "it knows" -> "I know".
+IT_VERBS = {"knows": "know", "has": "have", "does": "do", "is": "am", "was": "was", "needs": "need", "wants": "want",
+            "cannot": "cannot", "can": "can", "will": "will", "had": "had", "found": "found", "met": "met",
+            "saw": "saw", "carries": "carry", "sees": "see", "likes": "like", "loves": "love", "hates": "hate",
+            "feels": "feel", "gets": "get", "goes": "go", "makes": "make", "keeps": "keep", "lives": "live",
+            "misses": "miss", "doesn't": "don't", "isn't": "am not", "hasn't": "haven't", "wasn't": "wasn't"}
+IT_SUBJECT = re.compile(r"\bit (" + "|".join(sorted(map(re.escape, IT_VERBS), key=len, reverse=True)) + r")\b")
+# The owner's words in Mimo's mouth (`echoed`): the owner's "you" is Mimo, the owner's "I" is the owner.
+ECHO = {"your": "my", "yours": "mine", "yourself": "myself", "you're": "I'm", "youre": "I'm", "you've": "I've",
+        "you'll": "I'll", "you'd": "I'd", "ur": "my", "my": "your", "mine": "yours", "myself": "yourself",
+        "me": "you", "i": "you", "i'm": "you're", "im": "you're", "i've": "you've", "i'll": "you'll", "i'd": "you'd"}
+SUBJECT_AFTER = frozenset({"", "when", "if", "because", "that", "and", "or", "while", "how", "what", "where", "as",
+                           "but", "so", "until", "since", "before", "after", "whenever", "cause", "cuz", "than"})
+AGREES = {"I": {"are": "am", "were": "was", "aren't": "am not", "weren't": "wasn't"},
+          "you": {"am": "are", "was": "were", "wasn't": "weren't"}}
+# Words not counted when two phrases are compared for what they share (`shared_words`).
+STOP_WORDS = frozenset({"a", "an", "the", "to", "i", "my", "and", "of", "for", "in", "on", "at", "it", "is", "am",
+                        "want", "what"})
+# A goal title that starts with one of these is something to do ("look into a cave"): Mimo works "to" it,
+# not "toward" it (`working_on`). The first words of every goal's milestones count too.
+TITLE_VERBS = frozenset({"armor", "look", "map", "meet", "see", "follow", "find", "build", "make", "explore", "visit",
+                         "learn", "raise", "grow", "go", "walk", "travel", "light", "gather", "mine", "catch", "tame",
+                         "plant", "craft", "cook", "dig", "reach", "climb", "cross", "discover", "tinker"})
 NEED_WORDS = {"hunger": ("a bit hungry", "really hungry"), "energy": ("a little tired", "worn out"),
               "warmth": ("a bit chilly", "cold"), "health": ("a little sore", "hurt")}
 # The small table: {(mood band, what Mimo is doing): line}.
@@ -146,11 +175,55 @@ def sentence(words: str) -> str:
     return words[:1].upper() + words[1:] + ("" if words.endswith((".", "!", "?")) else ".")
 
 
+def voiced(text: str) -> str:
+    """One of the game's texts about Mimo in its own voice: "travel past the lands it knows" -> "travel
+    past the lands I know", "a home of its own" -> "a home of my own". An "it" that is not the subject
+    of a verb is the thing, not Mimo, and stays: "find a site for it"."""
+    text = IT_SUBJECT.sub(lambda match: f"I {IT_VERBS[match.group(1)]}", text)
+    text = re.sub(r"\bitself\b", "myself", text)
+    return re.sub(r"\bits\b", "my", text)
+
+
+def echoed(words: str) -> str:
+    """The owner's words as Mimo says them back: "watching you explore" -> "watching me explore", "your
+    little house" -> "my little house", "it when you get hurt" -> "it when I get hurt", "I work nights"
+    -> "you work nights". The words are only turned around, never followed."""
+    out, previous, subject = [], "", None
+    for token in re.findall(r"[A-Za-z']+|[^A-Za-z']+", words):
+        if not re.match(r"[A-Za-z']", token):
+            out.append(token)
+            continue
+        low = token.lower()
+        said, now_subject = token, None
+        if subject and low in AGREES[subject]:
+            said = AGREES[subject][low]
+        elif low in ("you", "u"):
+            said, now_subject = ("I", "I") if previous in SUBJECT_AFTER else ("me", None)
+        elif low in ECHO:
+            said = ECHO[low]
+            now_subject = "you" if low in ("i", "i'm", "im", "i've", "i'll", "i'd") else None
+        out.append(said)
+        previous, subject = low, now_subject
+    return "".join(out)
+
+
+def told(words: str) -> str:
+    """What the owner said about themselves, said back in indirect speech: "I work nights." -> "you work
+    nights"."""
+    return echoed(SENTENCE_END.split(words.strip())[0].rstrip(".!?"))
+
+
+def shared_words(one: str, other: str) -> int:
+    """How many words two phrases share, small words aside."""
+    words = [set(re.findall(r"[a-z']+", text.lower())) - STOP_WORDS for text in (one, other)]
+    return len(words[0] & words[1])
+
+
 def first_person(text: str, name: str) -> str:
     """An event about Mimo in its own voice: "Pip met its first skitter." -> "I met my first skitter."."""
     if not text.startswith(f"{name} "):
         return text
-    rest = re.sub(r"\bits\b", "my", text[len(name) + 1:])
+    rest = voiced(text[len(name) + 1:])
     for third, first in (("is ", "am "), ("has ", "have ")):
         if rest.startswith(third):
             rest = first + rest[len(third):]
@@ -167,8 +240,19 @@ def gerund(phrase: str) -> str:
         verb = verb[:-1] + "ing"
     else:
         verb += "ing"
-    rest = re.sub(r"\bits\b", "my", re.sub(r"\bit\b", "I", rest))
-    return f"{verb} {rest}".strip()
+    return f"{verb} {voiced(rest)}".strip()
+
+
+def starts_with_verb(title: str) -> bool:
+    """Whether a goal's title is something to do ("Look into a cave") rather than a thing ("Iron tools")."""
+    first = title.split(" ", 1)[0].lower()
+    return first in TITLE_VERBS or any(milestone.text.split(" ", 1)[0].lower() == first
+                                       for goal in GOALS.values() for milestone in goal.milestones)
+
+
+def working_on(title: str) -> str:
+    """"toward a home of my own", "to look into a cave"."""
+    return f"{'to' if starts_with_verb(title) else 'toward'} {voiced(lower(title))}"
 
 
 def mood_band(mood: float) -> str:
@@ -203,7 +287,7 @@ def doing_words(s: Situation) -> str:
     if purpose is None:
         return "sleeping" if (s.state.get("action") or {}).get("kind") == "sleep" else "thinking about what to do next"
     trip = trip_view(brain)
-    return gerund(purpose.phrase) + (f" to {trip['words']}" if trip and trip.get("words") else "")
+    return gerund(purpose.phrase) + (f" to {voiced(trip['words'])}" if trip and trip.get("words") else "")
 
 
 def with_name(heard: Heard) -> str:
@@ -220,10 +304,13 @@ def name_ack(s: Situation, heard: Heard) -> str | None:
 
 
 def like_ack(s: Situation, heard: Heard) -> str | None:
-    if heard.noticed.get("likes"):
-        return f"Ooh, {heard.noticed.get('likes')}? I'll remember that you like it."
-    if heard.noticed.get("dislikes"):
-        return f"You don't like {heard.noticed.get('dislikes')}? I'll remember that."
+    liked, disliked = heard.noticed.get("likes"), heard.noticed.get("dislikes")
+    if liked:
+        said = echoed(liked)
+        return f"You like {said}? I'll remember that." if said.startswith("it ") else \
+            f"Ooh, {said}? I'll remember that you like it."
+    if disliked:
+        return f"You don't like {echoed(disliked)}? I'll remember that."
     return None
 
 
@@ -262,13 +349,19 @@ def feel(s: Situation, heard: Heard) -> str:
 
 
 def doing(s: Situation, heard: Heard) -> str:
+    """What Mimo is doing and why: on a trip, where it is heading and what for ("I'm heading east to look
+    for iron. My pickaxe needs it."), the why left out when it only says the trip's words again."""
     words = doing_words(s)
     trip = trip_view(s.brain)
-    if trip and trip.get("why") and not s.brain.get("reflex"):
-        return f"I'm {words}. {sentence(trip['why'])}"
+    if trip and not s.brain.get("reflex"):
+        what = voiced(trip.get("words") or "")
+        line = f"I'm heading {trip['direction']}" + (f" to {what}." if what else ".") if trip.get("direction") \
+            else f"I'm {words}."
+        why = voiced(trip.get("why") or "")
+        return f"{line} {sentence(why)}" if why and shared_words(why, what) < 3 else line
     goal, purpose = active(s), s.brain.get("purpose")
     if goal is not None and purpose and purpose in (goal_purposes(s) or ()) and not s.brain.get("reflex"):
-        return f"I'm {words}. It's for my goal: {lower(goal.title)}."
+        return f"I'm {words}. It's for my goal: {voiced(lower(goal.title))}."
     return f"I'm {words}."
 
 
@@ -277,12 +370,12 @@ def goal_line(s: Situation, heard: Heard) -> str:
     if view is None:
         return "I haven't picked a goal yet. Something will come to me!"
     left = [step["text"] for step in view["plan"] if not step["done"]]
-    after = f" Next: {lower(left[0])}." if left else ""
-    return f"I'm working toward {lower(view['title'])}: {round(view['progress'] * 100)}% done.{after}"
+    after = f" Next: {voiced(lower(left[0]))}." if left else ""
+    return f"I'm working {working_on(view['title'])}: {round(view['progress'] * 100)}% done.{after}"
 
 
 def plan(s: Situation, heard: Heard) -> str | None:
-    steps = [lower(step["text"]) for step in (goal_view(s.brain) or {}).get("plan", []) if not step["done"]][:2]
+    steps = [voiced(lower(step["text"])) for step in (goal_view(s.brain) or {}).get("plan", []) if not step["done"]][:2]
     return f"Today I want to {' and '.join(steps)}." if steps else None
 
 
@@ -312,12 +405,11 @@ def curious(s: Situation, heard: Heard) -> str | None:
 def remember(s: Situation, heard: Heard) -> str | None:
     for kind, words in heard.facts:
         if kind == "likes":
-            return f"I remember you like {words}!"
+            return f"I remember you like {echoed(words)}!"
         if kind == "dislikes":
-            return f"I remember you don't like {words}."
+            return f"I remember you don't like {echoed(words)}."
         if kind == "about":
-            said = SENTENCE_END.split(words)[0]
-            return f'I remember you told me: "{said}"'
+            return f"I remember you said {told(words)}."
     return None
 
 
@@ -393,5 +485,5 @@ def rules_pick(replies: list[Reply], heard: Heard) -> str:
 
 def reply_options(replies: list[Reply]) -> tuple[Option, ...]:
     """The lines as choices for Jev's "reply" question."""
-    return tuple(Option(reply.topic, reply.text, f'Say: "{reply.text}"', f"a reply about {ABOUT.get(reply.topic, reply.topic)}",
-                        0.0) for reply in replies)
+    return tuple(Option(reply.topic, reply.text, f"Say: \"{reply.text.replace(chr(34), chr(39))}\"",
+                        f"a reply about {ABOUT.get(reply.topic, reply.topic)}", 0.0) for reply in replies)
