@@ -286,9 +286,14 @@ def digs(s: Situation, heading: tuple[int, int]) -> bool:
 
 
 def prospecting(s: Situation) -> bool:
-    """Digging on for iron: Mimo has a stone pickaxe, still wants iron and has seen none."""
-    return (s.count("stone_pickaxe") > 0 and "iron_ore" in wanted_ores(s)
-            and not any(place["kind"] == "ore" and place["note"] == "iron_ore" for place in s.places))
+    """Digging on for iron: Mimo has a stone pickaxe, still wants iron and has seen none. Making: or for
+    an ore MORE_ORES wants that it has seen none of (copper; coal lies in any staircase's walls), with a
+    stone pickaxe or better."""
+    seen = {place["note"] for place in s.places if place["kind"] == "ore"}
+    iron = s.count("stone_pickaxe") > 0 and "iron_ore" in wanted_ores(s) and "iron_ore" not in seen
+    more = pickaxe_rank(s.inventory) >= TOOL_RANK["stone_pickaxe"] and any(
+        ore not in seen for ore in more_ores(s) if ore != "coal_ore")
+    return iron or more
 
 
 # Making: functions of the Situation giving more cobblestone gather_stone digs for (what making needs).

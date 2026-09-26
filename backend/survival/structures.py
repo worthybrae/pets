@@ -58,7 +58,7 @@ def missing(grid: Grid, planned: Planned) -> bool:
         return planned.block == "door" and material != "door"
     if planned.part == "fence":  # L3: a pen's ring
         return material != "fence"
-    if planned.part == "fixture":  # Making: what a workshop is fitted out with
+    if planned.part in ("fixture", "part"):  # Making: a workshop's fittings; a machine's parts, lit or not
         return material not in STANDS_IN.get(planned.block, (planned.block,))
     return planned.part in FITTINGS and material not in STANDS_IN.get(planned.block, (planned.block,))
 

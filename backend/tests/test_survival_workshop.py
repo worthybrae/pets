@@ -81,6 +81,10 @@ class Yard:
                 self.grid.put(*step["target"], "air")
                 if drop:
                     add_item(inventory, drop)
+            elif kind == "flip":  # T2: a lever thrown, a button pressed
+                material = self.grid.material(*step["target"])
+                flipped = {"lever": "lever_on", "lever_on": "lever", "button": "button_on"}[material]
+                self.grid.put(*step["target"], flipped)
             self.state["inventory"] = inventory
             if kind in ("place", "mine"):
                 note_building(self.state, {**step, "purpose": purpose}, self.context(), 1.0)

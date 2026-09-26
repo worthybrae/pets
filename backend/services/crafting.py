@@ -81,6 +81,23 @@ RECIPES.update({
     "composter": {"ingredients": {"slab": 7}, "output": {"composter": 1}},
     "candle": {"ingredients": {"tallow": 1, "string": 1}, "output": {"candle": 1}},
 })
+# Making (T2): the parts of a machine. A copper ingot draws into twelve wires; the gates take torches for
+# their sparks, as redstone torches would.
+RECIPES.update({
+    "copper_wire": {"ingredients": {"copper_ingot": 1}, "output": {"copper_wire": 12}, "station": "crafting_table"},
+    "lever": {"ingredients": {"sticks": 1, "cobblestone": 1}, "output": {"lever": 1}},
+    "button": {"ingredients": {"planks": 1}, "output": {"button": 1}},
+    "pressure_plate": {"ingredients": {"planks": 2}, "output": {"pressure_plate": 1}},
+    "daylight_sensor": {"ingredients": {"glass": 3, "slab": 3, "copper_wire": 1}, "output": {"daylight_sensor": 1},
+                        "station": "crafting_table"},
+    "repeater": {"ingredients": {"cobblestone": 3, "torch": 2, "copper_wire": 1}, "output": {"repeater": 1},
+                 "station": "crafting_table"},
+    "inverter": {"ingredients": {"torch": 1, "copper_wire": 1}, "output": {"inverter": 1}},
+    "joiner": {"ingredients": {"cobblestone": 3, "torch": 1, "copper_wire": 2}, "output": {"joiner": 1},
+               "station": "crafting_table"},
+    "lamp": {"ingredients": {"copper_ingot": 1, "torch": 1}, "output": {"lamp": 1}, "station": "crafting_table"},
+    "bell": {"ingredients": {"copper_ingot": 2, "sticks": 1}, "output": {"bell": 1}, "station": "crafting_table"},
+})
 # Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
 # their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.
 LOGS = ("oak_log", "birch_log", "spruce_log")

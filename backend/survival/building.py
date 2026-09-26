@@ -339,7 +339,8 @@ def finish_if_built(state: dict, context, number: int, at: float) -> None:
     if structure is None or structure["status"] != "building":
         return
     blueprint = blueprint_of(structure)
-    parts = {"farm": ("plot",), "pen": ("fence",)}.get(structure["kind"], ("floor", "wall", "roof"))  # L3: pens
+    parts = {"farm": ("plot",), "pen": ("fence",), "machine": ("part",)}.get(  # L3: pens; Making: machines
+        structure["kind"], ("floor", "wall", "roof"))
     if todo(context.grid, blueprint, parts):
         return
     finish_structure(context.db, number, at)

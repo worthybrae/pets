@@ -8,9 +8,9 @@ and items its next steps still want ({"kiln": 1, "glass_pane": 2}); `needs` adds
 Situation.
 
 `raw_needs` works out through the recipes (toolmaking.make) the raw materials those take that Mimo
-does not carry: the ones it gathers itself (GATHERED: sugar cane and flowers, clay and sand) and the
-ores mine_ore brings (MINED: copper ore). What else a project wants (leather for a book, wool, tallow,
-string) waits for a hunt or the chest; a thing it cannot make yet is left for later.
+does not carry: the ones it gathers itself (GATHERED: sugar cane and flowers, clay and sand) and what
+mine_ore brings (MINED: copper ore, and coal for torches). What else a project wants (leather for a
+book, wool, tallow, string) waits for a hunt or the chest; a thing it cannot make yet is left for later.
 
 - gather_materials, "gather materials": picks or digs what raw_needs asks for from sources within
   SOURCE_SIGHT blocks, nearest first: plants worldgen grew that still stand (sugar cane from the top
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 PLANTS = ("sugar_cane", "flower_orange", "flower_pink", "flower_yellow")
 GROUND = ("clay", "sand")
 GATHERED = PLANTS + GROUND
-MINED = ("copper_ore",)
+MINED = {"copper_ore": "copper_ore", "coal": "coal_ore"}  # what mine_ore brings -> the ore it goes after
 SOURCE_SIGHT = 24
 PER_BATCH = 8
 GATHER_BATCHES = 3
@@ -151,7 +151,7 @@ def kept_for_making(s: Situation, item: str) -> float:
 
 def ores_for_making(s: Situation) -> list[str]:
     """work.MORE_ORES: the ores raw_needs asks for."""
-    return [ore for ore in MINED if raw_needs(s).get(ore, 0) > 0]
+    return [ore for item, ore in MINED.items() if raw_needs(s).get(item, 0) > 0]
 
 
 storage.KEEPS_MORE.append(kept_for_making)
