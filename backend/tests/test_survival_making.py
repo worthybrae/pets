@@ -4,12 +4,17 @@ from unittest.mock import patch
 from backend.services.crafting import craft, smelt
 from backend.survival import brain  # noqa: F401  (registers every purpose)
 from backend.survival.making import (
-    COLOURS, NEEDS, craft_plan, favourite_colour, needs, place_steps, raw_needs, sources,
+    COLOURS, FAR, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, favourite_colour, gathered_wanted, kept_for_making,
+    needs, place_steps, raw_needs, sources,
 )
+from backend.survival.building import spared, sparing
+from backend.survival.carrying import GIVES_WAY_TO_FOOD, LOW_VALUE, settle
+from backend.survival.memory import know, remember
 from backend.survival.purposes import PURPOSES
-from backend.survival.storage import junk, kept
-from backend.survival.work import stone_goal, wanted_ores
+from backend.survival.storage import junk, kept, loose_blocks, to_store, to_take
+from backend.survival.work import ore_targets, stone_goal, wanted_ores
 from backend.tests.test_survival_building import NIGHT, World
+from backend.tests.test_survival_storage import Home
 
 FLAT = lambda x, z, seed: 0  # noqa: E731
 CLAY = {(4, 0), (5, 0), (9, 3)}
@@ -82,13 +87,40 @@ class NeedsTests(unittest.TestCase):
 
     def test_the_chest_keeps_off_what_a_project_needs_and_its_flowers_are_not_junk(self):
         world = World({"clay": 3, "flower_pink": 2, **{f"item_{n}": 1 for n in range(9)}})
+        know(world.db, "workshop", "goal", 0.0)  # its workshop reached: no kiln keeps clay for later
         s = world.situation()
         self.assertEqual(kept(s, "clay"), 0)
         self.assertIn(("flower_pink", 2), junk(s))
         want(self, {"kiln": 1, "rug_pink": 1})
         s = world.situation()
-        self.assertEqual(kept(s, "clay"), 32)
-        self.assertNotIn("flower_pink", [item for item, _ in junk(s)])
+        self.assertEqual(kept(s, "clay"), 3)  # the final fix wave (I1): what the kiln takes, not a whole stack
+        self.assertEqual([item for item, _ in junk(s) if item.startswith("flower")], ["flower_pink"])
+        self.assertIn(("flower_pink", 1), junk(s))  # one flower makes the rug's two dyes: the other is spare
+
+    def test_what_is_kept_is_what_the_needs_take_not_a_stack_of_the_whole_chain_nor_wood_and_stone(self):
+        """The Making final fix wave, I1: with the cozy home the goal, making kept a stack more of 14 kinds,
+        which filled Mimo's arms. Now it keeps the counts the needs take, through their recipes, and leaves
+        wood and stone to L4a's own keep."""
+        world = World({"clay": 12, "sand": 16, "cobblestone": 20, "planks": 20, "iron_ingot": 2, "wool": 5})
+        want(self, {"kiln": 1, "glass_pane": 2, "iron_bars": 2})
+        s = world.situation()
+        self.assertEqual({item: kept_for_making(s, item) for item in ("clay", "sand", "iron_ingot", "wool")},
+                         {"clay": 3.0, "sand": 6.0, "iron_ingot": 2.0, "wool": 0.0})
+        self.assertEqual((kept_for_making(s, "cobblestone"), kept_for_making(s, "planks")), (0.0, 0.0))
+        self.assertEqual(kept(s, "clay"), 3)
+        self.assertEqual(kept(s, "cobblestone"), 16)  # L4a's own keep, as without a project
+
+    def test_iron_bars_send_mine_ore_after_iron(self):
+        """C1 (b): iron ore was not in MINED, so raw_needs stopped at the workshop's bars and mine_ore never
+        went after their iron once Mimo had an iron pickaxe."""
+        world = World({"iron_pickaxe": 1, "coal": 8})
+        self.assertNotIn("iron_ore", wanted_ores(world.situation()))
+        want(self, {"iron_bars": 2})
+        s = world.situation()
+        self.assertEqual(raw_needs(s), {"iron_ore": 6})
+        self.assertIn("iron_ore", wanted_ores(s))
+        remember(world.db, "ore", (20, -3, 4), 0.0, "iron_ore")
+        self.assertEqual([place["note"] for place in ore_targets(world.situation())], ["iron_ore"])
 
     def test_gather_stone_digs_for_the_cobblestone_making_wants_a_stack_at_most(self):
         world = World({"wooden_pickaxe": 1, "clay": 3, "oak_log": 2})
@@ -174,6 +206,187 @@ class GatherTests(unittest.TestCase):
             self.assertEqual([cell for cell, _ in sources(s)], [(3, 3, 0), (3, 2, 0), (3, 1, 0)])
             self.assertEqual([step["target"] for step in PURPOSES["gather_materials"].plan(s, self.world.context())],
                              [[3, 3, 0], [3, 2, 0], [3, 1, 0]])
+
+    def test_nothing_is_gathered_without_room_to_carry_it(self):
+        """The Making final fix wave: a pet with its 16 stacks taken dug every clay within 160 blocks of home on
+        the gate's route check, and each was left behind at once (carrying.settle). With no room, gathering
+        waits (build_storage makes room first)."""
+        want(self, {"kiln": 1})
+        self.world.state["inventory"].update({f"item_{n}": 1 for n in range(14)})  # 16 stacks, with the two there
+        s = self.world.situation()
+        self.assertEqual((raw_needs(s), gathered_wanted(s)), ({"clay": 3}, {}))
+        self.assertFalse(PURPOSES["gather_materials"].valid(s))
+        del self.world.state["inventory"]["item_0"]
+        self.assertTrue(PURPOSES["gather_materials"].valid(self.world.situation()))
+
+    def test_a_picked_plant_is_no_source(self):
+        """The Making final fix wave, I2: a picked stalk's root reads "air", and the loop still counted it,
+        so gather_materials was offered with nothing to gather and kept the goal "workable"."""
+        want(self, {"bookshelf": 1})
+        roots = [(3, 1, 0), (6, 1, 2)]
+        with patch("backend.survival.making.natural_plants", lambda seed, x, z, radius, kinds: list(roots)):
+            self.world.grid.put(3, 1, 0, "sugar_cane")  # one stalk still stands; the other root was picked
+            s = self.world.situation()
+            self.assertEqual(sources(s), [((3, 1, 0), "sugar_cane")])
+            self.world.grid.put(3, 1, 0, "air")  # now both are picked
+            s = self.world.situation()
+            self.assertEqual(sources(s), [])
+            self.assertFalse(PURPOSES["gather_materials"].valid(s))
+
+
+FAR_CLAY = {(60, 1), (61, 1), (62, 1), (60, 2)}
+
+
+def far_shore(x, z, seed):
+    return "clay" if (x, z) in FAR_CLAY else "grass"
+
+
+def far_ground(x, y, z):
+    """A meadow whose only clay lies on a shore 60 blocks east of home."""
+    if y == 0:
+        return "clay" if (x, z) in FAR_CLAY else "grass"
+    return "dirt" if y < 0 else "air"
+
+
+@patch("backend.survival.making.terrain_height", FLAT)
+@patch("backend.survival.making.surface_material", far_shore)
+@patch("backend.survival.making.swamp_pool", lambda x, z, seed: False)
+@patch("backend.survival.making.SEA_LEVEL", 0)
+class FarTests(unittest.TestCase):
+    """The Making final fix wave, C1: gather_materials looked for clay only within SOURCE_SIGHT of where
+    Mimo stood, so a home out of sight of a shore never got its kiln."""
+
+    def test_clay_beyond_sight_is_looked_for_once_a_day_and_walked_to(self):
+        from backend.tests.test_survival_workshop import BLOCKS_FOR_IT, Yard
+
+        yard = Yard(BLOCKS_FOR_IT, position=(2, 1, 5), natural=far_ground)
+        yard.goal("workshop")
+        s = yard.situation()
+        self.assertEqual(raw_needs(s)["clay"], 3)
+        found = sources(s)
+        self.assertEqual({(x, z) for (x, _, z), _ in found}, FAR_CLAY)  # every column is looked at
+        self.assertTrue(all(SOURCE_SIGHT < s.distance(cell) <= FAR_SIGHT for cell, _ in found))
+        self.assertEqual(yard.state["brain"][FAR]["found"]["clay"]["day"], 1)  # remembered, with the day it was
+        nearest = found[0][0]
+        self.assertIn(f"0 to gather within {SOURCE_SIGHT} blocks; the nearest clay lies {round(s.distance(nearest))} "
+                      "blocks away", PURPOSES["gather_materials"].facts(s))
+        steps = PURPOSES["gather_materials"].plan(s, yard.context())
+        self.assertEqual(steps, [{"kind": "walk", "target": list(nearest), "reach": 2.0, "whole": True},
+                                 {"kind": "mine", "target": list(nearest)}])  # one far one, then look again there
+
+    def test_a_home_with_clay_sixty_blocks_away_gets_its_workshops_kiln(self):
+        from backend.survival.workshop import current_workshop, fixtures_left
+        from backend.survival.structures import blueprint_of
+        from backend.tests.test_survival_workshop import BLOCKS_FOR_IT, Yard, shares
+
+        yard = Yard({**BLOCKS_FOR_IT, "iron_ingot": 6, "sticks": 4, "coal": 6}, position=(2, 1, 5), natural=far_ground)
+        yard.goal("workshop")
+        yard.build()
+        blueprint = blueprint_of(current_workshop(yard.situation()))
+        self.assertEqual([planned.block for planned in fixtures_left(yard.situation(), blueprint)], ["kiln"])
+        gather = PURPOSES["gather_materials"]
+        for _ in range(3):
+            s = yard.situation()
+            if not gather.valid(s):
+                break
+            yard.carry_out(gather.plan(s, yard.context()), "gather_materials")
+        self.assertEqual(yard.state["inventory"].get("clay"), 3)
+        self.assertGreater(yard.situation().distance((1, 1, 1)), 50)  # it went out to the shore
+        yard.state["position"] = dict(zip("xyz", map(float, (2, 1, 5))))  # and home again
+        yard.build()
+        self.assertEqual(fixtures_left(yard.situation(), blueprint), [])
+        kiln = next(planned.cell for planned in blueprint.cells if planned.block == "kiln")
+        self.assertEqual(yard.grid.material(*kiln), "kiln")
+        self.assertEqual(shares(yard.situation(), "workshop"), [1.0, 1.0, 1.0, 1.0])
+
+
+class ChestTests(unittest.TestCase):
+    """The Making final fix wave, I1: what a project needs is neither thrown away nor left in the chest."""
+
+    FULL = {"clay": 12, "sand": 16, **{f"item_{n}": 1 for n in range(14)}}  # 16 stacks
+
+    def test_full_arms_drop_only_the_clay_and_sand_no_project_keeps(self):
+        world = World(dict(self.FULL))
+        know(world.db, "workshop", "goal", 0.0)  # its workshop reached: no kiln keeps clay for later
+        self.assertEqual(loose_blocks(world.situation()), [("sand", 16), ("clay", 12)])
+        want(self, {"kiln": 1, "glass_pane": 2})
+        s = world.situation()
+        self.assertEqual(loose_blocks(s), [("sand", 10), ("clay", 9)])
+        self.assertIn(("clay", 9), junk(s))
+
+    def test_a_find_at_full_arms_never_pushes_out_clay_or_copper(self):
+        """On the gate's route check every clay a pet dug was pushed out by the next meat or ore it picked up
+        (carrying.settle: clay was a LOW_VALUE block), and the bench's copper by the next fish (it gave way to
+        food). The find stays behind instead, or a real LOW_VALUE block gives way."""
+        full = {"clay": 3, "copper_ore": 3, **{f"item_{n}": 1 for n in range(14)}}  # 16 stacks
+        inventory = {**full, "iron_ore": 1}
+        self.assertEqual(settle(inventory, full), {"iron_ore": 1})
+        inventory = {**full, "raw_fish": 1}
+        self.assertEqual(settle(inventory, full), {"raw_fish": 1})
+        self.assertEqual((inventory["clay"], inventory["copper_ore"]), (3, 3))
+        with_dirt = {**{key: value for key, value in full.items() if key != "item_0"}, "dirt": 5}
+        inventory = {**with_dirt, "iron_ore": 1}
+        self.assertEqual(settle(inventory, with_dirt), {"dirt": 5})
+        self.assertNotIn("clay", LOW_VALUE)
+        self.assertFalse({"copper_ore", "copper_ingot"} & set(GIVES_WAY_TO_FOOD))
+
+    def test_the_clay_for_the_kiln_is_kept_and_no_wall_takes_it_until_the_kiln_is_in(self):
+        """The Making final fix wave: on the gate's first run every clay within 96 blocks of home was dug, then
+        raised into the workshop's walls or dropped as a loose block while another goal was Mimo's, and no
+        kiln was ever made. Until the workshop goal is reached with its kiln in, 3 clay (or bricks) are kept."""
+        world = World({"clay": 5, "cobblestone": 2, **{f"item_{n}": 1 for n in range(14)}})  # 16 stacks
+        s = world.situation()
+        self.assertEqual((kept(s, "clay"), loose_blocks(s)), (3, [("clay", 2)]))
+        self.assertEqual(spared(s), {"clay": 3})
+        self.assertEqual(sparing(s, s.inventory)["clay"], 2)  # walls may take the other 2
+        world.state["inventory"].update(clay=0, brick=3)
+        self.assertEqual(spared(world.situation()), {"brick": 3})  # fired already: the bricks are kept instead
+        know(world.db, "workshop", "goal", 0.0)
+        self.assertEqual(spared(world.situation()), {})
+
+    def test_the_levers_cobblestone_comes_back_out_of_the_chest(self):
+        """On the gate's route check three pets had the spark, the wire and the lamp's copper, but full arms had
+        put all their cobblestone in the chest, and nothing took it back for the lever: wood and stone are
+        taken out too (never made, and kept only with full arms, where L4a's own keep is none)."""
+        home = Home({"sticks": 2, "coal": 2, "copper_ingot": 1}, chest={"cobblestone": 80})
+        know(home.db, "workshop", "goal", 0.0)
+        want(self, {"lever": 1, "lamp": 1})
+        s = home.situation()
+        self.assertEqual(raw_needs(s), {})
+        self.assertEqual([(item, amount) for _, item, amount in to_take(s)], [("cobblestone", 1)])
+        self.assertEqual(kept_for_making(s, "cobblestone"), 0.0)  # L4a's keep of 16 holds it
+        home.state["inventory"].update({"cobblestone": 1, **{f"item_{n}": 1 for n in range(12)}})  # 16 stacks
+        self.assertEqual(kept_for_making(home.situation(), "cobblestone"), 1.0)  # full arms: not put back
+
+    def test_what_making_made_and_no_project_needs_goes_in_the_chest(self):
+        """The Making final fix wave: a glass pane recipe makes 16, iron bars 16, stairs 4; what was left over
+        stayed in Mimo's arms for good (a fifth of them at day 100), so what it dug for the kiln was pushed
+        out."""
+        home = Home({"glass_pane": 14, "iron_bars": 14, "stairs": 3, "tallow": 9, "sign": 2, "cobblestone": 60,
+                     **{f"item_{n}": 1 for n in range(8)}}, chest={})
+        know(home.db, "workshop", "goal", 0.0)
+        stored = {item for item, _ in to_store(home.situation(), (2, 1, 2))}
+        self.assertLessEqual({"glass_pane", "iron_bars", "stairs", "tallow", "sign"}, stored)
+        want(self, {"glass_pane": 2})
+        self.assertIn(("glass_pane", 12), to_store(home.situation(), (2, 1, 2)))  # two kept for the windows
+
+    def test_build_storage_takes_back_out_what_a_project_needs_and_does_not_put_it_back(self):
+        home = Home({"planks": 12, "cobblestone": 8, "sticks": 2}, chest={"clay": 5, "copper_ore": 3, "wool": 2})
+        know(home.db, "workshop", "goal", 0.0)  # (no kiln waits for it later)
+        s = home.situation()
+        self.assertEqual(to_take(s), [])  # no project wants anything (and the chest holds no food)
+        want(self, {"kiln": 1, "copper_wire": 1})
+        s = home.situation()
+        self.assertEqual(raw_needs(s), {})  # what the chest holds counts: no shore, no mine for it
+        self.assertEqual(sorted((item, amount) for _, item, amount in to_take(s)), [("clay", 3), ("copper_ore", 1)])
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        takes = [step for step in home.plan("build_storage") if step["kind"] == "take"]
+        self.assertEqual(sorted((step["item"], step["amount"]) for step in takes), [("clay", 3), ("copper_ore", 1)])
+        home.state["inventory"].update(clay=3, copper_ore=1)  # taken out
+        home.state["chests"]["2,1,2"].update(clay=2, copper_ore=2)
+        s = home.situation()
+        self.assertEqual([entry for entry in to_take(s) if entry[1] in ("clay", "copper_ore")], [])
+        self.assertEqual([entry for entry in to_store(s, (2, 1, 2)) if entry[0] in ("clay", "copper_ore")], [])
 
 
 if __name__ == "__main__":

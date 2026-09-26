@@ -21,8 +21,9 @@ floor of an open cell below the natural surface (a stair or tunnel it dug earlie
 unless the same stair just opened that cell, so it cannot cut its own staircase. The staircase
 stays climbable, and from its fourth stair it is sheltered, so it often becomes Mimo's first home.
 mine_ore walks to a remembered coal, iron, gold or diamond ore Mimo can harvest and still needs,
-within 48 blocks, and mines it: gold and diamonds once it has an iron pickaxe and knows where enough
-lie for the pickaxe above it (L3), and has learned about their ore (L4b, backend.survival.journal).
+within 48 blocks (96 for an ore making wants: the Making final fix wave), and mines it: gold and
+diamonds once it has an iron pickaxe and knows where enough lie for the pickaxe above it (L3), and
+has learned about their ore (L4b, backend.survival.journal).
 
 Late in the day, work that takes Mimo away from home scores 30 lower (purposes.late_penalty), so
 sleep and go_home win at dusk: gather_wood always, gather_stone when it would start from the
@@ -79,6 +80,10 @@ ORE_RANGE = 48.0
 # the route search ran to its node limit and failed, wasted on every such ore.
 ORE_REACH = REACH
 ORE_FAR = 16.0  # a trip to an ore farther than this counts as outdoor work late in the day
+# The Making final fix wave: an ore making wants (MORE_ORES: copper, and iron for the workshop's bars) is worth a
+# longer trip; on the gate's route check the copper a pet had seen lay 67 blocks and more from home, or was the
+# floor of a passage, so mine_ore never went for it and gather_stone never dug on to find more.
+MAKING_ORE_RANGE = 96.0
 
 
 def wood(inventory: dict) -> float:
@@ -287,12 +292,13 @@ def digs(s: Situation, heading: tuple[int, int]) -> bool:
 
 def prospecting(s: Situation) -> bool:
     """Digging on for iron: Mimo has a stone pickaxe, still wants iron and has seen none. Making: or for
-    an ore MORE_ORES wants that it has seen none of (copper; coal lies in any staircase's walls), with a
-    stone pickaxe or better."""
+    an ore MORE_ORES wants that it knows none of it could go for (`in_reach`: the final fix wave; copper
+    seen only far off, or as a passage's floor, counts as none; coal lies in any staircase's walls), with
+    a stone pickaxe or better."""
     seen = {place["note"] for place in s.places if place["kind"] == "ore"}
     iron = s.count("stone_pickaxe") > 0 and "iron_ore" in wanted_ores(s) and "iron_ore" not in seen
     more = pickaxe_rank(s.inventory) >= TOOL_RANK["stone_pickaxe"] and any(
-        ore not in seen for ore in more_ores(s) if ore != "coal_ore")
+        not in_reach(s, ore) for ore in more_ores(s) if ore != "coal_ore")
     return iron or more
 
 
@@ -455,13 +461,28 @@ def passage_floor(s: Situation, cell: Cell) -> bool:
     return y + 1 <= terrain_height(x, z, s.seed) and not is_solid(s.grid.material(x, y + 1, z))
 
 
+def reachable_ores(s: Situation, kinds) -> list[dict]:
+    """Remembered ores of `kinds` Mimo could go for: within ORE_RANGE blocks (MAKING_ORE_RANGE for one
+    making wants, MORE_ORES), not the floor of a passage."""
+    making, (x, _, z) = set(more_ores(s)), s.here
+
+    def reach(ore: str) -> float:
+        return MAKING_ORE_RANGE if ore in making else ORE_RANGE
+
+    return [place for place in s.places if place["kind"] == "ore" and place["note"] in kinds
+            and math.hypot(place["x"] - x, place["z"] - z) <= reach(place["note"])
+            and not passage_floor(s, cell_of(place))]
+
+
+def in_reach(s: Situation, ore: str) -> bool:
+    """Mimo knows an ore of this kind it could go for (`reachable_ores`)."""
+    return bool(reachable_ores(s, (ore,)))
+
+
 def ore_targets(s: Situation) -> list[dict]:
-    """Remembered, wanted ores Mimo can harvest within 48 blocks, nearest first, leaving out ores
-    that are the floor of a passage."""
-    wanted, (x, _, z) = wanted_ores(s), s.here
-    found = [place for place in s.places
-             if place["kind"] == "ore" and place["note"] in wanted and can_harvest(place["note"], s.inventory)
-             and math.hypot(place["x"] - x, place["z"] - z) <= ORE_RANGE and not passage_floor(s, cell_of(place))]
+    """Remembered, wanted ores Mimo can harvest within 48 blocks (96 for one making wants), nearest first,
+    leaving out ores that are the floor of a passage."""
+    found = [place for place in reachable_ores(s, wanted_ores(s)) if can_harvest(place["note"], s.inventory)]
     return sorted(found, key=lambda place: s.distance(cell_of(place)))
 
 

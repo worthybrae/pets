@@ -244,6 +244,10 @@ class DropTests(unittest.TestCase):
     def test_full_with_no_chest_the_least_useful_blocks_go_too(self):
         full = {**LOOSE, "seeds": 1, "wheat": 1}
         home = Home(full)
+        # The Making final fix wave: the clay stays while the workshop's kiln still wants it (making.saved).
+        self.assertEqual([step["item"] for step in home.plan("drop_items")], ["moss", "gravel", "sand"])
+        know(home.db, "workshop", "goal", 0.0)  # the workshop and the cozy home reached: nothing will want clay
+        know(home.db, "cozy_home", "goal", 0.0)
         self.assertEqual([step["item"] for step in home.plan("drop_items")], ["moss", "gravel", "sand", "clay"])
         with_chest = Home(full, chest={})
         self.assertFalse(PURPOSES["drop_items"].valid(with_chest.situation()))

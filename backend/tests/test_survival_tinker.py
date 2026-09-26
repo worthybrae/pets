@@ -3,13 +3,18 @@ from unittest.mock import patch
 
 from backend.survival import nature
 from backend.survival.curiosity import curiosity_state
+from backend.survival.goals import GOALS, advancing
 from backend.survival.journal import LESSONS
 from backend.survival.lessons import claims
+from backend.survival.making import needs, raw_needs
+from backend.survival.memory import know, remember
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.tinker import (
-    DEEP_COPPER, MANUAL_CHANNEL, MANUAL_ODDS, SPARK, TINKER_REST, next_idea, observe_tinker, tinker_state,
+    BENCH, DEEP_COPPER, MANUAL_CHANNEL, MANUAL_ODDS, SPARK, TINKER_REST, bench_needs, next_idea, observe_tinker,
+    tinker_state,
 )
+from backend.survival.work import MAKING_ORE_RANGE, ORE_RANGE, ore_targets, prospecting
 from backend.tests.test_survival_machines import wired
 from backend.tests.test_survival_signals import machine
 from backend.tests.test_survival_workshop import NIGHT, Yard
@@ -139,6 +144,69 @@ class TinkerTests(unittest.TestCase):
             observe_tinker(yard.state, {**steps[-1], "purpose": "tinker"}, yard.context(), 5.0)
         self.assertIn("clock", lessons(yard))
         self.assertIsNone(next_idea(yard.situation()))  # the latch waits for a clock
+
+
+
+class CopperFirstTests(unittest.TestCase):
+    """The Making final fix wave, C2: the first circuits wanted copper only once the spark was known, and
+    the spark needs copper (the bench, or the manual in deep copper), so only the owner could break the
+    loop."""
+
+    KIT = {"stone_pickaxe": 1, "iron_pickaxe": 1, "coal": 8, "sticks": 4, "cobblestone": 12, "planks": 12,
+           "oak_log": 4}
+
+    def test_without_copper_or_the_spark_mine_ore_goes_after_the_copper_it_remembers(self):
+        yard = curious(Yard(dict(self.KIT)))
+        self.assertEqual(bench_needs(yard.situation()), {})  # not while the first circuits are not its goal
+        yard.goal("first_circuits")
+        s = yard.situation()
+        self.assertEqual(bench_needs(s), {item: 1 for item in BENCH})
+        self.assertEqual(raw_needs(s), {"copper_ore": 2})  # a wire's ingot and a lamp's
+        self.assertIsNone(next_idea(s))  # no copper to tinker with yet
+        cell = deep(True)  # deep copper, where the old manual may turn up
+        yard.grid.put(*cell, "copper_ore")
+        remember(yard.db, "ore", cell, 0.0, "copper_ore")
+        s = yard.situation()
+        self.assertEqual([(place["x"], place["y"], place["z"]) for place in ore_targets(s)], [cell])
+        self.assertTrue(PURPOSES["mine_ore"].valid(s))
+        self.assertIn("mine_ore", advancing(s, GOALS["first_circuits"]))
+        mine = PURPOSES["mine_ore"].plan(s, yard.context())[-1]
+        self.assertEqual(mine, {"kind": "mine", "target": list(cell)})
+        observe_tinker(yard.state, {**mine, "block": "copper_ore"}, yard.context(), 5.0)
+        self.assertIn(SPARK, lessons(yard))  # the manual, on its own
+        self.assertEqual(bench_needs(yard.situation()), {})
+
+    def test_copper_seen_only_far_off_or_underfoot_is_gone_after_or_dug_for(self):
+        """On the gate's route check the copper a pet had seen lay 67 blocks and more from home, or was the floor
+        of a passage: mine_ore (48 blocks) never went for it, and gather_stone did not dig on for more, since
+        copper had been "seen". An ore making wants is worth a trip of MAKING_ORE_RANGE (96)."""
+        yard = curious(Yard(dict(self.KIT)))
+        yard.goal("first_circuits")
+        remember(yard.db, "ore", (140, -2, 1), 0.0, "copper_ore")  # too far even so
+        self.assertEqual((ore_targets(yard.situation()), prospecting(yard.situation())), ([], True))
+        floor = (12, -2, 6)  # the floor of a passage: never mined, so it counts as none
+        yard.grid.put(*floor, "copper_ore")
+        yard.grid.put(12, -1, 6, "air")
+        remember(yard.db, "ore", floor, 0.0, "copper_ore")
+        self.assertEqual((ore_targets(yard.situation()), prospecting(yard.situation())), ([], True))
+        remember(yard.db, "ore", (82, -2, 1), 0.0, "copper_ore")  # 70 blocks off
+        s = yard.situation()
+        self.assertEqual([(place["x"], place["z"]) for place in ore_targets(s)], [(82, 1)])
+        self.assertFalse(prospecting(s))
+        self.assertEqual(ORE_RANGE, 48)  # iron, coal, gold and diamonds for their own sake: still 48
+        self.assertEqual(MAKING_ORE_RANGE, 96)
+
+    def test_with_the_copper_mined_it_tinkers_on_its_own(self):
+        yard = curious(Yard({**self.KIT, "copper_ore": 2}))
+        yard.goal("first_circuits")
+        s = yard.situation()
+        self.assertEqual(raw_needs(s), {})
+        self.assertEqual(needs(s), {item: 1 for item in BENCH})
+        self.assertEqual(next_idea(s), SPARK)
+        self.assertTrue(PURPOSES["tinker"].valid(s))
+        self.assertIn("tinker", advancing(s, GOALS["first_circuits"]))
+        know(yard.db, SPARK, "lesson", 0.0)
+        self.assertEqual(bench_needs(yard.situation()), {})
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ the part that does not fit stays behind (there are no dropped items to pick up l
 a full inventory in a block game leaves the new item on the ground. Only what the step brought
 in is left, with one exception: something valuable (food, seeds, saplings, wheat, ore, ingots,
 coal, tools and swords) pushes out the least valuable block Mimo carries instead (LOW_VALUE, moss first
-and cobblestone last), a stack at a time; anything else Mimo already carried is never lost. Being
+and cobblestone last; never the rare clay), a stack at a time; anything else Mimo already carried is never lost. Being
 full makes putting things away in a chest and dropping low-value items worth doing
 (backend.survival.storage).
 
@@ -34,8 +34,11 @@ from backend.services.crafting import add_item, craft, smelt, take_items
 STACK = 32
 CARRY_STACKS = 16
 CHEST_STACKS = 24
-# Carried blocks worth least, the least first: a valuable newcomer that does not fit pushes one out.
-LOW_VALUE = ("moss", "gravel", "sand", "clay", "dirt", "basalt", "limestone", "sandstone", "cobblestone")
+# Carried blocks worth least, the least first: a valuable newcomer that does not fit pushes one out. The Making
+# final fix wave: never clay, which is rare (only on some shores) and what the workshop's kiln is fired from; on
+# the gate's route check every clay a pet dug was pushed out by the next meat or ore it picked up. Clay no
+# project wants is still a loose block drop_items leaves behind (storage.LEAST_USEFUL).
+LOW_VALUE = ("moss", "gravel", "sand", "dirt", "basalt", "limestone", "sandstone", "cobblestone")
 VALUABLE = ("seeds", "sapling", "wheat", "coal", "bow", "arrow", "leather_cap", "leather_tunic")  # L2: gear
 
 
@@ -117,10 +120,12 @@ def valuable(item: str) -> bool:
 
 
 # L4a final fix wave, C1: what gives way to food once no LOW_VALUE block is left, the least useful
-# first: plants nothing uses yet, spare gear materials, hides, then extra ores.
+# first: plants nothing uses yet, spare gear materials, hides, then extra ores. The Making final fix wave:
+# not copper any more, which the tinker bench and every machine are made of; on the gate's route check a pet
+# that had just mined the bench's three copper lost them to the fish it caught next.
 GIVES_WAY_TO_FOOD = ("flower_orange", "flower_pink", "flower_yellow", "cactus", "sugar_cane", "pumpkin", "melon",
                      "gloom_dust", "wool", "string", "feather", "flint", "rabbit_hide", "leather",
-                     "copper_ore", "copper_ingot", "gold_ore", "gold_ingot")
+                     "gold_ore", "gold_ingot")
 
 
 def good_food(item: str) -> bool:

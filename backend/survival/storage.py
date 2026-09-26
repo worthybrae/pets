@@ -5,7 +5,8 @@ back corner the shelter design keeps for it, under the roof, making it from 8 pl
 carries none (and has room to carry the chest it makes), and puts away what Mimo does not need to
 carry: loose blocks, materials beyond what a day's work takes (KEEP; logs and planks of every wood
 count toward one keep each, L3 final fix wave), and food beyond a day's worth. With its arms full, the building blocks it keeps (cobblestone, planks) go in whole too. It
-takes food back out when Mimo carries less than a meal's worth. It is offered at the built
+takes food back out when Mimo carries less than a meal's worth, and (the Making final fix wave, I1)
+what a project needs that a chest holds (TAKES_MORE). It is offered at the built
 shelter when Mimo's arms are getting full (13 stacks) or the chest holds food Mimo needs, and
 scores higher the fuller Mimo is.
 
@@ -29,7 +30,12 @@ When Mimo has no chest yet and the planks it would make for one need a stack of 
 cobblestone (fix round I2's L3 rule, resolution 21), so drop_items never offers a way out either
 (follow-up fix, item 2). chest_crafting first tries the craft as it stands; when that alone would
 not fit, it drops one LOW_VALUE stack -- the same order carrying.settle pushes blocks out in, moss
-first and cobblestone last -- to clear room, then tries again.
+first and cobblestone last, never below what Mimo keeps of it (the Making final fix wave) -- to clear
+room, then tries again.
+
+The Making final fix wave: what making made and no project needs now goes in the chest too (making.MADE
+joins KEEP at none: a glass pane recipe makes 16, iron bars 16), and loose blocks never drop below what
+Mimo keeps of them (`kept`: the clay a project needs).
 """
 
 from __future__ import annotations
@@ -94,6 +100,9 @@ LAST_RESORT = ("dirt", "cobblestone")
 # what the rules below keep ("food" for hunger points of food): an expedition's torches and food.
 # Fewer when negative (what a packing expedition leaves at home), but never fewer than none.
 KEEPS_MORE: list = []
+# The Making final fix wave (I1): functions of the Situation giving {item: count} Mimo wants back out of
+# its chests now, besides food (backend.survival.making: what a project needs that a chest holds).
+TAKES_MORE: list = []
 
 
 def more_kept(s: Situation, item: str) -> float:
@@ -104,6 +113,19 @@ def more_kept(s: Situation, item: str) -> float:
             total += float(extra(s, item))
         except Exception as error:
             log_once(logger, "keeps more", error)
+    return total
+
+
+def more_taken(s: Situation) -> dict[str, int]:
+    """What TAKES_MORE want out of the chests, added up; one that crashes wants nothing (logged once)."""
+    total: dict[str, int] = {}
+    for wants in TAKES_MORE:
+        try:
+            for item, count in wants(s).items():
+                if count > 0:
+                    total[item] = total.get(item, 0) + int(count)
+        except Exception as error:
+            log_once(logger, "takes more", error)
     return total
 
 
@@ -224,23 +246,32 @@ def reachable_chests(s: Situation) -> list[tuple[tuple[int, int, int], tuple[int
 
 
 def to_take(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
-    """(cell, item, amount) to take out of a chest when Mimo carries less than a meal's worth, best
-    first: home's own chest first, then (fix round 1) any other chest Mimo built, so an older
-    home's chest is never stranded once a bigger one takes over (not one it just failed to reach,
-    `reachable_chests`)."""
-    if carried_food(s) >= TAKE_BELOW:
+    """(cell, item, amount) to take out of a chest: food when Mimo carries less than a meal's worth,
+    best first, and (the Making final fix wave, I1) what TAKES_MORE want, as far as Mimo has room: home's
+    own chest first, then (fix round 1) any other chest Mimo built, so an older home's chest is never
+    stranded once a bigger one takes over (not one it just failed to reach, `reachable_chests`)."""
+    hungry = carried_food(s) < TAKE_BELOW
+    wanted = more_taken(s)
+    if not hungry and not wanted:
         return []
-    have, found = carried_food(s), []
+    have, found, carried = carried_food(s), [], dict(s.inventory)
     for chest_cell, _ in reachable_chests(s):
         chest = chest_contents(s, chest_cell)
-        for item in foods(chest, s.poisons):
-            amount = 0
-            while amount < chest[item] and have < FOOD_WANTED:
+        for item in foods(chest, s.poisons) if hungry else ():
+            amount, room = 0, room_for(carried, item, CARRY_STACKS)  # the final fix wave: only what fits
+            while amount < min(chest[item], room) and have < FOOD_WANTED:
                 amount += 1
                 have += FOOD[item]
             if amount:
                 found.append((chest_cell, item, amount))
-        if have >= FOOD_WANTED:
+                carried[item] = carried.get(item, 0) + amount
+        for item in sorted(wanted):
+            amount = min(wanted[item], chest.get(item, 0), room_for(carried, item, CARRY_STACKS))
+            if amount > 0:
+                found.append((chest_cell, item, amount))
+                wanted[item] -= amount
+                carried[item] = carried.get(item, 0) + amount
+        if have >= FOOD_WANTED and not any(count > 0 for count in wanted.values()):
             break
     return found
 
@@ -254,7 +285,10 @@ def chest_crafting(s: Situation) -> list[dict] | None:
     if steps is not None:
         return steps
     inventory = dict(s.inventory)
-    spare = next((item for item in LOW_VALUE if inventory.get(item, 0) > 0), None)
+    # The Making final fix wave: never below what Mimo keeps of it (`kept`: the clay a project needs was the
+    # stack dropped here, on the gate's route check).
+    spare = next((item for item in LOW_VALUE if inventory.get(item, 0) > 0
+                  and inventory[item] - (inventory[item] % STACK or STACK) >= kept(s, item)), None)
     if spare is None:
         return None
     drop = inventory[spare] % STACK or STACK
@@ -370,10 +404,12 @@ def loose_blocks(s: Situation) -> list[tuple[str, int]]:
     other blocks Mimo carries (cobblestone is kept before dirt), and never dropping cobblestone
     below gather_stone's own goal (work.STONE_GOAL): otherwise the two would dig up and drop the
     same stone forever. The dirt and cobblestone tiers only fire when build_storage cannot use a
-    chest instead (a carried, unplaced chest still means there is somewhere to put them)."""
+    chest instead (a carried, unplaced chest still means there is somewhere to put them). The Making final
+    fix wave (I1): what Mimo keeps of a LEAST_USEFUL block (`kept`: the clay and sand a project needs)
+    stays too, as `junk` keeps a project's flowers."""
     from backend.survival.work import STONE_GOAL  # imported here: work imports building, not storage
 
-    found = [(item, s.count(item)) for item in LEAST_USEFUL if s.count(item)]
+    found = [(item, s.count(item) - kept(s, item)) for item in LEAST_USEFUL if s.count(item) > kept(s, item)]
     if found:
         return found
     if storage_valid(s):

@@ -25,7 +25,11 @@ The workshop goal ("A workshop", after a home and iron tools, for the bars): fir
 raise the walls and roof, put in the crafting table, furnace, kiln and barrel, then the bars, the hatch,
 the seat and the sign. While it is the goal or the workshop is being built, its fixtures and slabs are
 what it wants made (making.NEEDS) and its walls and roof what gathering aims for
-(building.MORE_BLOCKS). Rules score 40 plus a tenth of creativity and a twentieth of diligence.
+(building.MORE_BLOCKS). Rules score 40 plus a tenth of creativity and a twentieth of diligence, and
+UNDER_WAY more once its walls and roof stand. The Making final fix wave (C1): gather_stone works toward the
+furnace's and kiln's cobblestone, gather_wood toward the barrel's, hatch's, seat's and sign's planks and
+mine_ore toward the bars' iron (making.MINED), so none waits for another goal to be offered; the fixtures
+are made at the workshop's own table and furnace once they are in (`at_bench`).
 """
 
 from __future__ import annotations
@@ -38,9 +42,10 @@ from backend.survival.blueprints import Blueprint, Planned, bill, find_site, she
 from backend.survival.building import (
     MORE_BLOCKS, START_SHARE, carried_blocks, site_center, structural_batch,
 )
-from backend.survival.goals import Goal, Milestone, active, register_goal
+from backend.survival.goals import Goal, Milestone, active, reached, register_goal
 from backend.survival.home import all_structures, home_structure
-from backend.survival.making import NEEDS, after_steps, craft_plan, place_steps
+from backend.survival.making import LATER, NEEDS, after_steps, craft_plan, place_steps
+from backend.survival import storage
 from backend.survival.pens import near_home
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
@@ -60,6 +65,8 @@ ROOF = "slab"
 FITTED = ("crafting_table", "furnace", "kiln", "barrel")  # the four the spec names
 FIXTURE_ORDER = FITTED + ("iron_bars", "trapdoor", "stairs", "sign", "torch")
 FIXTURE = "fixture"
+BENCH = ("crafting_table", "furnace")  # the fixtures the rest are made at, once they are in
+UNDER_WAY = 25.0  # the final fix wave: the goal's rules score once the workshop's walls and roof stand
 
 
 # The design --------------------------------------------------------------------------------------
@@ -159,8 +166,42 @@ def walls_left(s: Situation) -> int:
     return 0 if blueprint is None else len(todo(s.grid, blueprint, ("floor", "wall")))
 
 
+def kiln_wanted(s: Situation) -> bool:
+    """The Making final fix wave: the workshop goal is not reached and its kiln is not in yet (read once per
+    Situation). Clay is rare, and the way to the computer runs through the kiln: the clay Mimo digs is kept
+    for it meanwhile (making.LATER), and the cozy home's flower pot waits for it (backend.survival.cozy)."""
+    def look() -> bool:
+        if GOAL in reached(s):
+            return False
+        workshop = current_workshop(s)
+        return workshop is None or any(planned.block == "kiln" for planned in fixtures_left(s, blueprint_of(workshop)))
+    return s.sensed("workshop kiln wanted", look)
+
+
+def workshop_later(s: Situation) -> dict[str, int]:
+    """making.LATER: the kiln, while `kiln_wanted`."""
+    return {"kiln": 1} if kiln_wanted(s) else {}
+
+
+def stations_at_home(s: Situation, item: str) -> float:
+    """storage.KEEPS_MORE (the Making final fix wave): once the workshop's own crafting table and furnace are
+    in, the ones Mimo carries go in the chest: what it makes at home it makes there (`at_bench`, and
+    build_machine at the workshop), and they took two of its 16 stacks. On the gate's route check pets with
+    the spark, the wire and a lamp's copper in hand had no room left to make the lamp's torch. Out in the
+    field, craft_tools makes a table again from four planks when it needs one."""
+    if item not in BENCH:
+        return 0.0
+    workshop = current_workshop(s)
+    if workshop is None or workshop["status"] != "done":
+        return 0.0
+    return -1.0 if at_bench(s, blueprint_of(workshop)) is not s else 0.0
+
+
 NEEDS.append(workshop_needs)
+LATER.append(workshop_later)
 MORE_BLOCKS.append(walls_left)
+storage.KEEPS_MORE.append(stations_at_home)
+storage.KEEP.update({station: 1 for station in BENCH if station not in storage.KEEP})  # one of each is carried
 
 
 # build_workshop ----------------------------------------------------------------------------------
@@ -176,15 +217,30 @@ def slabs_first(s: Situation, blueprint: Blueprint) -> tuple[list[dict], Situati
     return steps, replace(s, state={**s.state, "inventory": after_steps(s.inventory, steps)}, memo={})
 
 
+def at_bench(s: Situation, blueprint: Blueprint) -> Situation:
+    """`s` as Mimo will be inside the workshop, once its own crafting table and furnace are in (the Making
+    final fix wave, as build_machine works at them): the kiln's bricks are fired there. Before, it made
+    and carried a table and a furnace of its own wherever it stood, and on the gate's route check a pet
+    with the kiln's clay in hand lacked the furnace's 8 cobblestone besides, so it never made the kiln.
+    `s` itself until both are in."""
+    placed = {planned.block for planned in blueprint.parts(FIXTURE)
+              if planned.block in BENCH and s.grid.material(*planned.cell) == planned.block}
+    if placed != set(BENCH):
+        return s
+    return replace(s, state={**s.state, "position": dict(zip("xyz", map(float, blueprint.anchor)))}, memo={})
+
+
 def fixture_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
-    """Make the next fixtures Mimo can (up to FIXTURES_PER_BATCH, a torch only when it carries one)
-    and put them in from inside."""
+    """Make the next fixtures Mimo can (up to FIXTURES_PER_BATCH, a torch only when it carries one), at the
+    workshop's own crafting table and furnace once they are in (`at_bench`, walking in first), and put them
+    in from inside."""
+    where = at_bench(s, blueprint)
     chosen: list[Planned] = []
     for planned in fixtures_left(s, blueprint):
         trial = {}
         for item in [entry.block for entry in chosen + [planned]]:
             trial[item] = trial.get(item, 0) + 1
-        if craft_plan(s, trial) is not None:
+        if craft_plan(where, trial) is not None:
             chosen.append(planned)
         if len(chosen) >= FIXTURES_PER_BATCH:
             break
@@ -193,11 +249,12 @@ def fixture_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
     wanted: dict[str, int] = {}
     for planned in chosen:
         wanted[planned.block] = wanted.get(planned.block, 0) + 1
-    crafting = craft_plan(s, wanted) or []
+    crafting = craft_plan(where, wanted) or []
+    walk = [whole_walk(where.here)] if crafting and where is not s and where.here != s.here else []
     jobs = [(planned.cell, [*clearing(s.grid, planned.cell),
                             {"kind": "place", "target": list(planned.cell), "block": planned.block}])
             for planned in chosen]
-    return crafting + place_steps(s, blueprint.stands, jobs)
+    return walk + crafting + place_steps(s, blueprint.stands, jobs, at=where.here if walk else None)
 
 
 def next_batch(s: Situation, blueprint: Blueprint) -> list[dict]:
@@ -294,14 +351,25 @@ def fixtures_in(s: Situation, names) -> float:
     return 1.0 - len(left) / len(wanted) if wanted else 1.0
 
 
+def goal_score(s: Situation) -> float:
+    """40 plus a tenth of creativity and a twentieth of diligence, and UNDER_WAY more once its walls and roof
+    stand (the Making final fix wave: finishing what it started comes first; on the gate's route check pets
+    whose workshop lacked only its kiln or bars, the clay or iron in hand, chose the workshop once or twice in
+    50 game days against the discovery goals, 30 plus seven tenths of curiosity, and never finished it)."""
+    workshop = current_workshop(s)
+    started = workshop is not None and workshop["status"] == "done"
+    return 40.0 + s.trait("creativity") / 10 + s.trait("diligence") / 20 + (UNDER_WAY if started else 0.0)
+
+
 register_goal(Goal(
     GOAL, "A workshop",
     "Making things wants a place of its own: a crafting table, a furnace, a kiln and a barrel under one roof.",
     (Milestone("Fire bricks for a kiln", bricks_fired, ("gather_materials", "build_workshop"), ("kiln",)),
      Milestone("Raise the workshop's walls and roof", raised, ("build_workshop", "gather_wood", "gather_stone")),
      Milestone("Put in a crafting table, a furnace, a kiln and a barrel", lambda s: fixtures_in(s, FITTED),
-               ("build_workshop", "gather_materials")),
+               ("build_workshop", "gather_materials", "gather_stone", "gather_wood")),
      Milestone("Fit bars, a hatch, a seat and a sign", lambda s: fixtures_in(
-         s, ("iron_bars", "trapdoor", "stairs", "sign")), ("build_workshop",), ("iron_bars",))),
-    score=lambda s: 40.0 + s.trait("creativity") / 10 + s.trait("diligence") / 20,
+         s, ("iron_bars", "trapdoor", "stairs", "sign")), ("build_workshop", "mine_ore", "gather_wood"),
+               ("iron_bars",))),
+    score=lambda s: goal_score(s),
     thought="A workshop, with a kiln! Then I can make anything.", after=("first_shelter", "iron_tools")))

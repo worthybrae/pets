@@ -13,10 +13,11 @@ from backend.survival.making import raw_needs
 from backend.survival.memory import create_memory_tables, finish_structure, set_home, structures
 from backend.survival.purposes import PURPOSES
 from backend.survival.signals import create_signal_table
+from backend.survival.storage import kept, to_store
 from backend.survival.situation import Situation
 from backend.survival.structures import blueprint_of, start, todo
 from backend.survival.vitals import START_VITALS
-from backend.survival.workshop import FIXTURE, current_workshop, design_workshop, fixtures_left
+from backend.survival.workshop import FIXTURE, UNDER_WAY, current_workshop, design_workshop, fixtures_left
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 NIGHT = {**DAY, "phase": "night", "seconds_into_day": 3000.0}
@@ -158,6 +159,38 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(yard.grid.material(*planned.cell), planned.block)
         self.assertEqual(shares(yard.situation(), "workshop"), [1.0, 1.0, 1.0, 1.0])
 
+    def test_the_kiln_is_made_at_the_workshops_own_table_and_furnace(self):
+        """The Making final fix wave: fixtures were made where Mimo stood, with a table and a furnace of its own
+        put down beside it; on the gate's route check a pet with the kiln's clay in hand lacked the furnace's 8
+        cobblestone besides, so it never made the kiln. Once the workshop's own are in, it works at them."""
+        yard = Yard({**BLOCKS_FOR_IT, "sticks": 4, "coal": 4, "iron_ingot": 6})
+        yard.goal("workshop")
+        yard.build()
+        blueprint = blueprint_of(current_workshop(yard.situation()))
+        self.assertEqual([planned.block for planned in fixtures_left(yard.situation(), blueprint)], ["kiln"])
+        yard.state["inventory"] = {"clay": 3, "cobblestone": 5, "coal": 3}  # no cobblestone for a furnace too
+        yard.state["position"] = {"x": 1.0, "y": 1.0, "z": 1.0}  # at home, out of reach of the workshop's stations
+        steps = yard.plan("build_workshop")
+        self.assertEqual(steps[0], {"kind": "walk", "target": list(blueprint.anchor), "reach": 0.0, "whole": True})
+        self.assertEqual([(step["kind"], step.get("item") or step.get("recipe") or step.get("block"))
+                          for step in steps[1:]],
+                         [("smelt", "clay")] * 3 + [("craft", "kiln"), ("place", "kiln")])
+        yard.carry_out(steps)
+        self.assertEqual(fixtures_left(yard.situation(), blueprint), [])
+
+    def test_once_its_own_table_and_furnace_are_in_the_carried_ones_go_in_the_chest(self):
+        """The Making final fix wave: pets with the spark, the wire and a lamp's copper had no room left to make
+        the lamp's torch; the table and furnace they carried took two of their 16 stacks though the workshop
+        had its own."""
+        yard = Yard({**BLOCKS_FOR_IT, "crafting_table": 1, "furnace": 1})
+        self.assertEqual((kept(yard.situation(), "crafting_table"), kept(yard.situation(), "furnace")), (1, 1))
+        yard.goal("workshop")
+        yard.build()
+        yard.state["inventory"].update(crafting_table=1, furnace=1)
+        s = yard.situation()
+        self.assertEqual((kept(s, "crafting_table"), kept(s, "furnace")), (0, 0))
+        self.assertLessEqual({("crafting_table", 1), ("furnace", 1)}, set(to_store(s, (0, 0, 0))))
+
     def test_what_it_wants_brings_clay_for_the_kiln_and_blocks_for_its_walls(self):
         yard = Yard({"cobblestone": 5, "oak_log": 2})
         s = yard.situation()
@@ -177,6 +210,17 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(GOALS["workshop"].after, ("first_shelter", "iron_tools"))
         yard = Yard({"brick": 2})
         self.assertEqual(shares(yard.situation(), "workshop"), [0.67, 0.0, 0.0, 0.0])
+
+    def test_a_workshop_whose_walls_stand_pulls_harder(self):
+        """The Making final fix wave: pets whose workshop lacked only its kiln or bars chose it once or twice in 50
+        game days against the discovery goals and never finished it; once its walls stand it scores UNDER_WAY
+        more."""
+        yard = Yard({**BLOCKS_FOR_IT}, traits={"creativity": 50, "diligence": 40})
+        self.assertEqual(GOALS["workshop"].score(yard.situation()), 40.0 + 5.0 + 2.0)
+        yard.goal("workshop")
+        yard.build()
+        self.assertEqual(current_workshop(yard.situation())["status"], "done")
+        self.assertEqual(GOALS["workshop"].score(yard.situation()), 40.0 + 5.0 + 2.0 + UNDER_WAY)
 
 
 if __name__ == "__main__":

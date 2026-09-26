@@ -455,8 +455,8 @@ foraging.MORE_FOOD.append(more_food)
 def packed_kept(s: Situation, item: str) -> float:
     """What an expedition keeps on Mimo (storage.KEEPS_MORE): its torches and its food, from packing
     until it is home again. While it packs it keeps none of what gives way to food
-    (carrying.GIVES_WAY_TO_FOOD: plants, gloom dust, wool, string, feathers, flint, hides, leather,
-    copper and gold) and gear does not still want (creatures.gear.materials_wanted: leather and
+    (carrying.GIVES_WAY_TO_FOOD: plants, gloom dust, wool, string, feathers, flint, hides, leather
+    and gold) and gear does not still want (creatures.gear.materials_wanted: leather and
     hides for armor, string for a bow, flint and feathers for arrows), so build_storage puts the
     rest in the chest at home and the pack has room: the pre-flight found arms full on 97-100 % of
     the packing ticks of three of five packing pets. Fix round 1, Important 3: packing must never

@@ -75,6 +75,29 @@ FINISHED_WORDS = {"workshop": "{name} built {what}.", "machine": "{name} built {
 # Making: functions of the Situation giving blocks another project's walls still take (the workshop's),
 # which building_need adds, so gathering aims for them too.
 MORE_BLOCKS: list = []
+# The Making final fix wave: functions of the Situation giving {block: count} of building blocks walls must
+# not take (the clay and bricks kept for the workshop's kiln: on the gate's first run a workshop's walls
+# were raised with the only clay its pet had found).
+SPARED: list = []
+
+
+def spared(s: Situation) -> dict[str, int]:
+    """What SPARED keep out of the walls, added up (one that crashes spares nothing, logged once)."""
+    total: dict[str, int] = {}
+    for spares in SPARED:
+        try:
+            for block, count in spares(s).items():
+                if count > 0:
+                    total[block] = total.get(block, 0) + int(count)
+        except Exception as error:
+            log_once(logger, "spared blocks", error)
+    return total
+
+
+def sparing(s: Situation, inventory: dict) -> dict:
+    """`inventory` less what SPARED keep out of the walls."""
+    kept = spared(s)
+    return {item: count - kept.get(item, 0) for item, count in inventory.items() if count > kept.get(item, 0)}
 
 
 def structures_near(s: Situation, kind: str, reach: float = HOME_RANGE) -> list[dict]:
@@ -124,7 +147,7 @@ def usable_supplies(inventory: dict) -> dict[str, int]:
 
 
 def carried_blocks(s: Situation) -> int:
-    return sum(usable_supplies(s.inventory).values())
+    return sum(usable_supplies(sparing(s, s.inventory)).values())
 
 
 def shelter_design(s: Situation) -> Blueprint | None:
@@ -257,10 +280,11 @@ def next_blocks(s: Situation, blueprint: Blueprint,
 def structural_batch(s: Situation, blueprint: Blueprint, stand: Cell) -> list[dict]:
     """The next blocks in the design's order, making planks from logs when they run short, but
     only when Mimo has room to carry the planks: otherwise it places what it carries."""
-    blocks, jobs = next_blocks(s, blueprint, s.inventory)
+    usable = sparing(s, s.inventory)  # the Making final fix wave: not what SPARED keep out of the walls
+    blocks, jobs = next_blocks(s, blueprint, usable)
     crafting = planks_first(s.inventory, blocks)
     if not crafts_fit(s.inventory, crafting):
-        blocks, jobs = next_blocks(s, blueprint, without_logs(s.inventory))
+        blocks, jobs = next_blocks(s, blueprint, without_logs(usable))
         crafting = []
     return crafting + reach_all(blueprint, stand, jobs)
 

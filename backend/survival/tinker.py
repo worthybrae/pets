@@ -16,6 +16,13 @@ the table teachable) and the journal shows them. Mimo gets them in two ways of i
   with a chance of 0.25 plus curiosity / 200 (a roll on the seed, the cell and the time): the lesson
   is learned (on the bench, the lamp lights up and the wire glows as it does); otherwise it tries
   again after TINKER_REST. Day work in the work band, by home: 35 plus a quarter of curiosity.
+
+The Making final fix wave (C2): the first circuits' machines are only wanted once the spark is known, and
+the spark by tinkering (or the old manual) needs copper, so nothing asked for copper and the loop never
+broke without the owner. While "First circuits" is Mimo's goal and it does not know the spark, the bench
+(a lever, a copper wire and a lamp: two copper ingots, whose twelve wires and lamp then make the lamp on a
+lever too) is what making wants (making.NEEDS, `bench_needs`), so mine_ore goes after the copper ore Mimo
+remembers and gather_stone prospects for it; deep copper may turn up the old manual on the way.
 """
 
 from __future__ import annotations
@@ -28,10 +35,11 @@ from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.curiosity import value_of
 from backend.survival.foraging import reach_steps
+from backend.survival.goals import active
 from backend.survival.grid import Cell
 from backend.survival.journal import LESSONS, Lesson, journal_ready, learn_lesson, taught, teach
-from backend.survival.machines import built, machines_built
-from backend.survival.making import craft_plan, place_steps
+from backend.survival.machines import FIRST, built, machines_built
+from backend.survival.making import NEEDS, craft_plan, place_steps
 from backend.survival.once import log_once
 from backend.survival.pens import near_home
 from backend.survival.purposes import Purpose, register
@@ -122,6 +130,18 @@ def next_idea(s: Situation) -> str | None:
         if lesson not in known:
             return lesson if built(s, machine) else None
     return None
+
+
+def bench_needs(s: Situation) -> dict[str, int]:
+    """making.NEEDS (C2): the bench's lever, wire and lamp while the first circuits are Mimo's goal and it
+    does not know that copper carries a spark yet."""
+    goal = active(s)
+    if goal is None or goal.name != FIRST or SPARK in s.lessons:
+        return {}
+    return {item: 1 for item in BENCH}
+
+
+NEEDS.append(bench_needs)
 
 
 def tried_lately(s: Situation) -> bool:
