@@ -102,7 +102,8 @@ class TeachingTests(unittest.TestCase):
         jev = FakeJev(lambda name, criteria: "none" if "none" in criteria else sorted(criteria)[0])
         self.say("gravel hides flint", env=JEV, http=jev)
         self.say("I love you", at=BORN + 20, env=JEV, http=jev)
-        self.assertEqual([sorted(body["questions"]) for body in jev.bodies], [["reply"], ["reply"]])  # no "teach"
+        # No "teach" for either. Bond B2 asks "request" of every line that does not teach (pre-flight 2).
+        self.assertEqual([sorted(body["questions"]) for body in jev.bodies], [["reply"], ["reply", "request"]])
         self.assertEqual(self.knowledge("taught"), ["gravel"])
 
     def test_a_falsehood_is_refused_and_nothing_is_learned(self):

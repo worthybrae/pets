@@ -578,7 +578,39 @@ def goal_facts(s: Situation, goal: Goal, can: bool | None = None) -> str:
     mine = " (its goal now)" if current is not None and current.name == goal.name else ""
     can = workable(s, goal) if can is None else can
     later = "" if can else "; nothing to do for it right now"
-    return f"{round(progress_of(s, goal) * 100)}% done{mine}; next: {', '.join(words) or 'nothing'}{later}"
+    asked = pulls(s, goal)[1]  # (Bond) "the owner asked for this"
+    return (f"{round(progress_of(s, goal) * 100)}% done{mine}; next: {', '.join(words) or 'nothing'}{later}"
+            + (f"; {asked}" if asked else ""))
+
+
+# (Bond) Functions of (Situation, Goal) giving (points, words) when something besides the goal itself makes
+# it matter more now (backend.survival.requests: the owner asked for it). The points add to its rules
+# score and the words join its facts for Jev. One that crashes counts as nothing (logged once).
+PULLS: list = []
+
+
+def pulls(s: Situation, goal: Goal) -> tuple[float, str]:
+    """The goal's pulls: their points, and their words joined ("" without any). Pre-flight
+    amendment: none for any goal but the one currently holding (Goal.holds, I2) — a pull only ever
+    decides which goal comes next (resolution 11), never pulls Mimo off one it must not interrupt (an
+    expedition that is out, say). `offers()` already keeps a held goal from losing the real choice;
+    this keeps a goal's facts and requests.outweighs from promising a switch that can never happen."""
+    current = active(s)
+    if current is not None and current.name != goal.name and holding(s, current):
+        return 0.0, ""
+    def look() -> tuple[float, str]:
+        points, words = 0.0, []
+        for pull in PULLS:
+            try:
+                extra, text = pull(s, goal)
+                points += float(extra)
+            except Exception as error:
+                log_once(logger, "goal pull", error)
+                continue
+            if text:
+                words.append(str(text))
+        return points, "; ".join(words)
+    return s.sensed(f"pulls {goal.name}", look)
 
 
 def rules_score(s: Situation, goal: Goal, can: bool | None = None) -> float:
@@ -588,6 +620,7 @@ def rules_score(s: Situation, goal: Goal, can: bool | None = None) -> float:
     score = own_score(s, goal)
     if score is None:
         return 0.0
+    score += pulls(s, goal)[0]  # (Bond) the owner asked for it
     if workable(s, goal) if can is None else can:
         score += WORKABLE
     current = active(s)

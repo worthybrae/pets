@@ -46,6 +46,17 @@ Words that fit a lesson but contradict it are `doubtful` too, never taught with 
 leather"), say a number the lesson does not ("a bow takes two sticks": it takes three) or say the
 opposite of the lesson's own words ("skitters love sunlight": the sunlight makes them fade;
 "skitters come out at noon": they come out at night).
+
+Commands teach nothing (pre-flight 2, carry 5, the Mind follow-up's ruling): a sentence that opens
+with one (COMMANDS: "make a bow!", "please wire up a lamp", "let's make a bow") teaches and doubts
+nothing, and Bond B2's request question reads it instead (`wants`); a claim made only of verbs (VERBS)
+teaches only as a statement about its subject ("coal burns"), never said before it ("you make a
+bow"). A claim made only of numbers never teaches ("cows count in twos": two is only a detail of the
+cow lessons). A verb of the claim followed by a word the lesson does not know is doubtful ("cows give
+milk": no cow lesson speaks of milk; `unsupported`). A copula followed by a word that only observes
+("cows are everywhere in this field") or after a modal ("sheep would be lovely") is chat, and a
+lesson whose subject is only part of a longer one the words name ("iron" of "iron sword") never makes
+them doubtful.
 """
 
 from __future__ import annotations
@@ -122,6 +133,18 @@ _RAW_WORD = re.compile(r"[a-z]+")
 # A sentence boundary (., ! or ?) followed by space, but not inside a "..." pause (replies.clip's own
 # pattern): a false or foreign word in one sentence never spoils a lesson a later one teaches cleanly.
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?<!\.\.\.)\s+")
+# Pre-flight 2 (carry 5): the words a claim may hold that say nothing on their own: verbs (a teach verb,
+# a recipe's own verbs and their synonyms) and numbers. `unsupported` passes over numbers and words of
+# quantity to the word that says what.
+VERBS = TEACH_VERBS | frozenset(RECIPE_WORDS) | frozenset({"cost"})
+NUMBER_WORDS = frozenset(NUMBERS) | frozenset(COUNTS)
+QUANTITY = frozenset({"plenty", "bunch", "couple", "pair", "load", "ton", "heap", "pile", "whole"})
+MODALS = frozenset({"would", "will", "could", "should", "might", "must", "can", "may"})
+# The words a command opens with (the first word of the sentence, singular): it asks for something, and
+# teaches nothing.
+COMMANDS = frozenset({"please", "go", "let", "make", "craft", "build", "find", "get", "dig", "fetch", "bring", "cook",
+                      "smelt", "try", "visit", "explore", "wire", "put", "place", "plant", "hunt", "catch", "gather",
+                      "collect", "chop", "grab"})
 
 
 def number(n: int) -> str:
@@ -328,7 +351,9 @@ def bare_claim(text: str, raw: list[str], subject: frozenset[str], found_words: 
     subject (an exclamation or address: "skitters, yikes"), or a word that only continues into
     another, longer known subject ("iron" (iron_ore) followed by "sword": "iron swords rock" is
     about recipe:iron_sword's subject, not a claim about iron ore) never is either; nor is talk of
-    the owner (controller ruling, Task 6 review; fix round 2, residuals 5-7)."""
+    the owner (controller ruling, Task 6 review; fix round 2, residuals 5-7). A copula after a modal
+    is a copula too ("sheep would be lovely"), and one followed by a word that only observes is no
+    claim ("cows are everywhere in this field", pre-flight 2)."""
     if PERSON_WORDS & set(raw):
         return False
     width = len(subject)
@@ -337,9 +362,13 @@ def bare_claim(text: str, raw: list[str], subject: frozenset[str], found_words: 
     if comma_after(text, width):
         return False
     rest = raw[width:]
+    if len(rest) > 1 and rest[0] in MODALS and rest[1] == "be":
+        rest = ["is", *rest[2:]]
     if not rest or rest[0] in SKIP_WORDS or (subject | {rest[0]}) in all_subjects:
         return False
     copula = rest[0] in COPULA
+    if copula and len(rest) > 1 and rest[1] in SKIP_WORDS:
+        return False
     content = tokens(" ".join(rest[1:] if copula else rest))
     if not content or (copula and (len(content) <= 1 or set(content) <= DESCRIBING)):
         return False
@@ -371,30 +400,79 @@ def contradicts(lesson: Lesson, text: str, raw: list[str]) -> bool:
                for one, other in OPPOSITES)
 
 
+def unsupported(raw: list[str], claim: frozenset[str], words: frozenset[str]) -> bool:
+    """A verb of the claim followed by a word the lesson does not know ("cows give milk": what cows give,
+    and no cow lesson speaks of milk; pre-flight 2, carry 5). Stop words, talk of the owner, numbers
+    (`contradicts` checks those) and words of quantity are passed over to the word that says what; a
+    verb at the end says nothing more ("coal burns")."""
+    for place, word in enumerate(raw):
+        if word not in claim or word not in VERBS:
+            continue
+        after = next((later for later in raw[place + 1:]
+                      if tokens(later) and later not in PERSON_WORDS | NUMBER_WORDS | QUANTITY), None)
+        if after is not None and tokens(after)[0] not in words:
+            return True
+    return False
+
+
+def commanded(text: str) -> bool:
+    """A sentence that opens with a command ("make a bow!", "please wire up a lamp", "let's go"):
+    it asks for something and teaches nothing (pre-flight 2, carry 5)."""
+    raw = raw_words(text)
+    return bool(raw) and raw[0] in COMMANDS
+
+
+def wants(text: str) -> bool:
+    """Whether any sentence of the owner's words asks a question or opens with a command: what Bond
+    B2's request question reads, even beside a sentence that teaches (pre-flight 2, carry 5)."""
+    sentences = [sentence for sentence in SENTENCE_SPLIT.split(text.strip()) if sentence.strip()] or [text]
+    return any(asks(sentence) or commanded(sentence) for sentence in sentences)
+
+
+def teaches(raw: list[str], subject: frozenset[str], claim: frozenset[str]) -> bool:
+    """Whether a claim that fits a lesson teaches it (pre-flight 2, carry 5): it says something besides
+    verbs and numbers ("cows give leather"), or it is made only of verbs said after what it is about, a
+    statement ("coal burns"). Said before its subject, a claim made only of verbs is a command or a wish
+    ("make a bow!", "craft an iron sword"), and one made only of numbers says nothing ("cows count in
+    twos": two is only a detail of the cow lessons)."""
+    if claim - VERBS - NUMBER_WORDS:
+        return True
+    verbs = [place for place, word in enumerate(raw) if word in claim and word in VERBS]
+    named = [place for place, word in enumerate(raw) if word in subject]
+    return bool(verbs) and bool(named) and min(named) < min(verbs)
+
+
 def claims_one(text: str) -> Claims:
-    """`claims`, judged for one sentence alone."""
-    if asks(text):
+    """`claims`, judged for one sentence alone. Pre-flight 2 (carry 5): a command teaches and doubts
+    nothing (`commanded`); a claim teaches only when `teaches` says so (not one made only of verbs said
+    before its subject, nor bare numbers); a verb followed by a word the lesson does not know is
+    doubtful (`unsupported`); and a lesson whose subject is only part of a longer one the words name
+    ("iron" of "iron sword") never makes them doubtful: the words are about the longer one, which
+    decides ("you should craft an iron sword" is no doubtful claim about iron ore)."""
+    if asks(text) or commanded(text):
         return Claims((), False, False)
     keys, world, all_subjects = lesson_keys()
     text = denied(text)
     said = set(tokens(text))
     things = said & world
     raw = raw_words(text)
-    fits, doubtful = [], False
+    matched = {}
     for index, (thing, found) in enumerate(keys.items()):
         named = [subject for subject in found.subjects if subject <= said]
-        if not named:
-            continue
-        subject = max(named, key=len)
+        if named:
+            matched[thing] = (index, found, max(named, key=len))
+    subjects = {subject for _, _, subject in matched.values()}
+    fits, doubtful = [], False
+    for thing, (index, found, subject) in matched.items():
+        inside = any(subject < other for other in subjects)
         claim = (said & found.words) - subject
         foreign = things - found.words
-        if foreign and (claim or said & TEACH_VERBS):
-            doubtful = True
-        elif claim and contradicts(LESSONS[thing], text, raw):
-            doubtful = True
-        elif claim:
+        if (foreign and (claim or said & TEACH_VERBS)) or (
+                claim and (contradicts(LESSONS[thing], text, raw) or unsupported(raw, claim, found.words))):
+            doubtful = doubtful or not inside
+        elif claim and teaches(raw, subject, claim):
             fits.append((-(len(claim) + len(subject)), index, thing))
-        elif bare_claim(text, raw, subject, found.words, all_subjects):
+        elif not inside and bare_claim(text, raw, subject, found.words, all_subjects):
             doubtful = True
     fits.sort()
     # Narrowed the way bare_claim narrows doubt (fix round 2, Important 2): no person words, and the
