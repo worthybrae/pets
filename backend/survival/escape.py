@@ -12,7 +12,10 @@ than 256 cells, when a cave pocket Mimo walked into down its own stairs held 393
 stranded in one for most of a game day.
 The way out is a staircase up, one block up per step: mine the block over Mimo's head
 and the stair cell when they are solid, and place a carried block where a stair has nothing to
-stand on (mined dirt and stone go into the stock too). Where they fit (L3), the two cells over each
+stand on (mined dirt and stone go into the stock too, while they fit in Mimo's arms: L4b final fix
+wave, follow-up 2 -- with full arms the dug block is left behind, carrying's rule, and a staircase
+that counted on placing it failed "no dirt to place" twice, leaving a pet in a cave for a game day
+until a skitter caught it). Where they fit (L3), the two cells over each
 stair and the three beside it (left of the heading, over solid ground) open too, so the way out is
 2 wide and 3 tall like Mimo's own stairs; a cell that cannot be mined there is left, the same rule
 as work.cut: never something Mimo built or tends (or the cell above it), and never an ore or a
@@ -48,6 +51,7 @@ from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, LOGS, can_harvest
 from backend.services.worldgen import terrain_height
 from backend.survival.actions import ActionContext, take_search
+from backend.survival.carrying import CARRY_STACKS, room_for
 from backend.survival.grid import FLUIDS, Cell, Grid, supports
 from backend.survival.home import home_cell
 from backend.survival.pathing import moves
@@ -164,7 +168,8 @@ def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps
     and passage, the cells Mimo must walk through (L3 final fix wave). A `rubble` cell
     is also left standing when it holds an ore or a surface log (fix round 1, items 3 and the
     minors): those are worth collecting on purpose, not losing to a widening cell with no drop.
-    A `rubble` cell that is mined is left behind, so it adds nothing to the stock."""
+    A `rubble` cell that is mined is left behind, so it adds nothing to the stock, and so is a mined
+    block that does not fit in Mimo's arms (carrying.room_for; follow-up 2)."""
     x, y, z = cell
     material = look(grid, changed, cell)
     if material in FLUIDS:
@@ -180,7 +185,7 @@ def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps
     steps.append({"kind": "mine", "target": list(cell), **({"rubble": True} if rubble else {})})
     changed[cell] = "air"
     drop = BLOCKS.get(material, {}).get("drop")
-    if drop and not rubble:
+    if drop and not rubble and room_for(stock, drop, CARRY_STACKS) >= 1:
         stock[drop] = stock.get(drop, 0) + 1
     return True
 

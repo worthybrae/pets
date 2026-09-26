@@ -208,6 +208,18 @@ class EscapeTests(unittest.TestCase):
                           place(3, 3, 0), walk(3, 4, 0), place(4, 4, 0), walk(4, 5, 0)])
         self.assertEqual(escape_plan(pit("stone", width=5), (0, 1, 0), {"dirt": 3}, "1"), [])
 
+    def test_with_full_arms_a_dug_block_that_would_be_left_behind_is_not_counted_on(self):
+        """L4b final fix wave, follow-up 2: mined dirt went into the stock whether or not it fit, so
+        with full arms a staircase planned to place dirt it had left behind; the step failed "no dirt
+        to place" twice and a pet stayed in a cave for a game day, until a skitter caught it."""
+        grid = overridden_pit({(1, 1, 0): "air"})  # the first stair has nothing under it
+        self.assertIn(place(1, 1, 0), staircase(grid, (0, 1, 0), (1, 0), {}, "1"))  # the stair's own dirt props it up
+        full = {f"item_{n}": 1 for n in range(16)}
+        self.assertIsNone(staircase(grid, (0, 1, 0), (1, 0), full, "1"))  # that dirt stays behind: not this way
+        room = {**{f"item_{n}": 1 for n in range(15)}, "dirt": 1}  # 16 stacks, but the dirt stack has room
+        self.assertIn(place(1, 1, 0), staircase(grid, (0, 1, 0), (1, 0), room, "1"))
+        self.assertEqual(escape_plan(grid, (0, 1, 0), full, "1")[0], mine(0, 2, 1))  # another way out, dug, not built
+
     def test_a_fence_already_filling_the_support_cell_blocks_this_heading(self):
         """L3 fix round 1: `support`'s old is_solid check treated a fence the same as real ground,
         so Mimo's plan would have walked onto a cell nothing actually held it up in
