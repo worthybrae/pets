@@ -77,6 +77,32 @@ class RulesReadingTests(unittest.TestCase):
             self.assertEqual(self.reading(text), goal, text)
 
 
+    def test_a_goal_verb_alone_asks_for_nothing(self):
+        """Fix round 2 (B): a verb that is also a goal's word ("follow", "meet", "explore", "store", "map",
+        "wire", "farm") asks for its goal only bare ("explore!", "go explore") or with a word of the goal
+        after it; "follow your dreams" or "wire me some money" asks for nothing."""
+        for text in VERB_ALONE:
+            self.assertEqual(self.reading(text), NONE, text)
+        for text, goal in VERB_WITH_ITS_GOAL:
+            self.assertEqual(self.reading(text), goal, text)
+
+    def test_you_could_and_you_can_ask(self):
+        """Fix round 2 (C): the readings round 1 lost."""
+        self.assertEqual(self.reading("you could build a workshop"), "workshop")
+        self.assertEqual(self.reading("you can build a computer now"), "thinking_machine")
+
+
+# Fix round 2 (B): a goal's verb with no word of a goal after it ...
+VERB_ALONE = ("follow your dreams", "follow your heart", "follow the rules", "meet my friend Bob",
+              "meet the neighbours", "explore your options", "explore your feelings", "store that in your memory",
+              "store it for later", "map out your day", "map it out", "farm some xp", "wire me some money")
+# ... and with one, or bare.
+VERB_WITH_ITS_GOAL = (("go camping", "expedition"), ("set up camp", "expedition"), ("follow the river", "water"),
+                      ("store food in the chest", "full_larder"), ("go meet new creatures", "new_creature"),
+                      ("explore the world!", "new_land"), ("can you go explore?", "new_land"),
+                      ("please build a workshop", "workshop"), ("build a computer!", "thinking_machine"),
+                      ("could you raise a herd?", "herd"), ("go look at the cave", "cave"),
+                      ("can you go explore with me?", "new_land"))
 # Fix round 1 (Important 2): everyday lines the old rules read as refused requests ...
 EVERYDAY = ("you make me happy", "you make me smile", "I'll make you a snack", "let me make you dinner",
             "I'm going to build a sandcastle", "cows make me happy", "sticks make torches",
@@ -348,6 +374,24 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(taught, ["recipe:bow"])
         self.assertIsNone(self.request())
 
+    def test_a_goal_verb_alone_takes_no_request(self):
+        """Fix round 2 (B): "wire me some money" was taken, a request pulling the first circuits."""
+        reply = self.say("wire me some money")
+        self.assertNotIn("I promise", reply)
+        self.assertIsNone(self.request())
+
+    def test_you_could_or_you_can_with_a_recipe_still_teaches_and_asks_nothing(self):
+        """Fix round 2 (C): "you could" and "you can" are cues now, and a line that teaches is still a
+        lesson, not a request (request_question's teach return)."""
+        self.assertEqual(self.say("you could make a bow from sticks and string"), "Oh, a bow takes three sticks and "
+                         "three string, at a crafting table. Thank you for teaching me!")
+        self.assertEqual(self.say("you can make a bow from sticks and string"),
+                         "I know that one! A bow takes three sticks and three string, at a crafting table.")
+        self.assertIsNone(self.request())
+        self.assertEqual(self.say("you could build a workshop"),
+                         "First I need to make iron tools. After that, I promise!")
+        self.assertEqual(self.request()["goal"], "workshop")
+
     def test_a_lesson_taught_and_seen_true_earns_the_kept_promise_credit(self):
         """Pre-flight 2 (carry 6): teaching.CONFIRMED: a lesson the owner taught, seen true, grows the bond
         as a kept promise does, and is not a visit."""
@@ -360,6 +404,19 @@ class RequestTests(unittest.TestCase):
         state = self.world.state()
         self.assertEqual(state["bond"]["seen_at"], seen_at)
         self.assertAlmostEqual(bond_level(state, self.now + 1), before + GAINS["promise"])
+
+
+# Fix round 1 (Important 1): true lessons said with a describing word or an adverb after the verb.
+TRUE_WITH_A_MODIFIER = (
+    ("cows give good leather", "cow:drops"), ("cows give tasty beef", "cow:drops"),
+    ("cows give great beef", "cow:drops"), ("sheep give soft wool", "sheep:drops"), ("sheep give fluffy wool", "sheep:drops"),
+    ("sheep give nice wool", "sheep:drops"), ("chickens drop white feathers", "chicken:drops"),
+    ("chickens drop soft feathers", "chicken:drops"), ("a bow needs strong string", "recipe:bow"),
+    ("an iron sword needs shiny iron ingots", "recipe:iron_sword"), ("coal burns well", "coal_ore"),
+    ("coal burns brightly", "coal_ore"), ("coal burns hot", "coal_ore"), ("moss grows thick in forests", "moss"),
+    ("sugar cane grows near water", "sugar_cane"), ("sugar cane grows next to water", "sugar_cane"),
+    ("lava burns things", "lava"), ("coal burns", "coal_ore"),
+    ("you can make a bow from sticks and string", "recipe:bow"))
 
 
 class TeachOrAskTests(unittest.TestCase):
@@ -382,24 +439,25 @@ class TeachOrAskTests(unittest.TestCase):
     def test_a_describing_word_or_adverb_after_the_verb_no_longer_doubts_a_true_lesson(self):
         """Fix round 1 (Important 1): the verb's clause is read to its end, describing words and a few
         adverbs are passed over, and one lesson word in it is enough."""
-        for text, thing in (("cows give good leather", "cow:drops"), ("cows give tasty beef", "cow:drops"),
-                            ("cows give great beef", "cow:drops"), ("sheep give soft wool", "sheep:drops"),
-                            ("sheep give fluffy wool", "sheep:drops"), ("sheep give nice wool", "sheep:drops"),
-                            ("chickens drop white feathers", "chicken:drops"),
-                            ("chickens drop soft feathers", "chicken:drops"),
-                            ("a bow needs strong string", "recipe:bow"),
-                            ("an iron sword needs shiny iron ingots", "recipe:iron_sword"),
-                            ("coal burns well", "coal_ore"), ("coal burns brightly", "coal_ore"),
-                            ("coal burns hot", "coal_ore"), ("moss grows thick in forests", "moss"),
-                            ("sugar cane grows near water", "sugar_cane"),
-                            ("sugar cane grows next to water", "sugar_cane"), ("lava burns things", "lava"),
-                            ("coal burns", "coal_ore"), ("you can make a bow from sticks and string", "recipe:bow")):
+        for text, thing in TRUE_WITH_A_MODIFIER:
             found = claims(text)
             self.assertIn(thing, found.taught, text)
             self.assertFalse(found.doubtful, text)
         for text in ("cows give milk", "cows give milk and leather", "cows give tasty milk", "cows give wings"):
             self.assertEqual(claims(text), Claims((), True, False), text)  # the first clause holds no lesson word
         self.assertEqual(claims("cows count in twos").taught, ())
+
+    def test_a_word_the_lesson_does_not_know_before_its_lesson_word_is_doubted(self):
+        """Fix round 2 (A): one lesson word in the clause is enough only when no word the lesson does not
+        know comes before it (a material, a distance or a state is no describing word), so a wrong
+        qualifier is never thanked for; the true lines with a describing word still teach."""
+        for text in ("sugar cane grows far from water", "sugar cane grows away from water",
+                     "moss grows away from forests", "an iron sword needs golden ingots",
+                     "diamonds need a golden pickaxe", "cows give rotten beef", "cows drop cooked beef"):
+            found = claims(text)
+            self.assertEqual((found.taught, found.doubtful), ((), True), text)
+        for text, thing in TRUE_WITH_A_MODIFIER:
+            self.assertIn(thing, claims(text).taught, text)
 
     def test_numbers_alone_teach_nothing_and_observations_are_chat(self):
         self.assertEqual(claims("cows count in twos").taught, ())  # the controller's case (a)

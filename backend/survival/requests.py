@@ -89,8 +89,8 @@ REQUEST_INSTRUCTIONS = ("Decide whether the owner's words (the state's chat.owne
 ASK_PHRASES = tuple(tuple(phrase.split()) for phrase in (
     "can you", "could you", "would you", "will you", "wont you", "please", "pls", "plz", "i want you to",
     "i need you to", "i would like you to", "id like you to", "i wish you would", "i wish you could",
-    "if you could", "maybe you could", "you should", "you need to", "you have to", "you gotta", "you wanna",
-    "how about", "why dont you", "why not", "lets", "do you want to"))
+    "if you could", "maybe you could", "you could", "you can", "you should", "you need to", "you have to",
+    "you gotta", "you wanna", "how about", "why dont you", "why not", "lets", "do you want to"))
 # Phrases that ask only where a sentence opens ("time to build a workshop!", but "it takes time to build
 # a house" asks for nothing; "wanna explore?", but "I wanna build a house" is the owner's own wish). "go
 # and ..." opens with "go", whose "and" leads on to the verb that asks.
@@ -136,6 +136,10 @@ NO_THING = frozenset({"it", "that", "this", "something", "anything", "everything
                       "things", "one", "sure", "way", "wish", "friends", "friend", "fun", "time", "noise", "sense",
                       "mess", "peace", "room", "space", "progress", "difference", "choice", "decision", "face",
                       "faces", "trouble", "believe", "love", "money", "memories", "memory", "mistake", "mistakes"})
+# Words that leave a goal's verb bare ("go explore a bit", "explore for a while"), and the particles
+# that make it another verb ("follow along", "map out", "fill up").
+BARE = frozenset({"bit", "little", "while", "alone"})
+PARTICLES = frozenset({"along", "up", "through", "out", "in", "on", "down", "off", "over", "back"})
 PLAIN_WORDS = frozenset({"big", "bigger", "new", "nice", "little", "small", "cool", "better", "good", "great", "own",
                          "real", "proper", "whole", "full", "first", "cozy", "cosy"})  # "a big house, please"
 TOKEN = re.compile(r"[a-z0-9']+|[,;:()]|[-–—]+")
@@ -151,7 +155,8 @@ REQUEST_WORDS = {
     "herd": ("herd", "pen", "animals", "seed", "seeds", "sheep", "cows", "farm"),
     "map_land": ("map", "land", "around"),
     "full_larder": ("larder", "chest", "food", "store", "stock"),
-    "new_land": ("lands", "biome", "biomes", "desert", "taiga", "snow", "swamp", "forest", "explore", "exploring"),
+    "new_land": ("lands", "biome", "biomes", "desert", "taiga", "snow", "swamp", "forest", "explore", "exploring",
+                 "world"),
     "new_creature": ("creature", "creatures", "animal", "meet"),
     "cave": ("cave", "caves", "sinkhole", "underground", "hole"),
     "water": ("water", "lake", "river", "stream", "sea", "pond"),
@@ -447,7 +452,11 @@ def goal_named(verb: str, words: list[str], statuses: dict[str, str], keys: dict
     the thing it names first counting more ("go look at the cave near the lake": the cave). A verb of
     going ("go to the cave", "explore") asks only for a place (PLACE_GOALS; "go home" is no request), and
     only the verbs that work on a goal's things name them by a home's words or "safe" (MAKE_ONLY: "fix
-    up your house", but "get home safe" asks for nothing)."""
+    up your house", but "get home safe" asks for nothing). Fix round 2 (B): a verb that is a goal's word
+    too ("follow", "meet", "explore", "wire" ...) names its goal only bare ("explore!", "go explore with
+    me"; not "follow along", a verb of its own); once its words say something more, one of them must
+    name the goal ("follow the river", but "follow your dreams", "meet my friend Bob" and "wire me some
+    money" ask for nothing)."""
     words = someone_first(clause(words), keys)
     if words is None:
         return None
@@ -459,7 +468,12 @@ def goal_named(verb: str, words: list[str], statuses: dict[str, str], keys: dict
     weights = [(verb, 1.0)] + [(word, 1.0 + 0.5 * (word in first) + 0.5 * (word == head)) for word in words]
     if verb not in SHAPE_VERBS:
         weights = [(word, weight) for word, weight in weights if word not in MAKE_ONLY]
-    return best_goal(weights, statuses, keys, among=PLACE_GOALS if verb in MOVE_VERBS | SEE_VERBS else None)
+    among = PLACE_GOALS if verb in MOVE_VERBS | SEE_VERBS else None
+    said = [word for word in words if word not in PREPOSITIONS | DETERMINERS | AFTER_THING | PERSONS | BARE]
+    alone = not said and not (words and words[0] in PARTICLES)  # "follow along" is no bare "follow"
+    if not alone and best_goal(weights[1:], statuses, keys, among=among) is None:
+        return None
+    return best_goal(weights, statuses, keys, among=among)
 
 
 def thing_asked(words: list[str], statuses: dict[str, str], keys: dict) -> str | None:
