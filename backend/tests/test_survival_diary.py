@@ -442,6 +442,29 @@ class StoryTests(unittest.TestCase):
         self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 8, "writer": "rules"})
         self.assertIn("iron tools", story["text"])  # day 4's goal: never lost to the gap
 
+    def test_reading_the_old_story_before_the_worker_catches_up_still_tells_the_days_between(self):
+        """Fix round 3: a read item is skipped for growth (diary.py:313), so the next new story used to
+        start at the visit's day (owed_from or seen_at, diary.py:324-325), skipping every day between
+        what the read story already told and that visit -- the reviewer's probe: a story covering days
+        8-12 was read during a machine's sleep, and the next story began "Days 17 to ...", losing days
+        13-16. story_span now pulls "first" back to the day after what the last story told
+        (bond["story"]["last"]), when that's earlier than the visit's own day."""
+        talker = self.talker()
+        self.visit(BORN + 10)  # day 1
+        talker.poll(self.registry, BORN + 61)  # dawn of day 2: creates the item, day 1 only
+        talker.poll(self.registry, BORN + 121)  # dawn of day 3: grows to days 1-2
+        [story] = self.stories()
+        self.assertEqual(json.loads(story["data"]), {"day": 1, "last": 2, "writer": "rules"})
+        with self.world.transaction() as db:
+            log_event(db, BORN + 190, "goal", f"{self.name} reached a goal: iron tools.")  # day 4
+        self.visit(BORN + 421)  # day 8: the owner is back
+        with self.world.transaction() as db:  # ... and reads the old story before the worker's next poll
+            db.execute("UPDATE mimo_inbox SET read_at=? WHERE id=?", (BORN + 421, story["id"]))
+        talker.poll(self.registry, BORN + 481)  # the Talker's first poll since: the dawn of day 9
+        [newest] = [row for row in self.stories() if row["id"] != story["id"]]
+        self.assertEqual(json.loads(newest["data"])["day"], 3)  # picks up right after day 2, not day 8
+        self.assertIn("iron tools", newest["text"])  # day 4's goal, told, not skipped
+
     def test_a_watching_owners_next_day_still_gets_its_own_fresh_story(self):
         """Fix round 2 guard: item 2's fix must not turn every visit into growth. A story that already
         covers through yesterday relative to today's new visit (no day skipped) still starts a fresh

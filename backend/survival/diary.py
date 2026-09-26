@@ -300,7 +300,12 @@ def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) ->
     would otherwise leave a gap of more than one day untold between the item's own "last" and the visit's
     day -- the owner returning before the Talker's first poll since a machine's sleep must not skip the
     days in between (item 2). A watching owner's very next day, with no day skipped, still gets its own
-    fresh story, exactly as round 1 has it: the gap there is never more than one day."""
+    fresh story, exactly as round 1 has it: the gap there is never more than one day.
+
+    Fix round 3: a story the owner reads before the Talker's next poll is skipped for growth above, so
+    a fresh story is due next; that fresh story's own "first" now starts right after what the read
+    story last told (bond["story"]["last"]), never at the new visit's own day, or the days in between --
+    read early, before the worker ever caught up on them -- would never be told at all."""
     bond = state.get("bond") or {}
     seen = bond.get("seen_at")
     if seen is None or state.get("died_at") is not None:
@@ -323,6 +328,9 @@ def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) ->
         return None
     since = bond.get("owed_from") if bond.get("owed_from") is not None else seen
     first = clock_at(state["born_at"], since, scale)["day_number"]
+    told = story.get("last")  # fix round 3: a story read before the Talker caught up is skipped for
+    if told is not None and told + 1 < first:  # growth above, so pick up right after what it told,
+        first = told + 1  # not at the visit's own day, or the days between are never told at all
     if last < first:
         return None
     start = max(first, last - MAX_STORY_DAYS + 1)
