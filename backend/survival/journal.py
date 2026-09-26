@@ -21,7 +21,13 @@ brain.observe_step, does nothing before). Studying takes one of three forms:
   something it built or tends, and never with water over it), or watches a creature for
   WATCH_SECONDS; a plant it looks over. The lesson is learned when the look (a wait of
   LOOK_SECONDS, or the watch) ends. A thing an investigation failed on is left alone for TRIED_FOR.
-  investigate is day work in the work band: 40 plus a quarter of curiosity, minus late.
+  investigate is day work in the work band: 40 plus a quarter of curiosity, minus late. L4b final fix
+  wave, I5: it has an urge (goals.URGES) while there is something to study, so from curiosity 40,
+  where its score reaches goals.NEED_FLOOR, it meets a need and goal work does not crowd it out (it
+  rarely won against L4a's goal steering: plants 8 blocks from home went unstudied for days); a
+  sated pet (under 40) still studies only when nothing for its goal is on offer. A sight remembered
+  farther than INVESTIGATE_REACH from where Mimo is gives way to a new sighting of its kind, so one
+  noted 150 blocks out on a trip no longer keeps the same thing near home from being noted.
 
 Knowledge unlocks behaviour, so learning has a purpose (Situation.lessons): gather_flint digs
 gravel only once Mimo learned that gravel hides flint, and mine_ore goes after gold and diamonds
@@ -49,6 +55,7 @@ from backend.survival.clock import DAY_SECONDS
 from backend.survival.creatures.table import dead
 from backend.survival.curiosity import discovered, seen, value_of
 from backend.survival.foraging import reach_steps, whole_walk
+from backend.survival.goals import add_urge
 from backend.survival.grid import Cell
 from backend.survival.memory import cell_of, forget, know, places, remember
 from backend.survival.once import log_once
@@ -216,10 +223,13 @@ def taught(db, thing: str) -> bool:
 
 def note_sights(state: dict, context: ActionContext, at: float) -> None:
     """Look over the ground around Mimo after a walk: the first of each kind of surface block or
-    plant with a lesson it has not learned is remembered as a sight."""
+    plant with a lesson it has not learned is remembered as a sight. The final fix wave, I5: a sight
+    of that kind remembered out of reach (farther than INVESTIGATE_REACH from here) gives way to it."""
     db, seed = context.db, state["world_seed"]
     x, _, z = as_cell(state["position"])
-    sighted = {place["note"] for place in places(db, ("sight",))}
+    sights = places(db, ("sight",))
+    sighted = {place["note"] for place in sights}
+    far = {place["note"]: place for place in sights if math.hypot(place["x"] - x, place["z"] - z) > INVESTIGATE_REACH}
     fresh: dict[str, Cell] = {}
     for dx in range(-SIGHT_RADIUS, SIGHT_RADIUS + 1, 2):
         for dz in range(-SIGHT_RADIUS, SIGHT_RADIUS + 1, 2):
@@ -233,6 +243,9 @@ def note_sights(state: dict, context: ActionContext, at: float) -> None:
         if material in PLANTS:
             fresh.setdefault(material, cell)
     for thing, cell in sorted(fresh.items()):
+        if thing in far and not taught(db, thing):  # I5: out of reach there, in sight here
+            forget(db, "sight", cell_of(far[thing]))
+            sighted.discard(thing)
         if thing not in sighted and not taught(db, thing):
             remember(db, "sight", cell, at, thing)
 
@@ -372,6 +385,11 @@ def investigate_facts(s: Situation) -> str:
     nearest = found[0]
     return (f"{len(found)} things it has never studied nearby; the nearest is {LESSONS[nearest.thing].words} "
             f"{round(s.distance(nearest.cell))} blocks away; {len(lessons_of(s))} lessons learned")
+
+
+# The final fix wave, I5: a need while there is something to study (with the score as it is, from
+# curiosity 40: goals.meets_need asks for NEED_FLOOR), so goal work does not crowd it out.
+add_urge("investigate", lambda s: bool(curios(s)))
 
 
 register(Purpose(

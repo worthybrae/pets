@@ -19,7 +19,8 @@ than settle into its routine. An expedition goes:
    heading the compass way with the most dry land it never visited just past the range. The
    "expedition" trip (explore) heads out that way and beyond the range, up to REACH_MAX from home;
    once past the target it roams the land beyond the range every way, mapping and studying what it
-   finds until it is time to camp (explore and investigate work toward the camp until the night).
+   finds until it is time to camp (explore and investigate work toward the camp until the night;
+   the final fix wave, I5: past the target the trip waits while there is something near to study).
 3. Camp out for the night. On the way out, and on the way back when dusk finds it farther than
    FAR_FROM_HOME from home, Mimo stays out (`away`, in purposes.AWAY): go_home and the head_home
    reflex leave it be, and build_shelter starts no new home out there. It digs in for the night
@@ -56,6 +57,7 @@ from backend.survival.exploring import COMPASS
 from backend.survival.goals import Goal, Milestone, active, register_goal
 from backend.survival.grid import Cell
 from backend.survival.home import built_home, home_cell
+from backend.survival.journal import curios
 from backend.survival.memory import PATCH, explored, known, patch_of
 from backend.survival.once import log_once
 from backend.survival.purposes import (
@@ -475,7 +477,15 @@ def heading_off(found: dict, x: int, z: int) -> float:
 
 
 def trek_wanted(s: Situation) -> str | None:
-    return "I want to see what lies past the lands I know" if phase_of(s) == "out" else None
+    """Wanted while the expedition is out; past its target, only while there is nothing near to study
+    (journal.curios): the final fix wave's I5, since the trip, always wanted at 65 (80 with the goal's
+    boost), roamed on past things never studied, and 7 of 22 homecomings had learned nothing."""
+    found = trek(s)
+    if found is None or found["phase"] != "out":
+        return None
+    if found["target"] and found["far"] >= found["target"] and curios(s):
+        return None
+    return "I want to see what lies past the lands I know"
 
 
 def trek_value(s: Situation, x: int, z: int) -> tuple[float, str]:

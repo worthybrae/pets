@@ -4,7 +4,7 @@ from unittest.mock import patch
 from backend.survival import brain  # noqa: F401  (registers every purpose)
 from backend.survival.curiosity import curiosity_state
 from backend.survival.journal import NEW_LESSON, journal_state, learn_lesson, observe_journal
-from backend.survival.memory import known, places, remember
+from backend.survival.memory import forget, known, places, remember
 from backend.survival.once import forget_logged
 from backend.tests.test_survival_building import World
 
@@ -64,6 +64,21 @@ class JournalTests(Studying):
                          [("gravel", 6, 0)])  # one sight of each kind
         learn_lesson(self.world.state, self.context, 8.0, "gravel")
         self.assertEqual(places(self.world.db, ("sight",)), [])  # learned: no longer a sight
+
+    def test_a_sight_out_of_reach_gives_way_to_one_of_its_kind_in_sight_here(self):
+        # L4b final fix wave, I5: one sight per kind, kept for good, so gravel noted 100 blocks out on
+        # a trip kept the gravel by home from ever being noted, or studied.
+        self.world.state["position"] = {"x": 0.0, "y": 1.0, "z": 0.0}
+        self.world.grid.put(6, 0, 0, "gravel")
+        remember(self.world.db, "sight", (20, 0, 0), 0.0, "gravel")  # within INVESTIGATE_REACH: kept
+        observe_journal(self.world.state, {"kind": "walk", "path": []}, self.context, 5.0)
+        self.assertEqual([(place["note"], place["x"], place["z"]) for place in places(self.world.db, ("sight",))],
+                         [("gravel", 20, 0)])
+        forget(self.world.db, "sight", (20, 0, 0))
+        remember(self.world.db, "sight", (100, 0, 0), 0.0, "gravel")  # out of reach from here
+        observe_journal(self.world.state, {"kind": "walk", "path": []}, self.context, 6.0)
+        self.assertEqual([(place["note"], place["x"], place["z"]) for place in places(self.world.db, ("sight",))],
+                         [("gravel", 6, 0)])
 
     def test_before_the_tick_tends_curiosity_the_journal_waits(self):
         del self.world.state["brain"]["curiosity"]

@@ -15,7 +15,7 @@ from backend.survival.foraging import food_need
 from backend.survival.goals import (
     GOALS, IDLE, STALL, adopt_goal, check_goal, complete, is_open, offers, progress_of,
 )
-from backend.survival.memory import know, mark_explored
+from backend.survival.memory import know, mark_explored, remember
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, away
 from backend.survival.reflexes import by_name
@@ -200,6 +200,27 @@ class GoalTests(unittest.TestCase):
             heading = heading_of(other.world.db, other.state["world_seed"], home, 48.0)
         self.assertNotEqual(COMPASS[heading], "east")
         self.assertEqual(COMPASS[heading], "southeast")
+
+
+class StudyTests(unittest.TestCase):
+    def test_past_its_target_it_studies_what_is_near_before_it_roams_on(self):
+        # The final fix wave, I5: past its target the trip was always wanted (65, 80 boosted) and the
+        # pet roamed on past things it never studied: 0.27 investigations per expedition.
+        pet = Expedition()
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            pet.set_out()
+        pet.go(101, 1)
+        trek = pet.state["brain"]["expedition"]
+        pet.world.grid.put(104, 0, 1, "gravel")
+        remember(pet.world.db, "sight", (104, 0, 1), 0.0, "gravel")
+        wanted = "I want to see what lies past the lands I know"
+        trek["far"] = trek["target"] - 1
+        self.assertEqual(REASONS["expedition"].wanted(pet.situation()), wanted)  # short of it: on it goes
+        trek["far"] = trek["target"]
+        self.assertIsNone(REASONS["expedition"].wanted(pet.situation()))  # past it, with a sight in reach
+        self.assertTrue(PURPOSES["investigate"].valid(pet.situation()))
+        know(pet.world.db, "gravel", "lesson", 5.0)  # studied: nothing near to study any more
+        self.assertEqual(REASONS["expedition"].wanted(pet.situation()), wanted)
 
 
 class TripTests(unittest.TestCase):
