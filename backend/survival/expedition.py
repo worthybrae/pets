@@ -66,7 +66,7 @@ from backend.survival.steps import as_cell
 from backend.survival.toolmaking import Short, make
 from backend.survival.triggers import ensure_brain, mark_trigger
 from backend.survival.trips import WANDER_PENALTY_SECONDS, Reason, register_reason
-from backend.survival.work import ore_targets
+from backend.survival.work import ladder_ores, ore_targets
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -415,11 +415,13 @@ def packed_kept(s: Situation, item: str) -> float:
     rest in the chest at home and the pack has room: the pre-flight found arms full on 97-100 % of
     the packing ticks of three of five packing pets. Fix round 1, Important 3: packing must never
     give away what gear still wants -- armor_up's "Gather 5 leather" counts what Mimo carries, so a
-    chest full of leather it still needs would count as none."""
+    chest full of leather it still needs would count as none. The final fix wave's (b): nor the gold
+    the pickaxe ladder counts (work.ladder_ores: from an iron pickaxe until a gold one)."""
     phase = phase_of(s)
     if phase not in ("packing", "out", "homeward"):
         return 0.0
-    if phase == "packing" and item in GIVES_WAY_TO_FOOD and item not in materials_wanted(s.inventory):
+    if (phase == "packing" and item in GIVES_WAY_TO_FOOD and item not in materials_wanted(s.inventory)
+            and item not in ladder_ores(s.inventory)):
         return -float(storage.KEEP.get(item, 0))
     return {"torch": PACK_TORCHES, "food": PACK_FOOD - foraging.FOOD_WANTED}.get(item, 0.0)
 

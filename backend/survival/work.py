@@ -357,6 +357,15 @@ def pickaxe_rank(inventory: dict) -> int:
     return max((rank for tool, rank in TOOL_RANK.items() if inventory.get(tool, 0) > 0), default=0)
 
 
+def ladder_ores(inventory: dict) -> set[str]:
+    """What the pickaxe ladder counts in Mimo's arms toward its next pickaxe (`wanted_ores`): gold ore
+    and gold ingots, from an iron pickaxe until a gold one; nothing otherwise. The L4b final fix wave's
+    (b): an expedition's packing put them in the chest at home (expedition.packed_kept), and mine_ore
+    then went after gold that lay in the chest; they stay on Mimo now."""
+    rank = pickaxe_rank(inventory)
+    return {"gold_ore", "gold_ingot"} if TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["gold_pickaxe"] else set()
+
+
 # L4: functions of (Situation, ore) that let mine_ore go for any ore of that kind Mimo remembers,
 # not only once it knows where enough lie (diamonds as Mimo's goal, backend.survival.life_goals).
 EAGER: list = []

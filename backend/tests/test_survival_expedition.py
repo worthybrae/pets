@@ -21,6 +21,7 @@ from backend.survival.purposes import PURPOSES, away
 from backend.survival.reflexes import by_name
 from backend.survival.storage import KEEP, chest_spot, kept, more_kept, to_store
 from backend.survival.trips import REASONS, WANDER_PENALTY_SECONDS, cool_down, wanted_now
+from backend.survival.work import ladder_ores
 from backend.tests.test_survival_life_goals import built
 
 DUSK = {"phase": "dusk", "seconds_into_day": 2250.0, "time_scale": 1.0, "day_number": 2}
@@ -111,6 +112,24 @@ class GoalTests(unittest.TestCase):
         self.assertEqual((kept(s, "gold_ore"), kept(s, "gold_ingot"), kept(s, "coal")), (0, 0, KEEP["coal"]))
         pet.state["brain"]["expedition"]["phase"] = "out"
         self.assertEqual(kept(pet.situation(), "gold_ore"), KEEP["gold_ore"])  # out on the trip: kept as ever
+
+    def test_while_it_packs_the_gold_the_pickaxe_ladder_counts_is_kept(self):
+        # The final fix wave, (b): from an iron pickaxe until a gold one, mine_ore counts the gold ore
+        # and ingots Mimo carries toward the gold pickaxe (work.wanted_ores); packing put them in the
+        # chest at home, and mine_ore then went after gold that lay in the chest.
+        self.assertEqual(ladder_ores({"stone_pickaxe": 1}), set())
+        self.assertEqual(ladder_ores({"iron_pickaxe": 1}), {"gold_ore", "gold_ingot"})
+        self.assertEqual(ladder_ores({"iron_pickaxe": 1, "gold_pickaxe": 1}), set())
+        self.assertEqual(ladder_ores({"diamond_pickaxe": 1}), set())
+        pet = Expedition({"gold_ore": 2, "gold_ingot": 1, "iron_pickaxe": 1, "coal": 1})
+        adopt_goal(pet.state, "expedition", "utility", "", 1.0)
+        pet.tend(2.0)
+        s = pet.situation()
+        self.assertEqual(pet.state["brain"]["expedition"]["phase"], "packing")
+        self.assertEqual((kept(s, "gold_ore"), kept(s, "gold_ingot")), (KEEP["gold_ore"], KEEP["gold_ingot"]))
+        pet.state["inventory"]["gold_pickaxe"] = 1  # the ladder is past gold: it gives way to food again
+        s = pet.situation()
+        self.assertEqual((kept(s, "gold_ore"), kept(s, "gold_ingot")), (0, 0))
 
     def test_while_it_packs_gear_materials_gear_still_wants_are_kept(self):
         # Fix round 1, Important 3: packing never gives away leather, hides, string, feathers or
