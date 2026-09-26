@@ -301,6 +301,15 @@ class CampWiringFixTests(unittest.TestCase):
         self.pet.world.grid.claims.add((101, 0, 1))  # something Mimo built or tends
         self.assertFalse(camp_spot(self.pet.situation(DUSK), (101, 1, 1)))
 
+    def test_bedrock_is_never_a_camp_spot(self):
+        # Follow-up 2: crafting.can_harvest passes bedrock (it needs no tool), but the mine step
+        # cannot dig it; a pet on a cave floor chose it again and again, "bedrock cannot be mined".
+        self.assertIsNotNone(roof_block(self.pet.situation(DUSK)))  # a roof in hand: only the ground can say no
+        self.pet.world.grid.put(101, 0, 1, "bedrock")
+        s = self.pet.situation(DUSK)
+        self.assertFalse(camp_spot(s, (101, 1, 1)))
+        self.assertNotEqual(new_camp(s), (101, 1, 1))  # another spot near, on ground it can dig
+
     def test_a_crashing_leave_camp_is_logged_once_and_planning_continues(self):
         self.dig_in_and_seal()
         forget_logged()

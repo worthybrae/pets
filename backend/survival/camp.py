@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from backend.services.blocks import is_replaceable, is_solid
+from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, can_harvest
 from backend.survival.blueprints import BUILDING
 from backend.survival.carrying import CARRY_STACKS, GIVES_WAY_TO_FOOD, STACK, room_for
@@ -118,11 +118,15 @@ def camp_spot(s: Situation, cell: Cell) -> bool:
     and on all four sides of the hole, nothing it built or tends, no water or lava beside it, and a
     block for the roof (`roofed`: one it carries, or the one it digs out, when that fits in its arms
     or it can drop a stack for it, I1), judged on its arms once the campfire and torches are down
-    (`lit_camp`, as plan_camp plans them; follow-up 2, F2)."""
+    (`lit_camp`, as plan_camp plans them; follow-up 2, F2). Ground it can dig is ground the mine step
+    can dig: crafting.can_harvest alone passes bedrock, which has no hardness (follow-up 2: once
+    planks left over from making a campfire counted as its roof, a pet on a cave floor chose bedrock
+    again and again, "bedrock cannot be mined", and slept without a camp)."""
     x, y, z = cell
     ground = (x, y - 1, z)
     material = s.grid.material(*ground)
-    if not s.grid.standable(cell) or reserved(s.grid, ground) or not can_harvest(material, s.inventory):
+    if (not s.grid.standable(cell) or reserved(s.grid, ground) or hardness(material) is None
+            or not can_harvest(material, s.inventory)):
         return False
     if not is_solid(material) or material in ("water", "lava") or not is_solid(s.grid.material(x, y - 2, z)):
         return False
