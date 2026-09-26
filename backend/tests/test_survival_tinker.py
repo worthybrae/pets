@@ -4,6 +4,7 @@ from unittest.mock import patch
 from backend.survival import nature
 from backend.survival.curiosity import curiosity_state
 from backend.survival.journal import LESSONS
+from backend.survival.lessons import claims
 from backend.survival.purposes import PURPOSES
 from backend.survival.situation import Situation
 from backend.survival.tinker import (
@@ -51,6 +52,37 @@ class LessonTests(unittest.TestCase):
         mine(deep(True))
         self.assertIn(SPARK, lessons(yard))
         self.assertIn((5.0, "found", "Pip found an old manual in the copper seam."), yard.events)
+
+    def test_a_second_lucky_deep_copper_find_teaches_and_discounts_nothing_once_the_spark_is_known(self):
+        # Minor 2, the guard at tinker.py:92-94: taught(db, SPARK) is already true, so a second
+        # lucky roll never fires the manual again.
+        yard = curious(Yard())
+
+        def mine(cell):
+            step = {"kind": "mine", "block": "copper_ore", "target": list(cell)}
+            observe_tinker(yard.state, step, yard.context(), 5.0)
+
+        first = deep(True)
+        mine(first)
+        self.assertIn(SPARK, lessons(yard))
+        events, value = list(yard.events), curiosity_state(yard.state, 5.0)["value"]
+
+        second = next((x, -2, 0) for x in range(first[0] + 1, 400)
+                      if nature.roll("1", (x, -2, 0), MANUAL_CHANNEL) < 1 / MANUAL_ODDS)
+        mine(second)
+        self.assertEqual(yard.events, events)  # no second "found" or "learned" event
+        self.assertEqual(curiosity_state(yard.state, 5.0)["value"], value)  # no second curiosity discount
+
+    def test_the_adder_words_no_longer_make_a_line_about_two_of_something_else_doubtful(self):
+        # Fix round 1, Important 1: words="counting in twos" registered the bare word "two" as an
+        # adder subject (lessons.keys_of widens a multi-word `words` to its own last word too), so
+        # any owner line starting "Two ..." was doubted about the adder instead of judged on its
+        # own words. It fits no lesson now, so the strongest true statement is that it is not
+        # doubtful (neither the latch nor any other lesson names "two inverters" or "a bit").
+        found = claims("Two inverters can hold a bit.")
+        self.assertEqual((found.taught, found.doubtful), ((), False), found)
+        # A natural line about the adder's own words still teaches it.
+        self.assertEqual(claims("a counter counts in twos").taught, ("adder",))
 
 
 class TinkerTests(unittest.TestCase):

@@ -67,8 +67,13 @@ teach(
            "Two inverters that feed each other hold the spark on one side: a memory cell remembers one bit.",
            "builds a memory cell", ("Two inverters holding hands remember!",
                                     "Press set and it stays lit. It remembers.")),
-    Lesson("adder", "making", "counting in twos",
-           "Counting in twos: each lamp flips when the lamp before it goes dark.",
+    # Fix round 1, Important 1: was words="counting in twos", whose bare last token "two"
+    # (lessons.keys_of widens a multi-word `words` to its own last word) made any owner line
+    # starting "Two ..." a doubted claim about the adder. "a counter" is a short noun phrase like
+    # the other three, and its last word names nothing else Mimo knows, so it widens to no stray
+    # subject; the fact now leads with it too, so the lesson still teaches itself in its own words.
+    Lesson("adder", "making", "a counter",
+           "A counter counts in twos: each lamp flips when the lamp before it goes dark.",
            "builds a counter and a computer", ("One, ten, eleven, a hundred... I can count in twos!",
                                                 "Each lamp flips when the one before it goes out.")),
 )
@@ -124,11 +129,17 @@ def tried_lately(s: Situation) -> bool:
     return tried is not None and (s.at - tried) * s.scale < TINKER_REST
 
 
+def bench_rows(x: int, y: int, z: int) -> list[list[Cell]]:
+    """The four rows of three cells a bench could lie in beside (x, y, z), one row a direction
+    (fix round 1, important 2: shared by bench_cells and finish_session, which both used to write
+    the same four-direction scan out by hand)."""
+    return [[(x + dx * step, y, z + dz * step) for step in (1, 2, 3)] for dx, dz in ((1, 0), (0, 1), (-1, 0), (0, -1))]
+
+
 def bench_cells(s: Situation) -> list[Cell] | None:
     """Three open cells in a row on firm ground beside Mimo, clear of anything it built or tends."""
     x, y, z = s.here
-    for dx, dz in ((1, 0), (0, 1), (-1, 0), (0, -1)):
-        cells = [(x + dx * step, y, z + dz * step) for step in (1, 2, 3)]
+    for cells in bench_rows(x, y, z):
         if all(is_replaceable(s.grid.material(*cell)) and s.grid.material(*cell) != "water"
                and s.grid.solid((cell[0], cell[1] - 1, cell[2])) and not reserved(s.grid, cell) for cell in cells):
             return cells
@@ -197,8 +208,7 @@ def finish_session(state: dict, context, at: float) -> None:
     learn_lesson(state, context, at, idea)
     if idea == SPARK:
         x, y, z = as_cell(state["position"])
-        for dx, dz in ((1, 0), (0, 1), (-1, 0), (0, -1)):
-            cells = [(x + dx * step, y, z + dz * step) for step in (1, 2, 3)]
+        for cells in bench_rows(x, y, z):
             if [context.grid.material(*cell) for cell in cells] == ["lever_on", "copper_wire", "lamp"]:
                 context.grid.put(*cells[1], "copper_wire_lit")
                 context.grid.put(*cells[2], "lamp_lit")

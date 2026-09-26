@@ -90,7 +90,7 @@ LANDMARK_NEAR = 8.0
 @dataclass(frozen=True)
 class Lesson:
     thing: str  # a block, plant, creature or biome name, or a landmark ("cave_mouth", "sinkhole", "lake")
-    kind: str  # "block", "plant", "creature", "biome" or "landmark"
+    kind: str  # "block", "plant", "creature", "biome", "landmark", "recipe" (Mind) or "making"
     words: str  # "gravel", "a sheep"
     fact: str  # "Gravel sometimes hides flint."
     unlocks: str = ""  # what it lets Mimo do: "digs gravel for flint"
