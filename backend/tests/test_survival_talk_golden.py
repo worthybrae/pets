@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 import backend.survival.brain  # noqa: F401  (every purpose and goal registered)
+from backend.survival import minding  # noqa: F401  (Mind's replies and hearing hooks, whatever ran first)
 from backend.survival.choosing import InlineExecutor
 from backend.survival.hatch import hatch
 from backend.survival.once import forget_logged
@@ -159,6 +160,9 @@ NEGATIVE = [
     ("chickens, chickens everywhere", "Busy, busy. There's always work."),
     ("cow spotted near the lake", "Busy, busy. There's always work."),
     ("I avoid skitters", "Busy, busy. There's always work."),
+    # Mind's final fix wave (M3): with no homecoming just now, a question about being away keeps B1's answer.
+    ("where did you go?", "I'm gathering wood."),
+    ("did you have fun out there?", "Busy, busy. There's always work."),
 ]
 # ...and lines that must: a goodbye only when it is one.
 GOODBYES = [("have a nice day!", "Bye, Sam! Come back soon."), ("I'll be back tomorrow", "Bye, Sam! Come back soon."),

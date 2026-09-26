@@ -5,7 +5,9 @@ a chat job by a talk.HEARING hook (into Heard.context), with the owner's words a
 - "trip": asked about a trip just made ("Welcome home! How was your trip?"), Mimo answers from its
   homecoming memory, its direction from the setting out: "It was wonderful! I went 249 blocks east,
   camped two nights and learned two new things." ("a wild one" when it got hurt or nearly died on
-  the way). It weighs TRIP_WEIGHT, so it answers before how Mimo feels or a greeting.
+  the way). It weighs TRIP_WEIGHT, so it answers before how Mimo feels or a greeting. Just after a
+  homecoming, a question that only asks about being away ("did you have fun out there?", "where
+  did you go?", "how was it?": TRIP_QUESTIONS, only with a "?") asks about the trip too.
 - "memory": what the owner's words bring back (mind.recall, rules only), said in Mimo's voice: "I
   remember when I met my first skitter.", "I remember day 12: ...", "I keep thinking: I love fishing
   by the lake.". A memory comes back when the words name a thing Mimo remembers (the memory covers
@@ -47,6 +49,9 @@ TIMES = frozenset({"night", "day", "dark", "light", "sun", "morning", "evening"}
 MEMORY_WORDS = frozenset({"remember", "remembered", "recall", "when", "yesterday", "ago", "story", "happened"})
 TRIP_WORDS = frozenset({"trip", "journey", "expedition", "adventure", "travels", "travel"})
 TRIP_PAIRS = ("welcome home", "welcome back")
+# Asked just after a homecoming (trip_told finds one only then) and ending with "?", these ask about
+# the trip too; "it's cold out there" does not (the final fix wave's M3).
+TRIP_QUESTIONS = ("out there", "where did you go", "where have you been", "how was it", "you're back", "youre back")
 ROUGH = ("hurt", "near_death", "fight", "threat", "starving", "freezing", "trapped", "fall")
 _GIST = re.compile(r"^Day (\d+): (.*)$")
 _HOME = re.compile(r"came home from my expedition: (\d+) blocks out, (\d+) nights? camped, (\d+) new things? learned")
@@ -74,13 +79,14 @@ def yesterday(db: sqlite3.Connection, today: int) -> Memory | None:
 
 
 def asks_about_a_trip(heard: Heard) -> bool:
-    text = heard.text.lower()
-    return bool(heard.words & TRIP_WORDS) or any(pair in text for pair in TRIP_PAIRS)
+    text = heard.text.lower().replace("\u2019", "'").strip()
+    return (bool(heard.words & TRIP_WORDS) or any(pair in text for pair in TRIP_PAIRS)
+            or (text.endswith("?") and any(words in text for words in TRIP_QUESTIONS)))
 
 
 def trip_told(db: sqlite3.Connection, today: int) -> tuple[int, str] | None:
     """The newest homecoming of the last TRIP_FRESH game days as Mimo tells it, and its memory's id."""
-    home = db.execute("SELECT id, text FROM mind_memories WHERE source='expedition' AND game_day >= ? "
+    home = db.execute("SELECT id, text, game_day FROM mind_memories WHERE source='expedition' AND game_day >= ? "
                       "AND text LIKE 'I came home from my expedition:%' ORDER BY id DESC LIMIT 1",
                       (today - TRIP_FRESH,)).fetchone()
     found = _HOME.search(home["text"]) if home is not None else None
@@ -91,8 +97,12 @@ def trip_told(db: sqlite3.Connection, today: int) -> tuple[int, str] | None:
                      "AND text LIKE 'I set out on an expedition%' ORDER BY id DESC LIMIT 1", (home["id"],)).fetchone()
     heading = _OUT.search(out["text"]) if out is not None else None
     marks = ",".join("?" * len(ROUGH))
-    rough = db.execute(f"SELECT COUNT(*) FROM mind_memories WHERE id > ? AND id < ? AND source IN ({marks})",
-                       (out["id"] if out is not None else 0, home["id"], *ROUGH)).fetchone()[0]
+    # A trip lasts its nights and the days on the trail at most (M4): without its setting out (faded,
+    # or forgotten by the cap), look no further back than that, not the whole life's rough moments.
+    rough = db.execute(f"SELECT COUNT(*) FROM mind_memories WHERE id > ? AND id < ? AND game_day >= ? "
+                       f"AND source IN ({marks})",
+                       (out["id"] if out is not None else 0, home["id"], home["game_day"] - nights - 2,
+                        *ROUGH)).fetchone()[0]
     parts = [f"went {far} blocks" + (f" {heading.group(1)}" if heading else "")]
     if nights:
         parts.append(f"camped {number(nights)} night{'' if nights == 1 else 's'}")

@@ -11,7 +11,7 @@ from backend.survival.mind import add_memory
 from backend.survival.once import forget_logged
 from backend.survival.owner_facts import remember_fact
 from backend.survival.registry import LifeRegistry
-from backend.survival.remembering import hear_memories, recalled_line
+from backend.survival.remembering import hear_memories, hear_trip, recalled_line
 from backend.survival.replies import TOLD, Heard
 from backend.survival.situation import from_db
 from backend.survival.talk import owner_says
@@ -134,6 +134,32 @@ class RememberingTests(unittest.TestCase):
         self.remember(1, "episode", "I fought off a gloomling.", 6)
         self.assertEqual(self.say("do you remember hunting?"), "I remember when I hunted a cow.")
         self.assertEqual(self.say("remember fighting?", at=BORN + 20), "I remember when I fought off a gloomling.")
+
+    def test_just_home_a_question_about_being_away_is_about_the_trip(self):
+        # Final fix wave (M3): only a question, and only just after coming home.
+        now = self.homecoming()
+        trip = "It was wonderful! I went 249 blocks east, camped two nights and learned two new things."
+        for at, text in enumerate(("did you have fun out there?", "where did you go?", "how was it?",
+                                   "Where have you been?", "you\u2019re back?")):
+            self.assertEqual(self.say(text, at=now + 10 * at), trip, text)
+        with self.world.connect() as db:
+            s = from_db(db, read_state(db), now + 100, 1.0)
+            self.assertIsNone(hear_trip(db, s, Heard("it's cold out there")))  # not a question
+            later = from_db(db, read_state(db), now + 3 * DAY_SECONDS, 1.0)
+            self.assertIsNone(hear_trip(db, later, Heard("where did you go?")))  # no homecoming just now
+
+    def test_a_homecoming_whose_setting_out_is_gone_looks_back_only_as_far_as_the_trip(self):
+        # Final fix wave (M4): without the set-out memory, a blow ten days before was counted, and every
+        # homecoming was "a wild one".
+        name = self.life["name"]
+        home = BORN + 11 * DAY_SECONDS
+        with self.world.transaction() as db:
+            log_event(db, BORN + 100, "hurt", f"{name} was hit by a skitter.")
+            log_event(db, home + 100, "expedition", f"{name} came home from its expedition: 80 blocks out, "
+                                                    "1 night camped, 0 new things learned.")
+        run_chores(self.world, home + 101, 1.0)
+        self.assertEqual(self.say("how was your trip?", at=home + 200),
+                         "It was wonderful! I went 80 blocks and camped one night.")
 
     def test_a_goal_or_a_trip_is_said_back_as_its_gist_says_it(self):
         # Final fix wave (I3): the event log's colons stay out of what Mimo says too.
