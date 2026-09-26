@@ -16,7 +16,9 @@ from backend.survival.creatures.darkness import (
 )
 from backend.survival.creatures.hostiles import LOITER
 from backend.survival.creatures.kinds import KINDS, kind_of
-from backend.survival.creatures.simulate import HOSTILE_ACTS, MAX_ACTS, TURNS_EACH, UNKNOWN_WAIT, take_turns
+from backend.survival.creatures.simulate import (
+    HOSTILE_ACTS, MAX_ACTS, TURNS_EACH, UNKNOWN_WAIT, populate, take_turns,
+)
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
 from backend.survival.grid import Grid, world_grid
 from backend.survival.hatch import hatch
@@ -379,14 +381,29 @@ class TickTests(unittest.TestCase):
         # backend.survival.creatures.simulate), so this must hold budget with herds about too.
         # Final fix wave: a slice is one 60-game-second transaction (the catch-up cadence), and the
         # budget is the best of up to 3 runs (backend.tests.budget): it flaked once under load.
+        # Making wave 2 (the final fix wave's re-review, Minor 7): it still failed at a load of 20 to 30, on
+        # every tree alike. What the fix round-2 regression did is counted instead: each slice makes its
+        # one ordinary call (the rest are fight steps, which spawn no herds and move no animals), and no
+        # herd spawns while the gloomling is beside Mimo. The wall-clock bound stays, generous, for a
+        # regression of a wholly other size.
+        calls = []
+        spawned = []
+
         def run() -> list[float]:
             slices = []
+            calls.clear()
+            spawned.clear()
 
             def timed(*args, **kwargs):
                 start = time.perf_counter()
+                calls.append(kwargs.get("fight_step", False))
                 result = real(*args, **kwargs)
                 slices[-1] += time.perf_counter() - start
                 return result
+
+            def counted_populate(*args, **kwargs):
+                spawned.append(1)
+                return real_populate(*args, **kwargs)
 
             with tempfile.TemporaryDirectory() as root:
                 _, _, world = self.hatched(root)
@@ -397,6 +414,7 @@ class TickTests(unittest.TestCase):
                     x, y, z = (round(state["position"][axis]) for axis in "xyz")
                     Herd(db).add("gloomling", (x + 1, y, z), 20.0, BORN, BORN, {"home": [x + 1, y, z], "turn": 0})
                 with patch("backend.survival.tick.simulate", timed), \
+                        patch("backend.survival.creatures.simulate.populate", counted_populate), \
                         patch("backend.survival.creatures.hostiles.hurt_pet", lambda *args: 0.0):
                     for minute in range(1, 11):
                         slices.append(0.0)
@@ -404,7 +422,11 @@ class TickTests(unittest.TestCase):
             return slices
 
         real = tick.simulate
-        self.assertLess(best_mean(run, 0.020), 0.020)
+        real_populate = populate
+        self.assertLess(best_mean(run, 0.020), 0.500)
+        self.assertEqual(calls.count(False), 10)  # one ordinary call a slice...
+        self.assertGreater(calls.count(True), 10)  # ...and the fight steps, beside the gloomling
+        self.assertEqual(spawned, [])  # no herd spawns while it is near
 
     def test_a_crashing_hostile_near_check_falls_back_to_a_long_step(self):
         # fix round 1: hostile_near (backend.survival.tick.creature_nearby) had no crash guard, so

@@ -1,7 +1,8 @@
 import time
 import unittest
+from unittest.mock import patch
 
-from backend.survival import brain
+from backend.survival import brain, signals
 from backend.survival.computer import (
     CLOCK, COMPUTER, COMPUTER_ROWS, COUNTER, COUNTER_ROWS, DAY_COLUMNS, MEMORY, REMEMBERS, computer_start,
     observe_computer, readout,
@@ -180,11 +181,20 @@ class RunTests(unittest.TestCase):
         lever = (origin[0] + 19, 1, origin[2] + 9)
         yard.grid.put(*lever, "lever_on")
         lamps = [(origin[0] + column, 1, origin[2] + 7) for column in DAY_COLUMNS]
-        shown, slowest = [], 0.0
+        shown, slowest, cells = [], 0.0, []
+        real = signals.run_machine
+
+        def counted(*args, **kwargs):
+            used = real(*args, **kwargs)
+            cells[-1] += used
+            return used
+
         for tick in range(int(MORNING / 60), int(17 * DAY / 60)):
             at = tick * 60.0
             began = time.perf_counter()
-            run_signals(yard.state, yard.context(), at)
+            cells.append(0)
+            with patch("backend.survival.signals.run_machine", counted):
+                run_signals(yard.state, yard.context(), at)
             slowest = max(slowest, time.perf_counter() - began)
             if at % DAY == NOON:
                 day = int(at // DAY) + 1
@@ -194,7 +204,11 @@ class RunTests(unittest.TestCase):
         self.assertEqual(shown, [(day, format(day % 16, "04b"), format(day % 16, "04b")) for day in range(1, 18)])
         # Fix round 1: no spurious ring at build (its sensor is no longer forced to night while it settles).
         self.assertEqual(sum(1 for event in yard.events if event[1] == "bell"), 16)
-        self.assertLess(slowest, 0.05)
+        # Making wave 2 (the final fix wave's re-review, Minor 7): "never 50 ms in a tick" failed under load on every
+        # tree alike. The tick's cost is counted in cells instead, within the budget, and the wall-clock bound
+        # stays, generous, for a regression of a wholly other size.
+        self.assertLessEqual(max(cells), MAX_CELLS)
+        self.assertLess(slowest, 0.5)
 
     @staticmethod
     def noons_after(first, out=None, back=None):
