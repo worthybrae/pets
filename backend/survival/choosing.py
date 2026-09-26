@@ -64,6 +64,11 @@ purpose call to Jev asks a third question, "journal_line": which of the lesson's
 plain fact first, sounds most like Mimo. The line Jev chose is kept for the journal; the rules and
 Luna leave the lesson waiting for the next Jev call (the journal shows the fact meanwhile). No
 call is made for the journal alone.
+Mind M2: other modules add questions to a purpose call to Jev the same way (ASIDES: reflection's
+two at dusk, backend.survival.insights); each aside's answer is kept when the choice is stored,
+even a stale one, and a call that failed leaves it unanswered (None). GOAL_NOTES add to the goal
+choice's payload (the thoughts most relevant to the goals on offer); the memories they showed are
+rehearsed when the goal is stored.
 """
 
 from __future__ import annotations
@@ -82,6 +87,7 @@ from backend.survival.care import utc_day
 from backend.survival.clock import time_scale
 from backend.survival.goals import GOALS, active, adopt_goal, goal_state, is_open, lower, offers, penalized, reached_titles
 from backend.survival.journal import LESSONS, journal_state
+from backend.survival.mind import rehearse
 from backend.survival.models import (
     GOAL_INSTRUCTIONS, INSTRUCTIONS, JEV_TIMEOUT, JOURNAL_INSTRUCTIONS, LUNA_TIMEOUT, REASON_INSTRUCTIONS, Http,
     ModelError, ask_jev, ask_luna, jev_answers, jev_configured, luna_configured, luna_reflect, post_json,
@@ -115,6 +121,21 @@ Env = Mapping[str, str]
 
 
 @dataclass(frozen=True)
+class Aside:
+    """Mind M2: a question more for a purpose call to Jev, and what keeps its answer."""
+    name: str
+    options: tuple[Option, ...]
+    instructions: str
+    keep: Callable  # keep(db, state, pick or None, now, scale), when the choice is stored
+
+
+# [provide(s) -> [Aside]]: questions more for a purpose call to Jev (Mind M2's reflection).
+ASIDES: list = []
+# {name: note(db, s, choices) -> (value, memory ids)}: more for the goal choice's payload (Mind M2).
+GOAL_NOTES: dict = {}
+
+
+@dataclass(frozen=True)
 class Ask:
     pending_id: int
     route: str  # "jev", "luna" or "utility"
@@ -126,6 +147,8 @@ class Ask:
     kind: str = "purpose"  # L4: or "goal"
     lines: tuple[Option, ...] = ()  # L4b: the journal lines Jev may choose among for `subject`'s lesson
     subject: str = ""
+    asides: tuple[Aside, ...] = ()  # Mind M2: questions more for Jev (ASIDES)
+    recalled: tuple[int, ...] = ()  # Mind M2: memories the goal payload showed, rehearsed when stored
 
 
 @dataclass(frozen=True)
@@ -137,6 +160,7 @@ class Choice:
     error: str | None = None
     trip: Offer | None = None  # L4: explore's reason (trips.Offer)
     line: str | None = None  # L4b: the journal line Jev chose (an option's name in Ask.lines)
+    asides: dict | None = None  # Mind M2: Jev's answer to each aside, {name: pick}
 
 
 def cap(env: Env, setting: tuple[str, int]) -> int:
@@ -227,6 +251,7 @@ def prepare(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | N
         choices = options(s)
         payload = context_payload(s, recent_events(db, EVENTS_SHOWN))
         steady = active(s) is not None
+        asides = gathered(s) if jev_configured(env) else ()
     if not choices:
         return None
     game_at = max(0.0, now - state["born_at"]) * scale
@@ -235,7 +260,18 @@ def prepare(world: SurvivalWorld, now: float, scale: float, env: Env) -> Ask | N
     if lines:
         payload = {**payload, "learned": LESSONS[subject].fact}
     return Ask(brain["pending"]["id"], route, reflect_for(brain, route, now, env), tuple(choices), payload, now,
-               game_at, lines=lines, subject=subject)
+               game_at, lines=lines, subject=subject, asides=asides if route == "jev" else ())
+
+
+def gathered(s) -> tuple[Aside, ...]:
+    """Mind M2: every aside on offer now (ASIDES); one that crashes is left out (logged once)."""
+    found: list[Aside] = []
+    for provide in ASIDES:
+        try:
+            found.extend(provide(s))
+        except Exception as error:
+            log_once(logger, f"aside {getattr(provide, '__name__', provide)}", error)
+    return tuple(found)
 
 
 def journal_lines(state: dict) -> tuple[tuple[Option, ...], str]:
@@ -252,7 +288,7 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
     """Answer an Ask. Never raises: model failures fall back to the utility picker."""
     calls = {"model": 0, "luna": 0, "reflections": 0}
     choices, errors = list(ask.options), []
-    purpose, picker, reason, line = None, "utility", None, None
+    purpose, picker, reason, line, asides = None, "utility", None, None, None
     reasons = reason_options(ask)
     if ask.route in ("jev", "luna"):
         calls["model"] += 1
@@ -267,8 +303,11 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
                     questions["explore_reason"] = (reasons, REASON_INSTRUCTIONS)
                 if ask.lines:
                     questions["journal_line"] = (list(ask.lines), JOURNAL_INSTRUCTIONS)
+                for aside in ask.asides:
+                    questions[aside.name] = (list(aside.options), aside.instructions)
                 answers = jev_answers(ask.payload, questions, env, http)
                 purpose, reason, line = answers["purpose"], answers.get("explore_reason"), answers.get("journal_line")
+                asides = {aside.name: answers.get(aside.name) for aside in ask.asides}
             else:
                 purpose = ask_luna(ask.payload, choices, env, http)
             picker = ask.route
@@ -286,7 +325,7 @@ def decide(ask: Ask, env: Env, http: Http, rng: random.Random) -> Choice:
             thought = luna_reflect(ask.payload, option, env, http)
         except Exception as error:
             errors.append(f"reflection: {error}")
-    return Choice(purpose, picker, thought, calls, "; ".join(errors) or None, trip, line)
+    return Choice(purpose, picker, thought, calls, "; ".join(errors) or None, trip, line, asides)
 
 
 def explore_option(ask: Ask) -> Option | None:
@@ -395,8 +434,22 @@ def store_choice(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, sca
                             aim = f", toward {lower(goal)}"
                 log_event(db, now, "purpose", f'{state["name"]} decided to {phrase}{aim}. "{choice.thought}"')
         keep_line(state, ask, choice)
+        keep_asides(db, state, ask, choice, now, scale)
         write_state(db, state)
         return choice.purpose if fresh else None
+
+
+def keep_asides(db, state: dict, ask: Ask, choice: Choice, now: float, scale: float) -> None:
+    """Mind M2: each aside keeps Jev's answer (None when there was none), even for a stale ask; one
+    that crashes is rolled back alone (logged once)."""
+    for aside in ask.asides:
+        db.execute("SAVEPOINT aside")
+        try:
+            aside.keep(db, state, (choice.asides or {}).get(aside.name), now, scale)
+        except Exception as error:
+            db.execute("ROLLBACK TO aside")
+            log_once(logger, f"aside {aside.name}", error)
+        db.execute("RELEASE aside")
 
 
 def keep_line(state: dict, ask: Ask, choice: Choice) -> None:
@@ -444,16 +497,31 @@ def prepare_goal(world: SurvivalWorld, now: float, scale: float, env: Env) -> As
         s = from_db(db, state, now, scale)
         found = offers(s)
         choices = tuple(Option(goal.name, goal.title, goal.why, facts, score) for goal, facts, score in found)
+        notes, recalled = goal_notes(db, s, choices)
         payload = {**context_payload(s, recent_events(db, EVENTS_SHOWN)), "goals_reached": reached_titles(s),
-                  "goal_trigger": goal_trigger(due["reasons"])}
+                  "goal_trigger": goal_trigger(due["reasons"]), **notes}
     game_at = max(0.0, now - state["born_at"]) * scale
     ask = Ask(due["id"], goal_route(brain, now, env, game_at, len(choices)), False, choices, payload, now, game_at,
-              kind="goal")
+              kind="goal", recalled=recalled)
     if not choices:
         store_goal(SurvivalWorld(world.path), ask, Choice("", "utility", "", {"model": 0, "luna": 0, "reflections": 0}),
                    now, scale)
         return None
     return ask
+
+
+def goal_notes(db, s, choices) -> tuple[dict, tuple[int, ...]]:
+    """Mind M2: GOAL_NOTES' notes for the goal payload, and the memories they showed. A note that
+    crashes is left out (logged once)."""
+    notes, recalled = {}, []
+    for name, note in GOAL_NOTES.items():
+        try:
+            notes[name], ids = note(db, s, choices)
+        except Exception as error:
+            log_once(logger, f"goal note {name}", error)
+            continue
+        recalled.extend(ids)
+    return notes, tuple(recalled)
 
 
 def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, scale: float = 1.0) -> str | None:
@@ -483,6 +551,8 @@ def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, scale
         if fresh and adopt_goal(state, name, choice.picker, choice.thought, now):
             title = lower(GOALS[name].title)
             log_event(db, now, "plan", f'{state["name"]} set a new goal: {title}. "{choice.thought}"')
+        if ask.recalled:
+            rehearse(db, ask.recalled, now)  # Mind M2: the thoughts the choice was shown
         write_state(db, state)
         return name if fresh else None
 
@@ -515,6 +585,7 @@ class Chooser:
     def __init__(self, env: Env | None = None, http: Http = post_json, executor=None,
                  rng: random.Random | None = None, scale: float | None = None,
                  executor_factory: Callable[[], object] | None = None):
+        from backend.survival import minding  # noqa: F401  (Mind M2's reflection and goal notes register)
         self.env = os.environ if env is None else env
         self.http = http
         self.new_executor = executor_factory or new_thread

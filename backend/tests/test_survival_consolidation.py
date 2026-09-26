@@ -136,6 +136,15 @@ class ConsolidationTests(unittest.TestCase):
         self.assertEqual(seen, [1])
         self.assertEqual(self.rows("text='x'"), [])
 
+    def test_a_crashing_nightly_hook_also_restores_state_mind(self):
+        def broken(db, state, day, when, scale):
+            state["mind"]["x"] = "changed"
+            raise RuntimeError("boom")
+        with patch.dict(NIGHTLY, {"broken": broken}):
+            with self.assertLogs("backend.survival.consolidation", level="ERROR"):
+                self.log((at(1, EVENING), "sleep", f"{self.name} fell asleep."))
+        self.assertNotIn("x", self.world.state()["mind"])
+
     def test_a_gist_is_one_line_within_its_limit(self):
         self.assertEqual(gist_text(4, [], {}), "Day 4: a quiet day.")
         self.assertEqual(gist_text(4, [], {"craft": 1}), "Day 4: crafted one thing.")

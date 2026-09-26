@@ -24,6 +24,7 @@ whatever reads gists, Luna's story among them). Each day is consolidated once
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 import sqlite3
@@ -158,11 +159,15 @@ def consolidate(db: sqlite3.Connection, state: dict, day: int, at: float, scale:
     enforce_cap(db, day)
     mind["day"] = day
     for name, hook in list(NIGHTLY.items()):
+        mind = copy.deepcopy(state.get("mind"))
         db.execute("SAVEPOINT nightly")
         try:
             hook(db, state, day, at, scale)
         except Exception as error:
             db.execute("ROLLBACK TO nightly")
+            state.pop("mind", None)
+            if mind is not None:
+                state["mind"] = mind
             log_once(logger, f"nightly {name}", error)
         db.execute("RELEASE nightly")
     return True
