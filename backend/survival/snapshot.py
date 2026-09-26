@@ -11,6 +11,7 @@ from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
 from backend.survival.bond_view import bond_fields
+from backend.survival.diary import life_diary
 from backend.survival.care import care_remaining
 from backend.survival.clock import clock_at
 from backend.survival.creatures.harm import sheltered
@@ -216,7 +217,8 @@ def goals_reached(world: SurvivalWorld, born_at: float, scale: float) -> list[di
 
 def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
     """One life's row, notable events and final state (the legacy snapshot shape for life 1), (L4) the
-    goals it reached and (Mind M3) the gists and thoughts it remembered (none for the legacy life)."""
+    goals it reached, (Mind M3) the gists and thoughts it remembered and (Bond B3) every story of its
+    diary (none for the legacy life)."""
     archive = open_archive(registry, life)
     if isinstance(archive, MimoStore):
         state = archive.snapshot()
@@ -227,11 +229,12 @@ def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) ->
         events = archive.notable_events(NOTABLE_LIMIT)
         goals = goals_reached(archive, life["born_at"], scale)
     memories = {"gists": [], "thoughts": []} if isinstance(archive, MimoStore) else life_memories(archive)
+    diary = [] if isinstance(archive, MimoStore) else life_diary(archive)  # Bond: every story it wrote
     return {"life": life_row(life, scale, now), "notable_events": events, "state": state, "goals_reached": goals,
-            "memories": memories}
+            "memories": memories, "diary": diary}
 
 
 def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
     detail = life_detail(registry, life, scale, now)
     return {**detail["life"], "notable_events": detail["notable_events"], "goals_reached": detail["goals_reached"],
-            "memories": detail["memories"]}
+            "memories": detail["memories"], "diary": detail["diary"]}

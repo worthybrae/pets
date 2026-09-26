@@ -130,8 +130,9 @@ def ask_jev(payload: dict, choices: list[Option], env: Env, http: Http = post_js
     return jev_answers(payload, {question: (choices, instructions)}, env, http)[question]
 
 
-def luna_json(messages: list[dict], name: str, schema: dict, env: Env, http: Http) -> dict:
-    """Ask Luna for one JSON object that follows `schema`."""
+def luna_json(messages: list[dict], name: str, schema: dict, env: Env, http: Http, tokens: int = 180) -> dict:
+    """Ask Luna for one JSON object that follows `schema`. `tokens` caps the answer outside gpt-6-luna
+    (Bond's daily story needs more than a pick)."""
     url = env.get("MIMO_MODEL_URL") or DEFAULT_LUNA_URL
     model = env.get("MIMO_MODEL") or DEFAULT_LUNA_MODEL
     body: dict = {"model": model, "messages": messages}
@@ -140,7 +141,7 @@ def luna_json(messages: list[dict], name: str, schema: dict, env: Env, http: Htt
                      "response_format": {"type": "json_schema",
                                          "json_schema": {"name": name, "strict": True, "schema": schema}}})
     else:
-        body.update({"temperature": 0.8, "max_tokens": 180})
+        body.update({"temperature": 0.8, "max_tokens": tokens})
     headers = {"Content-Type": "application/json"}
     key = luna_key(env)
     if key:

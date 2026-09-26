@@ -1,4 +1,4 @@
-"""Bond: talking with Mimo (B1); the owner's visits and Mimo's inbox (B2)."""
+"""Bond: talking with Mimo (B1); the owner's visits and Mimo's inbox (B2); the diary (B3)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from backend.api.lives import open_registry
 from backend.api.mimo import active_world
 from backend.survival.bond_view import note_visit
 from backend.survival.clock import time_scale
-from backend.survival.inbox import ITEMS_SHOWN, inbox_items, mark_read, name_place, unread
+from backend.survival.diary import DIARY_SHOWN, diary_entries
+from backend.survival.inbox import ITEMS_SHOWN, inbox_items, mark_one, mark_read, name_place, unread
 from backend.survival.talk import ChatLimited, owner_says
 from backend.survival.world import LifeOver
 
@@ -23,7 +24,8 @@ class ChatLine(BaseModel):
 
 
 class ReadUpTo(BaseModel):
-    up_to: int
+    up_to: int | None = None  # every item up to this id
+    id: int | None = None  # B3: this one only (the story the owner just read)
 
 
 class PlaceName(BaseModel):
@@ -64,8 +66,12 @@ def get_inbox():
 
 @router.post("/mimo/inbox/read")
 def read_inbox(request: ReadUpTo):
-    """Mark Mimo's messages read up to an id. Returns how many are still unread."""
+    """Mark Mimo's messages read up to an id, or one message. Returns how many are still unread."""
+    if (request.up_to is None) == (request.id is None):
+        raise HTTPException(status_code=400, detail="Give up_to or id")
     _, world = active_world(open_registry())
+    if request.id is not None:
+        return {"unread": mark_one(world, request.id, time.time())}
     return {"unread": mark_read(world, request.up_to, time.time())}
 
 
@@ -81,3 +87,11 @@ def answer_inbox(item_id: int, request: PlaceName):
         raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/mimo/diary")
+def get_diary():
+    """The newest stories of Mimo's diary, newest first. Reads only."""
+    _, world = active_world(open_registry(), read_only=True)
+    with world.connect() as db:
+        return {"entries": diary_entries(db, DIARY_SHOWN)}

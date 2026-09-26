@@ -197,3 +197,10 @@ def name_place(world: SurvivalWorld, item_id: int, text: str, now: float, scale:
                    (now, game_at, f"{name}! I love it. That's what I'll call it."))
         write_state(db, state)
         return {**item, "data": data, "read": True}
+
+
+def mark_one(world: SurvivalWorld, item_id: int, now: float) -> int:
+    """B3: mark one item read (the story the owner just read). Returns how many are still unread."""
+    with world.transaction() as db:
+        db.execute("UPDATE mimo_inbox SET read_at=? WHERE id=? AND read_at IS NULL", (now, item_id))
+        return unread(db)

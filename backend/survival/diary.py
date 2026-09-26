@@ -1,0 +1,407 @@
+"""The daily story, "While you were away" (Bond B3), and the life's diary.
+
+At the first game dawn after the owner's last visit (bond.visit: the viewer open, care, a hello or a
+chat line), Mimo writes a short diary entry about the game day the owner was last there: 3 to 6
+sentences with its highlights (`highlights`: a goal reached or set, the day's plan, how far along its
+goal is, things built, first sightings, danger, meals), from the event log of that day and the goal it
+works on, or, on a day with none, what it spent the day doing. `story_due` says when one is due; the Talker's "story" lane writes it
+(`story_job`). Luna writes it when MIMO_MODEL_API_KEY or OPENAI_API_KEY is set, at most once a real
+UTC day (the attempt counts, so a failing Luna is not asked again that day), from the highlights and
+Mimo's name, traits, mood, bond and the owner's name, never from the owner's other words; the rules'
+template (`rules_story`) writes it otherwise, and whenever Luna fails, times out or answers badly.
+Jev never writes it: its API answers choices only.
+
+A story is an inbox item of kind "story" ({"day", "writer"} in its data, and "last" for one about
+several days), so it counts as unread until the owner reads it and the inbox never drops it.
+/api/mimo shows the newest story (`newest_story`, first when the viewer opens while it is unread);
+GET /api/mimo/diary lists the newest DIARY_SHOWN; a life's memorial has all of them
+(`diary_entries`). state["bond"] keeps "storied" (the visit the last story was written for), "story"
+({"item", "seen", "last"}: that story and the last game day it tells) and "story_luna_day" (the UTC
+day Luna was last asked).
+
+Pre-flight 2: Luna is also given the day's gist and top memories, read only through
+mind.story_memories, which never returns a told memory or one about the owner (carry 7). And a long
+absence grows one story instead of a fresh one each dawn, at most MAX_STORY_DAYS (the Bond ledger's
+ruling on Task 13): while the owner stays away and the visit's story is unread, every later dawn
+touches it again. A story the rules wrote is rewritten whole, to tell every game day since the visit
+(`story_span`, `absence_highlights`: the most notable of those days first, the most recent among
+equals, told in day order). A story Luna wrote keeps Luna's own text as it is; the rules instead add
+or update one "Since then, ..." paragraph after it, for the days since Luna's own (`since_then_story`,
+`story_lead`; bounded by MAX_STORY_DAYS and STORY_LIMIT too). Either way Luna writes only a new story,
+so its one call a UTC day is unchanged, and the item's data keeps its original "writer" (never
+overwritten while it grows) so a later dawn still knows whether its lead text is Luna's. A story the
+owner read is never rewritten, and an absence of a game day or less gets the story the plan wrote.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import sqlite3
+from collections import Counter
+from dataclasses import dataclass
+
+from backend.survival.bond import bond_level, bond_state, feeling, utc_day
+from backend.survival.bond_tables import missing_table
+from backend.survival.clock import DAY_SECONDS, clock_at
+from backend.survival.episodes import voice
+from backend.survival.goals import goal_view, lower
+from backend.survival.inbox import STORY, post_item
+from backend.survival.mind import story_memories
+from backend.survival.models import LUNA_TIMEOUT, Http, ModelError, luna_configured, luna_json
+from backend.survival.once import log_once
+from backend.survival.owner_facts import owner_facts, owner_name
+from backend.survival.replies import CLOSE, SENTENCE_END, SHY, first_person
+from backend.survival.talker import LANES, Job
+from backend.survival.world import SurvivalWorld, read_state, write_state
+
+logger = logging.getLogger(__name__)
+
+DIARY_SHOWN = 30  # entries GET /api/mimo/diary lists
+HIGHLIGHTS = 4  # sentences of highlights at most
+STORY_LIMIT = 700  # characters in a story
+STORY_TOKENS = 400  # Luna's answer, outside gpt-6-luna's own limit
+GIVE_UP_AFTER = 15.0  # seconds past Luna's timeout before the story call is given up
+DANGER = ("hurt", "threat", "trapped", "starving", "freezing", "fall")
+STORY_INSTRUCTIONS = ("Write the pet's diary entry about {days} in its own voice: 3 to 6 short sentences, "
+                      "first person, plain text, only about the highlights and memories given (say it was a quiet "
+                      "time if there are none), warm to its owner as its bond allows. Answer {{\"story\": \"<entry>\"}}.")
+MAX_STORY_DAYS = 30  # game days one story tells at most: the newest, after a long absence (pre-flight 2)
+STORY_MEMORIES = 5  # memories a day Luna is told (mind.story_memories: never the owner's words)
+MEMORIES_SHOWN = 12  # memories Luna is told at most, the newest days first
+# How notable a highlight is, the most first, when a story tells several days (pre-flight 2).
+RANKS = {"goal": 0, "built": 1, "found": 2, "set": 3, "danger": 4, "plan": 5, "ate": 6, "progress": 7}
+# Marks where the rules' growth paragraph starts in a Luna story that grew (the Bond ledger's ruling).
+SINCE_THEN = "Since then, "
+
+
+def day_bounds(state: dict, day: int, scale: float) -> tuple[float, float]:
+    """The server times game day `day` began and ended."""
+    start = state["born_at"] + (day - 1) * DAY_SECONDS / scale
+    return start, start + DAY_SECONDS / scale
+
+
+def story_due(state: dict, now: float, scale: float) -> int | None:
+    """The game day a story is due about, or None: the owner was seen, a game dawn came since, and no
+    story was written for that visit yet."""
+    bond = state.get("bond") or {}
+    seen = bond.get("seen_at")
+    if seen is None or bond.get("storied") == seen or state.get("died_at") is not None:
+        return None
+    day = clock_at(state["born_at"], seen, scale)["day_number"]
+    return day if clock_at(state["born_at"], now, scale)["day_number"] > day else None
+
+
+def after(text: str, marker: str) -> str:
+    return text.split(marker, 1)[1] if marker in text else ""
+
+
+def events_between(db: sqlite3.Connection, state: dict, first: int, last: int, scale: float) -> list[dict]:
+    """Every event of game days `first` to `last`, oldest first, each with its "day"; one read."""
+    start, end = day_bounds(state, first, scale)[0], day_bounds(state, last, scale)[1]
+    rows = db.execute("SELECT at, kind, text FROM mimo_events WHERE at >= ? AND at < ? ORDER BY id", (start, end))
+    return [{**dict(row), "day": clock_at(state["born_at"], row["at"], scale)["day_number"]} for row in rows]
+
+
+def day_highlights(events: list[dict], state: dict) -> list[tuple[str, str]]:
+    """One day's highlights as (what, sentence in Mimo's voice), the most telling first, from that day's
+    events and the goal Mimo works on ("progress", only on a day it reached no goal)."""
+    name, found = state["name"], []
+    for event in events:
+        if event["kind"] == "goal":
+            found.append(("goal", first_person(event["text"], name)))
+        elif event["kind"] == "plan" and "set a new goal: " in event["text"]:
+            title = after(first_person(event["text"], name), "set a new goal: ").split(".")[0]  # "a home of my own"
+            found.append(("set", f"I set myself a new goal: {title}."))
+    plan = next((event["text"] for event in events
+                 if event["kind"] == "plan" and event["text"].startswith(f"{name}'s plan for today: ")), "")
+    if plan:
+        steps = re.sub(r"\bits\b", "my", after(plan, "plan for today: "))
+        found.append(("plan", f"My plan was to {steps}"))
+    goal = goal_view(state.get("brain"))
+    if goal is not None and not any(event["kind"] == "goal" for event in events):
+        found.append(("progress", f"I'm {round(goal['progress'] * 100)}% of the way to {lower(goal['title'])}."))
+    found += [("built", first_person(event["text"], name)) for event in events if event["kind"] == "built"]
+    sights = [voice(event["text"], name).rstrip(".") for event in events  # "a cave mouth ... in its walls"
+              if event["kind"] in ("found", "discovered")]
+    if sights:
+        found.append(("found", " and ".join(sights[:2]) + "."))
+    hits = [after(event["text"], "was hit by a ").rstrip(".") for event in events if event["kind"] == "hurt"]
+    if hits:
+        kind, times = Counter(hits).most_common(1)[0]
+        found.append(("danger", f"A {kind} hit me {'once' if times == 1 else f'{times} times'}, but I made it through."))
+    elif any(event["kind"] in DANGER for event in events):
+        found.append(("danger", "There was some danger, but I kept safe."))
+    meals = [after(event["text"], " ate ").rstrip(".") for event in events if event["kind"] == "ate"]
+    if meals:
+        foods = list(dict.fromkeys(meals))[:3]
+        listed = foods[0] if len(foods) == 1 else f"{', '.join(foods[:-1])} and {foods[-1]}"
+        found.append(("ate", f"I ate {len(meals)} {'time' if len(meals) == 1 else 'times'}: {listed}."))
+    return found
+
+
+def highlights(db: sqlite3.Connection, state: dict, day: int, scale: float) -> list[str]:
+    """The day's highlights as sentences in Mimo's voice, at most HIGHLIGHTS, the most telling first."""
+    return [text for _, text in day_highlights(events_between(db, state, day, day, scale), state)][:HIGHLIGHTS]
+
+
+def on_day(day: int, text: str) -> str:
+    """ "On day 2, I reached a goal: iron tools.", "On day 3, a gloomling hit me ..."."""
+    kept = text if text.startswith(("I ", "I'")) else text[:1].lower() + text[1:]
+    return f"On day {day}, {kept}"
+
+
+def absence_highlights(events: list[dict], state: dict, first: int, last: int) -> list[str]:
+    """The highlights of game days `first` to `last` (a long absence, pre-flight 2): the most notable
+    first (RANKS), the most recent among equals, at most HIGHLIGHTS, told in day order with their day;
+    how far along Mimo's goal is now closes them when there is room."""
+    ranked = []
+    for day in range(first, last + 1):
+        for what, text in day_highlights([event for event in events if event["day"] == day], state):
+            if what != "progress":
+                ranked.append((RANKS[what], -day, day, text))
+    chosen = sorted(sorted(ranked)[:HIGHLIGHTS], key=lambda item: (item[2], item[0]))
+    found = [on_day(day, text) for _, _, day, text in chosen]
+    goal = goal_view(state.get("brain"))
+    if goal is not None and len(found) < HIGHLIGHTS:
+        found.append(f"I'm {round(goal['progress'] * 100)}% of the way to {lower(goal['title'])}.")
+    return found
+
+
+def busiest_of(events: list[dict]) -> str:
+    """What Mimo spent the time trying to do most, from its purpose events ("gather wood"), or ""."""
+    phrases = [re.split(r"[.,]", after(event["text"], " decided to "))[0].strip() for event in events
+               if event["kind"] == "purpose"]
+    phrases = [phrase for phrase in phrases if phrase]
+    return Counter(phrases).most_common(1)[0][0] if phrases else ""
+
+
+def busiest(db: sqlite3.Connection, state: dict, day: int, scale: float) -> str:
+    """What Mimo spent the day trying to do most, from its purpose events ("gather wood"), or ""."""
+    return busiest_of(events_between(db, state, day, day, scale))
+
+
+def rules_story(day: int, found: list[str], doing: str, owner: str, level: float, last: int | None = None) -> str:
+    """The rules' entry: an opening, the highlights (or what the day went on), a closing: 3 to 6 sentences.
+    A story of several days (pre-flight 2) opens with them all ("Days 1 to 5 were busy ones.")."""
+    if last is not None and last > day:
+        kind = "busy ones" if len(found) >= 3 else "good ones" if found else "quiet ones"
+        opening, spent = f"Days {day} to {last} were {kind}.", "I spent most of my time"
+    else:
+        kind = "a busy one" if len(found) >= 3 else "a good one" if found else "a quiet one"
+        opening, spent = f"Day {day} was {kind}.", "I spent most of it"
+    body = found or [f"{spent} trying to {doing}." if doing else "I stayed close to home and kept safe."]
+    to = f", {owner}" if owner else ""
+    closing = (f"Come back soon{to}, I missed you!" if level >= CLOSE else "Maybe you'll visit tomorrow?" if level < SHY
+               else f"I hope you visit again soon{to}.")
+    return " ".join([opening, *body, closing])
+
+
+def clean_story(text: object) -> str:
+    """Luna's entry as plain text: one paragraph, at most 6 sentences and STORY_LIMIT characters.
+    Raises ModelError for anything shorter than 2 sentences."""
+    if not isinstance(text, str):
+        raise ModelError("Luna wrote no story")
+    sentences = [part for part in SENTENCE_END.split(" ".join(text.replace("*", "").replace("#", "").split())) if part]
+    if len(sentences) < 2:
+        raise ModelError("Luna's story was too short")
+    story = " ".join(sentences[:6])
+    return story if len(story) <= STORY_LIMIT else story[:STORY_LIMIT - 3].rstrip() + "..."
+
+
+def story_lead(text: str) -> str:
+    """A Luna story's own text (the Bond ledger's ruling): everything before the "Since then" paragraph
+    the rules add while it waits unread, or the whole text when it has none yet."""
+    return text.split(f" {SINCE_THEN}", 1)[0]
+
+
+def since_then_story(lead: str, found: list[str]) -> str:
+    """Luna's lead followed by the rules' one "Since then" paragraph (the Bond ledger's ruling): the
+    highlights of the days after Luna's own, at most HIGHLIGHTS, the most notable first, told in day
+    order (`absence_highlights`). Trimmed to STORY_LIMIT when the two together run over; the lead is
+    kept whole and the paragraph is shortened."""
+    body = " ".join(found) if found else "it's been quiet."
+    paragraph = SINCE_THEN + (body[:1].lower() + body[1:] if found else body)
+    text = f"{lead} {paragraph}"
+    if len(text) <= STORY_LIMIT:
+        return text
+    budget = STORY_LIMIT - len(lead) - 1
+    if budget < len(SINCE_THEN) + 3:
+        return lead[:STORY_LIMIT]
+    return f"{lead} {paragraph[:budget - 3].rstrip()}..."
+
+
+@dataclass(frozen=True)
+class StoryAsk:
+    day: int
+    seen: float  # the visit the story is for
+    rules: str  # the rules' entry
+    payload: dict  # what Luna is told
+    luna: bool  # Luna is asked
+    asked_at: float
+    last: int | None = None  # pre-flight 2: the last game day it tells (None: `day` alone)
+    item: int | None = None  # pre-flight 2: the unread story it rewrites to tell a long absence (None: a new one)
+    writer: str | None = None  # the Bond ledger's ruling: the item's own writer, when growing one (None: a new item)
+
+
+@dataclass(frozen=True)
+class StoryAnswer:
+    text: str
+    writer: str  # "luna" or "rules"
+    error: str | None = None
+
+
+def write_story(ask: StoryAsk, env, http: Http) -> StoryAnswer:
+    """Luna's entry, or the rules' when Luna is not asked or fails. Never raises."""
+    if not ask.luna:
+        return StoryAnswer(ask.rules, "rules")
+    schema = {"type": "object", "additionalProperties": False, "properties": {"story": {"type": "string"}},
+              "required": ["story"]}
+    messages = [
+        {"role": "system", "content": f"You are {ask.payload['pet']}, a small voxel pet surviving in a wild world. "
+                                      "Write as the pet. Return valid JSON only."},
+        {"role": "user", "content": json.dumps({**ask.payload, "instructions": STORY_INSTRUCTIONS.format(
+            days=f"game days {ask.day} to {ask.last}" if ask.last and ask.last > ask.day else f"game day {ask.day}")})},
+    ]
+    try:
+        return StoryAnswer(clean_story(luna_json(messages, "mimo_story", schema, env, http, STORY_TOKENS).get("story")),
+                           "luna")
+    except Exception as error:
+        return StoryAnswer(ask.rules, "rules", f"luna: {error}")
+
+
+def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) -> tuple[int, int, int | None] | None:
+    """The game days a story is due to tell, first and last, and the story it rewrites (None: a new one),
+    or None: from the day of the owner's last visit to the day before now, at most MAX_STORY_DAYS (the
+    newest), once a game dawn came since the visit (pre-flight 2). A new story for a new visit; while the
+    owner stays away, the visit's story, still unread, grows at every later dawn to tell the whole
+    absence; one the owner read stays as it is."""
+    bond = state.get("bond") or {}
+    seen = bond.get("seen_at")
+    if seen is None or state.get("died_at") is not None:
+        return None
+    first = clock_at(state["born_at"], seen, scale)["day_number"]
+    last = clock_at(state["born_at"], now, scale)["day_number"] - 1
+    if last < first:
+        return None
+    start = max(first, last - MAX_STORY_DAYS + 1)
+    if bond.get("storied") != seen:
+        return start, last, None
+    story = bond.get("story") or {}
+    if story.get("seen") != seen or story.get("last", last) >= last:
+        return None
+    row = db.execute("SELECT read_at FROM mimo_inbox WHERE id=? AND kind=?", (story.get("item"), STORY)).fetchone()
+    if row is None or row["read_at"] is not None:
+        return None
+    return start, last, story["item"]
+
+
+def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None:
+    """The story due, as a Talker job: Luna once a UTC day when configured for a new story, else the rules
+    (and always the rules to grow a waiting story over a long absence, pre-flight 2). The Bond ledger's
+    ruling: growing a story the rules wrote rewrites it whole, as before; growing a story Luna wrote keeps
+    Luna's own text and only adds or updates the "Since then" paragraph after it (`since_then_story`)."""
+    with world.connect() as db:
+        state = read_state(db)
+        span = story_span(db, state, now, scale)
+        if span is None:
+            return None
+        first, last, item = span
+        owner, level = owner_name(owner_facts(db)), bond_level(state, now)
+        writer, lead, day = None, None, first
+        if item is not None:
+            row = db.execute("SELECT text, data FROM mimo_inbox WHERE id=?", (item,)).fetchone()
+            item_data = json.loads(row["data"] or "{}") if row is not None else {}
+            writer = item_data.get("writer")
+            if writer == "luna":
+                lead, day = story_lead(row["text"]), item_data.get("day", first)
+        if lead is not None:
+            since_start = max(day + 1, last - MAX_STORY_DAYS + 1)
+            events = events_between(db, state, since_start, last, scale)
+            found = absence_highlights(events, state, since_start, last)
+            rules = since_then_story(lead, found)
+        else:
+            events = events_between(db, state, first, last, scale)
+            found = (absence_highlights(events, state, first, last) if last > first
+                     else [text for _, text in day_highlights(events, state)][:HIGHLIGHTS])
+            rules = rules_story(first, found, busiest_of(events), owner, level, last)
+        remembered = [memory.text for d in range(last, first - 1, -1)
+                      for memory in story_memories(db, d, STORY_MEMORIES)][:MEMORIES_SHOWN]
+    luna = item is None and luna_configured(env) and (state.get("bond") or {}).get("story_luna_day") != utc_day(now)
+    payload = {"pet": state["name"], "day": day, "last": last, "traits": dict(state.get("traits", {})),
+               "mood": round(state["vitals"]["mood"]), "bond": feeling(level), "owner": owner or None,
+               "highlights": found, "memories": remembered}
+    ask = StoryAsk(day, state["bond"]["seen_at"], rules, payload, luna, now, last, item, writer)
+    return Job("story", luna, now, LUNA_TIMEOUT + GIVE_UP_AFTER, lambda env, http: write_story(ask, env, http),
+               lambda: StoryAnswer(ask.rules, "rules", "luna: no answer, gave up"),
+               lambda target, answer, at: store_story(target, ask, answer, at))
+
+
+def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: float) -> int | None:
+    """Put the story in the inbox, unless one was written for that visit already or Mimo died; or
+    (pre-flight 2, the Bond ledger's ruling) grow the visit's unread story, unless it was read or grew
+    already. Growing keeps the item's own writer (`ask.writer`), never `answer.writer`'s "rules" (the
+    rules always write the growth itself, whole for a rules story or one paragraph for a Luna one), so
+    a later dawn still knows whether its lead text is Luna's."""
+    if answer.error:
+        log_once(logger, "story", ModelError(answer.error))
+    with world.transaction() as db:
+        state = read_state(db)
+        bond = bond_state(state)
+        if state["died_at"] is not None:
+            return None
+        last = ask.last if ask.last is not None else ask.day
+        data = {"day": ask.day, "writer": ask.writer or answer.writer, **({"last": last} if last > ask.day else {})}
+        if ask.item is None:
+            if bond.get("storied") == ask.seen:
+                return None
+            item = post_item(db, now, STORY, answer.text, data)
+        else:
+            story = bond.get("story") or {}
+            if bond.get("storied") != ask.seen or story.get("item") != ask.item or story.get("last", last) >= last:
+                return None
+            item = ask.item
+            if not db.execute("UPDATE mimo_inbox SET text=?, data=? WHERE id=? AND read_at IS NULL",
+                              (answer.text, json.dumps(data), item)).rowcount:
+                return None
+        bond["storied"] = ask.seen
+        bond["story"] = {"item": item, "seen": ask.seen, "last": last}
+        if ask.luna:
+            bond["story_luna_day"] = utc_day(ask.asked_at)
+        write_state(db, state)
+        return item
+
+
+LANES["story"].append(story_job)
+
+
+def diary_entries(db: sqlite3.Connection, limit: int | None = None) -> list[dict]:
+    """The stories, newest first ({id, at, day, text, writer, read}), at most `limit` (all with None).
+    A world from before Bond has none."""
+    try:
+        rows = db.execute("SELECT id, at, text, data, read_at FROM mimo_inbox WHERE kind=? ORDER BY id DESC"
+                          + (" LIMIT ?" if limit is not None else ""), (STORY, limit) if limit is not None else (STORY,)
+                          ).fetchall()
+    except sqlite3.OperationalError as error:
+        if not missing_table(error):
+            raise
+        return []
+    entries = []
+    for row in rows:
+        data = json.loads(row["data"] or "{}")
+        entries.append({"id": row["id"], "at": row["at"], "day": data.get("day"), "last": data.get("last"),
+                        "text": row["text"], "writer": data.get("writer"), "read": row["read_at"] is not None})
+    return entries
+
+
+def newest_story(db: sqlite3.Connection) -> dict | None:
+    """The newest story for /api/mimo, or None."""
+    found = diary_entries(db, 1)
+    return found[0] if found else None
+
+
+def life_diary(world: SurvivalWorld) -> list[dict]:
+    """Every story a life's Mimo wrote, oldest first, for its memorial."""
+    with world.connect() as db:
+        return list(reversed(diary_entries(db)))

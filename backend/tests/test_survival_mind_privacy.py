@@ -7,6 +7,7 @@ from pathlib import Path
 import backend.survival.brain  # noqa: F401  (every purpose, goal and creature registered)
 from backend.survival import minding  # noqa: F401  (every Mind hook registered)
 from backend.survival.choosing import prepare
+from backend.survival.diary import story_job
 from backend.survival.hatch import hatch
 from backend.survival.mind import story_memories
 from backend.survival.once import forget_logged
@@ -80,7 +81,19 @@ class LunaNeverHearsTheOwnerTests(unittest.TestCase):
         # a structural check on every story memory's own tags, and a text check below).
         for memory in story:
             self.assertNotIn("owner", memory.about)
-        sent = json.dumps([ask.payload, [memory.text for memory in story]])
+        # Bond B3 (pre-flight 2, carry 7): the daily story's real Luna request, as a recording Luna gets it.
+        luna_bodies = []
+
+        def luna(url, headers, body, timeout):
+            luna_bodies.append(body)
+            return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
+                {"story": "Day 1 was good. I hunted a cow. I crafted things."})}}]}
+        job = story_job(SurvivalWorld(self.world.path, read_only=True), BORN + 3601, 1.0, LUNA)
+        self.assertIsNotNone(job)  # the chat was a visit: a story is due at the first dawn after it
+        job.decide(LUNA, luna)
+        [story_body] = luna_bodies
+        self.assertIn("Day 1:", json.dumps(story_body))  # the day's gist, through mind.story_memories
+        sent = json.dumps([ask.payload, [memory.text for memory in story], story_body])
         # What the owner said of themselves ("you like purple kites"), their own words and any told memory, whole
         # or retold ("You taught Pip that ..."). A lesson's fact is the world's, not the owner's: the journal shows it.
         facts = [text.split(" me ", 1)[-1] for text, source in told if source == "owner_fact"]
