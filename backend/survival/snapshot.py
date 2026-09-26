@@ -21,7 +21,7 @@ from backend.survival.goals import GOALS, goal_view, reached_rows
 from backend.survival.journal import journal_view
 from backend.survival.machines import workshop_view
 from backend.survival.memory import explored, nearest, places, structures
-from backend.survival.mind import mind_fields
+from backend.survival.mind import life_memories, mind_fields
 from backend.survival.registry import LifeRegistry
 from backend.survival.trips import trip_view
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
@@ -215,8 +215,8 @@ def goals_reached(world: SurvivalWorld, born_at: float, scale: float) -> list[di
 
 
 def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
-    """One life's row, notable events and final state (the legacy snapshot shape for life 1), and
-    (L4) the goals it reached (none for the legacy life)."""
+    """One life's row, notable events and final state (the legacy snapshot shape for life 1), (L4) the
+    goals it reached and (Mind M3) the gists and thoughts it remembered (none for the legacy life)."""
     archive = open_archive(registry, life)
     if isinstance(archive, MimoStore):
         state = archive.snapshot()
@@ -226,9 +226,12 @@ def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) ->
         state = survival_view(archive, now, scale)
         events = archive.notable_events(NOTABLE_LIMIT)
         goals = goals_reached(archive, life["born_at"], scale)
-    return {"life": life_row(life, scale, now), "notable_events": events, "state": state, "goals_reached": goals}
+    memories = {"gists": [], "thoughts": []} if isinstance(archive, MimoStore) else life_memories(archive)
+    return {"life": life_row(life, scale, now), "notable_events": events, "state": state, "goals_reached": goals,
+            "memories": memories}
 
 
 def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
     detail = life_detail(registry, life, scale, now)
-    return {**detail["life"], "notable_events": detail["notable_events"], "goals_reached": detail["goals_reached"]}
+    return {**detail["life"], "notable_events": detail["notable_events"], "goals_reached": detail["goals_reached"],
+            "memories": detail["memories"]}

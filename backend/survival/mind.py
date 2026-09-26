@@ -447,3 +447,27 @@ def story_memories(db: sqlite3.Connection, day: int, limit: int = 5) -> list[Mem
             raise
         return []
     return [memory_of(row) for row in rows]
+
+
+# The memorial (Mind M3) --------------------------------------------------------------------------
+
+MEMORIAL_GISTS = 400  # the newest gists a memorial lists: more than a year of game days
+
+
+def life_memories(world) -> dict:
+    """A life's memories for its memorial: the newest MEMORIAL_GISTS gists and every thought (a
+    thought is kept once and strengthened when had again, so there are few), each oldest first. A
+    world from before Mind remembers nothing."""
+    columns = ",".join(MEMORY_COLUMNS)
+    with world.connect() as db:
+        try:
+            gists = db.execute(f"SELECT {columns} FROM mind_memories WHERE kind='gist' ORDER BY id DESC LIMIT ?",
+                               (MEMORIAL_GISTS,)).fetchall()
+            thoughts = db.execute(f"SELECT {columns} FROM mind_memories WHERE kind='thought' ORDER BY game_day, id"
+                                  ).fetchall()
+        except sqlite3.OperationalError as error:
+            if not missing_table(error):
+                raise
+            return {"gists": [], "thoughts": []}
+    return {"gists": [item_of(memory_of(row)) for row in reversed(gists)],
+            "thoughts": [item_of(memory_of(row)) for row in thoughts]}
