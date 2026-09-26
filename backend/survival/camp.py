@@ -15,6 +15,14 @@ offer and Mimo sleeps where it stands. The camp is remembered as an outpost (a m
 kind "outpost", note "camp"; a notable "camp" event) when its roof goes on (`observe_camp`, from
 brain.observe_step). In the morning the first batch of any purpose takes the roof off first
 (`leave_camp`, from brain.brain_plan), and Mimo climbs out.
+
+L4b final fix wave, I1: with its arms full and no building block carried, the block it dug out was
+left behind (carrying's overflow rule), and it slept in an open hole, worse than open ground (one
+pet lost 65 health to a gloomling on the rim in a night). The block it digs out counts as the roof
+only when it fits in Mimo's arms (`roof_fits`); otherwise the plan first drops a stack of what gives
+way to food (`spare_stack`: carrying.GIVES_WAY_TO_FOOD, never a material gear still wants nor an ore
+the pickaxe ladder counts), and with nothing to drop there is no spot, so Mimo sleeps on the surface,
+where it can flee or fight as ever. An outpost is gone back to only with a roof block in hand.
 """
 
 from __future__ import annotations
@@ -25,7 +33,9 @@ from typing import TYPE_CHECKING
 from backend.services.blocks import is_replaceable, is_solid
 from backend.services.crafting import BLOCKS, can_harvest
 from backend.survival.blueprints import BUILDING
+from backend.survival.carrying import CARRY_STACKS, GIVES_WAY_TO_FOOD, STACK, room_for
 from backend.survival.cooking import made
+from backend.survival.creatures.gear import materials_wanted
 from backend.survival.expedition import away, camp_time, from_home, trek
 from backend.survival.goals import URGES
 from backend.survival.grid import Cell
@@ -37,6 +47,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.structures import reserved
 from backend.survival.triggers import ensure_brain
+from backend.survival.work import ladder_ores
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -50,9 +61,34 @@ SIDES = ((1, 0), (0, 1), (-1, 0), (0, -1))
 GROUND = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))
 
 
+def roof_in(inventory: dict) -> str | None:
+    """A building block in `inventory` for the roof."""
+    return next((block for block in BUILDING if inventory.get(block, 0) > 0), None)
+
+
 def roof_block(s: Situation) -> str | None:
     """A building block Mimo carries for the roof."""
-    return next((block for block in BUILDING if s.count(block) > 0), None)
+    return roof_in(s.inventory)
+
+
+def dug_block(material: str) -> str | None:
+    """The building block digging `material` out gives Mimo (its roof when it carries none), or None."""
+    drop = BLOCKS.get(material, {}).get("drop")
+    return drop if drop in BUILDING else None
+
+
+def spare_stack(inventory: dict) -> str | None:
+    """A stack Mimo may leave behind to make room for its roof (I1): the first of
+    carrying.GIVES_WAY_TO_FOOD it carries (it "all comes back with the next hunt or dig"), but never a
+    material gear still wants (creatures.gear.materials_wanted) or an ore the pickaxe ladder counts
+    (work.ladder_ores). None when there is nothing it may drop."""
+    kept = materials_wanted(inventory) | ladder_ores(inventory)
+    return next((item for item in GIVES_WAY_TO_FOOD if inventory.get(item, 0) > 0 and item not in kept), None)
+
+
+def roof_fits(inventory: dict, block: str) -> bool:
+    """The block it digs out fits in Mimo's arms (carrying.room_for), so it has its roof (I1)."""
+    return room_for(inventory, block, CARRY_STACKS) >= 1
 
 
 def in_camp(s: Situation) -> bool:
@@ -70,14 +106,18 @@ def in_pit(s: Situation, cell: Cell) -> bool:
 def camp_spot(s: Situation, cell: Cell) -> bool:
     """Mimo can dig in standing at `cell`: on natural ground it can dig, with solid ground under it
     and on all four sides of the hole, nothing it built or tends, no water or lava beside it, and a
-    block for the roof (one it carries, or the one it digs out)."""
+    block for the roof (one it carries, or the one it digs out; I1: only when that fits in its arms,
+    or it can drop a stack for it, `spare_stack`)."""
     x, y, z = cell
     ground = (x, y - 1, z)
     material = s.grid.material(*ground)
     if not s.grid.standable(cell) or reserved(s.grid, ground) or not can_harvest(material, s.inventory):
         return False
-    if roof_block(s) is None and BLOCKS.get(material, {}).get("drop") not in BUILDING:
-        return False
+    if roof_block(s) is None:
+        dug = dug_block(material)
+        if dug is None or not (roof_fits(s.inventory, dug)
+                               or s.sensed("camp spare stack", lambda: spare_stack(s.inventory)) is not None):
+            return False
     if not is_solid(material) or material in ("water", "lava") or not is_solid(s.grid.material(x, y - 2, z)):
         return False
     return all(is_solid(s.grid.material(x + dx, y - 1, z + dz))
@@ -87,7 +127,10 @@ def camp_spot(s: Situation, cell: Cell) -> bool:
 def outpost_near(s: Situation) -> Cell | None:
     """An outpost within OUTPOST_REUSE blocks whose hole is still open and empty, its floor and its
     four walls still solid (Fix round 1, Critical 1c: a wall dug away since is not reused), and no
-    step failed near it lately (Fix round 1, Critical 1b: senses.near_failure)."""
+    step failed near it lately (Fix round 1, Critical 1b: senses.near_failure). The final fix wave,
+    I1: only with a roof block in hand, since nothing is dug out there to roof it with."""
+    if roof_block(s) is None:
+        return None
     for place in sorted((place for place in s.places if place["kind"] == "outpost"),
                         key=lambda place: s.distance(cell_of(place))):
         cell = cell_of(place)
@@ -161,7 +204,9 @@ def camp_score(s: Situation) -> float:
 def plan_camp(s: Situation, context: ActionContext) -> list[dict]:
     """Dig in: to the camp, fire and torches beside it, the hole (Mimo drops in); then the roof;
     then wait for nightfall. Fix round 1, Critical 1a: a campfire or torches already standing
-    beside the spot (a batch cut short and planned again) are counted, not placed a second time."""
+    beside the spot (a batch cut short and planned again) are counted, not placed a second time.
+    The final fix wave, I1: with no roof block and no room for the block it digs out once the fire
+    and torches are down, it drops a spare stack (`spare_stack`) just before it digs."""
     found = trek(s)
     if found is None:
         return []
@@ -190,9 +235,16 @@ def plan_camp(s: Situation, context: ActionContext) -> list[dict]:
             steps += made(inventory, "campfire") or []
         if lights and inventory.get("campfire", 0) > 0:
             steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
+            inventory["campfire"] -= 1
     torches_wanted = max(0, CAMP_TORCHES - lit_near(s, spot, "torch"))
     for cell in lights[:min(torches_wanted, inventory.get("torch", 0))]:
         steps.append({"kind": "place", "target": list(cell), "block": "torch"})
+        inventory["torch"] -= 1
+    dug = dug_block(s.grid.material(x, y - 1, z))
+    if roof_in(inventory) is None and dug is not None and not roof_fits(inventory, dug):
+        spare = spare_stack(inventory)  # I1: make room for the roof it digs out first
+        if spare is not None:
+            steps.append({"kind": "drop", "item": spare, "amount": inventory[spare] % STACK or STACK})
     return [*steps, {"kind": "mine", "target": [x, y - 1, z]}]
 
 
