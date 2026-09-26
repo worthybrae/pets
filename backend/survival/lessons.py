@@ -52,8 +52,10 @@ with one (COMMANDS: "make a bow!", "please wire up a lamp", "let's make a bow") 
 nothing, and Bond B2's request question reads it instead (`wants`); a claim made only of verbs (VERBS)
 teaches only as a statement about its subject ("coal burns"), never said before it ("you make a
 bow"). A claim made only of numbers never teaches ("cows count in twos": two is only a detail of the
-cow lessons). A verb of the claim followed by a word the lesson does not know is doubtful ("cows give
-milk": no cow lesson speaks of milk; `unsupported`). A copula followed by a word that only observes
+cow lessons). A verb of the claim whose clause says what, but no word the lesson knows, is doubtful
+("cows give milk", "cows give milk and leather": no cow lesson speaks of milk; `unsupported`); a
+describing word or an adverb there only says how ("cows give good leather", "coal burns well", Task 9
+fix round 1). A copula followed by a word that only observes
 ("cows are everywhere in this field") or after a modal ("sheep would be lovely") is chat, and a
 lesson whose subject is only part of a longer one the words name ("iron" of "iron sword") never makes
 them doubtful.
@@ -139,6 +141,27 @@ SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?<!\.\.\.)\s+")
 VERBS = TEACH_VERBS | frozenset(RECIPE_WORDS) | frozenset({"cost"})
 NUMBER_WORDS = frozenset(NUMBERS) | frozenset(COUNTS)
 QUANTITY = frozenset({"plenty", "bunch", "couple", "pair", "load", "ton", "heap", "pile", "whole"})
+# Task 9 fix round 1 (Important 1): the words `unsupported` passes over in a claim's clause besides
+# numbers, quantities and talk of the owner, since they only say how or what kind ("cows give good
+# leather", "coal burns well", "moss grows thick in forests", "lava burns things"): describing words,
+# a small set of adverbs and words for things in general. Singular, as raw_words has them.
+ADJECTIVES = DESCRIBING | frozenset({
+    "good", "great", "tasty", "yummy", "delicious", "nice", "white", "strong", "shiny", "fine", "pretty", "beautiful",
+    "warm", "fresh", "little", "best", "useful", "sturdy", "tough", "thin", "sharp", "heavy", "black", "grey",
+    "gray", "golden", "real", "proper", "extra", "enough", "cool", "awesome", "amazing", "special", "perfect",
+    "excellent", "juicy", "tender", "cozy", "fuzzy", "silky", "clean", "pure", "rich", "lot"})
+ADVERBS = frozenset({
+    "well", "brightly", "bright", "hot", "thick", "thickly", "near", "nearby", "next", "close", "quickly", "slowly",
+    "easily", "easy", "always", "often", "usually", "mostly", "normally", "naturally", "quite", "super", "actually",
+    "definitely", "probably", "totally", "apparently", "honestly", "certainly", "surely", "indeed", "still",
+    "already", "anyway", "happily", "nicely", "gladly", "fully", "long", "strongly", "steadily", "tall", "high",
+    "deep", "deeply", "right", "wild", "sure"})
+GENERIC = frozenset({"thing", "stuff", "everything", "anything", "something", "item", "object", "material", "time"})
+# What ends a claim's clause for `unsupported`: a comma (or ";", ":", a dash) and these words; the end of
+# the sentence and the next verb end it too.
+CLAUSE_ENDS = frozenset({"and", "or", "but", "so", "because", "when", "while", "if", "then", "though", "although",
+                         "unless", "until", "once", "whenever"})
+_CLAUSE_PART = re.compile(r"[a-z]+|[,;:()]|\s[-–—]+\s")
 MODALS = frozenset({"would", "will", "could", "should", "might", "must", "can", "may"})
 # The words a command opens with (the first word of the sentence, singular): it asks for something, and
 # teaches nothing.
@@ -400,17 +423,38 @@ def contradicts(lesson: Lesson, text: str, raw: list[str]) -> bool:
                for one, other in OPPOSITES)
 
 
-def unsupported(raw: list[str], claim: frozenset[str], words: frozenset[str]) -> bool:
-    """A verb of the claim followed by a word the lesson does not know ("cows give milk": what cows give,
-    and no cow lesson speaks of milk; pre-flight 2, carry 5). Stop words, talk of the owner, numbers
-    (`contradicts` checks those) and words of quantity are passed over to the word that says what; a
-    verb at the end says nothing more ("coal burns")."""
-    for place, word in enumerate(raw):
+def clause_words(text: str) -> list[str]:
+    """raw_words, with every clause break ("," ";" ":" a dash, and CLAUSE_ENDS: "and", "but" ...) as ","."""
+    return ["," if part in CLAUSE_ENDS or not part[:1].isalpha() else singular(part)
+            for part in _CLAUSE_PART.findall(f" {text.lower()} ")]
+
+
+def unsupported(marked: list[str], claim: frozenset[str], words: frozenset[str]) -> bool:
+    """A verb of the claim whose clause says what, but nothing the lesson knows ("cows give milk": what
+    cows give, and no cow lesson speaks of milk; pre-flight 2, carry 5). Task 9 fix round 1: the clause
+    runs from the verb to the next clause break (`clause_words`: a comma, "and" ...), the end of the
+    sentence or the next verb, and it is enough that one of its words is a lesson word ("sugar cane
+    grows near water", "a bow needs strong string"). Stop words, talk of the owner, numbers
+    (`contradicts` checks those), words of quantity, describing words, a few adverbs and words for
+    things in general say only how or what kind, and are passed over: a clause of nothing else says
+    nothing more, like a verb at the end ("coal burns", "coal burns well", "lava burns things").
+    "cows give milk and leather" is still doubted: its first clause holds only milk."""
+    passed = PERSON_WORDS | NUMBER_WORDS | QUANTITY | ADJECTIVES | ADVERBS | GENERIC
+    for place, word in enumerate(marked):
         if word not in claim or word not in VERBS:
             continue
-        after = next((later for later in raw[place + 1:]
-                      if tokens(later) and later not in PERSON_WORDS | NUMBER_WORDS | QUANTITY), None)
-        if after is not None and tokens(after)[0] not in words:
+        said, known = False, False
+        for later in marked[place + 1:]:
+            if later == "," or later in VERBS or later in COPULA:
+                break
+            content = tokens(later)
+            if not content:
+                continue
+            if content[0] in words:
+                known = True
+                break
+            said = said or later not in passed
+        if said and not known:
             return True
     return False
 
@@ -456,6 +500,7 @@ def claims_one(text: str) -> Claims:
     said = set(tokens(text))
     things = said & world
     raw = raw_words(text)
+    marked = clause_words(text)
     matched = {}
     for index, (thing, found) in enumerate(keys.items()):
         named = [subject for subject in found.subjects if subject <= said]
@@ -468,7 +513,7 @@ def claims_one(text: str) -> Claims:
         claim = (said & found.words) - subject
         foreign = things - found.words
         if (foreign and (claim or said & TEACH_VERBS)) or (
-                claim and (contradicts(LESSONS[thing], text, raw) or unsupported(raw, claim, found.words))):
+                claim and (contradicts(LESSONS[thing], text, raw) or unsupported(marked, claim, found.words))):
             doubtful = doubtful or not inside
         elif claim and teaches(raw, subject, claim):
             fits.append((-(len(claim) + len(subject)), index, thing))

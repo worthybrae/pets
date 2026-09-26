@@ -1,6 +1,7 @@
 import random
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import backend.survival.brain  # noqa: F401  (every purpose and goal registered)
@@ -8,7 +9,7 @@ from backend.survival.actions import ensure_actions
 from backend.survival.bond import GAINS, bond_level
 from backend.survival.choosing import InlineExecutor
 from backend.survival.events import MIRRORS
-from backend.survival.goals import GOALS, PULLS, offers, pulls, rules_score
+from backend.survival.goals import GOALS, PULLS, REPEAT_REST, SET_ASIDE, offers, pulls, rules_score
 from backend.survival.hatch import hatch
 from backend.survival.inbox import inbox_items
 from backend.survival.lessons import Claims, claims
@@ -18,7 +19,7 @@ from backend.survival.owner_facts import owner_facts
 from backend.survival.registry import LifeRegistry
 from backend.survival.replies import Heard
 from backend.survival.requests import (
-    CANT, NONE, REQUEST_DAYS, goal_report, pull, pull_points, request_view, rules_request,
+    CANT, NONE, REQUEST_DAYS, goal_report, note_for, pull, pull_points, request_view, rules_request,
 )
 from backend.survival.situation import from_db
 from backend.survival.snapshot import alive_snapshot
@@ -57,10 +58,40 @@ class RulesReadingTests(unittest.TestCase):
 
     def test_bonding_registers_the_inbox_before_requests(self):
         """Pre-flight 2 (carry 8): the inbox's goal writer on the event log is the request keeper's
-        goal_report (a promise kept), never the plain report it replaced."""
+        goal_report (a promise kept), never the plain report it replaced. (Fix round 1, Minor 6: this
+        pins which writer is registered, not the import order that decides it.)"""
         from backend.survival import bonding  # noqa: F401
         [writer] = [entry.write for entry in MIRRORS["goal"] if entry.consumer == "inbox"]
         self.assertIs(writer, goal_report)
+
+
+    def test_everyday_lines_ask_for_nothing(self):
+        """Fix round 1 (Important 2): a cue counts only as a sentence's first word or in an asking
+        phrase, and to make "me", "you" or "us" is no thing to make."""
+        for text in EVERYDAY:
+            self.assertEqual(self.reading(text), NONE, text)
+
+    def test_real_requests_still_read_and_explore_is_a_goal_word(self):
+        """Fix round 1 (Important 2, Minor 4)."""
+        for text, goal in REAL_REQUESTS:
+            self.assertEqual(self.reading(text), goal, text)
+
+
+# Fix round 1 (Important 2): everyday lines the old rules read as refused requests ...
+EVERYDAY = ("you make me happy", "you make me smile", "I'll make you a snack", "let me make you dinner",
+            "I'm going to build a sandcastle", "cows make me happy", "sticks make torches",
+            "it takes two sticks to make a torch", "I'll be back soon, try to stay safe",
+            # ... and a few more of the same kind (the fix round's probe)
+            "please stay safe", "please don't go into the cave", "go to bed, it's late", "get home safe",
+            "make sure you eat something", "follow me", "can you tell me what you're thinking?",
+            "look at the lake, it's so pretty", "would you like a snack?", "keep the torch lit")
+# ... while real requests still read, in everyday words too.
+REAL_REQUESTS = (("please build a workshop", "workshop"), ("build a computer!", "thinking_machine"),
+                 ("could you raise a herd?", "herd"), ("go look at the cave", "cave"),
+                 ("please wire up a lamp", "first_circuits"), ("can you go explore?", "new_land"),
+                 ("Pebble, build a workshop", "workshop"), ("a workshop, please!", "workshop"),
+                 ("let's go to the lake", "water"), ("would you mind building a workshop?", "workshop"),
+                 ("go look at the cave near the lake", "cave"), ("please make me a sandwich", CANT))
 
 
 class RequestTests(unittest.TestCase):
@@ -216,9 +247,95 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(len(logs.records), 1)
 
     def test_a_computer_is_promised_after_the_first_circuits(self):
-        """Pre-flight 2 (carry 9): the Making ledger's ruling: "build a computer" is thinking_machine."""
-        self.assertEqual(self.say("please build a computer"), "First I need to wire up my first circuits. After that, I promise!")
+        """Pre-flight 2 (carry 9): the Making ledger's ruling: "build a computer" is thinking_machine.
+        Fix round 1 (Minor 2): every goal still before it is named, first first, not only the first
+        circuits it waits on directly."""
+        self.assertEqual(self.say("please build a computer"), "First I need to make iron tools, then build my "
+                         "workshop and wire up my first circuits. After that, I promise!")
         self.assertEqual(self.request()["goal"], "thinking_machine")
+
+    def test_with_no_home_a_computer_waits_for_the_home_first(self):
+        """Fix round 1 (Minor 2): the wait is walked down `after` to the first goal not settled."""
+        with self.world.transaction() as db:
+            db.execute("DELETE FROM memory_knowledge WHERE subject='first_shelter' AND fact='goal'")
+        self.assertEqual(self.say("build a computer!"), "First I need to build my home, then make iron tools, build "
+                         "my workshop and wire up my first circuits. After that, I promise!")
+
+    def test_a_goal_waiting_on_one_that_is_not_registered_still_gets_an_answer(self):
+        """Fix round 1 (Minor 2): no StopIteration drops the request question."""
+        dream = replace(GOALS["herd"], name="dream", after=("no_such_goal",))
+        with self.world.connect() as db:
+            note = note_for(self.situation(db), dream, "after", 30.0, self.now + 10)
+        self.assertEqual(note["answer"], "First I need to finish another goal. After that, I promise!")
+
+    def test_with_no_goal_a_request_that_would_lose_the_next_choice_is_promised_for_after(self):
+        """Fix round 1 (Minor 1): with no goal under way, the request is compared with the best other open
+        goal, as the next goal choice will: a shy pet's pull (bond 0) leaves a cozy home behind iron
+        tools, so Mimo promises it for after them instead of saying it comes next."""
+        self.edit(lambda state: state.update(bond={"value": 0.0, "seen_at": self.now, "gains": {"day": None}}))
+        self.assertEqual(self.say("please decorate your home"), "Maybe. After I make iron tools.")
+        self.assertEqual(self.request()["goal"], "cozy_home")
+        with self.world.connect() as db:
+            self.assertEqual(offers(self.situation(db))[0][0].name, "iron_tools")
+
+    def test_a_repeating_goal_resting_after_it_was_reached_is_answered_honestly(self):
+        """Fix round 1 (Minor 5): a repeating goal rests (goals.REPEAT_REST) after it is reached: "I just
+        did that", not "I gave up"; one given up is still "I gave up on that for now"."""
+        with self.world.transaction() as db:
+            know(db, "cave", "goal", self.now - 5)
+            log_event(db, self.now - 5, "goal", f"{self.life['name']} reached a goal: look into a cave.")
+        self.edit(lambda state: ensure_brain(state).setdefault("goal_penalties", {}).update(
+            cave=self.now + REPEAT_REST))
+        self.assertEqual(self.say("go look at the cave"), "I just did that! I'll do it again later.")
+        with self.world.transaction() as db:
+            log_event(db, self.now, "plan", f"{self.life['name']} set a goal aside for now: look into a cave (stuck).")
+        self.edit(lambda state: ensure_brain(state)["goal_penalties"].update(cave=self.now + REPEAT_REST / 2))
+        self.assertEqual(self.say("go look at the cave"), "I gave up on that for now. Ask me again tomorrow?")
+        self.edit(lambda state: ensure_brain(state)["goal_penalties"].update(cave=self.now + SET_ASIDE))
+        self.assertEqual(self.say("go look at the cave"), "I gave up on that for now. Ask me again tomorrow?")
+
+    def test_a_promise_kept_too_late_or_a_goal_reached_before_the_request_is_a_plain_report(self):
+        """Fix round 1 (Minor 3): the promise is kept only by a goal reached while the request lasts,
+        from when it was made (goal_report's `request["at"] <= event["at"] < until`); a lapsed request
+        is cleared."""
+        self.say("please make iron tools")
+        run_chores(self.world, self.now, 1.0)  # the inbox starts
+        request, before = self.request(), bond_level(self.world.state(), self.now)
+        reached_text = f"{self.life['name']} reached a goal: iron tools."
+        with self.world.transaction() as db:
+            log_event(db, request["at"] - 1, "goal", reached_text)  # before the request
+        run_chores(self.world, self.now + 1, 1.0)
+        self.assertEqual(self.request(), request)  # still asked for
+        later = request["until"] + 5
+        with self.world.transaction() as db:
+            log_event(db, later, "goal", reached_text)  # after it lapsed
+        run_chores(self.world, later + 1, 1.0)
+        state = self.world.state()
+        self.assertIsNone(state["bond"]["request"])
+        self.assertAlmostEqual(bond_level(state, request["at"] + 20), before)  # no promise credit
+        with self.world.connect() as db:
+            texts = [item["text"] for item in inbox_items(db)]
+        self.assertEqual(texts, ["I reached a goal: iron tools.", "I reached a goal: iron tools."])
+
+    def test_everyday_lines_keep_the_reply_and_leave_no_asked_fact(self):
+        """Fix round 1 (Important 2): through the rules (no key), no everyday line is answered as a
+        request, and none is kept as an "asked" owner fact that could push the owner's name out."""
+        answers = ("I don't know how", "I can't", "I promise", "I'll", "I already did", "right now:", "gave up")
+        for text in EVERYDAY:
+            reply = self.say(text)
+            self.assertFalse(any(words in reply for words in answers), (text, reply))
+        self.assertIsNone(self.request())
+        with self.world.connect() as db:
+            self.assertEqual([fact for fact in owner_facts(db) if fact[0] == "asked"], [])
+
+    def test_a_jev_pick_the_rules_see_no_request_in_is_not_kept_as_asked(self):
+        """Fix round 1 (Important 2): Jev's pick is still said, but an "asked" fact is kept only for words
+        the rules read as a request too."""
+        def jev(url, headers, body, timeout):
+            return {"answers": {"reply": {"choice": "mood"}, "request": {"choice": "cant"}}}
+        self.assertTrue(self.say("you make me happy", JEV, jev).startswith("I don't know how to do that yet."))
+        with self.world.connect() as db:
+            self.assertEqual(owner_facts(db), [])
 
     def test_a_command_is_read_as_a_request_and_a_statement_teaches(self):
         """Pre-flight 2 (carry 5): "please make a bow" is a command: the request question answers it and
@@ -261,6 +378,28 @@ class TeachOrAskTests(unittest.TestCase):
     def test_a_teach_verb_before_a_word_no_lesson_knows_is_doubted(self):
         for text in ("cows give milk", "cows give milk and leather"):
             self.assertEqual(claims(text), Claims((), True, False), text)
+
+    def test_a_describing_word_or_adverb_after_the_verb_no_longer_doubts_a_true_lesson(self):
+        """Fix round 1 (Important 1): the verb's clause is read to its end, describing words and a few
+        adverbs are passed over, and one lesson word in it is enough."""
+        for text, thing in (("cows give good leather", "cow:drops"), ("cows give tasty beef", "cow:drops"),
+                            ("cows give great beef", "cow:drops"), ("sheep give soft wool", "sheep:drops"),
+                            ("sheep give fluffy wool", "sheep:drops"), ("sheep give nice wool", "sheep:drops"),
+                            ("chickens drop white feathers", "chicken:drops"),
+                            ("chickens drop soft feathers", "chicken:drops"),
+                            ("a bow needs strong string", "recipe:bow"),
+                            ("an iron sword needs shiny iron ingots", "recipe:iron_sword"),
+                            ("coal burns well", "coal_ore"), ("coal burns brightly", "coal_ore"),
+                            ("coal burns hot", "coal_ore"), ("moss grows thick in forests", "moss"),
+                            ("sugar cane grows near water", "sugar_cane"),
+                            ("sugar cane grows next to water", "sugar_cane"), ("lava burns things", "lava"),
+                            ("coal burns", "coal_ore"), ("you can make a bow from sticks and string", "recipe:bow")):
+            found = claims(text)
+            self.assertIn(thing, found.taught, text)
+            self.assertFalse(found.doubtful, text)
+        for text in ("cows give milk", "cows give milk and leather", "cows give tasty milk", "cows give wings"):
+            self.assertEqual(claims(text), Claims((), True, False), text)  # the first clause holds no lesson word
+        self.assertEqual(claims("cows count in twos").taught, ())
 
     def test_numbers_alone_teach_nothing_and_observations_are_chat(self):
         self.assertEqual(claims("cows count in twos").taught, ())  # the controller's case (a)
