@@ -66,9 +66,9 @@ Luna leave the lesson waiting for the next Jev call (the journal shows the fact 
 call is made for the journal alone.
 Mind M2: other modules add questions to a purpose call to Jev the same way (ASIDES: reflection's
 two at dusk, backend.survival.insights); each aside's answer is kept when the choice is stored,
-even a stale one, and a call that failed leaves it unanswered (None). GOAL_NOTES add to the goal
-choice's payload (the thoughts most relevant to the goals on offer); the memories they showed are
-rehearsed when the goal is stored.
+even a stale one, and a call that failed leaves it unanswered (None). GOAL_NOTES add to the payload
+of a goal choice Jev makes (the thoughts most relevant to the goals on offer); the memories they
+showed are rehearsed when the goal is stored. The rules picker is shown none and rehearses none.
 """
 
 from __future__ import annotations
@@ -502,12 +502,14 @@ def prepare_goal(world: SurvivalWorld, now: float, scale: float, env: Env) -> As
         s = from_db(db, state, now, scale)
         found = offers(s)
         choices = tuple(Option(goal.name, goal.title, goal.why, facts, score) for goal, facts, score in found)
-        notes, recalled = goal_notes(db, s, choices)
+        game_at = max(0.0, now - state["born_at"]) * scale
+        route = goal_route(brain, now, env, game_at, len(choices))
+        # Mind M2: only Jev is shown thoughts, so only a Jev choice rehearses them (the final fix wave's I5:
+        # the rules picker, shown nothing, once strengthened every thought to the top at each goal choice).
+        notes, recalled = goal_notes(db, s, choices) if route == "jev" else ({}, ())
         payload = {**context_payload(s, recent_events(db, EVENTS_SHOWN)), "goals_reached": reached_titles(s),
                   "goal_trigger": goal_trigger(due["reasons"]), **notes}
-    game_at = max(0.0, now - state["born_at"]) * scale
-    ask = Ask(due["id"], goal_route(brain, now, env, game_at, len(choices)), False, choices, payload, now, game_at,
-              kind="goal", recalled=recalled)
+    ask = Ask(due["id"], route, False, choices, payload, now, game_at, kind="goal", recalled=recalled)
     if not choices:
         store_goal(SurvivalWorld(world.path), ask, Choice("", "utility", "", {"model": 0, "luna": 0, "reflections": 0}),
                    now, scale)
@@ -556,8 +558,8 @@ def store_goal(world: SurvivalWorld, ask: Ask, choice: Choice, now: float, scale
         if fresh and adopt_goal(state, name, choice.picker, choice.thought, now):
             title = lower(GOALS[name].title)
             log_event(db, now, "plan", f'{state["name"]} set a new goal: {title}. "{choice.thought}"')
-        if ask.recalled:
-            rehearse(db, ask.recalled, now)  # Mind M2: the thoughts the choice was shown
+        if ask.recalled and ask.route == "jev":
+            rehearse(db, ask.recalled, now)  # Mind M2: the thoughts Jev was shown
         write_state(db, state)
         return name if fresh else None
 

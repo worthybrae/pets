@@ -10,9 +10,10 @@ from backend.survival.choosing import (
     Ask, Aside, Choice, Chooser, InlineExecutor, keep_asides, prepare, prepare_goal, store_goal,
 )
 from backend.survival.clock import DAY_SECONDS
-from backend.survival.goals import ask_for_goal
+from backend.survival.goals import REACHED, ask_for_goal
 from backend.survival.hatch import hatch
 from backend.survival.insights import NUDGE_DAYS, THOUGHT_REST, insights, think
+from backend.survival.memory import know
 from backend.survival.mind import add_memory, mind_state
 from backend.survival.models import ModelError
 from backend.survival.once import forget_logged
@@ -149,15 +150,22 @@ class ReflectionTests(unittest.TestCase):
                                                                                      (4, "wary:skitter")])
         self.assertEqual(mind_state(self.world.state())["reflected"], 5)
 
-    def test_the_goal_choice_is_shown_the_most_relevant_thoughts_and_they_grow_stronger(self):
+    def goal_due_with_thoughts(self):
+        """Four thoughts, a first shelter reached (so more than one goal is on offer) and a goal due."""
         for day, text, source in ((1, "I love fishing by the lake.", "likes:fish"),
                                   (1, "You visit me in the evenings.", "evenings"),
                                   (2, "I keep coming home hungry from long trips. I should pack more food.",
                                    "hungry_trips"),
                                   (2, "Home feels safe. I love my own little house.", "home")):
             self.remember(day, 500, source, text, kind="thought", importance=7)
+        with self.world.transaction() as db:
+            know(db, "first_shelter", REACHED, at(1, 100))
         self.edit(lambda state: ask_for_goal(state, "no_goal", at(2, 600)))
+
+    def test_the_goal_choice_is_shown_the_most_relevant_thoughts_and_they_grow_stronger(self):
+        self.goal_due_with_thoughts()
         ask = prepare_goal(SurvivalWorld(self.world.path, read_only=True), at(2, 700), 1.0, JEV)
+        self.assertEqual(ask.route, "jev")  # the thoughts are Jev's to see
         self.assertEqual(len(ask.payload["thoughts"]), 3)
         self.assertEqual(len(ask.recalled), 3)
         calls = {"model": 0, "luna": 0, "reflections": 0}
@@ -165,6 +173,17 @@ class ReflectionTests(unittest.TestCase):
         with self.world.connect() as db:
             strong = [row[0] for row in db.execute("SELECT id FROM mind_memories WHERE strength = 2 ORDER BY id")]
         self.assertEqual(sorted(strong), sorted(ask.recalled))
+
+    def test_a_goal_the_rules_choose_is_shown_no_thoughts_and_strengthens_none(self):
+        # Final fix wave (I5): the rules picker was shown nothing, yet each of its goal choices
+        # rehearsed the thoughts, and in a 60-day life every thought reached strength 8.
+        self.goal_due_with_thoughts()
+        ask = prepare_goal(SurvivalWorld(self.world.path, read_only=True), at(2, 700), 1.0, {})
+        self.assertEqual((ask.route, ask.recalled), ("utility", ()))
+        self.assertNotIn("thoughts", ask.payload)
+        store_goal(self.world, ask, Choice(ask.options[0].name, "utility", "", {"model": 0, "luna": 0,
+                                                                                 "reflections": 0}), at(2, 710))
+        self.assertEqual({thought[4] for thought in self.thoughts()}, {1.0})
 
     def test_a_crashing_asides_keep_also_restores_state_mind(self):
         def broken(db, state, pick, now, scale):
