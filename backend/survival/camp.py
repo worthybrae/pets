@@ -64,17 +64,18 @@ SIDES = ((1, 0), (0, 1), (-1, 0), (0, -1))
 GROUND = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))
 
 
-def roof_in(inventory: dict) -> str | None:
+def roof_in(inventory: dict, fire: bool = False) -> str | None:
     """A block in `inventory` for the roof: a building block (blueprints.BUILDING), or else a log
     (follow-up 4: solid, placeable, and the morning's roof mine gives it back, since a log drops
-    itself). While no campfire is carried, LOGS_KEPT logs stay for one, oak first, as
+    itself). While no campfire is at hand -- none carried, and none brought to or standing at the
+    camp (`fire`, follow-up 5: `fire_at`) -- LOGS_KEPT logs stay for one, oak first, as
     blueprints.supplies keeps them. A log whose stack stays is taken first, so the morning's mine puts
     it back in that stack even with full arms. Live, an established pet 195 blocks out carried 17
     stacks with 8 oak logs, no building block and nothing it may drop, and slept on the surface."""
     block = next((block for block in BUILDING if inventory.get(block, 0) > 0), None)
     if block is not None:
         return block
-    keep, spare = (LOGS_KEPT if inventory.get("campfire", 0) < 1 else 0), []
+    keep, spare = (LOGS_KEPT if not fire and inventory.get("campfire", 0) < 1 else 0), []
     for log in LOGS:
         extra = inventory.get(log, 0) - keep
         keep = max(0, -extra)
@@ -86,6 +87,20 @@ def roof_in(inventory: dict) -> str | None:
 def roof_block(s: Situation) -> str | None:
     """A block Mimo carries for the roof (`roof_in`: a building block, or a spare log)."""
     return roof_in(s.inventory)
+
+
+def fire_at(s: Situation, spot: Cell) -> bool:
+    """A campfire is at hand for a camp dug in standing at `spot`: Mimo brought one, or one already
+    stands on the ground beside it. Follow-up 5 (m5): the LOGS_KEPT hold-back was judged on the arms
+    after the camp had put its carried campfire down, so a pet that came with a campfire and two logs
+    held both back and slept on the surface (days pace, seed 8, day 8.65)."""
+    return s.count("campfire") > 0 or lit_near(s, spot, "campfire") > 0
+
+
+def pit_roof(s: Situation, camp: Cell) -> str | None:
+    """The block for the roof over the hole at `camp` (the ground level is a block up)."""
+    x, y, z = camp
+    return roof_in(s.inventory, fire_at(s, (x, y + 1, z)))
 
 
 def dug_block(material: str) -> str | None:
@@ -119,11 +134,12 @@ def in_pit(s: Situation, cell: Cell) -> bool:
     return s.here == tuple(cell)
 
 
-def roofed(inventory: dict, ground: str) -> bool:
-    """With `inventory` in its arms, Mimo will have a roof over its hole: a building block it carries,
-    or the one digging `ground` out gives, when that fits in its arms (`roof_fits`) or a stack may be
-    dropped to make room for it (`spare_stack`; the final fix wave's I1)."""
-    if roof_in(inventory) is not None:
+def roofed(inventory: dict, ground: str, fire: bool = False) -> bool:
+    """With `inventory` in its arms, Mimo will have a roof over its hole: a block it carries
+    (`roof_in`, with a campfire at hand or not: `fire`), or the one digging `ground` out gives, when
+    that fits in its arms (`roof_fits`) or a stack may be dropped to make room for it (`spare_stack`;
+    the final fix wave's I1)."""
+    if roof_in(inventory, fire) is not None:
         return True
     dug = dug_block(ground)
     return dug is not None and (roof_fits(inventory, dug) or spare_stack(inventory) is not None)
@@ -149,23 +165,22 @@ def camp_spot(s: Situation, cell: Cell) -> bool:
     if not all(is_solid(s.grid.material(x + dx, y - 1, z + dz))
                and s.grid.material(x + dx, y, z + dz) not in ("water", "lava") for dx, dz in SIDES):
         return False
-    return roofed(lit_camp(s, cell)[1], material)
+    return roofed(lit_camp(s, cell)[1], material, fire_at(s, cell))
 
 
 def outpost_near(s: Situation) -> Cell | None:
     """An outpost within OUTPOST_REUSE blocks whose hole is still open and empty, its floor and its
     four walls still solid (Fix round 1, Critical 1c: a wall dug away since is not reused), and no
     step failed near it lately (Fix round 1, Critical 1b: senses.near_failure). The final fix wave,
-    I1: only with a roof block in hand, since nothing is dug out there to roof it with."""
-    if roof_block(s) is None:
-        return None
+    I1: only with a roof block in hand (`pit_roof`), since nothing is dug out there to roof it with."""
     for place in sorted((place for place in s.places if place["kind"] == "outpost"),
                         key=lambda place: s.distance(cell_of(place))):
         cell = cell_of(place)
         if s.distance(cell) > OUTPOST_REUSE:
             break
         x, y, z = cell
-        if (s.grid.passable(cell) and s.grid.passable((x, y + 1, z)) and is_solid(s.grid.material(x, y - 1, z))
+        if (pit_roof(s, cell) is not None and s.grid.passable(cell) and s.grid.passable((x, y + 1, z))
+                and is_solid(s.grid.material(x, y - 1, z))
                 and all(is_solid(s.grid.material(x + dx, y, z + dz)) for dx, dz in SIDES)
                 and not near_failure(s.state, cell)):
             return cell
@@ -243,7 +258,7 @@ def settled(s: Situation) -> bool:
     camp = (trek(s) or {}).get("camp")
     in_hole = camp is not None and in_pit(s, camp)
     roofed = in_hole and is_solid(s.grid.material(camp[0], camp[1] + 1, camp[2]))
-    return in_camp(s) or (in_hole and (roof_block(s) is None or roofed))
+    return in_camp(s) or (in_hole and (pit_roof(s, camp) is None or roofed))
 
 
 def somewhere(s: Situation) -> bool:
@@ -275,7 +290,7 @@ def plan_camp(s: Situation, context: ActionContext) -> list[dict]:
         return [] if s.night else [wait_for_nightfall(s)]
     camp = found.get("camp")
     if camp is not None and in_pit(s, camp):
-        block = roof_block(s)
+        block = pit_roof(s, camp)
         x, y, z = camp
         return [{"kind": "place", "target": [x, y + 1, z], "block": block}] if block else []
     reuse = outpost_near(s)
@@ -292,7 +307,7 @@ def plan_camp(s: Situation, context: ActionContext) -> list[dict]:
     lights, inventory = lit_camp(s, spot)
     steps += lights
     dug = dug_block(s.grid.material(x, y - 1, z))
-    if roof_in(inventory) is None and dug is not None and not roof_fits(inventory, dug):
+    if roof_in(inventory, fire_at(s, spot)) is None and dug is not None and not roof_fits(inventory, dug):
         spare = spare_stack(inventory)  # I1: make room for the roof it digs out first
         if spare is not None:
             steps.append({"kind": "drop", "item": spare, "amount": inventory[spare] % STACK or STACK})

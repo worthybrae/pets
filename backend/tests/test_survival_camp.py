@@ -258,6 +258,25 @@ class FullArmsTests(unittest.TestCase):
         self.assertEqual(self.pet.state["inventory"]["oak_log"], 8)  # ...and back into its arms
         self.assertEqual(self.pet.world.grid.material(101, 1, 1), "air")
 
+    def test_a_pet_that_brings_a_campfire_roofs_with_its_last_two_logs(self):
+        # Follow-up 5 (m5, days pace, seed 8, day 8.65): the LOGS_KEPT hold-back was judged on the arms
+        # after the camp put its carried campfire down, so a pet with a campfire and 2 oak logs held both
+        # back and slept on the surface. A campfire brought, or standing there, needs no logs kept.
+        self.pet.state["inventory"] = {**FILLER, "bread": 4, "torch": 4, "campfire": 1, "oak_log": 2}  # 17 stacks
+        camp = PURPOSES["camp"]
+        s = self.pet.situation(DUSK)
+        self.assertTrue(camp.valid(s))
+        steps = camp.plan(s, self.pet.context(DUSK))
+        self.assertEqual([step["kind"] for step in steps], ["place", "place", "place", "mine"])  # no drop
+        self.carry(steps)
+        self.pet.state["position"]["y"] = 0.0  # in the hole: its campfire stands beside it, none in its arms
+        s = self.pet.situation(DUSK)
+        self.assertFalse(settled(s))  # a roof is still to come
+        roof = camp.plan(s, self.pet.context(DUSK))
+        self.assertEqual(roof, [{"kind": "place", "target": [101, 1, 1], "block": "oak_log"}])
+        self.carry(roof)
+        self.assertTrue(in_camp(self.pet.situation(NIGHT)) and settled(self.pet.situation(NIGHT)))
+
     def test_a_campfires_logs_are_kept_off_the_roof_while_no_campfire_is_carried(self):
         self.assertEqual(roof_in({"oak_log": 2}), None)  # kept to make a campfire
         self.assertEqual(roof_in({"oak_log": 3}), "oak_log")
