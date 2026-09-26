@@ -44,6 +44,8 @@ class MemoryStreamTests(unittest.TestCase):
 
     def test_a_memory_keeps_its_tags_and_at_most_160_characters(self):
         self.assertEqual(tags_in("I met my first skitter near the cave."), ["skitter", "cave"])
+        # The Making final fix wave (I5): "thinking" and "cozy" are parts of goal names, not things.
+        self.assertEqual((tags_in("I was thinking about you"), tags_in("my home is so cozy")), ([], ["home"]))
         self.assertEqual(tags_in("I learned that iron ore needs a stone pickaxe."),
                          ["iron_ore", "iron", "ore", "stone_pickaxe", "stone", "pickaxe"])
         self.add(1, "word " * 60, about=("owner",))

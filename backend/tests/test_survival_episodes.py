@@ -76,6 +76,15 @@ class MirrorTests(unittest.TestCase):
              "about": "", "importance": 7, "feeling": 2, "source": "built"},
         ])
 
+    def test_the_computer_that_counts_its_days_is_a_moment_it_remembers(self):
+        """The Making final fix wave, M2: MOMENTS had no "computer" kind, so the headline moment never became a
+        memory (only "I built Pip's computer." did, through "built")."""
+        self.log((BORN + 10, "computer", f"{self.name} built a machine that remembers how long it has been alive!"))
+        run_chores(self.world, BORN + 20, 1.0)
+        (moment,) = [memory for memory in self.memories() if memory["source"] == "computer"]
+        self.assertEqual((moment["text"], moment["importance"], moment["feeling"]),
+                         ("I built a machine that remembers how long I have been alive!", 8, 2))
+
     def test_a_plan_is_remembered_without_its_reason_or_its_quoted_thought(self):
         # Final fix wave (I3): the bracket was voiced wrongly ("(I cannot be done now)"), and the quote
         # tagged the plan with whatever the thought named, so it came back for "the gloomling?".

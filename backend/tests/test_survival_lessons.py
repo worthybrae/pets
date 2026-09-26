@@ -78,6 +78,21 @@ class ClaimsTests(unittest.TestCase):
                          ("recipe:stone_pickaxe",))
         self.assertLessEqual(len(claims("swords need sticks").taught), SHORTLIST)
 
+    def test_makings_plain_name_parts_do_not_make_a_true_lesson_doubtful(self):
+        """The Making final fix wave, I5: "thinking" (thinking_machine), "cozy" (cozy_home) and "lit" (lamp_lit
+        and the other lit parts) joined Mind's vocabulary as things, so these lines were doubted ("Hmm, I'm
+        not sure that's right.") though each teaches a real lesson."""
+        lines = {"skitters hate light, stay lit": "skitter:habits",
+                 "thinking about it, skitters hate light": "skitter:habits",
+                 "keep thinking: gravel hides flint": "gravel",
+                 "cows give leather, I was thinking": "cow:drops",
+                 "I'm thinking cows give leather": "cow:drops"}
+        for text, lesson in lines.items():
+            found = claims(text)
+            self.assertIn(lesson, found.taught, text)
+            self.assertFalse(found.doubtful, text)
+        self.assertTrue(claims("skitters hate light, like a lamp").doubtful)  # a lamp is a real thing: Mind's rule
+
     def test_every_lesson_can_be_taught_in_its_own_words(self):
         for thing, lesson in LESSONS.items():
             self.assertIn(thing, claims(lesson.fact).taught, lesson.fact)

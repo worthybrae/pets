@@ -74,7 +74,9 @@ PLACES = frozenset({"home", "house", "cave", "lake", "water", "river", "camp", "
 # Parts of names too plain to be a tag on their own ("first" of first_shelter, "raw" of raw_beef).
 PLAIN = frozenset({"better", "cooked", "dead", "far", "first", "full", "new", "raw", "safe", "tall", "polished",
                    "mossy", "ripe", "leave", "block", "panel", "hull", "solar", "brown", "red", "orange", "pink",
-                   "yellow", "map", "path", "tile", "roof", "land"})
+                   "yellow", "map", "path", "tile", "roof", "land",
+                   # Making final fix wave (I5): thinking_machine, cozy_home and the lit parts (lamp_lit ...)
+                   "thinking", "cozy", "lit"})
 # The cue's words widened (the spec's cow -> cattle, beef, leather; armor -> cap, tunic, iron).
 SYNONYMS: dict[str, tuple[str, ...]] = {
     "cow": ("cattle", "beef", "leather"), "cattle": ("cow", "beef"), "beef": ("cow",),
