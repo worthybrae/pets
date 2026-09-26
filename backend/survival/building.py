@@ -33,6 +33,7 @@ to chop), lifts Mimo's mood for each torch, puts any creature inside out when th
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING
 
@@ -46,6 +47,7 @@ from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.home import built_home, home_place
 from backend.survival.memory import cell_of, finish_structure, remember, set_home, structures
+from backend.survival.once import log_once
 from backend.survival.purposes import HOME_RANGE, Purpose, away, register
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH, as_cell
@@ -54,6 +56,8 @@ from backend.survival.triggers import mark_trigger
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
+
+logger = logging.getLogger(__name__)
 
 PLACES_PER_BATCH = 12
 SHELTER_BATCHES = 8
@@ -66,6 +70,11 @@ BUILT_MOOD = 10.0
 TORCH_MOOD = 2.0
 FURNISHINGS = ("bed", "campfire", "door")
 SHELTER_RANGE = 2 * HOME_RANGE  # a shelter Mimo built this close is still its own: it starts no other
+# Making: how a finished structure of these kinds reads (any other kind "laid out", a shelter "moved in").
+FINISHED_WORDS = {"workshop": "{name} built {what}.", "machine": "{name} built {what}."}
+# Making: functions of the Situation giving blocks another project's walls still take (the workshop's),
+# which building_need adds, so gathering aims for them too.
+MORE_BLOCKS: list = []
 
 
 def structures_near(s: Situation, kind: str, reach: float = HOME_RANGE) -> list[dict]:
@@ -313,9 +322,13 @@ def building_need(s: Situation) -> int:
     """Blocks the shelter Mimo started still needs beyond what it carries (0 with none started):
     while it waits for them, gather_wood and gather_stone aim that much higher (backend.survival.work)."""
     structure = current_shelter(s)
-    if structure is None:
-        return 0
-    return max(0, len(todo(s.grid, blueprint_of(structure))) - carried_blocks(s))
+    need = 0 if structure is None else len(todo(s.grid, blueprint_of(structure)))
+    for more in MORE_BLOCKS:  # Making: the workshop's walls
+        try:
+            need += int(more(s))
+        except Exception as error:
+            log_once(logger, "more blocks", error)
+    return max(0, need - carried_blocks(s)) if need else 0
 
 
 # What finished steps teach ---------------------------------------------------------------------
@@ -336,7 +349,8 @@ def finish_if_built(state: dict, context, number: int, at: float) -> None:
         text = f"{name} finished building {structure['name']} and moved in."
         state["last_thought"] = "I built this myself. Home sweet home."
     else:
-        text = f"{name} laid out {structure['name']}."
+        words = FINISHED_WORDS.get(structure["kind"], "{name} laid out {what}.")
+        text = words.format(name=name, what=structure["name"])
     context.events.append((at, "built", text))
     state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + BUILT_MOOD)
     mark_trigger(state, "built", at)

@@ -44,7 +44,8 @@ DOOR_SIDES = ("north", "east", "south", "west")
 TIERS = ((3, 3), (4, 3), (5, 4))  # (width across the door side, depth), inside
 # Blocks a structure can be built from, in the order they stand in for each other; dirt is last.
 BUILDING = ("cobblestone", "planks", "birch_planks", "spruce_planks", "stone_bricks", "brick", "limestone",
-            "sandstone", "basalt", "moss", "clay", "sand", "gravel", "dirt")
+            "sandstone", "basalt", "moss", "clay", "sand", "gravel", "dirt",
+            "slab")  # Making: a workshop's roof wants slabs; any block stands in for them, and they for any
 LOGS_KEPT = 2  # logs Mimo never turns into building planks: a campfire's worth
 STRUCTURAL = ("floor", "wall", "roof")
 FITTINGS = ("bed", "chest", "campfire", "torch")

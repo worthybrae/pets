@@ -54,7 +54,7 @@ from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, buil
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
-from backend.survival import making  # noqa: F401  (Making: gather_materials)
+from backend.survival import making, workshop  # noqa: F401  (Making: gather_materials, the workshop)
 from backend.survival.curiosity import note_discoveries, tend_curiosity
 from backend.survival.journal import observe_journal
 from backend.survival.expedition import observe_expedition, tend_expedition

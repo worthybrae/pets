@@ -40,7 +40,7 @@ import logging
 import math
 from typing import TYPE_CHECKING
 
-from backend.services.crafting import COOKING, KILN_FIRED, RECIPES
+from backend.services.crafting import COOKING, KILN_FIRED, RECIPES, craft, smelt, take_items
 from backend.services.worldgen import hash32, surface_material, terrain_height
 from backend.survival import storage, work
 from backend.survival.carrying import STACK, crafts_fit
@@ -209,6 +209,24 @@ def craft_plan(s: Situation, items: dict[str, int]) -> list[dict] | None:
         return None
     steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
     return steps if crafts_fit(s.inventory, steps) else None
+
+
+def after_steps(inventory: dict[str, int], steps: list[dict]) -> dict[str, int]:
+    """What Mimo will carry once `steps` (craft_plan's: crafts, smelts, stations put down and mined
+    back) have run."""
+    after = dict(inventory)
+    for step in steps:
+        if step["kind"] == "craft":
+            after = craft(after, step["recipe"], {"crafting_table"})
+        elif step["kind"] == "smelt":
+            after = smelt(after, step["item"], {"furnace", "campfire"})
+        elif step["kind"] == "place":
+            after = take_items(after, {step["block"]: 1})
+        elif step["kind"] == "mine" and step.get("keep"):
+            placed = next(entry["block"] for entry in steps if entry["kind"] == "place"
+                          and entry["target"] == step["target"])
+            after[placed] = after.get(placed, 0) + 1
+    return after
 
 
 def place_steps(s: Situation, stands, jobs: list[tuple[Cell, list[dict]]], at: Cell | None = None) -> list[dict]:
