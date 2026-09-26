@@ -6,6 +6,7 @@ import {
 } from './hud'
 import { curiosityBar, goalHint, goalLine, planSteps, tripLines } from './goals'
 import { expeditionLine, journalButton } from './journal'
+import { memoriesButton } from './memories'
 import { computerCaption, workshopButton } from './workshop'
 import type { AliveResponse, CareKind } from './types'
 
@@ -57,7 +58,7 @@ function CameraSwitch({ mode, autoPick, onChange }: { mode: CameraMode; autoPick
   )
 }
 
-export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onWorkshop, onOpenLives, bond }: {
+export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onMemories, onWorkshop, onOpenLives, bond }: {
   state: AliveResponse
   online: boolean
   busy: boolean
@@ -74,6 +75,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   onCrafting: () => void
   /** L4b: opens the knowledge journal. */
   onJournal: () => void
+  /** Mind M3: opens the Memories panel. */
+  onMemories: () => void
   /** Making: opens the Workshop panel. */
   onWorkshop?: () => void
   /** Shows a Lives button that opens the archive. */
@@ -175,6 +178,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
             <button type="button" onClick={onFollow} className="underline decoration-[#8cafa2] underline-offset-4">Follow {life.name}</button>
             <button type="button" onClick={onCrafting} className="underline decoration-[#8cafa2] underline-offset-4">Blocks & crafting</button>
             <button type="button" onClick={onJournal} className="underline decoration-[#8cafa2] underline-offset-4">{journalButton(state.journal)}</button>
+            <button type="button" onClick={onMemories} className="underline decoration-[#8cafa2] underline-offset-4">{memoriesButton(state.memories)}</button>
             {workshop && onWorkshop && <button type="button" onClick={onWorkshop} className="underline decoration-[#8cafa2] underline-offset-4">{workshop}</button>}
             {onOpenLives && <button type="button" onClick={onOpenLives} className="underline decoration-[#8cafa2] underline-offset-4">Lives</button>}
           </div>

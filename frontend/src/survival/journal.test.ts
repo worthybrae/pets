@@ -27,11 +27,21 @@ describe('the journal', () => {
   it('lists each lesson in Mimo\'s voice, with the plain fact when Jev phrased it and what it unlocks', () => {
     expect(journalEntries(journal, 'Pebble')).toEqual([
       { key: 'skitter', label: 'Creature', line: 'Skitters crawl out of the caves at night.',
-        fact: 'Skitters come out of caves at night.', unlocks: null },
+        fact: 'Skitters come out of caves at night.', unlocks: null, fromYou: false },
       { key: 'gravel', label: 'Block', line: 'Gravel sometimes hides flint.', fact: null,
-        unlocks: 'Now Pebble digs gravel for flint.' },
+        unlocks: 'Now Pebble digs gravel for flint.', fromYou: false },
     ])
     expect(journalEntries(undefined, 'Pebble')).toEqual([])
+  })
+
+  it('marks a lesson the owner taught, and names a recipe (Mind M2)', () => {
+    const taught: JournalEntry = {
+      thing: 'recipe:iron_sword', kind: 'recipe', words: 'an iron sword', unlocks: '', at: 30, from_you: true,
+      fact: 'An iron sword takes two iron ingots and a stick, at a crafting table.',
+      line: 'You told me that an iron sword takes two iron ingots and a stick, at a crafting table.',
+    }
+    const [entry] = journalEntries([taught], 'Pebble')
+    expect([entry.label, entry.fromYou, entry.fact]).toEqual(['Recipe', true, taught.fact])
   })
 
   it('labels what Mimo learned about making', () => {
@@ -39,7 +49,7 @@ describe('the journal', () => {
       fact: 'Copper carries a spark: a lever, copper wire and a lamp make light.',
       line: 'I flipped the lever and the lamp lit up! Copper carries a spark.', unlocks: 'wires up machines', at: 30 }
     expect(journalEntries([spark], 'Pebble')[0]).toEqual({ key: 'copper_spark', label: 'Making', line: spark.line,
-      fact: spark.fact, unlocks: 'Now Pebble wires up machines.' })
+      fact: spark.fact, unlocks: 'Now Pebble wires up machines.', fromYou: false })
   })
 })
 

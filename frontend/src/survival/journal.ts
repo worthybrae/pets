@@ -12,15 +12,16 @@ export function journalButton(journal: readonly JournalEntry[] | null | undefine
 }
 
 const KIND_LABELS: Record<JournalEntry['kind'], string> = {
-  block: 'Block', plant: 'Plant', creature: 'Creature', biome: 'Land', landmark: 'Landmark', making: 'Making',
+  block: 'Block', plant: 'Plant', creature: 'Creature', biome: 'Land', landmark: 'Landmark', recipe: 'Recipe', making: 'Making',
 }
 
 /**
  * The journal's entries as the panel lists them, newest first: a label for the kind of thing, the line in
- * Mimo's voice, the plain fact when the line is Jev's own phrasing, and what the lesson lets Mimo do.
+ * Mimo's voice, the plain fact when the line is Jev's own phrasing, what the lesson lets Mimo do, and
+ * (Mind M2) whether the owner taught it.
  */
 export function journalEntries(journal: readonly JournalEntry[] | null | undefined, name: string): {
-  key: string; label: string; line: string; fact: string | null; unlocks: string | null
+  key: string; label: string; line: string; fact: string | null; unlocks: string | null; fromYou: boolean
 }[] {
   return (journal ?? []).map((entry) => ({
     key: entry.thing,
@@ -28,6 +29,7 @@ export function journalEntries(journal: readonly JournalEntry[] | null | undefin
     line: entry.line,
     fact: entry.line === entry.fact ? null : entry.fact,
     unlocks: entry.unlocks ? `Now ${name} ${entry.unlocks}.` : null,
+    fromYou: entry.from_you === true,
   }))
 }
 

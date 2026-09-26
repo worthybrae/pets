@@ -2,6 +2,7 @@ import type { WorldPlan } from '../components/world/worldPlanner'
 import type { AttributeTier } from '../components/hatch/types'
 import type { Rarity } from '../data/rarity'
 import type { BondFields } from './bondTypes'
+import type { LifeMemories, MindFields } from './mindTypes'
 
 /** Shapes of the survival API (backend/survival/snapshot.py and backend/api). */
 
@@ -186,6 +187,8 @@ export interface LifeSummary extends LifeRow {
   notable_events: MimoEvent[]
   /** L4: the goals the life reached, first first (an older API sends none). */
   goals_reached?: GoalReached[]
+  /** Mind M3: the life's gists and thoughts, oldest first (an older API sends none). */
+  memories?: LifeMemories
 }
 
 /** One step of the day plan toward the goal (L4). */
@@ -257,7 +260,7 @@ export interface WorkshopView {
 export interface JournalEntry {
   /** What it learned about, like "gravel" or "skitter". */
   thing: string
-  kind: 'block' | 'plant' | 'creature' | 'biome' | 'landmark' | 'making'
+  kind: 'block' | 'plant' | 'creature' | 'biome' | 'landmark' | 'recipe' | 'making'
   /** The thing in words, like "a skitter". */
   words: string
   /** What it teaches, like "Skitters come out of caves at night." */
@@ -268,6 +271,8 @@ export interface JournalEntry {
   unlocks: string
   /** When it learned it (server time). */
   at: number
+  /** Mind M2: the owner taught it (an older API sends none). */
+  from_you?: boolean
 }
 
 /** The expedition under way (L4b, backend/survival/expedition.py expedition_view). */
@@ -357,7 +362,7 @@ export interface SurvivalState {
   workshop?: WorkshopView
 }
 
-export interface AliveResponse extends SurvivalState, BondFields {
+export interface AliveResponse extends SurvivalState, BondFields, MindFields {
   phase: 'alive'
   life: LifeRow
 }
@@ -390,4 +395,6 @@ export interface LifeDetail {
   state: LegacyState | SurvivalState
   /** L4: the goals the life reached (none for the legacy life; an older API sends none). */
   goals_reached?: GoalReached[]
+  /** Mind M3: the life's gists and thoughts (none for the legacy life; an older API sends none). */
+  memories?: LifeMemories
 }
