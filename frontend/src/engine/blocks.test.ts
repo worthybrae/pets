@@ -12,6 +12,9 @@ const BIGGER_WORLD = ['granite', 'andesite', 'diorite', 'ashstone', 'gold_ore', 
 /** Making's T1 blocks, right after L3's (backend/tests/test_blocks_making.py). */
 const MAKING = ['bookshelf', 'wool_orange', 'wool_pink', 'wool_yellow', 'rug_orange', 'rug_pink', 'rug_yellow', 'kiln',
   'stairs', 'slab', 'glass_pane', 'trapdoor', 'iron_bars', 'flower_pot', 'sign', 'barrel', 'composter', 'candle']
+/** Making's T2 blocks, the wiring, right after its T1 blocks (backend/tests/test_blocks_wiring.py). */
+const WIRING = ['copper_wire', 'copper_wire_lit', 'lever', 'lever_on', 'button', 'button_on', 'pressure_plate',
+  'daylight_sensor', 'repeater', 'repeater_lit', 'inverter', 'inverter_lit', 'joiner', 'joiner_lit', 'lamp', 'lamp_lit', 'bell']
 
 describe('block registry', () => {
   it('puts air at id 0 and keeps ids below the missing id', () => {
@@ -112,5 +115,22 @@ describe('block registry', () => {
     for (const name of ['flower_pot', 'sign', 'candle']) expect(CUBE_BY_ID[blockId(name)], name).toBe(0)  // sprites
     expect(GLOW_BY_ID[blockId('candle')]).toBe(1)
     expect(blockDef(blockId('bookshelf')).textures).toEqual({ top: 'planks', side: 'bookshelf', bottom: 'planks' })
+  })
+
+  it('adds the wiring after Making\'s first blocks: wire and gates flat, lit ones glowing, lamps solid', () => {
+    const names = BLOCKS.map((block) => block.name)
+    const start = blockId('copper_wire')
+    expect(start).toBe(blockId('candle') + 1)
+    expect(names.slice(start, start + WIRING.length)).toEqual(WIRING)
+    for (const name of ['copper_wire', 'copper_wire_lit', 'pressure_plate', 'repeater', 'inverter_lit', 'joiner']) {
+      expect(HEIGHT_BY_ID[blockId(name)], name).toBeCloseTo(FLAT_HEIGHT)
+    }
+    expect(HEIGHT_BY_ID[blockId('daylight_sensor')]).toBe(SLAB_HEIGHT)
+    for (const name of ['copper_wire_lit', 'repeater_lit', 'inverter_lit', 'joiner_lit', 'lamp_lit']) {
+      expect(GLOW_BY_ID[blockId(name)], name).toBe(1)
+      expect(GLOW_BY_ID[blockId(name.replace('_lit', ''))], name).toBe(0)
+    }
+    expect(LAYER_BY_ID[blockId('lamp_lit')]).toBe(LAYER_OPAQUE)
+    for (const name of ['lever', 'lever_on', 'button', 'bell']) expect(CUBE_BY_ID[blockId(name)], name).toBe(0)  // sprites
   })
 })

@@ -132,6 +132,30 @@ describe('atlas', () => {
     expect(spines.size).toBeGreaterThan(2)
   })
 
+  it('paints the wiring: see-through wire, sprites and plates, and lit parts brighter than dark ones', () => {
+    const pixels = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!)
+    const alphas = (name: string) => pixels(name).map((pixel) => pixel[3])
+    for (const name of ['copper_wire', 'copper_wire_lit', 'lever', 'lever_on', 'button', 'pressure_plate', 'bell']) {
+      expect(alphas(name), name).toContain(0)
+    }
+    for (const name of ['repeater', 'inverter', 'joiner', 'lamp', 'lamp_lit', 'daylight_sensor_top']) {
+      expect(Math.min(...alphas(name)), name).toBe(255)
+    }
+    const brightness = (name: string) => {
+      const shown = pixels(name).filter((pixel) => pixel[3] > 0)
+      return shown.reduce((sum, [r, g, b]) => sum + r + g + b, 0) / shown.length
+    }
+    for (const [lit, dark] of [['copper_wire_lit', 'copper_wire'], ['lamp_lit', 'lamp'], ['repeater_lit', 'repeater']]) {
+      expect(brightness(lit), lit).toBeGreaterThan(brightness(dark) + 20)
+    }
+    expect(pixels('lever')).not.toEqual(pixels('lever_on'))  // the lever leans the other way when thrown
+  })
+
+  it('gives a repeater two dots, an inverter one and a joiner three', () => {
+    const dots = (name: string) => tilePixels(atlas, atlas.tileIndex.get(name)!).filter(([r, g]) => r > g + 40).length
+    expect([dots('inverter'), dots('repeater'), dots('joiner')]).toEqual([4, 8, 12])
+  })
+
   it('insets uvs by a quarter texel', () => {
     const inset = 0.25 / ATLAS_SIZE
     expect(tileUv(0)).toEqual([inset, inset, 8 / 128 - inset, 8 / 128 - inset])

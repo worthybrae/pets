@@ -240,6 +240,50 @@ export const PATTERNS: Record<string, Painter> = {
     if (j === 2) return i === 3 ? tone([60, 52, 44], 1) : CLEAR
     return (i === 3 || (j === 1 && i === 4)) ? tone(accent ?? color, 1.1 * jitter(random, 0.05)) : CLEAR
   }),
+  // Making (T2): copper wire, levers, buttons, pressure plates, the daylight sensor, the gates (their dots:
+  // two for a repeater, one for an inverter, three for a joiner), lamps and the bell. A lit block is the
+  // same painter in brighter colours.
+  wire: ({ color }, random) => grid((i, j) => {
+    const line = i === 3 || i === 4 || j === 3 || j === 4
+    return line ? tone(color, (i === 3 || j === 3 ? 1.08 : 1) * jitter(random, 0.06)) : CLEAR
+  }),
+  sprite_lever: ({ color, accent, size = 1 }, random) => grid((i, j) => {
+    if (j >= 6) return i >= 2 && i <= 5 ? tone(accent ?? color, (j === 7 ? 0.85 : 1) * jitter(random)) : CLEAR
+    const lean = size === 2 ? 1 : -1
+    const at = 3.5 + lean * (5 - j) * 0.5
+    if (Math.abs(i - at) > 0.6 || j < 1) return CLEAR
+    return tone(color, (j <= 1 ? 1.25 : 1) * jitter(random))
+  }),
+  sprite_button: ({ color, size = 2 }, random) => grid((i, j) => {
+    const top = N - 1 - size
+    return i >= 2 && i <= 5 && j >= top ? tone(color, (j === top ? 1.1 : 0.92) * jitter(random)) : CLEAR
+  }),
+  plate: ({ color }, random) => grid((i, j) => {
+    if (edge(i, j)) return CLEAR
+    return tone(color, (i === 1 || j === 1 || i === N - 2 || j === N - 2 ? 0.86 : 1) * jitter(random))
+  }),
+  sensor: ({ color, accent }, random) => grid((i, j) => {
+    if (edge(i, j)) return tone(color, 0.85 * jitter(random))
+    return (i % 3 === 0 || j % 3 === 0) ? tone(color, jitter(random)) : tone(accent ?? color, jitter(random, 0.05))
+  }),
+  gate: ({ color, accent, size = 1 }, random) => {
+    const dots = [[[3, 3]], [[1, 3], [5, 3]], [[1, 5], [5, 5], [3, 1]]][Math.min(3, Math.max(1, size)) - 1]
+    return grid((i, j) => {
+      if (dots.some(([x, y]) => (i === x || i === x + 1) && (j === y || j === y + 1))) return tone(accent ?? color, jitter(random, 0.05))
+      return tone(color, (edge(i, j) ? 0.82 : 1) * jitter(random, 0.05))
+    })
+  },
+  lamp: ({ color, accent }, random) => grid((i, j) => {
+    if (edge(i, j) || i === 3 || j === 3) return tone(accent ?? color, jitter(random, 0.05))
+    return tone(color, (i === 1 || j === 1 ? 1.1 : 1) * jitter(random, 0.05))
+  }),
+  sprite_bell: ({ color, accent }, random) => grid((i, j) => {
+    if (j === 0) return i >= 2 && i <= 5 ? tone(accent ?? color, jitter(random)) : CLEAR
+    if (j === 7) return i === 3 || i === 4 ? tone(accent ?? color, jitter(random)) : CLEAR
+    const half = j <= 2 ? 1 : j <= 4 ? 2 : 3
+    if (Math.abs(i - 3.5) > half) return CLEAR
+    return tone(color, (i < 3.5 ? 1.12 : 0.9) * jitter(random, 0.06))
+  }),
   glass: ({ color }, random) => grid((i, j) => {
     if (edge(i, j)) return tone(color, 0.9, 220)
     if (i - j === 2 && i < 6) return tone(color, 1.15, 150)
