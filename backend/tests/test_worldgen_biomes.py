@@ -113,6 +113,16 @@ class GravelTests(unittest.TestCase):
             ground = {surface_material(x, z, SEED) for x, z in WIDE if biome_at(x, z, SEED) == biome}
             self.assertIn("gravel", ground, biome)
 
+    def test_clay_and_sand_lie_among_the_shore_gravel(self):
+        """Making: of the gravel on a shore a fifth is clay and a fifth sand, for bricks and glass."""
+        loose = [surface_material(x, z, SEED) for x, z in columns(
+            lambda x, z: shore(x, z, SEED) and biome_at(x, z, SEED) != "desert"
+            and surface_material(x, z, SEED) in ("gravel", "clay", "sand"), count=60)]
+        self.assertEqual(set(loose), {"gravel", "clay", "sand"})
+        self.assertGreater(loose.count("gravel"), loose.count("clay"))
+        (x, z), = columns(lambda x, z: shore(x, z, SEED) and surface_material(x, z, SEED) == "clay")
+        self.assertEqual((block_at(x, SEA_LEVEL, z, SEED), block_at(x, SEA_LEVEL + 1, z, SEED)), ("clay", "air"))
+
     def test_the_legacy_clearing_has_no_gravel(self):
         for x in range(-LEGACY_RADIUS, LEGACY_RADIUS + 1, 5):
             for z in range(-LEGACY_RADIUS, LEGACY_RADIUS + 1, 5):

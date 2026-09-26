@@ -13,7 +13,7 @@ from pathlib import Path
 
 from backend.services.worldgen import (
     LEGACY_WORLD_SEED, SEA_LEVEL, biome_at, block_at, cave_plant, plant_at, plant_stack, region_openings,
-    rocks_in_chunk, swamp_pool, terrain_height, tree_kind, trees_in_chunk,
+    rocks_in_chunk, shore, surface_material, swamp_pool, terrain_height, tree_kind, trees_in_chunk,
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "shared" / "worldgen-fixture.json"
@@ -142,6 +142,23 @@ def _deep(seed: str, count: int) -> list[tuple[int, int, int]]:
     return found
 
 
+def _shore_loose(seed: str, count: int, xs: range = FEATURE_XS) -> list[tuple[int, int]]:
+    """Making: shore columns of clay and of sand (not a desert's), `count` of each."""
+    seen: dict[str, int] = {}
+    found = []
+    for x in xs:
+        for z in range(-60, 60, 2):
+            if not shore(x, z, seed) or biome_at(x, z, seed) == "desert":
+                continue
+            kind = surface_material(x, z, seed)
+            if kind in ("clay", "sand") and seen.get(kind, 0) < count:
+                seen[kind] = seen.get(kind, 0) + 1
+                found.append((x, z))
+                if len(seen) == 2 and all(value == count for value in seen.values()):
+                    return found
+    return found
+
+
 def _entrances(seed: str, count: int, rxs: range = range(4, 40)) -> list[dict]:
     """The carved columns of `count` sinkholes and `count` hillside mouths."""
     found, seen = [], {}
@@ -197,6 +214,9 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
         for x, z in _features(seed, 3) + _features(seed, 3, FEATURE_XS_NEG):
             height = terrain_height(x, z, seed)
             cells |= {(seed, x, height + dy, z) for dy in range(-2, 5)}
+        for x, z in _shore_loose(seed, 3) + _shore_loose(seed, 3, FEATURE_XS_NEG):
+            height = terrain_height(x, z, seed)
+            cells |= {(seed, x, height + dy, z) for dy in range(-1, 2)}
         for _ in range(1500):
             cells.add((seed, rng.randint(-700, 700), rng.randint(-8, 40), rng.randint(-700, 700)))
     far = random.Random(11)

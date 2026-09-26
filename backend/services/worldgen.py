@@ -13,6 +13,7 @@ from functools import lru_cache
 
 LEGACY_WORLD_SEED = "13897963875510148821"
 LEGACY_RADIUS = 192
+SHORE_LOOSE = 94  # Making: the channel that picks clay, sand or gravel for a gravel shore cell
 TRANSITION_WIDTH = 48
 SEA_LEVEL = 2
 MASK = 0xFFFFFFFF
@@ -206,7 +207,8 @@ def surface_material(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str:
     if biome == "swamp" and noise2(x, z, 7, seed, 19) > 0.05:
         return "mud"
     if shore(x, z, seed) and noise2(x, z, 7, seed, 88) > 0.3:
-        return "gravel"
+        loose = hash32(x, 0, z, seed, SHORE_LOOSE) % 5  # Making: clay and sand among the shore gravel
+        return "clay" if loose == 0 else "sand" if loose == 1 else "gravel"
     return "grass"
 
 

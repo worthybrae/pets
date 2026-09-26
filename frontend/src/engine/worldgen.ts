@@ -5,6 +5,8 @@ import { AIR, blockId } from './blocks'
 
 export const DEFAULT_WORLD_SEED = '13897963875510148821'
 export const LEGACY_RADIUS = 192
+/** Making: the channel that picks clay, sand or gravel for a gravel shore cell. */
+export const SHORE_LOOSE = 94
 const TRANSITION_WIDTH = 48
 export const SEA_LEVEL = 2
 export const CHUNK_SIZE = 16
@@ -187,7 +189,10 @@ export function surfaceMaterial(x: number, z: number, seed = DEFAULT_WORLD_SEED)
     if (noise2(x, z, 9, seed, 18) > 0.15) return 'snow'
   }
   if (biome === 'swamp' && noise2(x, z, 7, seed, 19) > 0.05) return 'mud'
-  if (shore(x, z, seed) && noise2(x, z, 7, seed, 88) > 0.3) return 'gravel'
+  if (shore(x, z, seed) && noise2(x, z, 7, seed, 88) > 0.3) {
+    const loose = hash32(x, 0, z, seed, SHORE_LOOSE) % 5  // Making: clay and sand among the shore gravel
+    return loose === 0 ? 'clay' : loose === 1 ? 'sand' : 'gravel'
+  }
   return 'grass'
 }
 
