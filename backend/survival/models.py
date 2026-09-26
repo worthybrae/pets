@@ -80,25 +80,48 @@ def criteria(choices: list[Option]) -> dict[str, str]:
             + (f" It works toward the goal: {option.goal}." if option.goal else "") for option in choices}
 
 
-def jev_answers(payload: dict, questions: dict[str, tuple[list[Option], str]], env: Env,
-                http: Http = post_json) -> dict[str, str]:
-    """Jev's choice for each question, {name: (choices, instructions)}, asked in one call."""
+def jev_call(payload: dict, questions: dict[str, tuple[list[Option], str]], env: Env, http: Http = post_json) -> dict:
+    """Jev's raw answer to every question, {name: (choices, instructions)}, asked in one call."""
     asked = {name: {"type": "choice", "instructions": instructions, "criteria": criteria(choices)}
              for name, (choices, instructions) in questions.items()}
     body = {"model": env.get("TYPESAFE_MODEL") or "jev-latest", "state": payload, "questions": asked}
     headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "curl/8.7.1",
                "Authorization": f"Bearer {env.get('TYPESAFE_API_KEY', '')}"}
-    answer = http(env.get("TYPESAFE_API_URL") or DEFAULT_JEV_URL, headers, body, JEV_TIMEOUT)
-    chosen = {}
+    return http(env.get("TYPESAFE_API_URL") or DEFAULT_JEV_URL, headers, body, JEV_TIMEOUT)
+
+
+def jev_choice(answer: dict, name: str, choices: list[Option]) -> str:
+    """The offered choice Jev's answer picks for question `name`; ModelError when it picks none."""
+    try:
+        choice = answer["answers"][name]["choice"]
+    except (KeyError, TypeError) as error:
+        raise ModelError(f"Jev answered without a choice ({error!r})") from error
+    if choice not in {option.name for option in choices}:
+        raise ModelError(f"Jev chose {choice!r}, which was not offered")
+    return choice
+
+
+def jev_answers(payload: dict, questions: dict[str, tuple[list[Option], str]], env: Env,
+                http: Http = post_json) -> dict[str, str]:
+    """Jev's choice for each question, {name: (choices, instructions)}, asked in one call; ModelError
+    when any one is not an offered choice."""
+    answer = jev_call(payload, questions, env, http)
+    return {name: jev_choice(answer, name, choices) for name, (choices, _) in questions.items()}
+
+
+def jev_choices(payload: dict, questions: dict[str, tuple[list[Option], str]], env: Env,
+                http: Http = post_json) -> tuple[dict[str, str], dict[str, str]]:
+    """(picks, refused): Jev's offered choice for each question it answered well, asked in one call, and
+    why each other question's answer was refused, so the caller falls back for those alone (Bond's chat,
+    Mind hook R5). ModelError only when the call itself fails."""
+    answer = jev_call(payload, questions, env, http)
+    picks, refused = {}, {}
     for name, (choices, _) in questions.items():
         try:
-            choice = answer["answers"][name]["choice"]
-        except (KeyError, TypeError) as error:
-            raise ModelError(f"Jev answered without a choice ({error!r})") from error
-        if choice not in {option.name for option in choices}:
-            raise ModelError(f"Jev chose {choice!r}, which was not offered")
-        chosen[name] = choice
-    return chosen
+            picks[name] = jev_choice(answer, name, choices)
+        except ModelError as error:
+            refused[name] = str(error)
+    return picks, refused
 
 
 def ask_jev(payload: dict, choices: list[Option], env: Env, http: Http = post_json, question: str = "purpose",

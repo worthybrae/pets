@@ -24,14 +24,20 @@ TOPIC_PAIRS for two words in a row: "good job" is a kind word, "good night" a go
 chooses one, and without Jev `rules_pick` takes the first of them, or the table's line when the
 words touch no topic. The owner's words are only matched against keywords: they never write a line
 and are never followed. A writer that crashes is logged once and left out.
+
+Hooks for Mind (memory and teaching): a writer may return a Reply rather than text, with a `note` for
+the reply keeper (R1: the memory a recall line quotes) and a `weight` of its own (R2: recall's score);
+TOLD weighs what the owner just told (R2: a teaching acknowledgment); Heard.context carries what the
+chat's HEARING hooks found once per job (R3: recalled memories, teachable lessons); and a writer may
+return several lines, named topic, topic:2, topic:3... (R6: two recalled memories).
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Callable
+from dataclasses import dataclass, field, replace
+from typing import Callable, Mapping, Sequence, Union
 
 from backend.survival.care import utc_day
 from backend.survival.curiosity import curiosity_view
@@ -167,6 +173,9 @@ class Heard:
     facts: tuple = ()  # (kind, words) Mimo remembers about the owner, newest first
     bond: float = 30.0  # B2: the bond's level (until then a friendly middle)
     noticed: Noticed = field(default=None, compare=False)  # type: ignore[assignment]
+    # Mind hook R3: what backend.survival.talk's HEARING hooks found, once per chat job ({hook name: value},
+    # read-only): Mind's recalled memories and teachable lessons, for its questions and reply writers.
+    context: Mapping = field(default_factory=dict, compare=False)
 
     def __post_init__(self):
         if self.noticed is None:
@@ -190,8 +199,22 @@ class Heard:
 
 @dataclass(frozen=True)
 class Reply:
+    """One line Mimo could say. A writer returns a line as text, or as a Reply to say more about it."""
     topic: str
     text: str
+    # Mind hook R1: what the reply keeper needs when this line is chosen (talk.REPLY_KEEPERS[topic]), such
+    # as the memory a recall line quotes. It reaches the keeper as the reply question's notes[name].
+    note: Mapping = field(default_factory=dict, compare=False)
+    # Mind hook R2: how much the line answers the owner's words, set by its writer (a recall line's own
+    # score); None ranks it by TOLD and the topic's keywords (`relevance`).
+    weight: float | None = None
+    # Mind hook R6: the option's name, the topic for a writer's first line and "topic:2", "topic:3"... for
+    # its later ones (`candidates`); `topic_of` reads the topic back.
+    name: str = ""
+
+    def __post_init__(self):
+        if not self.name:
+            object.__setattr__(self, "name", self.topic)
 
 
 SENTENCE_END = re.compile(r"(?<=[.!?])(?<!\.\.\.)\s+")  # after . ! or ?, but not inside a "..." pause
@@ -336,11 +359,13 @@ def touches(heard: Heard, topic: str) -> int:
 
 # The writers, one per topic ---------------------------------------------------------------------
 
-def name_ack(s: Situation, heard: Heard) -> str | None:
+def name_ack(s: Situation, heard: Heard) -> Reply | None:
     name = heard.noticed.get("name")
     if not name:
         return None
-    return f"I know, {name}! I remember you." if name == heard.owner else f"Nice to meet you, {name}! I'll remember that."
+    text = f"I know, {name}! I remember you." if name == heard.owner else f"Nice to meet you, {name}! I'll remember that."
+    # A weak name in a long line ("How are you? I'm Robin.") is on offer, but not the rules' answer.
+    return Reply("name_ack", text, weight=None if heard.noticed.strong or heard.noticed.short else 0.0)
 
 
 def like_ack(s: Situation, heard: Heard) -> str | None:
@@ -514,39 +539,63 @@ def mood(s: Situation, heard: Heard) -> str:
     return MOOD_LINES[(mood_band(s.vitals["mood"]), activity(s))]
 
 
-# {topic: write(s, heard) -> line or None}, in the order lines are offered when the words touch none.
-REPLIES: dict[str, Callable[[Situation, Heard], str | None]] = {
+# {topic: write(s, heard) -> a line, several lines, or None}, in the order lines are offered when the words
+# touch none. A line is text or a Reply (R1, R2); several lines (R6: Mind's recall) are named topic,
+# topic:2, topic:3...
+Written = Union[str, Reply, Sequence[Union[str, Reply]], None]
+REPLIES: dict[str, Callable[[Situation, Heard], Written]] = {
     "name_ack": name_ack, "like_ack": like_ack, "welcome": welcome, "affection": affection, "farewell": farewell,
     "greet": greet, "feel": feel, "doing": doing, "goal": goal_line, "plan": plan, "news": news, "thanks": thanks,
     "curious": curious, "fond": fond, "remember": remember, "journal": journal, "self": self_name,
     "ask_back": ask_back, MOOD: mood,
 }
+# Mind hook R2: {topic: weight} for what the owner just told Mimo. A line of such a topic answers first,
+# before any keyword (Mind M2 adds its teaching acknowledgment).
+TOLD: dict[str, float] = {"name_ack": 10.0, "like_ack": 10.0}
 
 
-def relevance(topic: str, heard: Heard) -> float:
-    """How much the owner's words touch a topic: what they just told first, then shared keywords; a
-    close Mimo's news and memories of the owner a little (SHARED)."""
-    if topic == "name_ack" and not (heard.noticed.strong or heard.noticed.short):
-        return 0.0  # a weak name in a long line ("How are you? I'm Robin."): Jev may take it, the rules do not
-    if topic in ("name_ack", "like_ack"):
-        return 10.0
-    shared = 0.5 if topic in SHARED and heard.bond >= CLOSE else 0.0
-    return touches(heard, topic) + shared
+def topic_of(name: str) -> str:
+    """The topic of a reply option's name: "recall:2" -> "recall"."""
+    return name.partition(":")[0]
+
+
+def relevance(reply: Reply, heard: Heard) -> float:
+    """How much a line answers the owner's words: the weight its writer gave it, else what they just told
+    (TOLD), else the topic's keywords and word pairs; a close Mimo's news and memories of the owner a
+    little more (SHARED)."""
+    if reply.weight is not None:
+        return float(reply.weight)
+    if reply.topic in TOLD:
+        return TOLD[reply.topic]
+    shared = 0.5 if reply.topic in SHARED and heard.bond >= CLOSE else 0.0
+    return touches(heard, reply.topic) + shared
+
+
+def lines_of(topic: str, written: Written) -> list[Reply]:
+    """A writer's line or lines as Replies, clipped and named: topic, topic:2, topic:3..."""
+    if written is None or isinstance(written, (str, Reply)):
+        written = [written] if written else []
+    lines = []
+    for number, line in enumerate(line for line in written if line):
+        reply = line if isinstance(line, Reply) else Reply(topic, line)
+        lines.append(replace(reply, topic=topic, text=clip(reply.text),
+                             name=topic if number == 0 else f"{topic}:{number + 1}"))
+    return lines
 
 
 def candidates(s: Situation, heard: Heard) -> list[Reply]:
-    """At most SHOWN lines, the ones the owner's words touch most first, the table's line always among them."""
+    """At most SHOWN lines, the ones that answer the owner's words best first, the table's line always
+    among them. A line said already by another writer is left out."""
     written: list[Reply] = []
     for topic, write in REPLIES.items():
         try:
-            text = write(s, heard)
+            lines = lines_of(topic, write(s, heard))
         except Exception as error:
             log_once(logger, f"reply {topic}", error)
             continue
-        if text and clip(text) not in [reply.text for reply in written]:
-            written.append(Reply(topic, clip(text)))
+        written.extend(reply for reply in lines if reply.text and reply.text not in [seen.text for seen in written])
     order = list(REPLIES)
-    ranked = sorted(written, key=lambda reply: (-relevance(reply.topic, heard), order.index(reply.topic)))
+    ranked = sorted(written, key=lambda reply: (-relevance(reply, heard), order.index(reply.topic)))
     shown = ranked[:SHOWN]
     table = next((reply for reply in written if reply.topic == MOOD), None)
     if table is not None and table not in shown:
@@ -555,14 +604,19 @@ def candidates(s: Situation, heard: Heard) -> list[Reply]:
 
 
 def rules_pick(replies: list[Reply], heard: Heard) -> str:
-    """The rules' reply without Jev: the first line the owner's words touch (or a close Mimo's news),
-    else the table's line."""
-    if replies and relevance(replies[0].topic, heard) > 0:
-        return replies[0].topic
-    return MOOD if any(reply.topic == MOOD for reply in replies) else (replies[0].topic if replies else MOOD)
+    """The rules' reply without Jev: the first line that answers the owner's words (or a close Mimo's
+    news), else the table's line. Returns the line's name."""
+    if replies and relevance(replies[0], heard) > 0:
+        return replies[0].name
+    return MOOD if any(reply.name == MOOD for reply in replies) else (replies[0].name if replies else MOOD)
 
 
 def reply_options(replies: list[Reply]) -> tuple[Option, ...]:
-    """The lines as choices for Jev's "reply" question."""
-    return tuple(Option(reply.topic, reply.text, f"Say: \"{reply.text.replace(chr(34), chr(39))}\"",
+    """The lines as choices for Jev's "reply" question, named as the lines are."""
+    return tuple(Option(reply.name, reply.text, f"Say: \"{reply.text.replace(chr(34), chr(39))}\"",
                         f"a reply about {ABOUT.get(reply.topic, reply.topic)}", 0.0) for reply in replies)
+
+
+def reply_notes(replies: list[Reply]) -> dict:
+    """{line name: its note} for the reply question's keeper (Mind hook R1)."""
+    return {reply.name: dict(reply.note) for reply in replies}

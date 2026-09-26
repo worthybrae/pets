@@ -17,8 +17,9 @@ for LANE_REST real seconds and keeps its answer: after the rest the same answer 
 world that keeps refusing the write never costs another model call (`unstored`). A provider that
 crashes while it looks for a job rests its lane for PROVIDER_REST real seconds, so a job that cannot
 be built is not rebuilt every poll.
-Every CHORE_EVERY real seconds the Talker also runs the chores (CHORES: B2's asks and B3's inbox),
-rules only, in one short transaction of their own; each chore runs in a savepoint, so one that
+Every CHORE_EVERY real seconds the Talker also runs the chores (CHORES: the event log's mirrors,
+backend.survival.events, first; then B2's asks and B3's inbox), rules only, in one short transaction
+of their own; each chore runs in a savepoint, so one that
 crashes is rolled back alone. Nothing here raises: a crash is logged once and the worker goes on.
 The Bond modules register their jobs and chores on import (backend.survival.bonding).
 """
@@ -35,6 +36,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 from backend.survival.clock import time_scale
+from backend.survival.events import consumers, mirror_events
 from backend.survival.models import Http, post_json
 from backend.survival.once import log_once
 from backend.survival.registry import LifeRegistry
@@ -62,8 +64,10 @@ class Job:
 # {lane: [provide(world, now, scale, env) -> Job | None]}: what each lane does, first first. `world`
 # is read-only.
 LANES: dict[str, list] = {"chat": [], "story": []}
-# chore(db, state, now, scale) -> True when it changed the state: rules-only upkeep (B2, B3).
-CHORES: list = []
+# chore(db, state, now, scale) -> True when it changed the state: rules-only upkeep. The event log's
+# mirrors come first (Mind hook R7: Mind's memories and B2's inbox register their writers there), then B2's
+# and B3's chores.
+CHORES: list = [mirror_events]
 
 
 def new_thread() -> ThreadPoolExecutor:
@@ -73,14 +77,15 @@ def new_thread() -> ThreadPoolExecutor:
 def run_chores(world: SurvivalWorld, now: float, scale: float) -> None:
     """Every chore once, in one transaction; each in a savepoint, so a crash rolls back only its own
     writes and state changes (logged once)."""
-    if not CHORES:
+    chores = [chore for chore in CHORES if chore is not mirror_events or consumers()]  # mirrors with no one to tell
+    if not chores:
         return
     with world.transaction() as db:
         state = read_state(db)
         if state["died_at"] is not None:
             return
         changed = False
-        for chore in list(CHORES):
+        for chore in chores:
             before = copy.deepcopy(state)
             db.execute("SAVEPOINT chore")
             try:

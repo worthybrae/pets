@@ -19,17 +19,23 @@ A kept fact lives in the world's memory_knowledge as fact "owner" with the subje
 "<kind>:<words>" (words at most FACT_WORDS characters). At most FACTS_KEPT are kept: past that the
 oldest are forgotten first. A new name replaces the old one, and a fact heard again is fresh again.
 B2 adds the kinds "asked" (a request Mimo turned down) and "named" (a place the owner named).
+Whatever else follows the owner's facts registers in FACT_MIRRORS (Mind makes each a "told" memory):
+it hears every fact kept, from the chat or from B2, in the same transaction.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass
 
 from backend.survival.bond_tables import missing_table
 from backend.survival.memory import know
+from backend.survival.once import log_once
 from backend.survival.pickers import Option
+
+logger = logging.getLogger(__name__)
 
 FACT = "owner"  # the memory_knowledge fact
 FACT_KINDS = ("name", "likes", "dislikes", "about", "asked", "named")
@@ -37,6 +43,10 @@ FACTS_KEPT = 40
 FACT_WORDS = 80
 NAME_LIMIT = 24
 NONE = "none"
+# Mind hook (R9): [write(db, kind, words, at, new) -> None], told of each owner fact kept (new is False for
+# a fact heard again), in the keeping transaction, each in a savepoint (one that crashes is rolled back
+# and logged once). The facts stay here in memory_knowledge; Mind mirrors them as "told" memories.
+FACT_MIRRORS: list = []
 SHORT_LINE = 3  # words in a line short enough for the rules to keep a weak name ("Hi, I'm Sam")
 # Words after "I'm" / "I am" / "my name is" / "call me" that are not a name.
 NOT_NAMES = frozenset({
@@ -201,6 +211,14 @@ def remember_fact(db: sqlite3.Connection, kind: str, words: str, at: float) -> b
         db.execute("UPDATE memory_knowledge SET learned_at=? WHERE fact=? AND subject=?", (at, FACT, subject))
     db.execute("DELETE FROM memory_knowledge WHERE fact=? AND rowid NOT IN (SELECT rowid FROM memory_knowledge "
                "WHERE fact=? ORDER BY learned_at DESC, rowid DESC LIMIT ?)", (FACT, FACT, FACTS_KEPT))
+    for write in list(FACT_MIRRORS):
+        db.execute("SAVEPOINT fact_mirror")
+        try:
+            write(db, kind, words, at, new)
+        except Exception as error:
+            db.execute("ROLLBACK TO fact_mirror")
+            log_once(logger, f"fact mirror {getattr(write, '__name__', write)}", error)
+        db.execute("RELEASE fact_mirror")
     return new
 
 

@@ -30,28 +30,38 @@ keeper (KEEPERS) then applies its answer, and a keeper's line (B2's answer to a 
 reply. The reply's keeper keeps what the chosen line promised (a name, a like), so "I'll remember
 that" is always true whatever the fact question's answer; the fact's keeper always keeps a strong
 name and then the kind picked.
+
+Hooks for Mind (memory and teaching), so its teaching and recall join the chat without rewriting it:
+- R1: a reply line's note reaches REPLY_KEEPERS[topic] when the line is chosen (Question.notes);
+- R3: HEARING hooks look at the owner's words once per job, into Heard.context;
+- R4: KEEPER_PRECEDENCE decides whose keeper line is said;
+- R5: a question Jev answered badly falls back to the rules alone (`decide_chat`);
+- R2 and R6 are in backend.survival.replies (a line's own weight, TOLD, several lines a topic); R7,
+  the event log's mirrors, is backend.survival.events.
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import sqlite3
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from types import MappingProxyType
 
 from backend.survival.actions import ensure_actions
 from backend.survival.bond_tables import missing_table
 from backend.survival.curiosity import curiosity_view
 from backend.survival.goals import goal_payload
-from backend.survival.models import JEV_TIMEOUT, Http, ModelError, jev_answers, jev_configured
+from backend.survival.models import JEV_TIMEOUT, Http, ModelError, jev_choices, jev_configured
 from backend.survival.once import log_once
 from backend.survival.owner_facts import (
     FACT_INSTRUCTIONS, NONE, Noticed, fact_options, owner_facts, owner_name, remember_fact, rules_fact,
 )
 from backend.survival.pickers import Option
 from backend.survival.replies import (
-    REPLY_INSTRUCTIONS, Heard, candidates, clip, doing_words, reply_options, rules_pick,
+    REPLY_INSTRUCTIONS, Heard, candidates, clip, doing_words, reply_notes, reply_options, rules_pick, topic_of,
 )
 from backend.survival.situation import Situation, from_db
 from backend.survival.talker import LANES, Job
@@ -144,19 +154,34 @@ def chat_view(db: sqlite3.Connection, state: dict, now: float, scale: float) -> 
 
 @dataclass(frozen=True)
 class Question:
-    name: str  # "reply", "fact", B2's "request"
+    name: str  # "reply", "fact", B2's "request", Mind's "teach"
     instructions: str
     options: tuple[Option, ...]
     rules: str  # the rules' pick: one of the options' names
-    notes: dict = field(default_factory=dict)  # {option name: what its keeper needs} (B2's answers)
+    # {option name: what its keeper needs}: B2's answers to a request; for "reply", each line's note
+    # (Mind hook R1: the memory a recall line quotes), handed to REPLY_KEEPERS.
+    notes: dict = field(default_factory=dict)
 
 
 # Functions of (Situation, Heard) giving a Question or None, asked in the chat's one Jev call in this
-# order: B1's reply and fact, B2's request. One that crashes is left out (logged once).
+# order: B1's reply and fact, B2's request, Mind's teach. One that crashes is left out (logged once).
 QUESTIONS: list = []
 # {question: keep(db, state, heard, question, pick, now) -> str | None}: what an answer changes once it
-# is stored (a fact remembered, a request taken up). A returned line replaces the reply.
+# is stored (a fact remembered, a request taken up). Every keeper runs, in the questions' order, each in
+# a savepoint of its own (one that crashes is rolled back and logged once). A returned line replaces the
+# reply; when several return one, KEEPER_PRECEDENCE says whose line is said (Mind hook R4).
 KEEPERS: dict = {}
+# Mind hook R4: whose keeper line wins, first first: B2's answer to a request, then Mind's answer to
+# teaching, then a line from the reply's own keeper, then the fact's. A question not listed comes after.
+KEEPER_PRECEDENCE: list = ["request", "teach", "reply", "fact"]
+# Mind hook R1: {reply topic: keep(db, state, heard, note, now) -> str | None}: what saying a line of that
+# topic keeps, run by the reply question's keeper with the chosen line's note ("Nice to meet you, Sam!"
+# keeps the name; Mind's recall line marks its memory recalled).
+REPLY_KEEPERS: dict = {}
+# Mind hook R3: {name: hook(db, s, heard) -> value}: what the chat needs to know about the owner's words
+# before any question is asked, found once per chat job and put in Heard.context[name] (Mind's recall
+# of the words, its shortlist of teachable lessons). One that crashes is left out (logged once).
+HEARING: dict = {}
 
 
 @dataclass(frozen=True)
@@ -173,19 +198,29 @@ class ChatAsk:
 @dataclass(frozen=True)
 class ChatAnswer:
     picks: dict  # {question: option name}
-    picker: str  # "jev" or "rules"
+    picker: str  # who chose the reply: "jev" or "rules"
     error: str | None = None
+    by_jev: tuple = ()  # the questions Jev answered (Mind hook R5: the others fell back to the rules)
 
 
 def hear(db: sqlite3.Connection, s: Situation, text: str) -> Heard:
-    """The owner's words, with what Mimo remembers of them."""
+    """The owner's words, with what Mimo remembers of them and what the HEARING hooks found (once)."""
     facts = tuple(owner_facts(db))
-    return Heard(text, owner_name(list(facts)), facts)
+    heard = Heard(text, owner_name(list(facts)), facts)
+    if not HEARING:
+        return heard
+    context: dict = {}
+    for name, hook in list(HEARING.items()):
+        try:
+            context[name] = hook(db, s, replace(heard, context=MappingProxyType(dict(context))))
+        except Exception as error:
+            log_once(logger, f"chat hearing {name}", error)
+    return replace(heard, context=MappingProxyType(context))
 
 
 def reply_question(s: Situation, heard: Heard) -> Question:
     found = candidates(s, heard)
-    return Question("reply", REPLY_INSTRUCTIONS, reply_options(found), rules_pick(found, heard))
+    return Question("reply", REPLY_INSTRUCTIONS, reply_options(found), rules_pick(found, heard), reply_notes(found))
 
 
 def fact_question(s: Situation, heard: Heard) -> Question | None:
@@ -205,21 +240,29 @@ def keep_fact(db: sqlite3.Connection, state: dict, heard: Heard, question: Quest
         remember_fact(db, pick, noticed.get(pick), now)
 
 
-def keep_reply(db: sqlite3.Connection, state: dict, heard: Heard, question: Question, pick: str, now: float) -> None:
-    """What the chosen line promised, so "I'll remember that" is always true: "Nice to meet you, Sam!"
-    keeps the name, strong or weak, and "Ooh, the lake? I'll remember that you like it." the like (or
-    the dislike it named)."""
-    noticed = heard.noticed
-    if pick == "name_ack" and noticed.get("name"):
-        remember_fact(db, "name", noticed.get("name"), now)
-    elif pick == "like_ack":
-        kind = "likes" if noticed.get("likes") else "dislikes"
-        if noticed.get(kind):
-            remember_fact(db, kind, noticed.get(kind), now)
+def keep_reply(db: sqlite3.Connection, state: dict, heard: Heard, question: Question, pick: str,
+               now: float) -> str | None:
+    """What the chosen line promised, through REPLY_KEEPERS by its topic, with its note (Mind hook R1)."""
+    keep = REPLY_KEEPERS.get(topic_of(pick))
+    return keep(db, state, heard, question.notes.get(pick, {}), now) if keep else None
+
+
+def keep_name(db: sqlite3.Connection, state: dict, heard: Heard, note: dict, now: float) -> None:
+    """"Nice to meet you, Sam! I'll remember that." keeps the name, strong or weak."""
+    if heard.noticed.get("name"):
+        remember_fact(db, "name", heard.noticed.get("name"), now)
+
+
+def keep_like(db: sqlite3.Connection, state: dict, heard: Heard, note: dict, now: float) -> None:
+    """"Ooh, the lake? I'll remember that you like it." keeps the like (or the dislike it named)."""
+    kind = "likes" if heard.noticed.get("likes") else "dislikes"
+    if heard.noticed.get(kind):
+        remember_fact(db, kind, heard.noticed.get(kind), now)
 
 
 QUESTIONS.extend([reply_question, fact_question])
 KEEPERS.update({"reply": keep_reply, "fact": keep_fact})
+REPLY_KEEPERS.update({"name_ack": keep_name, "like_ack": keep_like})
 
 
 def chat_payload(db: sqlite3.Connection, s: Situation, heard: Heard, line_id: int) -> dict:
@@ -298,16 +341,46 @@ def rules_answer(ask: ChatAsk, error: str | None = None) -> ChatAnswer:
 
 def decide_chat(ask: ChatAsk, env, http: Http) -> ChatAnswer:
     """Jev's picks for every question with a choice to make, in one call; the rules' when Jev is not
-    asked or fails. A question with one option takes it without asking."""
+    asked or the call fails. A question Jev answered with something not offered falls back to the
+    rules alone, and the others keep Jev's picks (Mind hook R5). A question with one option takes it
+    without asking."""
     choosing = [question for question in ask.questions if len(question.options) > 1]
     if ask.route != "jev" or not choosing:
         return rules_answer(ask)
     try:
-        picks = jev_answers(ask.payload, {question.name: (list(question.options), question.instructions)
-                                          for question in choosing}, env, http)
+        picks, refused = jev_choices(ask.payload, {question.name: (list(question.options), question.instructions)
+                                                   for question in choosing}, env, http)
     except Exception as error:
         return rules_answer(ask, f"jev: {error}")
-    return ChatAnswer({**rules_answer(ask).picks, **picks}, "jev")
+    error = "; ".join(f"jev {name}: {why}" for name, why in refused.items()) or None
+    return ChatAnswer({**rules_answer(ask).picks, **picks}, "jev" if "reply" in picks else "rules", error,
+                      tuple(picks))
+
+
+def keep_answers(db: sqlite3.Connection, state: dict, ask: ChatAsk, answer: ChatAnswer, now: float) -> str | None:
+    """Run every question's keeper, each in a savepoint of its own (one that crashes is rolled back,
+    its state changes too, and logged once), and return the line that replaces the reply, if any: the
+    line of the question that comes first in KEEPER_PRECEDENCE."""
+    lines: dict[str, str] = {}
+    for question in ask.questions:
+        keep = KEEPERS.get(question.name)
+        if keep is None:
+            continue
+        before = copy.deepcopy(state)
+        db.execute("SAVEPOINT keeper")
+        try:
+            line = keep(db, state, ask.heard, question, answer.picks.get(question.name, question.rules), now)
+        except Exception as error:
+            db.execute("ROLLBACK TO keeper")
+            state.clear()
+            state.update(before)
+            log_once(logger, f"chat keeper {question.name}", error)
+            line = None
+        db.execute("RELEASE keeper")
+        if line:
+            lines.setdefault(question.name, line)
+    order = [name for name in KEEPER_PRECEDENCE if name in lines] + [name for name in lines if name not in KEEPER_PRECEDENCE]
+    return lines[order[0]] if order else None
 
 
 def store_chat(world: SurvivalWorld, ask: ChatAsk, answer: ChatAnswer, now: float) -> str | None:
@@ -321,22 +394,9 @@ def store_chat(world: SurvivalWorld, ask: ChatAsk, answer: ChatAnswer, now: floa
         state = read_state(db)
         if state["died_at"] is not None:
             return None
-        reply = None
-        for question in ask.questions:
-            pick = answer.picks.get(question.name, question.rules)
-            if question.name == "reply":
-                reply = next((option.phrase for option in question.options if option.name == pick), None)
-            keep = KEEPERS.get(question.name)
-            if keep is None:
-                continue
-            try:
-                line = keep(db, state, ask.heard, question, pick, now)
-            except Exception as error:
-                log_once(logger, f"chat keeper {question.name}", error)
-                continue
-            if line:
-                reply = line
-        reply = clip(reply or LOST_LINE)
+        reply = next((option.phrase for question in ask.questions if question.name == "reply"
+                      for option in question.options if option.name == answer.picks.get("reply", question.rules)), None)
+        reply = clip(keep_answers(db, state, ask, answer, now) or reply or LOST_LINE)
         db.execute("UPDATE mimo_chat SET status=? WHERE id=?", (ANSWERED, ask.line_id))
         db.execute("INSERT INTO mimo_chat(at, game_at, who, text, picker) VALUES (?, ?, 'mimo', ?, ?)",
                    (now, game_seconds(state, now, ask.scale), reply, answer.picker))
