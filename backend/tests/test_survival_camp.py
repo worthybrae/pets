@@ -201,6 +201,32 @@ class FullArmsTests(unittest.TestCase):
         steps = PURPOSES["camp"].plan(self.pet.situation(DUSK), self.pet.context(DUSK))
         self.assertEqual([step["kind"] for step in steps], ["place", "place", "mine"])  # the torches free a stack
 
+    def test_a_spot_is_offered_when_the_campfire_it_puts_down_frees_the_roofs_stack(self):
+        # Follow-up 2 (F2): camp_spot judged room for the roof on its arms as they were, not as
+        # plan_camp leaves them once the fire and torches are down; two trips spent a night out on
+        # the surface for it (seed 13: a campfire stack, and 3 sticks the campfire would use).
+        self.pet.state["inventory"] = {**FILLER, "bread": 4, "torch": 4, "campfire": 1}  # 16, nothing to drop
+        s = self.pet.situation(DUSK)
+        self.assertTrue(full(s.inventory))
+        camp = PURPOSES["camp"]
+        self.assertTrue(camp.valid(s))
+        steps = camp.plan(s, self.pet.context(DUSK))
+        self.assertEqual(steps, [{"kind": "place", "target": [102, 1, 1], "block": "campfire"},
+                                 {"kind": "place", "target": [100, 1, 1], "block": "torch"},
+                                 {"kind": "place", "target": [101, 1, 2], "block": "torch"},
+                                 {"kind": "mine", "target": [101, 0, 1]}])  # no drop: the fire made room
+        self.carry(steps)
+        self.assertEqual(self.pet.state["inventory"]["dirt"], 1)  # its roof
+        made = {**{f"item_{n}": 1 for n in range(12)}, "bread": 4, "torch": 4, "sticks": 3, "oak_log": 3}
+        self.pet.state["inventory"] = made  # 16 stacks: the campfire it makes uses the sticks' stack up
+        self.pet.world.grid.put(101, 0, 1, "grass")
+        for cell in ((102, 1, 1), (100, 1, 1), (101, 1, 2)):
+            self.pet.world.grid.put(*cell, "air")
+        s = self.pet.situation(DUSK)
+        self.assertTrue(camp.valid(s))
+        self.assertEqual([step["kind"] for step in camp.plan(s, self.pet.context(DUSK))],
+                         ["craft", "place", "place", "place", "mine"])
+
     def test_with_full_arms_and_nothing_it_may_drop_it_does_not_camp(self):
         for spare in ({"leather": 3},  # gear still wants it: no armor yet
                       {"gold_ingot": 2, "iron_pickaxe": 1}):  # the pickaxe ladder counts it
