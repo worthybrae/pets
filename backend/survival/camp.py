@@ -35,6 +35,7 @@ from backend.services.crafting import BLOCKS, can_harvest
 from backend.survival.blueprints import BUILDING
 from backend.survival.carrying import CARRY_STACKS, GIVES_WAY_TO_FOOD, STACK, room_for
 from backend.survival.cooking import made
+from backend.survival.creatures.hostiles import enclosed
 from backend.survival.creatures.gear import materials_wanted
 from backend.survival.expedition import away, camp_time, from_home, trek
 from backend.survival.goals import URGES
@@ -92,10 +93,9 @@ def roof_fits(inventory: dict, block: str) -> bool:
 
 
 def in_camp(s: Situation) -> bool:
-    """Mimo stands in a camp dug in with its roof on: walled on four sides, a block over its head."""
-    x, y, z = s.here
-    return (is_solid(s.grid.material(x, y + 1, z)) and is_solid(s.grid.material(x, y - 1, z))
-            and all(is_solid(s.grid.material(x + dx, y, z + dz)) for dx, dz in SIDES))
+    """Mimo stands in a camp dug in with its roof on: walled on four sides, a block over its head
+    and under its feet (creatures.hostiles.enclosed, which the alarm shares: the final fix wave's I3)."""
+    return enclosed(s.grid, s.here)
 
 
 def in_pit(s: Situation, cell: Cell) -> bool:

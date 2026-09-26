@@ -5,7 +5,7 @@ from unittest.mock import patch
 from backend.survival.creatures.acts import Scene, act
 from backend.survival.creatures.combat import drops_of, strike
 from backend.survival.creatures.harm import armor_cut, hurt_pet
-from backend.survival.creatures.hostiles import BURN_SECONDS, CHASE_STEPS, LOITER, hostile_near
+from backend.survival.creatures.hostiles import BURN_SECONDS, CHASE_STEPS, LOITER, enclosed, hostile_near
 from backend.survival.creatures.kinds import KINDS, hostile_kinds, huntable, land_kinds
 from backend.survival.creatures.moves import steps
 from backend.survival.creatures.table import Herd, cell_of, create_creature_tables, dead
@@ -88,6 +88,28 @@ class ChaseTests(unittest.TestCase):
         self.assertTrue(hostile_near(grid, grid.herd.db, state))
         self.assertEqual(act(gloom, scene(grid, state)), "chase")
         self.assertEqual(state["brain"]["pending"]["reasons"], ["threat"])
+
+    def test_in_a_sealed_camp_a_hostile_raises_no_alarm_and_hostile_near_is_false(self):
+        # L4b final fix wave, I3: no blow reaches a cell solid on all six sides (a camp dug in and
+        # roofed over), yet a gloomling walking up to one sounded the alarm, asking a Jev pet to choose
+        # again at night -- and it sometimes dug out of its camp to gather stone.
+        camp = {(1, 1, 0): "dirt", (-1, 1, 0): "dirt", (0, 1, 1): "dirt", (0, 1, -1): "dirt", (0, 2, 0): "dirt"}
+        grid, state = meadow(camp), pet()  # Mimo at (0, 1, 0), on the grass
+        self.assertTrue(enclosed(grid, (0, 1, 0)))
+        gloom = hostile(grid, cell=(5, 1, 0))
+        self.assertFalse(hostile_near(grid, grid.herd.db, state))
+        night = scene(grid, state)
+        self.assertEqual(act(gloom, night), "chase")  # it still comes, and waits at the wall
+        self.assertEqual(night.events, [])
+        self.assertIsNone(state["brain"]["pending"])
+        grid.put(0, 2, 0, "air")  # the roof off: both fire as before
+        self.assertFalse(enclosed(grid, (0, 1, 0)))
+        self.assertTrue(hostile_near(grid, grid.herd.db, state))
+        skitter = hostile(grid, "skitter", (0, 1, 6))
+        night = scene(grid, state, at=11.0)
+        self.assertEqual(act(skitter, night), "chase")
+        self.assertEqual([event[1:] for event in night.events], [("threat", "Pip saw a skitter coming.")])
+        self.assertEqual((state["brain"]["pending"]["reasons"], state["brain"]["pending"]["urgent"]), (["threat"], True))
 
     def test_farther_than_sixteen_it_prowls_and_it_gives_up_a_chase_past_twenty_four(self):
         grid, state = meadow(), pet()

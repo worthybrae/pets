@@ -24,7 +24,10 @@ in the registry and act through the creature-action registry, ahead of the anima
   it, so the alarm and `hostile_near` (backend.survival.tick's short slicing) use `harm.sheltered`
   (a room or passage cell) like `strike` does, not every claimed cell. The first to come after
   Mimo outside its shelter raises the alarm: an urgent "threat" choice and event, at most one
-  every 5 game minutes, so a model picker (Jev) can react at once.
+  every 5 game minutes, so a model picker (Jev) can react at once. L4b final fix wave, I3: a cell
+  solid on all six sides (`enclosed`: a camp Mimo dug in and roofed over) counts as sheltered for
+  both too, since no blow reaches it (`can_hit`); the alarm used to ask a Jev pet to choose again at
+  night in its sealed camp, and it sometimes dug out of it to gather stone.
 - L3 (L2's review): a chaser loses interest once the chase has gone BORED game seconds since it
   began, its last blow or Mimo's last blow on it, or once Mimo has been out of its sight
   (`in_sight`) for SIGHT_LOST game seconds; it then leaves Mimo be for BORED_REST game seconds
@@ -221,14 +224,23 @@ def chases(creature: dict, kind: Kind, scene: Scene) -> bool:
     return distance <= CHASE_SIGHT or (bool(roused) and distance <= GIVE_UP)
 
 
+def enclosed(grid: Grid, cell: Cell) -> bool:
+    """Every one of the cell's six neighbours is solid, as in a camp Mimo dug in and roofed over
+    (backend.survival.camp): no blow reaches it from any side (`can_hit`), so the alarm and
+    `hostile_near` count it as sheltered (the L4b final fix wave's I3)."""
+    x, y, z = cell
+    return all(grid.solid(near) for near in ((x + 1, y, z), (x - 1, y, z), (x, y + 1, z), (x, y - 1, z),
+                                             (x, y, z + 1), (x, y, z - 1)))
+
+
 def hostile_near(grid: Grid, db: sqlite3.Connection | None, state: dict) -> bool:
     """A living hostile could come after Mimo now: one within CHASE_SIGHT across and CHASE_RISE up
     or down, while Mimo is not sheltered (a room or passage cell of a shelter it built) -- the
     same cell a blow cannot reach (harm.sheltered), so this agrees with `strikes` about what is
-    safe. The tick then runs in short steps (backend.survival.tick)."""
+    safe -- nor enclosed (I3: a sealed camp). The tick then runs in short steps (backend.survival.tick)."""
     position = state["position"]
     x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
-    if grid.herd is None or (db is not None and sheltered(db, (x, y, z))):
+    if grid.herd is None or enclosed(grid, (x, y, z)) or (db is not None and sheltered(db, (x, y, z))):
         return False
     for creature in grid.herd.near(x, z, CHASE_SIGHT, kinds=hostile_kinds()):  # final fix wave: hostile rows only
         kind = kind_of(creature["kind"])
@@ -239,10 +251,12 @@ def hostile_near(grid: Grid, db: sqlite3.Connection | None, state: dict) -> bool
 
 def alarm(scene: Scene, kind: Kind) -> None:
     """The first hostile to come after Mimo outside its shelter (harm.sheltered, the same room or
-    passage a blow cannot reach) asks for a new choice at once."""
+    passage a blow cannot reach) and outside a sealed camp (`enclosed`, I3) asks for a new choice at
+    once."""
     brain = ensure_brain(scene.state)
     last = brain.get("threat_at")
-    if sheltered(scene.herd.db, scene.pet) or (last is not None and (scene.at - last) * scene.scale < ALARM_GAP):
+    if (sheltered(scene.herd.db, scene.pet) or enclosed(scene.grid, scene.pet)
+            or (last is not None and (scene.at - last) * scene.scale < ALARM_GAP)):
         return
     brain["threat_at"] = scene.at
     mark_trigger(scene.state, "threat", scene.at, urgent=True)
