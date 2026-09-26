@@ -21,7 +21,8 @@ gather_stone's own goal (work.STONE_GOAL), so the two do not dig up and drop the
 forever. It scores low while Mimo has room and high when it is full.
 L4b: an expedition keeps what it packed (`KEEPS_MORE`, backend.survival.expedition): its torches
 and a day and a half of food stay with Mimo, neither put away nor dropped; and while it packs, what
-gives way to food is put away, to make room for the pack.
+gives way to food is put away, to make room for the pack. While Mimo means to stay out
+(purposes.AWAY), build_storage does not walk it home (the L4b final fix wave's follow-up).
 
 When Mimo has no chest yet and the planks it would make for one need a stack of their own, a full
 16 stacks leaves no room to craft it at all: no block is junk while STONE_GOAL keeps a floor under
@@ -47,7 +48,7 @@ from backend.survival.housework import chest_key
 from backend.survival.once import log_once
 from backend.survival.home import by_home, home_structure
 from backend.survival.pathing import MAX_RANGE
-from backend.survival.purposes import Purpose, foods, register
+from backend.survival.purposes import Purpose, away, foods, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
@@ -278,9 +279,12 @@ def storage_valid(s: Situation) -> bool:
     moment its 30-point penalty (pickers.options) wore off, "gave up trying to put things away (no
     way there)" every PENALTY_GAME_SECONDS / scale. near_failure is the same guard every explore
     target already gets (trips.targets); here it holds off a fresh attempt until other work has
-    moved the failure out of state["recent_actions"]'s window, not just a fixed cooldown."""
+    moved the failure out of state["recent_actions"]'s window, not just a fixed cooldown.
+    L4b final fix wave, follow-up: not while Mimo means to stay out (purposes.AWAY, an expedition),
+    the same gate as go_home. Out 115 blocks with full arms, it walked home to put things away, then
+    dug its camp beside home, so the night out did not count and the dawn stall ended the trip."""
     cell = chest_spot(s)
-    if cell is None or s.night:
+    if cell is None or s.night or away(s):
         return False
     structure = home_structure(s)
     if structure is not None:

@@ -252,6 +252,30 @@ class AwayTests(unittest.TestCase):
         self.assertFalse(PURPOSES["build_shelter"].valid(self.pet.situation()))
 
 
+class StayOutStorageTests(unittest.TestCase):
+    """L4b final fix wave, follow-up (the controller's ruling on the report's concern 2): out 115
+    blocks with full arms, build_storage walked a pet home, and at dusk it dug its camp beside home,
+    so the night did not count and the dawn stall set the expedition aside. While Mimo means to stay
+    out (purposes.AWAY), build_storage is not on offer, the same gate as go_home."""
+
+    def test_a_full_armed_pet_out_on_an_expedition_is_not_offered_build_storage(self):
+        pet = Expedition()
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            pet.set_out()
+        pet.state["inventory"] = {**{f"item_{n}": 1 for n in range(12)}, **PACKED, "chest": 1}  # 17 stacks
+        pet.go(60, 1)  # within one walk of home
+        trek = pet.state["brain"]["expedition"]
+        build_storage = PURPOSES["build_storage"]
+        self.assertTrue(away(pet.situation()))
+        self.assertFalse(build_storage.valid(pet.situation()))
+        trek["phase"] = "homeward"  # it turned home: by day it is not away, and may put things away
+        self.assertFalse(away(pet.situation(MORNING)))
+        self.assertTrue(build_storage.valid(pet.situation(MORNING)))
+        pet.state["brain"]["goal"] = None  # and with no expedition at all, as ever
+        self.assertFalse(away(pet.situation(MORNING)))
+        self.assertTrue(build_storage.valid(pet.situation(MORNING)))
+
+
 class HomewardTests(unittest.TestCase):
     def test_after_a_night_out_it_turns_home_and_comes_home_with_its_finds(self):
         pet = Expedition()
