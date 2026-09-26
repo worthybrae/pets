@@ -22,7 +22,7 @@ class KindTests(unittest.TestCase):
         self.assertLess(KINDS["rabbit"].speed, KINDS["cow"].speed)  # seconds per block: the rabbit is fast
         self.assertEqual(KINDS["rabbit"].drops, {"raw_rabbit": (1, 1), "rabbit_hide": 0.5})
         self.assertEqual(KINDS["chicken"].drops, {"raw_chicken": (1, 1), "feather": (0, 2)})
-        self.assertEqual(KINDS["sheep"].drops, {"raw_mutton": (1, 2), "wool": (1, 2)})
+        self.assertEqual(KINDS["sheep"].drops, {"raw_mutton": (1, 2), "wool": (1, 2), "tallow": 0.5})  # Making: candles
         self.assertEqual(KINDS["cow"].drops, {"raw_beef": (1, 3), "leather": (0, 2)})
         self.assertTrue(KINDS["fish"].water)
         self.assertEqual(KINDS["fish"].drops, {})

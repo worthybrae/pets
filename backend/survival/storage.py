@@ -419,7 +419,10 @@ def junk(s: Situation) -> list[tuple[str, int]]:
     found += [(sword, s.count(sword)) for sword in swords[:-1]]
     found += [(piece, s.count(piece)) for piece in ("leather_cap", "leather_tunic")
               if s.count(piece) and s.count(piece.replace("leather", "iron"))]  # L3: iron replaced it
-    found += [(flower, s.count(flower)) for flower in FLOWERS if s.count(flower)]
+    for flower in FLOWERS:  # Making: but the flowers a project wants for its dye (KEEPS_MORE)
+        spare = s.count(flower) - max(0, round(more_kept(s, flower)))
+        if spare > 0:
+            found.append((flower, spare))
     found += spare_fences(s)
     found += spare_torches(s)
     if stacks(s.inventory) >= CARRY_STACKS and no_chest_to_use(s):

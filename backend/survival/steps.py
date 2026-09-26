@@ -34,7 +34,7 @@ from backend.survival.pathing import MAX_NODES, route, timed_path
 
 REACH = 4.0
 STATION_REACH = 6.0
-WORKSTATIONS = ("crafting_table", "furnace", "campfire")
+WORKSTATIONS = ("crafting_table", "furnace", "campfire", "kiln")  # Making: the kiln fires bricks and glass
 PLACE_SECONDS = 0.3
 EAT_SECONDS = 1.6
 CRAFT_SECONDS = 1.0

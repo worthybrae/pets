@@ -291,9 +291,20 @@ def prospecting(s: Situation) -> bool:
             and not any(place["kind"] == "ore" and place["note"] == "iron_ore" for place in s.places))
 
 
+# Making: functions of the Situation giving more cobblestone gather_stone digs for (what making needs).
+MORE_STONE: list = []
+
+
 def stone_goal(s: Situation) -> float:
-    """12 cobblestone, and the shelter's missing blocks on top."""
-    return STONE_GOAL + building_need(s)
+    """12 cobblestone, and the shelter's missing blocks on top; Making: and what MORE_STONE add (one that
+    crashes adds nothing, logged once)."""
+    more = 0.0
+    for extra in MORE_STONE:
+        try:
+            more += float(extra(s))
+        except Exception as error:
+            log_once(logger, "more stone", error)
+    return STONE_GOAL + building_need(s) + more
 
 
 def wants_stone(s: Situation) -> bool:
@@ -382,6 +393,22 @@ def eager(s: Situation, ore: str) -> bool:
     return False
 
 
+# Making: functions of the Situation giving more ores mine_ore goes after now (copper, for what Mimo
+# makes: backend.survival.making).
+MORE_ORES: list = []
+
+
+def more_ores(s: Situation) -> list[str]:
+    """The ores MORE_ORES want now; one that crashes wants none (logged once)."""
+    found: list[str] = []
+    for wants in MORE_ORES:
+        try:
+            found += [ore for ore in wants(s) if ore not in found]
+        except Exception as error:
+            log_once(logger, "more ores", error)
+    return found
+
+
 def enough_known(s: Situation, ore: str, have: int, need: int = 3) -> bool:
     """Mimo has fewer than `need` of what `ore` gives, and with the ores of that kind it remembers it
     would have enough: one trip then gets them all (L3's gold and diamonds, needed 3 at a time).
@@ -411,6 +438,7 @@ def wanted_ores(s: Situation) -> tuple[str, ...]:
     if (TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["diamond_pickaxe"] and "diamond_ore" in s.lessons
             and enough_known(s, "diamond_ore", s.count("diamond"))):
         wanted.append("diamond_ore")
+    wanted += [ore for ore in more_ores(s) if ore not in wanted]  # Making: copper
     return tuple(wanted)
 
 

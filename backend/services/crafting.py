@@ -54,6 +54,33 @@ RECIPES.update({
     "ladder": {"ingredients": {"sticks": 7}, "output": {"ladder": 3}},
     "fence": {"ingredients": {"planks": 4, "sticks": 2}, "output": {"fence": 3}},
 })
+# Making (T1): paper and books, dyes and coloured wool, rugs, bookshelves, a kiln, stairs, slabs, glass panes,
+# trapdoors, iron bars, flower pots, signs, barrels, composters and candles.
+RECIPES.update({
+    "paper": {"ingredients": {"sugar_cane": 3}, "output": {"paper": 3}, "station": "crafting_table"},
+    "book": {"ingredients": {"paper": 3, "leather": 1}, "output": {"book": 1}},
+    "dye_orange": {"ingredients": {"flower_orange": 1}, "output": {"dye_orange": 2}},
+    "dye_pink": {"ingredients": {"flower_pink": 1}, "output": {"dye_pink": 2}},
+    "dye_yellow": {"ingredients": {"flower_yellow": 1}, "output": {"dye_yellow": 2}},
+    "wool_orange": {"ingredients": {"wool": 1, "dye_orange": 1}, "output": {"wool_orange": 1}},
+    "wool_pink": {"ingredients": {"wool": 1, "dye_pink": 1}, "output": {"wool_pink": 1}},
+    "wool_yellow": {"ingredients": {"wool": 1, "dye_yellow": 1}, "output": {"wool_yellow": 1}},
+    "rug_orange": {"ingredients": {"wool_orange": 2}, "output": {"rug_orange": 3}},
+    "rug_pink": {"ingredients": {"wool_pink": 2}, "output": {"rug_pink": 3}},
+    "rug_yellow": {"ingredients": {"wool_yellow": 2}, "output": {"rug_yellow": 3}},
+    "bookshelf": {"ingredients": {"planks": 6, "book": 1}, "output": {"bookshelf": 1}, "station": "crafting_table"},
+    "kiln": {"ingredients": {"brick": 3, "cobblestone": 5}, "output": {"kiln": 1}, "station": "crafting_table"},
+    "stairs": {"ingredients": {"planks": 6}, "output": {"stairs": 4}, "station": "crafting_table"},
+    "slab": {"ingredients": {"planks": 3}, "output": {"slab": 6}, "station": "crafting_table"},
+    "glass_pane": {"ingredients": {"glass": 6}, "output": {"glass_pane": 16}, "station": "crafting_table"},
+    "trapdoor": {"ingredients": {"planks": 6}, "output": {"trapdoor": 2}, "station": "crafting_table"},
+    "iron_bars": {"ingredients": {"iron_ingot": 6}, "output": {"iron_bars": 16}, "station": "crafting_table"},
+    "flower_pot": {"ingredients": {"brick": 3}, "output": {"flower_pot": 1}},
+    "sign": {"ingredients": {"planks": 6, "sticks": 1}, "output": {"sign": 3}, "station": "crafting_table"},
+    "barrel": {"ingredients": {"planks": 6, "slab": 2}, "output": {"barrel": 1}, "station": "crafting_table"},
+    "composter": {"ingredients": {"slab": 7}, "output": {"composter": 1}},
+    "candle": {"ingredients": {"tallow": 1, "string": 1}, "output": {"candle": 1}},
+})
 # Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
 # their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.
 LOGS = ("oak_log", "birch_log", "spruce_log")
@@ -67,6 +94,9 @@ SMELTING = {"iron_ore": "iron_ingot", "gold_ore": "gold_ingot", "copper_ore": "c
             "raw_chicken": "cooked_chicken", "raw_rabbit": "cooked_rabbit"}
 # Food cooks at a lit campfire or a furnace and burns no fuel: the fire is already lit.
 COOKING = frozenset({"raw_fish", "raw_beef", "raw_mutton", "raw_chicken", "raw_rabbit"})
+# Making: a kiln fires clay into bricks and sand into glass and burns no fuel (a furnace still does both,
+# with fuel).
+KILN_FIRED = frozenset({"clay", "sand"})
 FIRES = ("campfire", "furnace")
 
 
@@ -138,6 +168,8 @@ def smelt(inventory: dict[str, int], input_item: str, nearby_stations: set[str])
     if input_item in COOKING:
         if not set(nearby_stations).intersection(FIRES):
             raise ValueError("A placed campfire or furnace is required")
+        result = take_items(inventory, {input_item: 1})
+    elif input_item in KILN_FIRED and "kiln" in nearby_stations:
         result = take_items(inventory, {input_item: 1})
     else:
         if "furnace" not in nearby_stations:
