@@ -449,6 +449,8 @@ REPLIES: dict[str, Callable[[Situation, Heard], str | None]] = {
 def relevance(topic: str, heard: Heard) -> float:
     """How much the owner's words touch a topic: what they just told first, then shared keywords; a
     close Mimo's news and memories of the owner a little (SHARED)."""
+    if topic == "name_ack" and not (heard.noticed.strong or heard.noticed.short):
+        return 0.0  # a weak name in a long line ("How are you? I'm Robin."): Jev may take it, the rules do not
     if topic in ("name_ack", "like_ack"):
         return 10.0
     shared = 0.5 if topic in SHARED and heard.bond >= CLOSE else 0.0

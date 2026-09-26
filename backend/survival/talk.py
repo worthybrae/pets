@@ -20,12 +20,16 @@ are asked in one Jev call when TYPESAFE_API_KEY is set: "reply" (which line) and
 anything, to remember about the owner: backend.survival.owner_facts), and B2's "request". The
 payload carries Mimo's state and the owner's words under chat.owner_says, with the instructions
 saying they are data. Without a key, and whenever Jev fails, times out or picks something not
-offered, the rules answer every question. Luna never answers the chat. A line whose job cannot even
+offered, the rules answer every question. A question with one option (a fact question when only a
+strong name was noticed, which is kept anyway) is not asked of Jev. Luna never answers the chat. A
+line whose job cannot even
 be built (a crash reading the state or writing the options) is logged once and answered by the
 rules with LOST_LINE, so the lines after it never wait behind it. `store_chat` writes the
 reply in one short transaction, unless the line was answered already or Mimo died; each question's
 keeper (KEEPERS) then applies its answer, and a keeper's line (B2's answer to a request) replaces the
-reply.
+reply. The reply's keeper keeps what the chosen line promised (a name, a like), so "I'll remember
+that" is always true whatever the fact question's answer; the fact's keeper always keeps a strong
+name and then the kind picked.
 """
 
 from __future__ import annotations
@@ -185,17 +189,37 @@ def reply_question(s: Situation, heard: Heard) -> Question:
 
 
 def fact_question(s: Situation, heard: Heard) -> Question | None:
-    options = fact_options(heard.noticed)
-    return Question("fact", FACT_INSTRUCTIONS, options, rules_fact(heard.noticed)) if len(options) > 1 else None
+    """What to remember, whenever the words could tell anything. With a strong name alone the only option
+    is "none" (the name is kept anyway), and a question with one option is not asked of Jev."""
+    if not heard.noticed.found:
+        return None
+    return Question("fact", FACT_INSTRUCTIONS, fact_options(heard.noticed), rules_fact(heard.noticed))
 
 
 def keep_fact(db: sqlite3.Connection, state: dict, heard: Heard, question: Question, pick: str, now: float) -> None:
-    if pick != NONE and heard.noticed.get(pick):
-        remember_fact(db, pick, heard.noticed.get(pick), now)
+    """A strong name first, always ("my name is Sam"); then the kind Jev or the rules picked."""
+    noticed = heard.noticed
+    if noticed.strong and noticed.get("name"):
+        remember_fact(db, "name", noticed.get("name"), now)
+    if pick != NONE and noticed.get(pick):
+        remember_fact(db, pick, noticed.get(pick), now)
+
+
+def keep_reply(db: sqlite3.Connection, state: dict, heard: Heard, question: Question, pick: str, now: float) -> None:
+    """What the chosen line promised, so "I'll remember that" is always true: "Nice to meet you, Sam!"
+    keeps the name, strong or weak, and "Ooh, the lake? I'll remember that you like it." the like (or
+    the dislike it named)."""
+    noticed = heard.noticed
+    if pick == "name_ack" and noticed.get("name"):
+        remember_fact(db, "name", noticed.get("name"), now)
+    elif pick == "like_ack":
+        kind = "likes" if noticed.get("likes") else "dislikes"
+        if noticed.get(kind):
+            remember_fact(db, kind, noticed.get(kind), now)
 
 
 QUESTIONS.extend([reply_question, fact_question])
-KEEPERS["fact"] = keep_fact
+KEEPERS.update({"reply": keep_reply, "fact": keep_fact})
 
 
 def chat_payload(db: sqlite3.Connection, s: Situation, heard: Heard, line_id: int) -> dict:
@@ -273,15 +297,17 @@ def rules_answer(ask: ChatAsk, error: str | None = None) -> ChatAnswer:
 
 
 def decide_chat(ask: ChatAsk, env, http: Http) -> ChatAnswer:
-    """Jev's picks for every question in one call; the rules' when Jev is not asked or fails."""
-    if ask.route != "jev" or not ask.questions:
+    """Jev's picks for every question with a choice to make, in one call; the rules' when Jev is not
+    asked or fails. A question with one option takes it without asking."""
+    choosing = [question for question in ask.questions if len(question.options) > 1]
+    if ask.route != "jev" or not choosing:
         return rules_answer(ask)
     try:
         picks = jev_answers(ask.payload, {question.name: (list(question.options), question.instructions)
-                                          for question in ask.questions}, env, http)
+                                          for question in choosing}, env, http)
     except Exception as error:
         return rules_answer(ask, f"jev: {error}")
-    return ChatAnswer(picks, "jev")
+    return ChatAnswer({**rules_answer(ask).picks, **picks}, "jev")
 
 
 def store_chat(world: SurvivalWorld, ask: ChatAsk, answer: ChatAnswer, now: float) -> str | None:
