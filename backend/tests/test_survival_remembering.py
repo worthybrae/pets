@@ -61,7 +61,9 @@ class RememberingTests(unittest.TestCase):
 
     def test_words_that_name_nothing_mimo_remembers_get_their_usual_answer(self):
         self.remember(1, "thought", "I love fishing by the lake.", 7)
-        self.assertEqual(self.say("I love you"), "Aw, thank you! You're the best.")
+        # Bond B2: a new pet's bond is shy (bond.START), so B1's own answer to "I love you" is its shy
+        # one; what matters here is that no memory line takes its place.
+        self.assertEqual(self.say("I love you"), "Oh! Um... thank you.")
         self.assertEqual(self.say("do you remember fishing at the lake?", at=BORN + 20),
                          "I keep thinking: I love fishing by the lake.")
 

@@ -52,6 +52,7 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 
 from backend.survival.actions import ensure_actions
+from backend.survival.bond import bond_level, feeling, grow_bond
 from backend.survival.bond_tables import missing_table
 from backend.survival.curiosity import curiosity_view
 from backend.survival.goals import goal_payload
@@ -159,6 +160,8 @@ def owner_says(world: SurvivalWorld, text: str, now: float, scale: float) -> dic
             raise ChatLimited(f"That's a lot of talk for one day. {state['name']} will be glad to chat tomorrow.")
         line = db.execute("INSERT INTO mimo_chat(at, game_at, who, text, status) VALUES (?, ?, 'owner', ?, ?)",
                           (now, game_at, words, WAITING)).lastrowid
+        grow_bond(state, "chat", now)  # B2: talking grows the bond
+        write_state(db, state)
         return {"id": line, "text": words, "left": {"hour": left["hour"] - 1, "day": left["day"] - 1}}
 
 
@@ -239,7 +242,7 @@ def hear(db: sqlite3.Connection, s: Situation, text: str) -> Heard:
 def heard_from(db: sqlite3.Connection, s: Situation, text: str) -> Heard:
     """The owner's words with what Mimo remembers of its owner."""
     facts = tuple(owner_facts(db))
-    return Heard(text, owner_name(list(facts)), facts)
+    return Heard(text, owner_name(list(facts)), facts, bond_level(s.state, s.at))
 
 
 def listened(db: sqlite3.Connection, s: Situation, heard: Heard) -> Heard:
@@ -318,6 +321,7 @@ def chat_payload(db: sqlite3.Connection, s: Situation, heard: Heard, line_id: in
         "goal": goal_payload(s),
         "trip": trip_view(s.brain),
         "curiosity": curiosity_view(s.brain, s.at, s.scale),
+        "bond": feeling(heard.bond),  # B2: how close Mimo feels to its owner
         "recent_events": [event["text"] for event in notable_events(db, 5)],
         "chat": {"owner_says": heard.text,
                  "earlier": [{"who": row["who"], "text": row["text"]} for row in reversed(earlier)],

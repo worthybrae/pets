@@ -1,4 +1,4 @@
-"""Bond: talking with Mimo (B1)."""
+"""Bond: talking with Mimo (B1); the owner's visits (B2)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from backend.api.lives import open_registry
 from backend.api.mimo import active_world
+from backend.survival.bond_view import note_visit
 from backend.survival.clock import time_scale
 from backend.survival.talk import ChatLimited, owner_says
 from backend.survival.world import LifeOver
@@ -32,3 +33,13 @@ def talk_to_mimo(request: ChatLine):
         raise HTTPException(status_code=429, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/mimo/visit")
+def visit_mimo():
+    """The viewer is open: the owner is here. Returns the bond."""
+    _, world = active_world(open_registry())
+    try:
+        return {"bond": note_visit(world, time.time())}
+    except LifeOver as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error

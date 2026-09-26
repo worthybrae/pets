@@ -22,6 +22,7 @@ from backend.services.block_table import (
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import BLOCKS, craft, smelt, take_items
 from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
+from backend.survival.bond import grow_bond
 from backend.survival.bond_tables import create_bond_tables
 from backend.survival.creatures.table import create_creature_tables
 from backend.survival.memory import create_memory_tables
@@ -256,6 +257,7 @@ class SurvivalWorld:
             state["vitals"]["mood"] = min(100.0, state["vitals"]["mood"] + 5)
             state["last_hello_at"] = timestamp
             mark_trigger(state, "hello", timestamp)
+            grow_bond(state, "hello", timestamp)  # Bond: a hello grows the bond
             write_state(db, state)
             log_event(db, timestamp, "hello", f"You said hello to {state['name']}.")
             return {"mood": state["vitals"]["mood"], "noticed_at": timestamp}

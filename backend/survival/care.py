@@ -1,9 +1,11 @@
-"""Owner care: one snack (+30 hunger) and one bandage (+25 health) per real UTC day."""
+"""Owner care: one snack (+30 hunger) and one bandage (+25 health) per real UTC day. (Bond) Each grows
+the bond between Mimo and its owner (backend.survival.bond)."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from backend.survival.bond import grow_bond
 from backend.survival.world import LifeOver, SurvivalWorld, check_not_behind, log_event, read_state, write_state
 
 CARE_EFFECTS = {"snack": ("hunger", 30.0), "bandage": ("health", 25.0)}
@@ -39,6 +41,7 @@ def give_care(world: SurvivalWorld, kind: str, timestamp: float) -> dict:
         if state["care"].get("day") != today:
             state["care"] = {"day": today, "snack": 0, "bandage": 0}
         state["care"][kind] += 1
+        grow_bond(state, kind, timestamp)
         vital, amount = CARE_EFFECTS[kind]
         state["vitals"][vital] = min(100.0, state["vitals"][vital] + amount)
         state["last_thought"] = CARE_THOUGHTS[kind]
