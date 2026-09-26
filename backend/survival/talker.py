@@ -108,7 +108,7 @@ class Talker:
 
     def __init__(self, env: Env | None = None, http: Http = post_json,
                  executor_factory: Callable[[], object] | None = None, scale: float | None = None):
-        from backend.survival import bonding  # noqa: F401  (every Bond job and chore registers on import)
+        from backend.survival import bonding, minding  # noqa: F401  (every Bond and Mind job and chore registers)
         self.env = os.environ if env is None else env
         self.http = http
         self.new_executor = executor_factory or new_thread

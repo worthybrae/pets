@@ -8,12 +8,13 @@ write)]}, one writer a consumer and kind.
 
 `mirror_events` runs them. For each consumer it reads the events logged since that consumer last
 looked (its own cursor: state["mirrored"][consumer], the id of the last event it saw), oldest first,
-at most MIRROR_BATCH a run, and hands each event to the consumer's writer for its kind. A consumer
-seen for the first time starts at the newest event, so old news is never delivered. A writer that
-crashes is rolled back (its database writes and state changes), logged once and passed over, so no
-consumer stalls on it and the others go on. It is a rules-only chore: the worker's Talker runs it
-every few seconds, outside the tick (backend.survival.talker.CHORES), in a transaction of its own.
-Nothing is written while nothing is registered.
+at most MIRROR_BATCH a run, and hands each event to the consumer's writer for its kind. Only events
+of a kind someone follows are read (Mind M1), so a run with nothing for anyone moves no cursor and
+writes no state. A consumer seen for the first time starts at the newest event, so old news is never
+delivered. A writer that crashes is rolled back (its database writes and state changes), logged once
+and passed over, so no consumer stalls on it and the others go on. It is a rules-only chore: the
+worker's Talker runs it every few seconds, outside the tick (backend.survival.talker.CHORES), in a
+transaction of its own. Nothing is written while nothing is registered.
 """
 
 from __future__ import annotations
@@ -66,8 +67,10 @@ def mirror_events(db: sqlite3.Connection, state: dict, now: float, scale: float)
             if name not in cursors:
                 cursors[name] = newest
                 changed = True
-    rows = db.execute("SELECT id, at, kind, text FROM mimo_events WHERE id > ? ORDER BY id LIMIT ?",
-                      (min(cursors[name] for name in names), MIRROR_BATCH)).fetchall()
+    kinds = sorted(kind for kind, entries in MIRRORS.items() if entries)
+    marks = ",".join("?" * len(kinds))
+    rows = db.execute(f"SELECT id, at, kind, text FROM mimo_events WHERE id > ? AND kind IN ({marks}) ORDER BY id "
+                      "LIMIT ?", (min(cursors[name] for name in names), *kinds, MIRROR_BATCH)).fetchall()
     for row in rows:
         event = dict(row)
         for entry in list(MIRRORS.get(event["kind"], ())):

@@ -143,14 +143,27 @@ class EventMirrorTests(unittest.TestCase):
             self.run_mirrors()
         self.assertEqual([text for _, _, text in self.seen], [f"event {number}" for number in range(5)])
 
+    def test_events_no_one_follows_are_not_read_and_move_no_cursor(self):
+        mirror("memory", "found", self.writer("memory"))
+        self.run_mirrors()
+        self.log(("sleep", "Pip went to sleep."), ("wake", "Pip woke up."))
+        changed, state = self.run_mirrors()
+        self.assertFalse(changed)  # Mind M1: nothing for anyone, so no state is written every few seconds
+        self.log(("found", "Pip met its first skitter."))
+        changed, state = self.run_mirrors()
+        self.assertTrue(changed)
+        self.assertEqual(self.seen, [("memory", "found", "Pip met its first skitter.")])
+        with self.world.connect() as db:
+            self.assertEqual(state[CURSORS]["memory"], db.execute("SELECT MAX(id) FROM mimo_events").fetchone()[0])
+
     def test_the_talker_runs_the_mirrors_as_its_first_chore(self):
         self.assertIs(CHORES[0], mirror_events)
-        mirror("memory", "found", self.writer("memory"))
+        mirror("probe", "found", self.writer("probe"))  # Mind M1: not "memory", Mind's own consumer
         talker = Talker(env={}, executor_factory=InlineExecutor, scale=1.0)
         talker.poll(self.registry, BORN + 5)
         self.log(("found", "Pip met its first skitter."))
         talker.poll(self.registry, BORN + 60)
-        self.assertEqual(self.seen, [("memory", "found", "Pip met its first skitter.")])
+        self.assertEqual(self.seen, [("probe", "found", "Pip met its first skitter.")])
 
 
 if __name__ == "__main__":
