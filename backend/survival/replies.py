@@ -459,7 +459,9 @@ def news(s: Situation, heard: Heard) -> str | None:
         return None
     fresh = [event for event in notable_events(s.db, 3)
              if event["kind"] not in ("birth", "death") and (s.at - event["at"]) * s.scale <= HOUR]
-    return f"Guess what? {first_person(fresh[0]['text'], s.state['name'])}" if fresh else None
+    if fresh:
+        return f"Guess what? {first_person(fresh[0]['text'], s.state['name'])}"
+    return f"Not much to tell yet. I'm {doing_words(s)}." if touches(heard, "news") else None
 
 
 def thanks(s: Situation, heard: Heard) -> str | None:
