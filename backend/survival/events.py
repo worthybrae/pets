@@ -16,9 +16,9 @@ event first, each event handed to the writers of the consumers that read it. A r
 event first: when a consumer's batch holds fewer than MIRROR_BATCH events, it has read every event it
 follows up to that newest id, so its cursor catches up to it at once, and a stretch it does not
 follow, however long, is passed once and never rescanned. A consumer seen for the first time starts
-at the newest event, so old news is never delivered. A writer that crashes is rolled back (its database writes and state changes),
-logged once and passed over, so no consumer stalls on it and the others go on. It is a rules-only
-chore: the worker's Talker runs it every few seconds, outside the tick
+at the newest event, so old news is never delivered. A writer that crashes is rolled back (its
+database writes and state changes), logged once and passed over, so no consumer stalls on it and the
+others go on. It is a rules-only chore: the worker's Talker runs it every few seconds, outside the tick
 (backend.survival.talker.CHORES), in a transaction of its own. Nothing is written while nothing is
 registered.
 """

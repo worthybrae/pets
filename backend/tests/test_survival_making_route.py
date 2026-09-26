@@ -29,6 +29,7 @@ from backend.survival.registry import LifeRegistry
 from backend.survival.structures import blueprint_of, start
 from backend.survival.tick import tick_life
 from backend.survival.world import SurvivalWorld, read_state, write_state
+from backend.tests.no_model import no_model
 
 BORN = 1_000_000.0
 SCALE = 60.0  # a game day is 60 ticks, a game minute each
@@ -97,7 +98,7 @@ class RouteTests(unittest.TestCase):
         clay = dry_clay(self.life["seed"], home[0], home[2], 80)
         self.assertTrue(clay and clay[0] > 30, clay[:3])  # no clay in sight of home...
         self.assertLess(clay[0], 70)  # ...but a shore of it about 60 blocks off
-        chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(SEED), scale=SCALE)
+        chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(SEED), scale=SCALE)
         day = None
         for second in range(1, DAYS * 60 + 1):
             state = tick_life(self.registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)

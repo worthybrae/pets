@@ -13,6 +13,7 @@ from backend.survival.snapshot import notable
 from backend.survival.structures import blueprint_of
 from backend.survival.tick import tick_life
 from backend.survival.world import SurvivalWorld
+from backend.tests.no_model import no_model
 
 BORN = 1_000_000.0
 SCALE = 60.0  # a game day is 60 real seconds, as in the manual check
@@ -35,7 +36,7 @@ class LivingDaysTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_left_alone_mimo_finds_real_food_and_lives_through_three_game_days(self):
-        chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
+        chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
         lowest = 100.0
         for second in range(1, 3 * 60 + 1):
             state = tick_life(self.registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
@@ -50,7 +51,7 @@ class LivingDaysTests(unittest.TestCase):
         self.assertNotIn("ate", [event["kind"] for event in notable(events)])
 
     def test_left_alone_mimo_builds_a_home_before_its_second_night_and_lives_in_it(self):
-        chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
+        chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
         in_bed = set()
         for second in range(1, 4 * 60 + 1):
             state = tick_life(self.registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
@@ -84,7 +85,7 @@ class LivingDaysTests(unittest.TestCase):
         self.assertTrue(any(state.get("chests", {}).values()))
 
     def test_left_alone_mimo_hunts_an_animal_and_cooks_its_meat(self):
-        chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
+        chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
         for second in range(1, 4 * 60 + 1):
             state = tick_life(self.registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
             self.assertIsNone(state["died_at"], state["cause"])
@@ -114,7 +115,8 @@ class LivingDaysTests(unittest.TestCase):
             registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
             life = hatch(registry, random.Random(8), timestamp=BORN)
             world = SurvivalWorld(registry.world_path(life))
-            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
+            chooser = Chooser(env={}, http=no_model(self),
+                              executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
             for second in range(1, 4 * 60 + 1):
                 seed_state = tick_life(registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
                 self.assertIsNone(seed_state["died_at"], seed_state["cause"])

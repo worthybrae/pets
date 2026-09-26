@@ -1,5 +1,6 @@
 """Bond's headless run: a real pet lives a game day and a bit with the worker's Chooser and Talker
-(the rules only: no model is ever called) while its owner visits, talks and leaves."""
+(the rules only: no model is ever called, and Bond's final fix wave's T1 counts that: NoModel) while its
+owner visits, talks and leaves."""
 
 import os
 import random
@@ -20,14 +21,11 @@ from backend.survival.talk import owner_says
 from backend.survival.talker import Talker
 from backend.survival.tick import tick_life
 from backend.survival.world import SurvivalWorld
+from backend.tests.no_model import NoModel
 
 BORN = 1_000_000.0
 SCALE = 60.0  # a game day is a real minute, one tick a real second, as in the manual check
 SLOW = os.environ.get("MIMO_SLOW_TESTS") == "1"
-
-
-def refuse(*args):
-    raise AssertionError("no model is called in a headless run")
 
 
 class OwnerAwayTests(unittest.TestCase):
@@ -35,8 +33,9 @@ class OwnerAwayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
             world = SurvivalWorld(registry.world_path(hatch(registry, random.Random(8), timestamp=BORN)))
-            chooser = Chooser(env={}, http=refuse, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
-            talker = Talker(env={}, http=refuse, executor_factory=InlineExecutor, scale=SCALE)
+            http = NoModel()
+            chooser = Chooser(env={}, http=http, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
+            talker = Talker(env={}, http=http, executor_factory=InlineExecutor, scale=SCALE)
             for second in range(1, 81):
                 now = BORN + second
                 state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
@@ -65,14 +64,16 @@ class OwnerAwayTests(unittest.TestCase):
         self.assertTrue(3 <= len(re.split(r"(?<=[.!?])(?<!\.\.\.)\s+", story["text"])) <= 6, story["text"])
         self.assertEqual(waiting, len(items))  # nothing read yet: every item counts
         self.assertGreater(bond, START)  # the chat grew the bond
+        self.assertEqual(http.calls, [])  # T1: no model was asked, not even one that failed unseen
 
     @unittest.skipUnless(SLOW, "a few game days: set MIMO_SLOW_TESTS=1")
     def test_left_alone_for_days_mimo_reports_its_home_and_waits_with_one_story(self):
         with tempfile.TemporaryDirectory() as root:
             registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
             world = SurvivalWorld(registry.world_path(hatch(registry, random.Random(8), timestamp=BORN)))
-            chooser = Chooser(env={}, http=refuse, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
-            talker = Talker(env={}, http=refuse, executor_factory=InlineExecutor, scale=SCALE)
+            http = NoModel()
+            chooser = Chooser(env={}, http=http, executor=InlineExecutor(), rng=random.Random(8), scale=SCALE)
+            talker = Talker(env={}, http=http, executor_factory=InlineExecutor, scale=SCALE)
             for second in range(1, 4 * 60 + 1):
                 now = BORN + second
                 state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
@@ -85,10 +86,14 @@ class OwnerAwayTests(unittest.TestCase):
                 items = list(reversed(inbox_items(db, 1000)))
         texts = [item["text"] for item in items if item["kind"] == "report"]
         self.assertTrue(any(text.startswith("I finished building") and text.endswith("moved in.") for text in texts), texts)
+        # Bond's final fix wave (I1): the home's report never names the pet ("I finished building my Round Cottage").
+        name = world.state()["name"]
+        self.assertFalse([text for text in texts if name in text], texts)
         self.assertEqual([item["data"]["day"] for item in items if item["kind"] == "story"], [1])  # one visit, one story
         [story] = [item for item in items if item["kind"] == "story"]
         self.assertEqual((story["data"].get("last"), story["read"]), (4, False))  # pre-flight 2: it tells the whole absence
         self.assertTrue(story["text"].startswith("Days 1 to 4 were"), story["text"])
+        self.assertEqual(http.calls, [])  # T1
 
 
 if __name__ == "__main__":

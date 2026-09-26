@@ -27,6 +27,7 @@ from backend.survival.registry import LifeRegistry
 from backend.survival.talker import run_chores
 from backend.survival.tick import tick_life
 from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
+from backend.tests.no_model import no_model
 
 BORN = 1_000_000.0
 DAYS = 30
@@ -145,7 +146,7 @@ class RealLifeTests(unittest.TestCase):
             registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
             life = hatch(registry, random.Random(8), timestamp=BORN)
             world = SurvivalWorld(registry.world_path(life))
-            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(8), scale=scale)
+            chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(8), scale=scale)
             for second in range(1, 5 * 60 + 1):
                 state = tick_life(registry, BORN + second, scale=scale, mind=BRAIN, action_scale=scale)
                 self.assertIsNone(state["died_at"], state["cause"])

@@ -590,7 +590,7 @@ def newest_story(db: sqlite3.Connection) -> dict | None:
 
 def life_diary(world: SurvivalWorld, limit: int | None = None) -> list[dict]:
     """Every story a life's Mimo wrote, oldest first, for its memorial; at most `limit`, the newest
-    (fix round 1, item 8: life_summary caps what it sends the egg screen's repeated poll)."""
+    (fix round 1, item 8: life_summary caps what it sends the egg screen's repeated poll). Bond's final
+    fix wave (m4): only those are read."""
     with world.connect() as db:
-        entries = list(reversed(diary_entries(db)))
-    return entries[-limit:] if limit is not None else entries
+        return list(reversed(diary_entries(db, limit)))

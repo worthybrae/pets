@@ -31,6 +31,7 @@ from backend.survival.triggers import new_brain
 from backend.survival.vitals import START_VITALS
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.tests.budget import best_mean
+from backend.tests.no_model import no_model
 
 NIGHT = {"phase": "night", "seconds_into_day": 3000.0, "time_scale": 1.0, "day_number": 1}
 BORN = 1_000_000.0
@@ -501,7 +502,8 @@ class HatchedWorldTests(unittest.TestCase):
                 write_state(db, state)
                 x, y, z = (round(state["position"][axis]) for axis in "xyz")
                 Herd(db).add(kind, (x + 5, y, z), KINDS[kind].health, BORN, BORN, {"home": [x + 5, y, z], "turn": 0})
-            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(seed), scale=1.0)
+            chooser = Chooser(env={}, http=no_model(self),
+                              executor=InlineExecutor(), rng=random.Random(seed), scale=1.0)
             with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):
                 for second in range(1, seconds + 1):
                     state = tick_life(registry, BORN + second, scale=1.0, mind=BRAIN, action_scale=1.0)
@@ -545,7 +547,7 @@ class HatchedWorldTests(unittest.TestCase):
                 for kind, cx in (("gloomling", x + 3), ("skitter", x - 3)):
                     cell = (cx, terrain_height(cx, z, state["world_seed"]) + 1, z)
                     Herd(db).add(kind, cell, KINDS[kind].health, BORN, BORN, {"home": list(cell), "turn": 0})
-            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(3), scale=scale)
+            chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(3), scale=scale)
             real_hurt, slowest = hurt_pet, 0.0
 
             def counted(scene, damage, source):
@@ -616,7 +618,8 @@ class HatchedWorldTests(unittest.TestCase):
                     for kind, cx in (("gloomling", x + 3), ("skitter", x - 3)):
                         cell = (cx, terrain_height(cx, z, state["world_seed"]) + 1, z)
                         Herd(db).add(kind, cell, KINDS[kind].health, BORN, BORN, {"home": list(cell), "turn": 0})
-                chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(3), scale=1.0)
+                chooser = Chooser(env={}, http=no_model(self),
+                                  executor=InlineExecutor(), rng=random.Random(3), scale=1.0)
                 with patch("backend.survival.tick.simulate", timed), \
                         patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []):
                     for call in range(1, 6):

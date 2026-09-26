@@ -14,6 +14,7 @@ from backend.survival.memory import known, places
 from backend.survival.registry import LifeRegistry
 from backend.survival.tick import tick_life
 from backend.survival.world import SurvivalWorld, read_state, write_state
+from backend.tests.no_model import no_model
 
 BORN = 1_000_000.0
 SCALE = 60.0  # a game day is 60 real seconds, as in the days tests
@@ -28,7 +29,8 @@ class ExpeditionRunTests(unittest.TestCase):
             registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
             life = hatch(registry, random.Random(hatch_seed), timestamp=BORN)
             world = SurvivalWorld(registry.world_path(life))
-            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(chooser_seed), scale=SCALE)
+            chooser = Chooser(env={}, http=no_model(self),
+                              executor=InlineExecutor(), rng=random.Random(chooser_seed), scale=SCALE)
             for second in range(1, days * DAY + 1):
                 state = tick_life(registry, BORN + second, scale=SCALE, mind=BRAIN, action_scale=SCALE)
                 self.assertIsNone(state["died_at"], state["cause"])
