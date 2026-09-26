@@ -84,10 +84,10 @@ class OwnerAwayTests(unittest.TestCase):
                 talker.poll(registry, now)
             with world.connect() as db:
                 items = list(reversed(inbox_items(db, 1000)))
+            name = world.state()["name"]
         texts = [item["text"] for item in items if item["kind"] == "report"]
         self.assertTrue(any(text.startswith("I finished building") and text.endswith("moved in.") for text in texts), texts)
         # Bond's final fix wave (I1): the home's report never names the pet ("I finished building my Round Cottage").
-        name = world.state()["name"]
         self.assertFalse([text for text in texts if name in text], texts)
         self.assertEqual([item["data"]["day"] for item in items if item["kind"] == "story"], [1])  # one visit, one story
         [story] = [item for item in items if item["kind"] == "story"]
