@@ -132,6 +132,30 @@ class EventMirrorTests(unittest.TestCase):
         self.assertEqual(seen["inbox"], [f"e{number}" for number in range(2, 8)])  # each exactly once
         self.assertEqual(state[CURSORS]["memory"], state[CURSORS]["inbox"])
 
+    def test_a_consumer_far_behind_never_holds_back_anothers_news(self):
+        """Pre-flight 2 (M8): after a deploy Mind's memory goes back through the log (from_the_start)
+        while the inbox starts at the newest event. Each consumer reads its own batch, so the inbox has
+        its news at once, not after the backfill, and the backfill still reads every event in order."""
+        mirror("memory", "found", self.writer("memory"))
+        mirror("inbox", "found", self.writer("inbox"))
+        self.log(*[("found", f"old {number}") for number in range(6)])
+        self.run_mirrors()  # both start at the newest event
+        with self.world.transaction() as db:  # memory goes back to the first event, as from_the_start does
+            state = read_state(db)
+            state[CURSORS]["memory"] = 0
+            write_state(db, state)
+        self.log(("found", "news"))
+        with patch("backend.survival.events.MIRROR_BATCH", 2):
+            self.run_mirrors()
+            self.assertEqual([text for who, _, text in self.seen if who == "inbox"], ["news"])  # at once
+            self.assertEqual([text for who, _, text in self.seen if who == "memory"], ["old 0", "old 1"])
+            for _ in range(3):
+                state = self.run_mirrors()[1]
+        seen = {consumer: [text for who, _, text in self.seen if who == consumer] for consumer in ("memory", "inbox")}
+        self.assertEqual(seen["memory"], [f"old {number}" for number in range(6)] + ["news"])  # in order, once
+        self.assertEqual(seen["inbox"], ["news"])
+        self.assertEqual(state[CURSORS]["memory"], state[CURSORS]["inbox"])
+
     def test_a_run_reads_at_most_a_batch_and_the_next_run_goes_on(self):
         mirror("memory", "found", self.writer("memory"))
         self.run_mirrors()

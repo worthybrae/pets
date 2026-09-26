@@ -1,5 +1,5 @@
-"""What /api/mimo shows of Bond while Mimo lives (snapshot.alive_snapshot): the chat (B1) and the bond
-(B2). `note_visit` is the viewer telling the world the owner is here (POST /api/mimo/visit).
+"""What /api/mimo shows of Bond while Mimo lives (snapshot.alive_snapshot): the chat (B1), the bond and
+the inbox (B2). `note_visit` is the viewer telling the world the owner is here (POST /api/mimo/visit).
 
 Everything is read in one read-only transaction of its own, after the rest of the snapshot; a
 world from before Bond shows an empty chat.
@@ -8,6 +8,7 @@ world from before Bond shows an empty chat.
 from __future__ import annotations
 
 from backend.survival.bond import bond_view, visit
+from backend.survival.inbox import inbox_view
 from backend.survival.talk import chat_view
 from backend.survival.world import LifeOver, SurvivalWorld, read_state, write_state
 
@@ -16,7 +17,7 @@ def bond_fields(world: SurvivalWorld, now: float, scale: float) -> dict:
     with world.connect() as db:
         db.execute("BEGIN")
         state = read_state(db)
-        return {"chat": chat_view(db, state, now, scale), "bond": bond_view(state, now)}
+        return {"chat": chat_view(db, state, now, scale), "bond": bond_view(state, now), "inbox": inbox_view(db)}
 
 
 def note_visit(world: SurvivalWorld, now: float) -> dict:
