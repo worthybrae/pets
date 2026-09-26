@@ -1,7 +1,7 @@
 import type { WorldPlan } from '../components/world/worldPlanner'
 import type { AttributeTier } from '../components/hatch/types'
 import type { Rarity } from '../data/rarity'
-import type { BondFields } from './bondTypes'
+import type { BondFields, DiaryFields } from './bondTypes'
 import type { LifeMemories, MindFields } from './mindTypes'
 
 /** Shapes of the survival API (backend/survival/snapshot.py and backend/api). */
@@ -183,7 +183,7 @@ export interface LifeRow {
   days: number
 }
 
-export interface LifeSummary extends LifeRow {
+export interface LifeSummary extends LifeRow, DiaryFields {
   notable_events: MimoEvent[]
   /** L4: the goals the life reached, first first (an older API sends none). */
   goals_reached?: GoalReached[]

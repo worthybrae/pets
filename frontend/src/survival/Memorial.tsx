@@ -1,6 +1,7 @@
 import { otherEvents, reachedLine } from './goals'
 import { lifeLine } from './hud'
 import { memorialMemories } from './memories'
+import { diaryLines } from './story'
 import type { LifeSummary } from './types'
 
 /** Shown after a pet dies, until the owner moves on to the next egg. */
@@ -42,6 +43,14 @@ export default function Memorial({ life, onViewWorld, onNextEgg }: {
             <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">Day by day</p>
             <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm text-[#54726e]">
               {remembered.days.map((line) => <li key={line.key}><span className="font-semibold">{line.day}:</span> {line.text}</li>)}
+            </ul>
+          </div>
+        )}
+        {diaryLines(life.diary).length > 0 && (
+          <div className="mt-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">{life.name}'s diary</p>
+            <ul className="mt-2 max-h-64 space-y-2 overflow-y-auto pr-1 text-sm leading-6 text-[#54726e]">
+              {diaryLines(life.diary).map((line) => <li key={line.key}><span className="font-semibold">{line.day}:</span> {line.text}</li>)}
             </ul>
           </div>
         )}

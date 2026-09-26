@@ -3,9 +3,15 @@ import { createPortal } from 'react-dom'
 import { canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, newestItem } from './bond'
 import type { InboxItem } from './bondTypes'
 
-/** Mimo's messages to its owner, newest first. Opening it marks them read; a naming ask takes a name. */
-export default function InboxPanel({ name, onChanged, onClose }: {
+/** Mimo's messages to its owner, newest first. Opening it marks them read; a naming ask takes a name.
+ * B3: where the owner turns browser notifications on or off. */
+export default function InboxPanel({ name, notify, canNotify, onNotify, onChanged, onClose }: {
   name: string
+  /** Notifications are on. */
+  notify: boolean
+  /** This browser can notify (the Notification API is there). */
+  canNotify: boolean
+  onNotify: (on: boolean) => void
   /** Refreshes the stream (the unread count, the chat). */
   onChanged: () => Promise<void>
   onClose: () => void
@@ -77,6 +83,12 @@ export default function InboxPanel({ name, onChanged, onClose }: {
           ))}
         </ul>
         {error && <p className="border-t border-[#d6e5dc] px-5 py-2 text-xs text-[#a65b50]" role="status">{error}</p>}
+        {canNotify && (
+          <label className="flex items-center gap-2 border-t border-[#d6e5dc] px-5 py-2 text-xs text-[#54726e]">
+            <input type="checkbox" checked={notify} onChange={(event) => onNotify(event.target.checked)} />
+            Tell me when {name} writes, while this tab is open
+          </label>
+        )}
       </section>
     </div>,
     document.body,

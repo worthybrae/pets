@@ -46,8 +46,10 @@ export interface InboxItem {
   /** "ask", "report"; B3 adds "found", "danger" and "story". */
   kind: string
   text: string
-  /** A naming ask: {ask: "name", words, answer once named}; a care ask: {care}; a story: {day, writer}. */
-  data: { ask?: string; words?: string; answer?: string; care?: string; day?: number; writer?: string }
+  /** A naming ask: {ask: "name", words, answer once named}; a care ask: {care}; a story: {day, last,
+   * writer, and, for one Luna wrote and the rules later grew, lead, lead_last (Task 13's fix rounds)}. */
+  data: { ask?: string; words?: string; answer?: string; care?: string; day?: number; last?: number;
+    writer?: string; lead?: number; lead_last?: number }
   read: boolean
 }
 
@@ -57,10 +59,31 @@ export interface InboxView {
   newest: InboxItem[]
 }
 
+/** A story in Mimo's diary (backend/survival/diary.py diary_entries). */
+export interface DiaryEntry {
+  id: number
+  /** Server time it was written. */
+  at: number
+  /** The game day it is about. */
+  day: number
+  /** Pre-flight 2: the last game day a story of a long absence tells (null or missing: `day` alone). */
+  last?: number | null
+  text: string
+  writer: 'luna' | 'rules'
+  read: boolean
+}
+
 /** What /api/mimo adds for Bond while Mimo lives (an older API sends none of it). */
 export interface BondFields {
   chat?: ChatView
   bond?: BondView
   inbox?: InboxView
   request?: RequestView | null
+  /** B3: the newest story, shown first when the viewer opens while it is unread. */
+  story?: DiaryEntry | null
+}
+
+/** A life's diary on its memorial (an older API sends none). */
+export interface DiaryFields {
+  diary?: DiaryEntry[]
 }
