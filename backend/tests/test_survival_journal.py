@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.survival import brain  # noqa: F401  (registers every purpose)
-from backend.survival.curiosity import curiosity_state
+from backend.survival.curiosity import GROUND_FLOOR, curiosity_state
 from backend.survival.journal import NEW_LESSON, journal_state, learn_lesson, observe_journal
 from backend.survival.memory import forget, known, places, remember
 from backend.survival.once import forget_logged
@@ -37,6 +37,7 @@ class Studying(unittest.TestCase):
 class JournalTests(Studying):
     def test_what_it_digs_or_lays_bare_it_learns_at_once(self):
         self.world.grid.put(3, -1, 1, "coal_ore")
+        self.world.state["brain"]["curiosity"]["value"] = 60.0  # clear of GROUND_FLOOR: both lessons count in full
         before = self.world.state["brain"]["curiosity"]["value"]
         observe_journal(self.world.state, {"kind": "mine", "target": {"x": 3, "y": 0, "z": 1}, "block": "gravel"},
                         self.context, 5.0)
@@ -64,6 +65,18 @@ class JournalTests(Studying):
                          [("gravel", 6, 0)])  # one sight of each kind
         learn_lesson(self.world.state, self.context, 8.0, "gravel")
         self.assertEqual(places(self.world.db, ("sight",)), [])  # learned: no longer a sight
+
+    def test_a_lesson_never_takes_curiosity_below_the_ground_floor_but_is_still_a_discovery(self):
+        # Follow-up 2 (F1): like new ground, a lesson stops at GROUND_FLOOR (40), the expedition's gate.
+        curiosity = self.world.state["brain"]["curiosity"]
+        curiosity["value"], seen = 42.0, curiosity["seen"]
+        self.assertTrue(learn_lesson(self.world.state, self.context, 5.0, "gravel"))
+        self.assertEqual((curiosity["value"], curiosity["seen"]), (GROUND_FLOOR, seen + 1))
+        self.assertTrue(learn_lesson(self.world.state, self.context, 6.0, "sand"))  # at the floor: no lower
+        self.assertEqual((curiosity["value"], curiosity["seen"]), (GROUND_FLOOR, seen + 2))
+        curiosity["value"] = 60.0
+        self.assertTrue(learn_lesson(self.world.state, self.context, 7.0, "snow"))
+        self.assertEqual(curiosity["value"], 60.0 - NEW_LESSON)  # clear of the floor: the whole drop
 
     def test_a_sight_out_of_reach_gives_way_to_one_of_its_kind_in_sight_here(self):
         # L4b final fix wave, I5: one sight per kind, kept for good, so gravel noted 100 blocks out on

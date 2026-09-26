@@ -5,8 +5,9 @@ The first time Mimo meets a kind of block, plant, creature, biome or landmark th
 (LESSONS) has a lesson for, it studies it and learns what it teaches: "gravel sometimes hides
 flint", "skitters come out of caves at night". A lesson is remembered in memory_knowledge (fact
 "lesson", with when), logged as a routine "learned" event ("Pip learned that gravel sometimes hides
-flint.") and is a discovery for curiosity (NEW_LESSON); one that unlocks something asks for a new
-choice. The journal starts with curiosity, once the tick first tends it (`observe_journal`, from
+flint.") and is a discovery for curiosity (NEW_LESSON; the L4b final fix wave's follow-up 2: like
+new ground, a lesson never takes curiosity below curiosity.GROUND_FLOOR, though it still counts as
+a discovery); one that unlocks something asks for a new choice. The journal starts with curiosity, once the tick first tends it (`observe_journal`, from
 brain.observe_step, does nothing before). Studying takes one of three forms:
 - Mimo learns at once what it meets right there: a kind of block it digs (the sample is in its
   arms), an ore or lava its digging lays bare beside it, the biome it walks into, and a cave mouth,
@@ -53,7 +54,7 @@ from backend.services.crafting import can_harvest
 from backend.services.worldgen import SEA_LEVEL, biome_at, surface_material, terrain_height
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.creatures.table import dead
-from backend.survival.curiosity import discovered, seen, value_of
+from backend.survival.curiosity import GROUND_FLOOR, discovered, seen, value_of
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.goals import add_urge
 from backend.survival.grid import Cell
@@ -197,7 +198,11 @@ def learned(db) -> list[tuple[str, float]]:
 
 def learn_lesson(state: dict, context: ActionContext, at: float, thing: str) -> bool:
     """Learn the lesson `thing` teaches, the first time: remembered, logged, a discovery for
-    curiosity, and a new choice asked for when it unlocks something. True the first time."""
+    curiosity, and a new choice asked for when it unlocks something. True the first time.
+    Follow-up 2 (F1 of the scoped re-review): like new ground, a lesson never takes curiosity below
+    GROUND_FLOOR, the expedition's gate. With investigate an urge from 40 (I5), each lesson took 5
+    off and a pet near home kept studying itself back under the gate: at sim pace 4 of 9 rules pets
+    made no expedition in 8 game days, where all 9 had."""
     lesson, db = LESSONS.get(thing), context.db
     if lesson is None or db is None or not know(db, thing, FACT, at):
         return False
@@ -208,7 +213,7 @@ def learn_lesson(state: dict, context: ActionContext, at: float, thing: str) -> 
     for place in places(db, ("sight",)):
         if place["note"] == thing:
             forget(db, "sight", cell_of(place))
-    discovered(state, at, NEW_LESSON)
+    discovered(state, at, min(NEW_LESSON, max(0.0, value_of(state["brain"]) - GROUND_FLOOR)))
     if lesson.unlocks:
         mark_trigger(state, "discovery", at)
     return True
