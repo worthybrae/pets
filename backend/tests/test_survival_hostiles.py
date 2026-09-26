@@ -109,7 +109,8 @@ class ChaseTests(unittest.TestCase):
         night = scene(grid, state, at=11.0)
         self.assertEqual(act(skitter, night), "chase")
         self.assertEqual([event[1:] for event in night.events], [("threat", "Pip saw a skitter coming.")])
-        self.assertEqual((state["brain"]["pending"]["reasons"], state["brain"]["pending"]["urgent"]), (["threat"], True))
+        pending = state["brain"]["pending"]
+        self.assertEqual((pending["reasons"], pending["urgent"]), (["threat"], True))
 
     def test_farther_than_sixteen_it_prowls_and_it_gives_up_a_chase_past_twenty_four(self):
         grid, state = meadow(), pet()
