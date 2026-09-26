@@ -518,8 +518,9 @@ register_goal(Goal(
 
 def workshop_view(db: sqlite3.Connection) -> dict:
     """What Mimo made, for /api/mimo (read only): its workshop ({name, status} or None), its machines,
-    oldest first ({id, name, machine, status, x, y, z, lamps lit}) and the doors its machines hold open
-    ([x, y, z]). A world from before M5 or Making (an archive) made nothing."""
+    oldest first ({id, name, machine, status, x, y, z, lamps lit, and the count a counter or computer
+    shows: {value, bits, shown} or None}) and the doors its machines hold open ([x, y, z]). A world from
+    before M5 or Making (an archive) made nothing."""
     try:
         found = structure_rows(db, ("workshop", KIND))
     except sqlite3.OperationalError:
@@ -532,7 +533,7 @@ def workshop_view(db: sqlite3.Connection) -> dict:
         state = machine_state(db, row["id"]) if row["status"] == "done" else None
         machines.append({"id": row["id"], "name": row["name"], "machine": row["data"].get("style", {}).get("machine"),
                          "status": row["status"], "x": row["x"], "y": row["y"], "z": row["z"],
-                         "lamps": (state or {}).get("lamps", 0)})
+                         "lamps": (state or {}).get("lamps", 0), "readout": (state or {}).get("readout")})
         doors += (state or {}).get("doors", [])
     workshop = {"name": workshops[-1]["name"], "status": workshops[-1]["status"]} if workshops else None
     return {"workshop": workshop, "machines": machines, "doors_open": doors}

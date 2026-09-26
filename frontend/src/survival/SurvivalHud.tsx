@@ -6,6 +6,7 @@ import {
 } from './hud'
 import { curiosityBar, goalHint, goalLine, planSteps, tripLines } from './goals'
 import { expeditionLine, journalButton } from './journal'
+import { computerCaption, workshopButton } from './workshop'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -56,7 +57,7 @@ function CameraSwitch({ mode, autoPick, onChange }: { mode: CameraMode; autoPick
   )
 }
 
-export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onOpenLives, bond }: {
+export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onWorkshop, onOpenLives, bond }: {
   state: AliveResponse
   online: boolean
   busy: boolean
@@ -73,6 +74,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   onCrafting: () => void
   /** L4b: opens the knowledge journal. */
   onJournal: () => void
+  /** Making: opens the Workshop panel. */
+  onWorkshop?: () => void
   /** Shows a Lives button that opens the archive. */
   onOpenLives?: () => void
   /** Bond: talking with Mimo, under the care buttons. */
@@ -88,6 +91,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const trip = state.reflex ? null : tripLines(state.trip)
   const curious = curiosityBar(state.curiosity)
   const expedition = expeditionLine(state.expedition)
+  const caption = computerCaption(life.name, state.workshop, clock.day_number)
+  const workshop = workshopButton(state.workshop)
   return (
     <>
       {flash !== null && <HurtFlash key={state.hurt_at ?? 0} delay={flash} />}
@@ -126,6 +131,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
           )}
           {expedition && <p className="mt-1 truncate text-xs font-medium text-[#8a6a2f]">{expedition}</p>}
           {home && <p className="mt-0.5 truncate text-xs text-[#54726e]">{home}</p>}
+          {caption && <p className="mt-0.5 truncate font-mono text-xs font-semibold text-[#8a6a2f]" aria-label="Computer">{caption}</p>}
           <p className="mt-0.5 text-xs text-[#54726e]">
             <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}
           </p>
@@ -169,6 +175,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
             <button type="button" onClick={onFollow} className="underline decoration-[#8cafa2] underline-offset-4">Follow {life.name}</button>
             <button type="button" onClick={onCrafting} className="underline decoration-[#8cafa2] underline-offset-4">Blocks & crafting</button>
             <button type="button" onClick={onJournal} className="underline decoration-[#8cafa2] underline-offset-4">{journalButton(state.journal)}</button>
+            {workshop && onWorkshop && <button type="button" onClick={onWorkshop} className="underline decoration-[#8cafa2] underline-offset-4">{workshop}</button>}
             {onOpenLives && <button type="button" onClick={onOpenLives} className="underline decoration-[#8cafa2] underline-offset-4">Lives</button>}
           </div>
           {bond}

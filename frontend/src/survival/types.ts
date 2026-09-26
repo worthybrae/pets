@@ -234,6 +234,15 @@ export interface MachineRow extends Point {
   status: 'building' | 'done'
   /** How many of its lamps are lit now. */
   lamps: number
+  /** The count a counter or computer holds, or null (an older API sends none). */
+  readout?: MachineReadout | null
+}
+
+/** What a counter or computer shows: the count, its bits (highest first) and whether its lamps are shown. */
+export interface MachineReadout {
+  value: number
+  bits: string
+  shown: boolean
 }
 
 /** What Mimo made (Making, backend/survival/machines.py workshop_view). */
