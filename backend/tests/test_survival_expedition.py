@@ -103,6 +103,23 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(context.events, [(3.0, "expedition", "Pip set out on an expedition to the east.")])
         self.assertAlmostEqual(progress_of(pet.situation(), GOALS["expedition"]), 0.2)  # packed
 
+    def test_a_hurt_pet_packed_to_go_waits_until_it_is_well(self):
+        # The final fix wave, (a): a packed pet at 30 health set out, turned home on its health at the
+        # next tend and "came home from its expedition: 0 blocks out", reaching the goal.
+        pet = Expedition()
+        adopt_goal(pet.state, "expedition", "utility", "", 1.0)
+        pet.state["inventory"] = dict(PACKED)
+        pet.state["vitals"]["health"] = 30.0
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            events = pet.tend(2.0).events + pet.tend(3.0).events
+            self.assertEqual(pet.state["brain"]["expedition"]["phase"], "packing")
+            self.assertEqual(events, [])
+            self.assertFalse(complete(pet.situation(), GOALS["expedition"]))
+            pet.state["vitals"]["health"] = 100.0
+            context = pet.tend(4.0)
+        self.assertEqual(pet.state["brain"]["expedition"]["phase"], "out")
+        self.assertEqual(context.events, [(4.0, "expedition", "Pip set out on an expedition to the east.")])
+
     def test_while_it_packs_what_gives_way_to_food_goes_in_the_chest(self):
         # gold isn't a gear material, so it gives way to food like any other GIVES_WAY_TO_FOOD item.
         pet = Expedition({"gold_ore": 2, "gold_ingot": 1, "coal": 1})

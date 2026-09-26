@@ -268,7 +268,10 @@ def tend_expedition(state: dict, context: ActionContext, at: float) -> None:
             return
         found = trek(s) or start_trek(s)
         phase = found["phase"]
-        if phase == "packing" and packed(s) and not camp_time(s) and home_built(s) is not None:
+        # The final fix wave, (a): not while it would turn home at once (hurt, or short of food), or a
+        # pet at 30 health "came home from its expedition: 0 blocks out" and reached the goal.
+        if (phase == "packing" and packed(s) and not camp_time(s) and home_built(s) is not None
+                and not should_turn(s, found)):
             set_out(state, s, found, context, at)
         elif phase in ("out", "homeward"):
             found["far"] = max(found["far"], from_home(s))
