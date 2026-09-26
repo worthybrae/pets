@@ -20,6 +20,7 @@ from backend.survival.expedition import expedition_view
 from backend.survival.goals import GOALS, goal_view, reached_rows
 from backend.survival.journal import journal_view
 from backend.survival.memory import explored, nearest, places, structures
+from backend.survival.mind import mind_fields
 from backend.survival.registry import LifeRegistry
 from backend.survival.trips import trip_view
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
@@ -195,9 +196,10 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
 
 
 def alive_snapshot(life: dict, world: SurvivalWorld, now: float, scale: float) -> dict:
-    """The living pet for /api/mimo: its world's state and (Bond) the owner's side of it."""
+    """The living pet for /api/mimo: its world's state, (Bond) the owner's side of it and (Mind) what
+    it remembers."""
     return {"phase": "alive", "life": life_row(life, scale, now), **survival_view(world, now, scale),
-            **bond_fields(world, now, scale)}
+            **bond_fields(world, now, scale), **mind_fields(world, now, scale)}
 
 
 def goals_reached(world: SurvivalWorld, born_at: float, scale: float) -> list[dict]:

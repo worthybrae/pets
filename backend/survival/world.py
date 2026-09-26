@@ -25,6 +25,7 @@ from backend.services.worldgen import WORLD_MAX_Y, WORLD_MIN_Y, terrain_height
 from backend.survival.bond_tables import create_bond_tables
 from backend.survival.creatures.table import create_creature_tables
 from backend.survival.memory import create_memory_tables
+from backend.survival.mind import create_mind_tables
 from backend.survival.renewal import create_growth_table
 from backend.survival.steps import WORKSTATIONS
 from backend.survival.triggers import mark_trigger
@@ -117,6 +118,7 @@ def create_world_tables(db: sqlite3.Connection) -> None:
     create_growth_table(db)
     create_creature_tables(db)
     create_bond_tables(db)
+    create_mind_tables(db)
 
 
 def read_state(db: sqlite3.Connection) -> dict:
