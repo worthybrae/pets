@@ -17,11 +17,13 @@ A source powers the wire, gates and outputs beside it (north, east, south or wes
 gate only what is in front of it; an output is powered by a powered wire or a source beside it, or a
 gate facing it. Wires join the wires beside them. A part whose block is gone is left out.
 
-Each step is synchronous and deterministic: the sources are read, the wires fed by what changed are
-worked out again (breadth first from what feeds them), and the gates and outputs that read something
-that changed (and repeaters with a signal still under way) are worked out; a gate's new output shows
-from the next step. Only what changed is worked out again, and a circuit where nothing is under way
-and no source changed is quiet: it costs nothing but reading its sources.
+Each step is synchronous and deterministic: the sources are read at the step's own time (a plate from
+where Mimo's walks had taken it by then: a cell a walk under way reaches later does not count), the
+wires fed by what changed are worked out again (breadth first from what feeds them), and the gates and
+outputs that read something that changed (and repeaters with a signal still under way) are worked out;
+a gate's new output shows from the next step. Only what changed is worked out again, and a circuit
+where nothing is under way and no source changed is quiet: it costs nothing but reading its sources
+(unless Mimo stepped onto or off one of its plates in the meantime).
 
 The machines (kind "machine" structures, backend.survival.machines) carry their circuit in their design
 (style "circuit"). Once one is done, `run_signals` (last in the tick's transaction, after renewal and the
@@ -32,15 +34,17 @@ what changed, and every gate and output that reads them or something that change
 a signal under way) and takes it only while that fits in what is left; a circuit that runs out waits for
 the next tick, and one more than MAX_BEHIND steps behind skips ahead. (A step bigger than the whole budget
 is taken alone, first in a tick, so no machine stalls; none of Mimo's machines has one.) A machine is
-started once, when it is first run: its gates settle (repeaters filled with what they read, an inverter
-set to start on held on) with its starting outputs held (STARTS, by machine name: the computer's count),
-then every gate is worked out once from that. A start is worked out outside the budget, once.
+started when it is first run, and again whenever which of its parts are there changes: its gates settle
+(repeaters filled with what they read, an inverter set to start on held on) with its starting outputs
+held (STARTS, by machine name: the computer's count), then every gate is worked out once from that. A
+start is worked out outside the budget. A machine that crashes is logged once and left for that tick;
+the others still run.
 
 The state of each machine is kept in the machine_signals table, one row a machine written only when
-it changed: the time it is at, its gates' outputs, its repeaters' registers, the power in its wires,
-what it draws lit, its pressed buttons. A world only ever read (an archive) may lack the table: it
-reads as no signals (`machine_state`; the viewer's backend.survival.machines.workshop_view). GETs
-never write.
+it changed: the time it is at, which of its parts it runs without, its gates' outputs, its repeaters'
+registers, the power in its wires, what it draws lit, its pressed buttons. A world only ever read (an
+archive) may lack the table: it reads as no signals (`machine_state`; the viewer's
+backend.survival.machines.workshop_view). GETs never write.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ import json
 import logging
 import math
 import sqlite3
+from bisect import bisect_right
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable
@@ -99,8 +104,8 @@ GATE_KEYS = {"1": ("repeater", 1), "2": ("repeater", 2), "3": ("repeater", 3), "
              "n": ("inverter", 0), "N": ("inverter", 1), "a": ("joiner", "and"), "o": ("joiner", "or")}
 ARROWS = {">": "east", "<": "west", "^": "north", "v": "south"}
 
-# Machine name -> start(state, at, scale) giving ({part index: output held while it settles}, {source
-# index: reading while it settles}): what a machine starts from (backend.survival.machines).
+# Machine name -> start(life, at, scale, circuit) giving ({part index: output held while it settles},
+# {source index: reading while it settles}): what a machine starts from (backend.survival.machines).
 STARTS: dict[str, Callable] = {}
 
 
@@ -449,19 +454,49 @@ def live_machines(db: sqlite3.Connection) -> list[tuple[int, str, str, tuple[tup
     return [(row[0], row[1], *circuit_of(row[2])) for row in rows]
 
 
-def stepped_on(state: dict, cell: Cell, since: float) -> bool:
-    """Mimo stands in `cell`, or its walk passed through it since `since`."""
-    position = state.get("position") or {}
-    if tuple(round(position.get(axis, 0.0)) for axis in "xyz") == tuple(cell):
-        return True
-    walks = [state.get("action") or {}] + list(state.get("recent_actions") or [])
-    return any(tuple(round(point.get(axis, 0.0)) for axis in "xyz") == tuple(cell)
-               and point.get("at", -math.inf) >= since for walk in walks for point in walk.get("path") or [])
+Footsteps = tuple[list[float], list[Cell]]  # when Mimo reached each cell, in time order, and the cells
 
 
-def readings_at(circuit: Circuit, state: dict, grid: Grid, life: dict, at: float, scale: float) -> dict[int, int]:
+def cell_of(point: dict) -> Cell:
+    return tuple(round(point.get(axis, 0.0)) for axis in "xyz")
+
+
+def footsteps(life: dict) -> Footsteps:
+    """Where Mimo's walks took it, in time order: the walk under way (all of it, the way ahead too) and
+    the recent ones that keep their path, each finished one only as far as it went (a walk cut short never
+    reached the rest). With none of them, where Mimo stands, all along."""
+    walks = [life.get("action") or {}, *(life.get("recent_actions") or [])]
+    points = sorted((point["at"], cell_of(point)) for walk in walks for point in walk.get("path") or []
+                    if "at" in point and point["at"] <= walk.get("ended_at", math.inf))
+    if not points:
+        points = [(-math.inf, cell_of(life.get("position") or {}))]
+    return [at for at, _ in points], [cell for _, cell in points]
+
+
+def stepped_on(state: dict, cell: Cell, since: float, until: float, walked: Footsteps | None = None) -> bool:
+    """Mimo was in `cell` at some time from `since` to `until`: it stood there at `since` (before its first
+    known step, where that walk set off), or a walk reached it in between. A cell a walk reaches only after
+    `until` does not count (fix round 1: a plate read the way ahead). `walked`: footsteps(state), when the
+    caller has worked it out already."""
+    times, cells = footsteps(state) if walked is None else walked
+    cell = tuple(cell)
+    first = bisect_right(times, since)
+    return cells[max(0, first - 1)] == cell or cell in cells[first:bisect_right(times, until)]
+
+
+def plates_walked(circuit: Circuit, walked: Footsteps, since: float, until: float) -> bool:
+    """A walk reached one of the circuit's plates after `since`, up to `until`, so its plates may read on
+    and off again in that time. (Stepping off one alone shows in how it reads at `until`.)"""
+    plates = {part[0] for part in circuit.parts if part[1] == "plate"}
+    times, cells = walked
+    return any(cell in plates for cell in cells[bisect_right(times, since):bisect_right(times, until)])
+
+
+def readings_at(circuit: Circuit, state: dict, grid: Grid, life: dict, at: float, scale: float,
+                walked: Footsteps | None = None) -> dict[int, int]:
     """What each source gives out at `at`: a lever as its block shows, a button while its pulse lasts, a
-    plate while Mimo is on it, a sensor by day."""
+    plate while Mimo is on it or was in the PLATE_SECONDS before `at` (`walked`: footsteps(life), when the
+    caller has it), a sensor by day."""
     found = {}
     for index, (cell, kind, _, _) in enumerate(circuit.parts):
         if kind == "lever":
@@ -471,16 +506,23 @@ def readings_at(circuit: Circuit, state: dict, grid: Grid, life: dict, at: float
                 state["press"][index] = BUTTON_STEPS
             found[index] = FULL if state["press"].get(index, 0) > 0 else 0
         elif kind == "plate":
-            found[index] = FULL if stepped_on(life, cell, at - PLATE_SECONDS / scale) else 0
+            walked = footsteps(life) if walked is None else walked
+            found[index] = FULL if stepped_on(life, cell, at - PLATE_SECONDS / scale, at, walked) else 0
         elif kind == "sensor":
             phase = clock_at(life.get("born_at", 0.0), at, scale)["phase"]
             found[index] = 0 if phase in NIGHT_PHASES else FULL
     return found
 
 
-def present_parts(grid: Grid, parts: tuple[tuple, ...]) -> tuple[tuple, ...]:
-    """The parts whose block is there."""
-    return tuple(part for part in parts if grid.material(*part[0]) in MATERIALS[part[1]])
+def missing_parts(grid: Grid, parts: tuple[tuple, ...]) -> list[int]:
+    """Which of a machine's parts (their places in its design) have lost their block."""
+    return [index for index, part in enumerate(parts) if grid.material(*part[0]) not in MATERIALS[part[1]]]
+
+
+def present_parts(grid: Grid, parts: tuple[tuple, ...], missing: list[int] | None = None) -> tuple[tuple, ...]:
+    """The parts whose block is there (`missing`: missing_parts, when the caller has it)."""
+    gone = set(missing_parts(grid, parts) if missing is None else missing)
+    return tuple(part for index, part in enumerate(parts) if index not in gone)
 
 
 def draw(grid: Grid, circuit: Circuit, state: dict) -> None:
@@ -498,16 +540,19 @@ def draw(grid: Grid, circuit: Circuit, state: dict) -> None:
 
 def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, name: str, parts: tuple[tuple, ...],
                 at: float, scale: float, budget: int, events: list) -> int:
-    """Bring one machine's circuit up to `at` within `budget` cells; returns the cells worked out."""
-    present = present_parts(grid, parts)
+    """Bring one machine's circuit up to `at` within `budget` cells; returns the cells worked out. Its state
+    goes with which of its parts are there (fix round 1: not how many), so any change to them starts it
+    again."""
+    missing = missing_parts(grid, parts)
+    present = present_parts(grid, parts, missing)
     circuit = compile_circuit(present)
     state = machine_state(db, number)
-    if state is None or state.get("parts") != len(present):
+    if state is None or state.get("missing") != missing:
         state = fresh_state(circuit)
         start = STARTS.get(name)
         held, forced = start(life, at, scale, circuit) if start is not None else ({}, {})
         settle(circuit, state, {**readings_at(circuit, state, grid, life, at, scale), **forced}, held)
-        state["at"], state["parts"] = at, len(present)
+        state["at"], state["missing"] = at, missing
         draw(grid, circuit, state)
         save_state(db, number, state)
         return 0
@@ -519,12 +564,15 @@ def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, nam
         due = MAX_BEHIND
     cost, before = 0, encode(state)
     last = state["at"] + due * STEP / scale
-    if state["quiet"] and all(state["out"][source] == reading
-                              for source, reading in readings_at(circuit, state, grid, life, last, scale).items()):
+    walked = footsteps(life) if any(part[1] == "plate" for part in circuit.parts) else None
+    if (state["quiet"]
+            and not (walked is not None and plates_walked(circuit, walked, state["at"] - PLATE_SECONDS / scale, last))
+            and all(state["out"][source] == reading
+                    for source, reading in readings_at(circuit, state, grid, life, last, scale, walked).items())):
         due, state["at"] = 0, last  # nothing is under way and nothing changed: it is simply later
     for _ in range(due):
         when = state["at"] + STEP / scale
-        readings = readings_at(circuit, state, grid, life, when, scale)
+        readings = readings_at(circuit, state, grid, life, when, scale, walked)
         bound = step_bound(circuit, state, readings)
         if cost + bound > budget and not (cost == 0 and budget >= MAX_CELLS):
             break
@@ -543,20 +591,26 @@ def run_machine(db: sqlite3.Connection, grid: Grid, life: dict, number: int, nam
 def run_signals(state: dict, context, at: float) -> None:
     """The tick's signal pass (after renewal): every machine Mimo finished, within MAX_CELLS, a different one
     first each tick (state["signal_turn"]), so a busy machine never leaves the others no budget for good.
-    A crash is logged once and the tick goes on."""
+    A crash is logged once and the tick goes on; a machine that crashes (fix round 1) is left for this
+    tick, and the machines after it still run."""
     db = context.db
     if db is None or state.get("died_at") is not None:
         return
     try:
         scale = context.clock_at(at)["time_scale"]
         budget, machines = MAX_CELLS, live_machines(db)
-        turn = state.get("signal_turn", 0) % max(1, len(machines))
-        state["signal_turn"] = turn + 1
-        for number, title, name, parts in machines[turn:] + machines[:turn]:
-            if budget <= 0:
-                break
-            rang: list = []
-            budget -= run_machine(db, context.grid, state, number, name, parts, at, scale, budget, rang)
-            context.events.extend((when, "bell", f"The bell on {title} rang.") for when, _ in rang[:1])
     except Exception as error:
         log_once(logger, "signals", error)
+        return
+    turn = state.get("signal_turn", 0) % max(1, len(machines))
+    state["signal_turn"] = turn + 1
+    for number, title, name, parts in machines[turn:] + machines[:turn]:
+        if budget <= 0:
+            break
+        rang: list = []
+        try:
+            budget -= run_machine(db, context.grid, state, number, name, parts, at, scale, budget, rang)
+        except Exception as error:
+            log_once(logger, f"signals {number}", error)
+            continue
+        context.events.extend((when, "bell", f"The bell on {title} rang.") for when, _ in rang[:1])
