@@ -61,7 +61,8 @@ class ChatHookTests(unittest.TestCase):
 
     def test_r1_r6_a_writer_offers_several_lines_with_notes_and_the_chosen_ones_note_reaches_its_keeper(self):
         kept = []
-        jev = FakeJev(lambda name, criteria: "recall:2" if name == "reply" else sorted(criteria)[0])
+        jev = FakeJev(lambda name, criteria: "recall:2" if name == "reply" else "none" if "none" in criteria
+                      else sorted(criteria)[0])
         with patch.dict(REPLIES, {"recall": recall}), \
                 patch.dict(REPLY_KEEPERS, {"recall": lambda db, state, heard, note, now: kept.append(note)}):
             said = self.say("do you remember the old days?", jev)
@@ -122,7 +123,8 @@ class ChatHookTests(unittest.TestCase):
                 QUESTIONS.remove(asked)
 
     def test_r5_an_unoffered_pick_falls_back_for_that_question_alone(self):
-        jev = FakeJev(lambda name, criteria: "like_ack" if name == "reply" else "a_secret")
+        jev = FakeJev(lambda name, criteria: "like_ack" if name == "reply" else "a_secret" if name == "fact"
+                      else "none" if "none" in criteria else sorted(criteria)[0])
         with self.assertLogs("backend.survival.talk", level="ERROR") as logs:
             said = self.say("I love the lake. I work nights.", jev)
         self.assertEqual(tuple(said), ("Ooh, the lake? I'll remember that you like it.", "jev"))

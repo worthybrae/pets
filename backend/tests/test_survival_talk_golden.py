@@ -40,8 +40,8 @@ def exploring(state, db):
     state["brain"].update(purpose="explore", reflex=None, trip={
         "reason": "expedition", "words": "travel past the lands it knows", "direction": "east",
         "why": "I want to see what lies past the lands I know"})
-    state["brain"]["goal"] = {"name": "expedition", "since": BORN, "picker": "jev", "progress": 0.35,
-                              "plan": [{"text": "Pack food and torches", "done": True, "step": 0},
+    state["brain"]["goal"] = {"name": "expedition", "since": BORN, "picker": "jev", "progress": 0.35, "best": 0.35,
+                              "best_at": NOW - 60, "plan": [{"text": "Pack food and torches", "done": True, "step": 0},
                                        {"text": "Travel past the lands it knows", "done": False, "step": 1},
                                        {"text": "Come home with its finds", "done": False, "step": 2}]}
     log_event(db, NOW - 200, "found", f"{state['name']} met its first skitter.")
@@ -51,8 +51,8 @@ def building(state, db):
     """B: gathering wood for "A home of its own"."""
     state["vitals"].update(hunger=80, energy=70, mood=75, warmth=80, health=100)
     state["brain"].update(purpose="gather_wood", reflex=None, trip=None)
-    state["brain"]["goal"] = {"name": "first_shelter", "since": BORN, "picker": "rules", "progress": 0.2,
-                              "plan": [{"text": "Gather blocks for the walls", "done": False, "step": 0},
+    state["brain"]["goal"] = {"name": "first_shelter", "since": BORN, "picker": "rules", "progress": 0.2, "best": 0.2,
+                              "best_at": NOW - 60, "plan": [{"text": "Gather blocks for the walls", "done": False, "step": 0},
                                        {"text": "Raise the walls and roof", "done": False, "step": 1}]}
 
 
@@ -67,13 +67,22 @@ def known_owner(state, db):
     """D: it knows Sam (likes blue, works nights), gathering wood toward "Look into a cave"."""
     state["vitals"].update(hunger=80, energy=70, mood=60, warmth=80, health=100)
     state["brain"].update(purpose="gather_wood", reflex=None, trip=None)
-    state["brain"]["goal"] = {"name": "cave", "since": BORN, "picker": "rules", "progress": 0.1,
-                              "plan": [{"text": "Look into a cave mouth or sinkhole", "done": False, "step": 0}]}
+    state["brain"]["goal"] = {"name": "cave", "since": BORN, "picker": "rules", "progress": 0.1, "best": 0.1,
+                              "best_at": NOW - 60, "plan": [{"text": "Look into a cave mouth or sinkhole", "done": False, "step": 0}]}
     for at, (kind, words) in enumerate((("about", "I work nights"), ("likes", "blue"), ("name", "Sam"))):
         remember_fact(db, kind, words, BORN + at)
 
 
-STATES = {"A": exploring, "B": building, "C": struggling, "D": known_owner}
+def friendly(change):
+    """A state with a friendly bond pinned (B2 keeps it in state["bond"]; before B2 the chat assumes a
+    friendly 30), so the transcript holds before and after the bond lands."""
+    def edit(state, db):
+        change(state, db)
+        state["bond"] = {**(state.get("bond") or {}), "value": 30.0, "seen_at": NOW}
+    return edit
+
+
+STATES = {"A": friendly(exploring), "B": friendly(building), "C": friendly(struggling), "D": friendly(known_owner)}
 D_FACTS = [("name", "Sam"), ("likes", "blue"), ("about", "I work nights")]
 # (state, owner line, the rules' answer, the fake Jev's answer when it differs, the facts kept by the
 # rules, the facts kept with the fake Jev when they differ). None: the same as the rules.
@@ -119,12 +128,14 @@ GOLDEN = [
 
 def live_like(text):
     """Picks as the live Jev did: the reply sharing most words with the owner's line (the first offered on
-    a tie), and the richest fact on offer."""
+    a tie), and the richest fact on offer; "none" for any other question (B2's request)."""
     words = {word.strip("?!.,'\"").lower() for word in text.split()}
 
     def pick(name, criteria):
         if name == "fact":
             return next((kind for kind in ("about", "likes", "dislikes", "name") if kind in criteria), "none")
+        if name != "reply":
+            return "none" if "none" in criteria else sorted(criteria)[0]
         return max(criteria, key=lambda option: len(words & {word.strip("?!.,:'\"").lower()
                                                              for word in criteria[option].split()}))
     return pick
