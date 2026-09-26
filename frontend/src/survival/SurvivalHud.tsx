@@ -56,7 +56,7 @@ function CameraSwitch({ mode, autoPick, onChange }: { mode: CameraMode; autoPick
   )
 }
 
-export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onOpenLives }: {
+export default function SurvivalHud({ state, online, busy, message, cameraMode, autoPick, minimap, onCameraMode, onCare, onHello, onFollow, onCrafting, onJournal, onOpenLives, bond }: {
   state: AliveResponse
   online: boolean
   busy: boolean
@@ -75,6 +75,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   onJournal: () => void
   /** Shows a Lives button that opens the archive. */
   onOpenLives?: () => void
+  /** Bond: talking with Mimo, under the care buttons. */
+  bond?: ReactNode
 }) {
   const { clock, life } = state
   const careKinds: CareKind[] = ['snack', 'bandage']
@@ -169,6 +171,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
             <button type="button" onClick={onJournal} className="underline decoration-[#8cafa2] underline-offset-4">{journalButton(state.journal)}</button>
             {onOpenLives && <button type="button" onClick={onOpenLives} className="underline decoration-[#8cafa2] underline-offset-4">Lives</button>}
           </div>
+          {bond}
           <CameraSwitch mode={cameraMode} autoPick={autoPick} onChange={onCameraMode} />
           {message && <p className="mt-2 text-xs text-[#a65b50]" role="status">{message}</p>}
         </section>

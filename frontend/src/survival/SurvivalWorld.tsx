@@ -3,6 +3,7 @@ import { BlockSync } from '../engine/blockSync'
 import { WorldStore } from '../engine/worldStore'
 import { blocksFetcher, giveCare, helpMimo, sayHello } from './api'
 import { DelayedBlocks } from './blockDelay'
+import BondBar from './BondBar'
 import { isCameraKey, loadCameraMode, nextMode, saveCameraMode, type AutoPick, type CameraMode } from './cameraModes'
 import { liveClock } from './clock'
 import CraftingPanel from './CraftingPanel'
@@ -156,7 +157,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
         creatures={state.creatures} creatureMoves={state.creature_moves} inventory={state.inventory} hurtAt={state.hurt_at}
         serverTime={serverTime}
         cameraMode={cameraMode} onAutoPick={autoPicked} />
-      <SurvivalHud state={state} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
+      <SurvivalHud state={state} bond={<BondBar state={state} onChanged={onChanged} />} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
         busy={busy} message={message || connectionError || syncError}
         cameraMode={cameraMode} autoPick={autoPick} minimap={minimap} onCameraMode={chooseCamera}
         onCare={care} onHello={hello} onFollow={() => setFollowing(true)}

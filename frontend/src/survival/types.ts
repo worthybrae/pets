@@ -1,6 +1,7 @@
 import type { WorldPlan } from '../components/world/worldPlanner'
 import type { AttributeTier } from '../components/hatch/types'
 import type { Rarity } from '../data/rarity'
+import type { BondFields } from './bondTypes'
 
 /** Shapes of the survival API (backend/survival/snapshot.py and backend/api). */
 
@@ -324,7 +325,7 @@ export interface SurvivalState {
   expedition?: Expedition | null
 }
 
-export interface AliveResponse extends SurvivalState {
+export interface AliveResponse extends SurvivalState, BondFields {
   phase: 'alive'
   life: LifeRow
 }
