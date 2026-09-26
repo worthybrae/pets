@@ -17,8 +17,8 @@ it out by watching the machine before):
 - Mimo's computer ("adder"): the same four stages driven by a daylight sensor, so each dawn counts one
   more, a bell by the sensor that rings at dawn, and the lamps shown only while its lever is thrown (a
   joiner that ands each stage's bit with the lever's line). When it is first run it is set to the days
-  Mimo has lived (STARTS: the count as it stood before this dawn, when built by day), so it shows the
-  game day in binary, the highest bit west, as long as it stands: "day 13 = 1101". 4 bits count to 15.
+  Mimo has lived (STARTS: today's dawn counted, by day or by night), so it shows the game day in
+  binary, the highest bit west, as long as it stands: "day 13 = 1101". 4 bits count to 15.
 A machine's parts are laid out as the rows below read (signals.parse). When Mimo throws the computer's
 lever the first time: a notable "computer" event ("Pip built a machine that remembers how long it has
 been alive!"). The readout (signals.READOUTS: the count, its bits and whether the lamps are shown) goes
@@ -103,15 +103,13 @@ def pairs(circuit: Circuit, rows: tuple[int, int], corner) -> list[tuple[int | N
 
 
 def computer_start(life: dict, at: float, scale: float, circuit: Circuit, corner) -> tuple[dict, dict]:
-    """signals.STARTS: the count set to the days Mimo has lived before today's dawn (fix round 1: the
-    sensor is read as it truly stands, not forced to night, so a computer that gets no budget before the
-    next dawn does not lose today's count for good). Each stage's second repeater holds its bit; its first
-    one holds the same bit while its stage's clock is high: for the lowest stage that is the sensor, read
-    as it stands now (by day, so the machine's own settle catches today's count at once instead of relying
-    on a later step to see the sensor rise); for the rest, the bit below it being 0."""
+    """signals.STARTS: the count set to the days Mimo has lived, today's dawn included (day_number % 16),
+    by day or by night. Nothing is forced: the sensor is read as it stands. Each stage's second repeater
+    holds its bit; its first one holds the same bit while its stage's clock is high: for the lowest stage
+    that is the sensor (high by day), for the rest the bit below it being 0."""
     clock = clock_at(life.get("born_at", 0.0), at, scale)
     by_day = clock["phase"] not in NIGHT_PHASES
-    value = (clock["day_number"] - 1) % (1 << BITS)
+    value = clock["day_number"] % (1 << BITS)
     held = {}
     for bit, (first, second) in enumerate(pairs(circuit, COMPUTER_ROWS, corner)):
         on = FULL if (value >> bit) & 1 else 0
@@ -119,7 +117,7 @@ def computer_start(life: dict, at: float, scale: float, circuit: Circuit, corner
             held[second] = on
         high = by_day if bit == 0 else not (value >> (bit - 1)) & 1
         if first is not None and high:
-            held[first] = (0 if on else FULL) if bit == 0 else on
+            held[first] = on
     return held, {}
 
 

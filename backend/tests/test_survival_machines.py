@@ -21,7 +21,7 @@ SENSOR = {"glass": 3, "slab": 3}
 
 def rough(x, y, z):
     """A yard's meadow, rough away from home: 3x3 plateaus a block high, and oaks (4 logs under a leaf) in
-    rows (test_survival_computer.rough, duplicated here to avoid a circular import)."""
+    rows."""
     ground = 0
     if abs(x - 1) > 4 or abs(z - 1) > 4:
         ground = (x // 3 + z // 3) % 2
@@ -34,8 +34,7 @@ def rough(x, y, z):
 
 
 def furrowed(x, y, z):
-    """A yard's meadow, furrowed away from home: every third column a block low (test_survival_computer's,
-    duplicated here to avoid a circular import)."""
+    """A yard's meadow, furrowed away from home: every third column a block low."""
     ground = -1 if (abs(x - 1) > 4 or abs(z - 1) > 4) and x % 3 == 0 else 0
     return "grass" if y == ground else "dirt" if y < ground else "air"
 

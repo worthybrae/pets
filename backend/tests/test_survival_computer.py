@@ -1,4 +1,3 @@
-import sqlite3
 import time
 import unittest
 
@@ -8,14 +7,13 @@ from backend.survival.computer import (
     observe_computer, readout,
 )
 from backend.survival.goals import GOALS
-from backend.survival.grid import Grid
 from backend.survival.machines import CLEAR, MACHINES, design, next_machine
 from backend.survival.memory import know, structures
 from backend.survival.signals import (
-    FULL, MATERIALS, MAX_CELLS, compile_circuit, corner_of, create_signal_table, fresh_state, machine_state, parse,
-    run_machine, run_signals, settle, step, step_bound,
+    FULL, MAX_CELLS, compile_circuit, corner_of, fresh_state, machine_state, parse, run_signals, settle, step,
+    step_bound,
 )
-from backend.tests.test_survival_machines import wired
+from backend.tests.test_survival_machines import furrowed, rough, wired
 from backend.tests.test_survival_signals import Bench, machine
 from backend.tests.test_survival_workshop import Yard, shares
 
@@ -27,25 +25,6 @@ NOON = 1200.0
 def circuit_of(rows):
     parts = tuple(((x, y, z), kind, facing, setting) for x, y, z, kind, facing, setting in parse(rows))
     return compile_circuit(parts), parts
-
-
-def rough(x, y, z):
-    """The yard's meadow, rough away from home: 3x3 plateaus a block high, and oaks (4 logs under a leaf) in rows."""
-    ground = 0
-    if abs(x - 1) > 4 or abs(z - 1) > 4:
-        ground = (x // 3 + z // 3) % 2
-        if x % 4 == 0 and z % 3 == 0:
-            if ground < y <= ground + 4:
-                return "oak_log"
-            if y == ground + 5:
-                return "leaves"
-    return "grass" if y == ground else "dirt" if y < ground else "air"
-
-
-def furrowed(x, y, z):
-    """The yard's meadow, furrowed away from home: every third column a block low."""
-    ground = -1 if (abs(x - 1) > 4 or abs(z - 1) > 4) and x % 3 == 0 else 0
-    return "grass" if y == ground else "dirt" if y < ground else "air"
 
 
 def plateaus(values, least=5):
@@ -113,16 +92,16 @@ class MachineTests(unittest.TestCase):
             state = fresh_state(circuit)
             held, forced = computer_start({"born_at": 0.0}, (day - 1) * DAY + NOON, 1.0, circuit, corner)
             self.assertEqual(forced, {})
-            settle(circuit, state, {sensor: 0, lever: FULL, **forced}, held)
-            self.assertEqual(read(circuit, state, corner)["value"], (day - 1) % 16)  # before this dawn
+            settle(circuit, state, {sensor: FULL, lever: FULL, **forced}, held)  # noon: the sensor reads day
+            self.assertEqual(read(circuit, state, corner)["value"], day % 16)  # today's dawn counted
         rings, counts = 0, []
         for dawn in range(18):
+            for _ in range(40):
+                step(circuit, state, {sensor: 0, lever: FULL})
             for _ in range(60):
                 rings += len(step(circuit, state, {sensor: FULL, lever: FULL})[1])
             counts.append(read(circuit, state, corner)["value"])
-            for _ in range(40):
-                step(circuit, state, {sensor: 0, lever: FULL})
-        self.assertEqual(counts, [(15 + dawn + 1) % 16 for dawn in range(18)])
+        self.assertEqual(counts, [(dawn + 1) % 16 for dawn in range(18)])
         self.assertEqual(rings, 18)
         lamps = [index for index, part in enumerate(circuit.parts) if part[1] == "lamp"]
         shown = sum(state["lit"][lamp] for lamp in lamps)
@@ -216,39 +195,64 @@ class RunTests(unittest.TestCase):
         self.assertEqual(sum(1 for event in yard.events if event[1] == "bell"), 16)
         self.assertLess(slowest, 0.05)
 
-    def test_a_computer_finished_late_in_the_day_does_not_stay_a_day_behind_for_good(self):
-        """Fix round 1: af0a585's computer_start set the count to yesterday's number and forced the sensor
-        to read night while the circuit settles, relying on the machine's first real step to see the sensor
-        rise and count today. Finished late in the day beside a busy clock and counter (which, at 60x or in
-        a catch-up, leave it little of a tick's budget), that rise can go unseen for so long that the quiet
-        shortcut compares the sensor's reading only much later, once it reads the same as the forced 0 again
-        (night), and jumps ahead without ever having counted today: the display stays one day behind for
-        good. Smallest case from the brief: the clock, the counter and the computer, finished at 2280 s into
-        day 1, a tick every 60 game seconds. Fails on af0a585's computer_start, which shows 0001, 0010, 0011
-        on the noons of days 2-4 instead of 0010, 0011, 0100."""
-        db = sqlite3.connect(":memory:")
-        create_signal_table(db)
-        grid = Grid(lambda x, y, z: "grass" if y == 0 else "dirt" if y < 0 else "air")
+    @staticmethod
+    def noons_after(first, out=None, back=None):
+        """The computer alone at 1x, first run at `first`, a tick every game second up to noon on day 4
+        (its lowest lamp taken out at `out` and put back at `back`): its lamps at noon on days 2-4."""
+        yard = Yard()
         origin = (20, 1, 20)
-        parts = tuple(((x, y, z), kind, facing, setting)
-                      for x, y, z, kind, facing, setting in parse(COMPUTER, origin))
-        for (x, y, z), kind, _, _ in parts:
-            grid.put(x, y, z, MATERIALS[kind][0])
-        grid.put(origin[0] + 19, 1, origin[2] + 9, "lever_on")
+        machine(yard, COMPUTER, origin=origin, name="computer")
+        yard.grid.put(origin[0] + 19, 1, origin[2] + 9, "lever_on")
         lamps = [(origin[0] + column, 1, origin[2] + 7) for column in DAY_COLUMNS]
-        life = {"born_at": 0.0}
-        events: list = []
-        run_machine(db, grid, life, 1, "computer", parts, 2280.0, 1.0, MAX_CELLS, events)  # finished at dusk
-        shown, tick = [], int(2280.0 // 60)
-        while tick * 60.0 < 4 * DAY:
-            tick += 1
+        shown = []
+        for second in range(int(first), int(3 * DAY + NOON) + 1):
+            if second == out:
+                yard.grid.put(*lamps[0], "air")
+            if second == back:
+                yard.grid.put(*lamps[0], "lamp")
+            run_signals(yard.state, yard.context(), float(second))
+            if second % DAY == NOON and second > DAY:
+                shown.append("".join("1" if yard.grid.material(*lamp) == "lamp_lit" else "0"
+                                     for lamp in reversed(lamps)))
+        return shown
+
+    def test_a_computer_first_run_at_night_counts_today_from_the_start(self):
+        """Fix round 2: f09d32c set the count to yesterday's at every hour, which is right only by day
+        (its settle sees the sensor high and counts today). By night the sensor is already low, no rise is
+        left to count today, and the display stays a day behind for good: 0001, 0010, 0011 at noon on days
+        2-4 for a first run at 3000 s into day 1."""
+        self.assertEqual(self.noons_after(3000.0), ["0010", "0011", "0100"])
+
+    def test_a_lamp_put_back_at_night_leaves_the_count_where_it_was(self):
+        """Fix round 2: a part taken out or put back starts the machine again (signals.run_machine), so a
+        lamp out at 2500 s and back at 3000 s, both by night, is a night start twice over; on f09d32c the
+        count fell back a day for good."""
+        self.assertEqual(self.noons_after(MORNING, out=2500, back=3000), ["0010", "0011", "0100"])
+
+    def test_a_computer_finished_at_dusk_beside_a_busy_clock_and_counter_counts_today(self):
+        """Fix round 1, with the clock and the counter really running: af0a585 set the count to yesterday's
+        by day and forced the sensor to read night while it settled, leaving today to be counted when a
+        later step saw the sensor high. The clock and the counter, ticking since the morning, spend most of
+        each tick's budget, so the computer finished at 2280 s (dusk, still day) gets no step before night
+        falls; then the sensor reads low again, the same as the forced 0, the quiet shortcut jumps ahead and
+        today is never counted: af0a585 shows 0001, 0010, 0011 at noon on days 2-4 instead of 0010, 0011,
+        0100."""
+        yard = Yard()
+        machine(yard, CLOCK, origin=(50, 1, 0), name="clock")
+        machine(yard, COUNTER, origin=(60, 1, 0), name="counter")
+        for tick in range(10, 38):  # 600-2220 s: the clock and the counter run from the morning
+            run_signals(yard.state, yard.context(), tick * 60.0)
+        origin = (20, 1, 20)
+        machine(yard, COMPUTER, origin=origin, name="computer")
+        yard.grid.put(origin[0] + 19, 1, origin[2] + 9, "lever_on")
+        lamps = [(origin[0] + column, 1, origin[2] + 7) for column in DAY_COLUMNS]
+        shown = []
+        for tick in range(38, 241):  # 2280 s on, a tick every 60 game seconds
             at = tick * 60.0
-            # What a tick's budget has left once a busy clock and counter go first (days 1-3; ample after).
-            budget = 10 if at < 3 * DAY else MAX_CELLS
-            run_machine(db, grid, life, 1, "computer", parts, at, 1.0, budget, events)
+            run_signals(yard.state, yard.context(), at)
             if at % DAY == NOON:
                 day = int(at // DAY) + 1
-                bits = "".join("1" if grid.material(*lamp) == "lamp_lit" else "0" for lamp in reversed(lamps))
+                bits = "".join("1" if yard.grid.material(*lamp) == "lamp_lit" else "0" for lamp in reversed(lamps))
                 shown.append((day, bits))
         self.assertEqual(shown, [(day, format(day % 16, "04b")) for day in (2, 3, 4)])
 
