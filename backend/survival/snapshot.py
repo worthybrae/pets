@@ -29,6 +29,7 @@ from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, re
 
 NOTABLE_LIMIT = 6
 EVENTS_SHOWN = 12
+DIARY_SUMMARY = 10  # fix round 1, item 8: life_summary is polled on the egg screen; cap what it sends
 DECAY_WINDOW = 10.0  # real seconds a decayed leaf is streamed for its puff
 MAP_REACH = 96  # blocks each way (12 patches) of explored ground streamed for the minimap
 VISITS_SHOWN = 9  # visits are capped in the stream (one digit): the viewer only needs "seen"
@@ -215,10 +216,12 @@ def goals_reached(world: SurvivalWorld, born_at: float, scale: float) -> list[di
              "day": clock_at(born_at, at, scale)["day_number"]} for name, at in rows]
 
 
-def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
+def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float, diary_limit: int | None = None) -> dict:
     """One life's row, notable events and final state (the legacy snapshot shape for life 1), (L4) the
     goals it reached, (Mind M3) the gists and thoughts it remembered and (Bond B3) every story of its
-    diary (none for the legacy life)."""
+    diary (none for the legacy life). `diary_limit` caps the diary to its newest entries (fix round 1,
+    item 8: life_summary's own repeated poll); the memorial's direct callers leave it unset and get all
+    of it."""
     archive = open_archive(registry, life)
     if isinstance(archive, MimoStore):
         state = archive.snapshot()
@@ -229,12 +232,12 @@ def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float) ->
         events = archive.notable_events(NOTABLE_LIMIT)
         goals = goals_reached(archive, life["born_at"], scale)
     memories = {"gists": [], "thoughts": []} if isinstance(archive, MimoStore) else life_memories(archive)
-    diary = [] if isinstance(archive, MimoStore) else life_diary(archive)  # Bond: every story it wrote
+    diary = [] if isinstance(archive, MimoStore) else life_diary(archive, diary_limit)  # Bond: its diary
     return {"life": life_row(life, scale, now), "notable_events": events, "state": state, "goals_reached": goals,
             "memories": memories, "diary": diary}
 
 
 def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
-    detail = life_detail(registry, life, scale, now)
+    detail = life_detail(registry, life, scale, now, diary_limit=DIARY_SUMMARY)
     return {**detail["life"], "notable_events": detail["notable_events"], "goals_reached": detail["goals_reached"],
             "memories": detail["memories"], "diary": detail["diary"]}

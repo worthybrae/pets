@@ -12,7 +12,8 @@ Bond changes nothing about survival. It sets the tone of Mimo's replies (backend
 and how readily Mimo takes up the owner's requests (backend.survival.requests).
 
 state["bond"] = {"value", "seen_at" (when the owner was last seen, server time), "gains" ({"day",
-<kind>: count} for the daily caps)}, plus what the other Bond modules keep there.
+<kind>: count} for the daily caps)}, plus what the other Bond modules keep there, including B3's
+diary.py: "storied", "story", "story_luna_day" and (fix round 1, item 3) "owed_from" (`visit`).
 """
 
 from __future__ import annotations
@@ -53,10 +54,20 @@ def bond_level(state: dict, now: float) -> float:
 
 
 def visit(state: dict, now: float) -> float:
-    """The owner is here: the fade so far settles into the value, and the owner was seen now."""
+    """The owner is here: the fade so far settles into the value, and the owner was seen now.
+
+    Fix round 1, item 3: when a story is still owed for the visit "seen_at" is about to leave behind
+    (bond.get("storied") != seen_at), that visit's time is kept in "owed_from" so the Talker's story
+    lane (diary.story_span) still starts the story there, even though "seen_at" moves on to `now`. This
+    is the usual order after the worker's machine sleeps: its catch-up tick can run before the viewer's
+    /mimo/visit call lands, or the other way around; either way the owed visit must not be lost. It is
+    cleared once that story is written (diary.store_story)."""
     level = bond_level(state, now)
     bond = bond_state(state)
     bond["value"] = round(level, 3)
+    owed = bond["seen_at"] is not None and now > bond["seen_at"] and bond.get("storied") != bond["seen_at"]
+    if owed and bond.get("owed_from") is None:
+        bond["owed_from"] = bond["seen_at"]
     bond["seen_at"] = now if bond["seen_at"] is None else max(bond["seen_at"], now)
     return level
 

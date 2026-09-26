@@ -2,9 +2,9 @@
 
 At the first game dawn after the owner's last visit (bond.visit: the viewer open, care, a hello or a
 chat line), Mimo writes a short diary entry about the game day the owner was last there: 3 to 6
-sentences with its highlights (`highlights`: a goal reached or set, the day's plan, how far along its
+sentences with its highlights (`day_highlights`: a goal reached or set, the day's plan, how far along its
 goal is, things built, first sightings, danger, meals), from the event log of that day and the goal it
-works on, or, on a day with none, what it spent the day doing. `story_due` says when one is due; the Talker's "story" lane writes it
+works on, or, on a day with none, what it spent the day doing. `story_span` says when one is due; the Talker's "story" lane writes it
 (`story_job`). Luna writes it when MIMO_MODEL_API_KEY or OPENAI_API_KEY is set, at most once a real
 UTC day (the attempt counts, so a failing Luna is not asked again that day), from the highlights and
 Mimo's name, traits, mood, bond and the owner's name, never from the owner's other words; the rules'
@@ -141,11 +141,6 @@ def day_highlights(events: list[dict], state: dict) -> list[tuple[str, str]]:
     return found
 
 
-def highlights(db: sqlite3.Connection, state: dict, day: int, scale: float) -> list[str]:
-    """The day's highlights as sentences in Mimo's voice, at most HIGHLIGHTS, the most telling first."""
-    return [text for _, text in day_highlights(events_between(db, state, day, day, scale), state)][:HIGHLIGHTS]
-
-
 def on_day(day: int, text: str) -> str:
     """ "On day 2, I reached a goal: iron tools.", "On day 3, a gloomling hit me ..."."""
     kept = text if text.startswith(("I ", "I'")) else text[:1].lower() + text[1:]
@@ -177,11 +172,6 @@ def busiest_of(events: list[dict]) -> str:
     return Counter(phrases).most_common(1)[0][0] if phrases else ""
 
 
-def busiest(db: sqlite3.Connection, state: dict, day: int, scale: float) -> str:
-    """What Mimo spent the day trying to do most, from its purpose events ("gather wood"), or ""."""
-    return busiest_of(events_between(db, state, day, day, scale))
-
-
 def rules_story(day: int, found: list[str], doing: str, owner: str, level: float, last: int | None = None) -> str:
     """The rules' entry: an opening, the highlights (or what the day went on), a closing: 3 to 6 sentences.
     A story of several days (pre-flight 2) opens with them all ("Days 1 to 5 were busy ones.")."""
@@ -210,26 +200,35 @@ def clean_story(text: object) -> str:
     return story if len(story) <= STORY_LIMIT else story[:STORY_LIMIT - 3].rstrip() + "..."
 
 
-def story_lead(text: str) -> str:
-    """A Luna story's own text (the Bond ledger's ruling): everything before the "Since then" paragraph
-    the rules add while it waits unread, or the whole text when it has none yet."""
-    return text.split(f" {SINCE_THEN}", 1)[0]
+def story_lead(text: str, lead: int) -> str:
+    """A Luna story's own text (the Bond ledger's ruling): its first `lead` characters, exactly as
+    recorded in the item's data ("lead") when Luna wrote it.
+
+    Fix round 1, item 1: never split on a " Since then, " separator. Luna can write that phrase herself
+    (the review's probe did), and splitting on it would cut her own text short."""
+    return text[:lead]
 
 
 def since_then_story(lead: str, found: list[str]) -> str:
     """Luna's lead followed by the rules' one "Since then" paragraph (the Bond ledger's ruling): the
     highlights of the days after Luna's own, at most HIGHLIGHTS, the most notable first, told in day
-    order (`absence_highlights`). Trimmed to STORY_LIMIT when the two together run over; the lead is
-    kept whole and the paragraph is shortened."""
-    body = " ".join(found) if found else "it's been quiet."
-    paragraph = SINCE_THEN + (body[:1].lower() + body[1:] if found else body)
-    text = f"{lead} {paragraph}"
-    if len(text) <= STORY_LIMIT:
-        return text
-    budget = STORY_LIMIT - len(lead) - 1
-    if budget < len(SINCE_THEN) + 3:
-        return lead[:STORY_LIMIT]
-    return f"{lead} {paragraph[:budget - 3].rstrip()}..."
+    order (`absence_highlights`).
+
+    Fix round 1: item 4, the paragraph's first letter is lowercased to follow the comma only when it
+    begins "On day" (a highlight in another shape, such as the goal-progress closer, keeps its own
+    capital: "Since then, I'm 40% ..." not "i'm"). Item 5, kept within STORY_LIMIT by dropping whole
+    highlights, the oldest first, until it fits, rather than cutting a sentence in half; it never leaves
+    a bare "Since then," with nothing after it, and the lead is never touched, even when it alone
+    already leaves no room to spare."""
+    body = list(found)
+    while True:
+        sentence = " ".join(body) if body else "it's been quiet."
+        if body and sentence.startswith("On day"):
+            sentence = sentence[:1].lower() + sentence[1:]
+        text = f"{lead} {SINCE_THEN}{sentence}"
+        if len(text) <= STORY_LIMIT or not body:
+            return text
+        body = body[1:]  # drop the oldest highlight and try again
 
 
 @dataclass(frozen=True)
@@ -243,6 +242,8 @@ class StoryAsk:
     last: int | None = None  # pre-flight 2: the last game day it tells (None: `day` alone)
     item: int | None = None  # pre-flight 2: the unread story it rewrites to tell a long absence (None: a new one)
     writer: str | None = None  # the Bond ledger's ruling: the item's own writer, when growing one (None: a new item)
+    lead_len: int | None = None  # fix round 1, item 1: characters of a growing Luna item's own lead, carried as is
+    lead_last: int | None = None  # fix round 1, item 2: a growing Luna item's own last day, carried as is
 
 
 @dataclass(frozen=True)
@@ -276,12 +277,18 @@ def story_span(db: sqlite3.Connection, state: dict, now: float, scale: float) ->
     or None: from the day of the owner's last visit to the day before now, at most MAX_STORY_DAYS (the
     newest), once a game dawn came since the visit (pre-flight 2). A new story for a new visit; while the
     owner stays away, the visit's story, still unread, grows at every later dawn to tell the whole
-    absence; one the owner read stays as it is."""
+    absence; one the owner read stays as it is.
+
+    Fix round 1, item 3: "first" starts from bond["owed_from"] instead of "seen_at" when the visit is
+    still owed a story and a later visit has already moved "seen_at" on (bond.visit records this); the
+    "seen" identity used below to detect a new visit and to grow the existing item is still "seen_at"
+    itself, unaffected."""
     bond = state.get("bond") or {}
     seen = bond.get("seen_at")
     if seen is None or state.get("died_at") is not None:
         return None
-    first = clock_at(state["born_at"], seen, scale)["day_number"]
+    since = bond.get("owed_from") if bond.get("owed_from") is not None else seen
+    first = clock_at(state["born_at"], since, scale)["day_number"]
     last = clock_at(state["born_at"], now, scale)["day_number"] - 1
     if last < first:
         return None
@@ -301,7 +308,15 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
     """The story due, as a Talker job: Luna once a UTC day when configured for a new story, else the rules
     (and always the rules to grow a waiting story over a long absence, pre-flight 2). The Bond ledger's
     ruling: growing a story the rules wrote rewrites it whole, as before; growing a story Luna wrote keeps
-    Luna's own text and only adds or updates the "Since then" paragraph after it (`since_then_story`)."""
+    Luna's own text and only adds or updates the "Since then" paragraph after it (`since_then_story`),
+    starting the day after Luna's own last day (fix round 1, item 2: "lead_last", never the item's
+    windowed "day", so a late, multi-day Luna story is never re-told).
+
+    Fix round 1, item 7: when Luna is about to be asked for a new story, the attempt is recorded
+    (bond["story_luna_day"]) right here, in a short write transaction of its own, before the Job is
+    returned and its model call dispatched to the lane's thread -- not later, when the answer is stored.
+    So a worker that restarts while that call is still in flight does not ask Luna again the same UTC
+    day; the fresh `story_job` this function's caller runs after the restart already sees the attempt."""
     with world.connect() as db:
         state = read_state(db)
         span = story_span(db, state, now, scale)
@@ -309,18 +324,21 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
             return None
         first, last, item = span
         owner, level = owner_name(owner_facts(db)), bond_level(state, now)
-        writer, lead, day = None, None, first
+        writer, lead_text, lead_len, lead_last, day = None, None, None, None, first
         if item is not None:
             row = db.execute("SELECT text, data FROM mimo_inbox WHERE id=?", (item,)).fetchone()
             item_data = json.loads(row["data"] or "{}") if row is not None else {}
             writer = item_data.get("writer")
             if writer == "luna":
-                lead, day = story_lead(row["text"]), item_data.get("day", first)
-        if lead is not None:
-            since_start = max(day + 1, last - MAX_STORY_DAYS + 1)
+                day = item_data.get("day", first)
+                lead_len = item_data.get("lead", len(row["text"]))  # a fallback for data from before this fix
+                lead_text = story_lead(row["text"], lead_len)
+                lead_last = item_data.get("lead_last", day)
+        if lead_text is not None:
+            since_start = max(lead_last + 1, last - MAX_STORY_DAYS + 1)
             events = events_between(db, state, since_start, last, scale)
             found = absence_highlights(events, state, since_start, last)
-            rules = since_then_story(lead, found)
+            rules = since_then_story(lead_text, found)
         else:
             events = events_between(db, state, first, last, scale)
             found = (absence_highlights(events, state, first, last) if last > first
@@ -329,10 +347,15 @@ def story_job(world: SurvivalWorld, now: float, scale: float, env) -> Job | None
         remembered = [memory.text for d in range(last, first - 1, -1)
                       for memory in story_memories(db, d, STORY_MEMORIES)][:MEMORIES_SHOWN]
     luna = item is None and luna_configured(env) and (state.get("bond") or {}).get("story_luna_day") != utc_day(now)
+    if luna:
+        with SurvivalWorld(world.path).transaction() as write_db:
+            attempt = read_state(write_db)
+            bond_state(attempt)["story_luna_day"] = utc_day(now)
+            write_state(write_db, attempt)
     payload = {"pet": state["name"], "day": day, "last": last, "traits": dict(state.get("traits", {})),
                "mood": round(state["vitals"]["mood"]), "bond": feeling(level), "owner": owner or None,
                "highlights": found, "memories": remembered}
-    ask = StoryAsk(day, state["bond"]["seen_at"], rules, payload, luna, now, last, item, writer)
+    ask = StoryAsk(day, state["bond"]["seen_at"], rules, payload, luna, now, last, item, writer, lead_len, lead_last)
     return Job("story", luna, now, LUNA_TIMEOUT + GIVE_UP_AFTER, lambda env, http: write_story(ask, env, http),
                lambda: StoryAnswer(ask.rules, "rules", "luna: no answer, gave up"),
                lambda target, answer, at: store_story(target, ask, answer, at))
@@ -343,7 +366,10 @@ def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: f
     (pre-flight 2, the Bond ledger's ruling) grow the visit's unread story, unless it was read or grew
     already. Growing keeps the item's own writer (`ask.writer`), never `answer.writer`'s "rules" (the
     rules always write the growth itself, whole for a rules story or one paragraph for a Luna one), so
-    a later dawn still knows whether its lead text is Luna's."""
+    a later dawn still knows whether its lead text is Luna's; a growing Luna item's "lead" (its own text's
+    length) and "lead_last" (its own last day) are carried the same way, never recomputed from the grown
+    answer (fix round 1, items 1 and 2). Item 3: "owed_from" is cleared once a story is written, its job
+    over (bond.py's `visit` sets it; diary.story_span reads it)."""
     if answer.error:
         log_once(logger, "story", ModelError(answer.error))
     with world.transaction() as db:
@@ -352,7 +378,13 @@ def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: f
         if state["died_at"] is not None:
             return None
         last = ask.last if ask.last is not None else ask.day
-        data = {"day": ask.day, "writer": ask.writer or answer.writer, **({"last": last} if last > ask.day else {})}
+        writer = ask.writer or answer.writer
+        data = {"day": ask.day, "writer": writer}
+        if last > ask.day:
+            data["last"] = last
+        if writer == "luna":
+            data["lead"] = ask.lead_len if ask.lead_len is not None else len(answer.text)
+            data["lead_last"] = ask.lead_last if ask.lead_last is not None else last
         if ask.item is None:
             if bond.get("storied") == ask.seen:
                 return None
@@ -367,6 +399,7 @@ def store_story(world: SurvivalWorld, ask: StoryAsk, answer: StoryAnswer, now: f
                 return None
         bond["storied"] = ask.seen
         bond["story"] = {"item": item, "seen": ask.seen, "last": last}
+        bond.pop("owed_from", None)
         if ask.luna:
             bond["story_luna_day"] = utc_day(ask.asked_at)
         write_state(db, state)
@@ -401,7 +434,9 @@ def newest_story(db: sqlite3.Connection) -> dict | None:
     return found[0] if found else None
 
 
-def life_diary(world: SurvivalWorld) -> list[dict]:
-    """Every story a life's Mimo wrote, oldest first, for its memorial."""
+def life_diary(world: SurvivalWorld, limit: int | None = None) -> list[dict]:
+    """Every story a life's Mimo wrote, oldest first, for its memorial; at most `limit`, the newest
+    (fix round 1, item 8: life_summary caps what it sends the egg screen's repeated poll)."""
     with world.connect() as db:
-        return list(reversed(diary_entries(db)))
+        entries = list(reversed(diary_entries(db)))
+    return entries[-limit:] if limit is not None else entries
