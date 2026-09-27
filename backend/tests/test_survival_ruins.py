@@ -249,6 +249,23 @@ class RichesTests(unittest.TestCase):
         self.assertEqual((pet.state["inventory"].get("gold_nugget"), pet.state["inventory"].get("dirt")), (3, None))
         self.assertEqual(pet.state["chests"][chest_key(CHEST)], {})
 
+    def test_the_iron_its_armor_still_takes_comes_out_past_loot_room(self):
+        # Willow on the fix wave's gate: 15 iron ingots sat in five old chests near home (loot_ruin takes all but
+        # riches only below LOOT_ROOM, 12 stacks, and it carried 13 to 16), while its iron tunic waited on ore
+        # it had not mined, 31 game days past the armor goal Making's gate set for it.
+        full = {"iron_pickaxe": 1, "iron_cap": 1, "stone_sword": 1, "coal": 8, "sticks": 4, "seeds": 3, "wheat": 2,
+                "flint": 1, "string": 1, "feather": 1, "sapling": 1, "planks": 4, "dirt": 10}  # 13 stacks
+        pet = Pet(offset=(2, 0), inventory=dict(full))
+        pet.walked()
+        pet.state.setdefault("chests", {})[chest_key(CHEST)] = {"iron_ingot": 4, "bread": 3, "arrow": 6}
+        self.assertEqual(takeable(pet.situation(), CHEST), {"iron_ingot": 4})  # the tunic takes 8: all of it
+        tunic = Pet(offset=(2, 0), inventory={**full, "iron_cap": 0, "iron_tunic": 1, "iron_ore": 3})
+        tunic.state.setdefault("chests", {})[chest_key(CHEST)] = {"iron_ingot": 4, "bread": 3}
+        self.assertEqual(takeable(tunic.situation(), CHEST), {"iron_ingot": 2})  # the cap's 5, less 3 ore carried
+        stone = Pet(offset=(2, 0), inventory={**full, "iron_pickaxe": 0, "stone_pickaxe": 1})
+        stone.state.setdefault("chests", {})[chest_key(CHEST)] = {"iron_ingot": 4, "bread": 3}
+        self.assertEqual(takeable(stone.situation(), CHEST), {})  # no iron armor before an iron pickaxe
+
     def test_with_nothing_it_may_leave_behind_the_riches_wait(self):
         pet = self.far_pet({"gold_nugget": 3}, {**{f"item_{n}": 1 for n in range(11)}, **GEARED})  # 15 stacks
         self.assertFalse(PURPOSES["loot_ruin"].valid(pet.situation()))

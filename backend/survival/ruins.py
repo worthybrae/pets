@@ -22,7 +22,8 @@ Worldgen stands a small ruin in some regions, with an old chest in its middle
   chest, then takes what it has room for below LOOT_ROOM stacks, the rarest first (housework's take
   step); the rest waits in the chest until Mimo has room again. Riches it makes room for (the L5 final fix
   wave, I2: `room_for_riches` leaves stacks of blocks there first), and a chest that still holds riches is
-  worth going back to (backend.survival.frontier). A first version took all that fit in
+  worth going back to (backend.survival.frontier); so are the iron ingots Mimo's iron armor still takes
+  (`armor_iron_short`). A first version took all that fit in
   its 16 stacks: four new stacks early in a life pushed a pet near home past the point where putting
   things away and dropping loose blocks are worth doing, and it swung between digging stone, dropping
   and putting away (94 changes of purpose in its busiest hour, over the sims' 90; seed 5, the fake
@@ -36,10 +37,12 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import TOOL_RANK
 from backend.services.worldgen import RUIN_REGION, region_ruin
 from backend.survival import nature
 from backend.survival import storage
 from backend.survival.carrying import CARRY_STACKS, LOW_VALUE, STACK, room_for
+from backend.survival.creatures.harm import armor_iron
 from backend.survival.foraging import STAND, whole_walk
 from backend.survival.goals import add_urge
 from backend.survival.grid import Cell, Grid
@@ -238,13 +241,27 @@ def rarest_first(items) -> list[str]:
     return sorted(items, key=lambda item: (rank.get(item, len(rank)), item))
 
 
+def armor_iron_short(s: Situation) -> int:
+    """Iron ingots the iron armor Mimo lacks still takes beyond the iron it carries (ingots and ore), once it has an
+    iron pickaxe or better (toolmaking.armor_orders' own line); an amber piece stands for its iron one (harm.worn)."""
+    if max((TOOL_RANK[tool] for tool in TOOL_RANK if s.count(tool) > 0), default=0) < TOOL_RANK["iron_pickaxe"]:
+        return 0
+    return max(0, armor_iron(s.inventory) - s.count("iron_ingot") - s.count("iron_ore"))
+
+
 def takeable(s: Situation, chest: Cell, carried: dict[str, int] | None = None) -> dict[str, int]:
     """What Mimo takes out of an opened chest now (with `carried` in its arms: what it carries): the rarest first,
-    as much as it has room for below LOOT_ROOM stacks (RICHES: RICHES_ROOM), all of it together."""
+    as much as it has room for below LOOT_ROOM stacks (RICHES: RICHES_ROOM), all of it together. The L5 final fix
+    wave: the iron ingots its iron armor still takes (`armor_iron_short`) come out below RICHES_ROOM too; on the
+    fix wave's gate a pet carrying 13 to 16 stacks left 15 ingots in five old chests near home while its iron
+    tunic waited 45 game days on ore."""
     inside = inside_of(s, chest)
     carried, found = dict(s.inventory if carried is None else carried), {}
+    armor = armor_iron_short(s)
     for item in rarest_first(inside):
         amount = min(inside[item], room_for(carried, item, RICHES_ROOM if item in RICHES else LOOT_ROOM))
+        if item == "iron_ingot" and armor > amount:
+            amount = min(inside[item], armor, room_for(carried, item, RICHES_ROOM))
         if amount > 0:
             found[item] = amount
             carried[item] = carried.get(item, 0) + amount
