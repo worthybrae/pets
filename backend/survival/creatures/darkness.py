@@ -19,11 +19,14 @@ simulates, since out there it would never burn, fade or come back. At night one 
 blocks whose turn has been due for LOITER game seconds fades as well, as a loiterer near Mimo
 does, so frozen ones out of reach cannot hold the cap (final fix wave). Daylight burns or fades
 those near Mimo caught under the open sky (backend.survival.creatures.hostiles, sunlit).
+L5: a new hostile may be shaped before it is added (BIRTHS: backend.survival.creatures.ringed makes
+one born farther from home tougher), and the cap may grow (MORE_ROOM: ringed adds one a danger level).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sqlite3
 
@@ -38,6 +41,9 @@ from backend.survival.creatures.spawning import SIM_REACH
 from backend.survival.creatures.table import missing_table
 from backend.survival.grid import Cell, Grid
 from backend.survival.light import DARK, Lights, sky_light
+from backend.survival.once import log_once
+
+logger = logging.getLogger(__name__)
 
 HOSTILE_CAP = 8
 SPAWN_NEAR = 16.0
@@ -51,6 +57,11 @@ FIRST_TURN = 1.0  # server seconds before a new hostile's first turn
 UNDERFOOT = CANOPY  # L3: no kind of leaves is ground to come out on
 # Roll channels.
 ANGLE, DISTANCE, KIND = 110, 111, 112
+# L5: functions (scene, kind, cell, state, health) -> health that shape a new hostile before it is
+# added (backend.survival.creatures.ringed), and functions of the Scene that add room under
+# HOSTILE_CAP. One that crashes changes nothing (logged once).
+BIRTHS: list = []
+MORE_ROOM: list = []
 
 
 def despawn_far(scene: Scene) -> None:
@@ -104,9 +115,27 @@ def spots(grid: Grid, seed: str, x: int, z: int, level: int) -> list[Cell]:
 
 
 def born(scene: Scene, kind: Kind, cell: Cell) -> dict:
-    """A new hostile of `kind` in `cell`, at home there; its first turn comes a second later."""
+    """A new hostile of `kind` in `cell`, at home there; its first turn comes a second later. L5: the
+    BIRTHS hooks may change its health and state first."""
     state = {"home": list(cell), "pose": "idle", "turn": 0}
-    return scene.herd.add(kind.name, cell, kind.health, scene.at, scene.at + FIRST_TURN / scene.pace, state)
+    health = kind.health
+    for shape in BIRTHS:
+        try:
+            health = float(shape(scene, kind, cell, state, health))
+        except Exception as error:
+            log_once(logger, "hostile birth", error)
+    return scene.herd.add(kind.name, cell, health, scene.at, scene.at + FIRST_TURN / scene.pace, state)
+
+
+def cap(scene: Scene) -> int:
+    """How many hostiles may be alive: HOSTILE_CAP, plus what MORE_ROOM adds (L5)."""
+    room = 0
+    for more in MORE_ROOM:
+        try:
+            room += int(more(scene))
+        except Exception as error:
+            log_once(logger, "hostile cap", error)
+    return HOSTILE_CAP + room
 
 
 def spawn_hostiles(scene: Scene) -> list[dict]:
@@ -125,7 +154,7 @@ def spawn_hostiles(scene: Scene) -> list[dict]:
         return []
     scene.state["dark_spawn_at"] = scene.at
     despawn_far(scene)
-    if hostiles_alive(scene) >= HOSTILE_CAP:
+    if hostiles_alive(scene) >= cap(scene):
         return []
     x, y, z = scene.pet
     # Fix round 1: salted by game seconds, not server seconds, so two chances spaced SPAWN_EVERY

@@ -18,6 +18,7 @@ has nothing left to replay: the creature stands where it ended.
 Reading never writes: the snapshot reads it on its read-only connection, in the same transaction as
 the rest of the view, and a world from before L1 (an archive read without its schema update) has no
 creatures.
+L5: a hostile born farther from home has more health (its "most"), and an elder says so (`elder`).
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def point(entry: dict) -> dict:
 def creature_view(creature: dict, now: float) -> dict:
     kind = kind_of(creature["kind"])
     state = creature["state"]
-    most = kind.health if kind is not None else max(creature["health"], 1.0)
+    most = state.get("most") or (kind.health if kind is not None else max(creature["health"], 1.0))  # L5: ringed
     view = {"id": creature["id"], "kind": creature["kind"], "x": int(round(creature["x"])), "y": int(round(creature["y"])), "z": int(round(creature["z"])),
             "heading": round(creature["heading"], 1), "health": round(max(0.0, creature["health"]) / most, 1),
             "state": state_of(creature, now)}
@@ -59,6 +60,8 @@ def creature_view(creature: dict, now: float) -> dict:
         view["hostile"] = True
     if state.get("tame"):
         view["tame"] = True
+    if state.get("elder"):
+        view["elder"] = True  # L5: an elder, drawn glowing faintly
     for key in WHEN_SET:
         if state.get(key) is not None:
             value = state[key]

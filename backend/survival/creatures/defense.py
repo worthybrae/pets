@@ -31,12 +31,14 @@ a sword, or a bow with arrows.
   no sword, strikes with its sword in reach, and else steps up to the target and strikes. One
   blow or shot a round; the reflex fires again at once while the fight goes on. Below 35 health
   flee, being more urgent, takes over: Mimo fights, then flees.
+L5: far from home both lines rise (`CAUTION`, backend.survival.creatures.ringed).
 Both log their event once per encounter (Reflex.quiet), not every round. What a model picker is
 told about danger comes from here too (`threats_payload`).
 """
 
 from __future__ import annotations
 
+import logging
 import math
 
 from backend.services.worldgen import terrain_height
@@ -51,6 +53,7 @@ from backend.survival.creatures.moves import where
 from backend.survival.creatures.table import dead
 from backend.survival.grid import Cell, Grid
 from backend.survival.memory import BUILT, cell_of
+from backend.survival.once import log_once
 from backend.survival.pathing import route
 from backend.survival.purposes import home_of, underground, walk_to
 from backend.survival.reflexes import Reflex, register
@@ -94,6 +97,32 @@ THREATS_SHOWN = 4
 # Followup fix: the HUD's DANGER_RISE (frontend/src/survival/hud.ts) mirrors this value, so its
 # on-screen warning agrees with what actually raises a threat here.
 THREAT_RISE = 2
+# L5: functions of the Situation that add health points to both lines, flee's and fight's
+# (backend.survival.creatures.ringed: 5 a danger level from the far wilds on). One that crashes adds
+# nothing (logged once).
+CAUTION: list = []
+
+logger = logging.getLogger(__name__)
+
+
+def caution(s: Situation) -> float:
+    total = 0.0
+    for more in CAUTION:
+        try:
+            total += float(more(s))
+        except Exception as error:
+            log_once(logger, "caution", error)
+    return total
+
+
+def flee_below(s: Situation) -> float:
+    """Below this health a threat sends Mimo running: FLEE_BELOW, more far from home (L5)."""
+    return FLEE_BELOW + caution(s)
+
+
+def fight_from(s: Situation) -> float:
+    """From this health Mimo stands its ground: FIGHT_FROM, more far from home (L5)."""
+    return FIGHT_FROM + caution(s)
 
 
 def sealed_camp(s: Situation) -> bool:
@@ -204,7 +233,7 @@ def flee_threat(s: Situation, found: list[dict]) -> dict | None:
 
 def flee_due(s: Situation) -> bool:
     found = threats(s)
-    if s.vitals["health"] < FLEE_BELOW:
+    if s.vitals["health"] < flee_below(s):
         return flee_threat(s, found) is not None
     if armed(s):
         return False
@@ -271,14 +300,14 @@ def fight_target(s: Situation) -> dict | None:
     neither reflex fired there and a skitter, faster than Mimo's short runs could shake, struck it
     down to the flee line unanswered."""
     health = s.vitals["health"]
-    if not armed(s) or health < FLEE_BELOW:
+    if not armed(s) or health < flee_below(s):
         return None
     fighting = s.at - s.brain["reflex_ends"].get("fight", -math.inf) <= FIGHT_KEEP
     for creature in threats(s):
         there = where(creature, s.at)
         distance = s.distance(there)
         at_bay = distance <= ATTACK_REACH and bool(creature["state"].get("chasing"))
-        if health < FIGHT_FROM and not (fighting or at_bay):
+        if health < fight_from(s) and not (fighting or at_bay):
             continue
         if distance <= FIGHT_REACH and clear_line(s.grid, s.here, there):
             return creature

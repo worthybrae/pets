@@ -136,7 +136,7 @@ def strike_pet(creature: dict, kind: Kind, scene: Scene) -> None:
     creature["heading"] = heading(where(creature, scene.at), scene.pet, creature["heading"])
     begin_chase(creature["state"], scene.at)  # fix round 1: a strike that opens a chase starts its clock
     creature["state"].update(pose="attacking", struck_at=scene.at)
-    hurt_pet(scene, kind.damage, kind.name)
+    hurt_pet(scene, kind.damage + float(creature["state"].get("fiercer", 0.0)), kind.name)  # L5: ringed
     creature["next_at"] = scene.at + kind.cooldown / scene.pace
 
 
