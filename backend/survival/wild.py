@@ -97,6 +97,17 @@ SOURCES = {TAUGHT: "from_you", BORN_KNOWING: "from_start"}
 PURPOSE_LESSONS = {"build_shelter": "shelter", "improve_home": "shelter", "camp": "shelter", "light_up": "light"}
 GOAL_LESSONS = {"first_shelter": "shelter", "safe_yard": "light"}
 FITTING_LESSONS = {"bed": "bed", "campfire": "fire", "door": "shelter"}
+# What a wild newborn eats by instinct (the familiar foods; raw meat and fish carry a risk until it knows
+# cooking), and the foods it has to try first: the red berries (bright red berries and nightberries, one
+# group to a pet that does not know nightberries yet) and red mushrooms (backend.survival.meals).
+FAMILIAR = ("apple", "carrot", "bread", "brown_mushroom", "raw_fish", "cooked_fish", "raw_beef", "raw_mutton",
+            "raw_chicken", "raw_rabbit", "cooked_beef", "cooked_mutton", "cooked_chicken", "cooked_rabbit")
+RED_BERRIES = ("berries", "nightberries")
+BERRY_BUSHES = ("berry_bush_ripe", "nightberry_bush_ripe")
+NIGHTBERRIES = ("nightberries", "nightberry_bush_ripe")
+RED_MUSHROOM = "red_mushroom"  # the item and the block
+SAFE = tuple(item for item in FAMILIAR if not item.startswith("raw_"))  # eaten with no risk at all
+SHUN = 7200.0  # game seconds (2 game days) a group that made Mimo sick is left alone
 
 
 def thing(name: str) -> str:
@@ -141,6 +152,34 @@ def fitting_open(block: str, s: Situation) -> bool:
     """Mimo may make and put in the fitting `block` (a bed, a campfire, a door)."""
     lesson = FITTING_LESSONS.get(block)
     return lesson is None or unlocked(s, lesson)
+
+
+def shunned(state: dict, group: str, at: float, scale: float) -> bool:
+    """Mimo leaves the food `group` alone now: it made Mimo sick less than SHUN game seconds ago."""
+    since = ((state.get("wild") or {}).get("shun") or {}).get(group)
+    return since is not None and (at - since) * scale < SHUN
+
+
+def avoided(state: dict, lessons, at: float, scale: float) -> tuple[str, ...]:
+    """The foods (items and the blocks they grow on) Mimo never picks or eats now: for a gentle pet the
+    nightberries it knows from the start; for a wild one what it knows is poison (nightberries, red
+    mushrooms) and a group it shuns (the red berries after they made it sick)."""
+    if not is_wild(state):
+        return NIGHTBERRIES
+    found: list[str] = []
+    if thing("nightberries") in lessons:
+        found += NIGHTBERRIES
+    if thing("red_mushroom") in lessons:
+        found.append(RED_MUSHROOM)
+    if shunned(state, "red_berries", at, scale):
+        found += (*RED_BERRIES, *BERRY_BUSHES)
+    return tuple(dict.fromkeys(found))
+
+
+def poisons_known(db: sqlite3.Connection, state: dict, at: float, scale: float) -> tuple[str, ...]:
+    """What Mimo knows is poisonous (memory's "poisonous", M4) and what it avoids (`avoided`), for code that
+    reads memory without a Situation (backend.survival.learning, backend.survival.exploring)."""
+    return tuple(dict.fromkeys((*known(db, "poisonous"), *avoided(state, set(known(db, LESSON)), at, scale))))
 
 
 def wild_state(state: dict) -> dict:

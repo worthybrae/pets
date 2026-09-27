@@ -18,30 +18,31 @@ from __future__ import annotations
 import math
 
 from backend.services.crafting import FIRES
-from backend.survival.memory import cell_of, forget, know, known, nearest, places, remember, update_place
+from backend.survival.memory import cell_of, forget, know, nearest, places, remember, update_place
 from backend.survival.senses import food_near, near_failure
 from backend.survival.steps import FOOD_HEALTH, as_cell
+from backend.survival.wild import is_wild, poisons_known
 
 PATCH_REACH = 8.0
 
 
-def note_food_patch(db, grid, state: dict, picked, at: float) -> None:
+def note_food_patch(db, grid, state: dict, picked, at: float, scale: float = 1.0) -> None:
     """Remember the patch around a picked plant and how much ripe food it still has."""
     patch = nearest(places(db, ("food",), around=picked, reach=PATCH_REACH), picked, ("food",), PATCH_REACH)
     spot = picked if patch is None else cell_of(patch)
     if patch is None:
         remember(db, "food", spot, at)
-    ripe = food_near(grid, state["world_seed"], spot, PATCH_REACH, known(db, "poisonous"))
+    ripe = food_near(grid, state["world_seed"], spot, PATCH_REACH, poisons_known(db, state, at, scale))  # W1
     update_place(db, "food", spot, {"ripe": len(ripe), "seen_at": at})
 
 
-def note_empty_patches(db, grid, state: dict, at: float) -> None:
+def note_empty_patches(db, grid, state: dict, at: float, scale: float = 1.0) -> None:
     """Forage walked to a remembered patch: one where it sees nothing it will pick (nothing ripe,
     only food it knows is poisonous, or only food beside a failed step) is remembered as picked
     clean now, so forage leaves it alone until it could have grown again."""
     position = state["position"]
     here = (round(position["x"]), round(position["y"]), round(position["z"]))
-    poisons = known(db, "poisonous")
+    poisons = poisons_known(db, state, at, scale)  # W1: a wild pet's too
     for patch in places(db, ("food",), around=here, reach=PATCH_REACH):
         spot = cell_of(patch)
         if math.dist(spot, here) > PATCH_REACH:
@@ -69,13 +70,14 @@ def learn_from_step(state: dict, step: dict, context, at: float) -> None:
     if db is None:
         return
     kind = step["kind"]
-    if kind == "eat" and FOOD_HEALTH.get(step["item"], 0.0) < 0:
+    scale = context.clock_at(at)["time_scale"]
+    if kind == "eat" and FOOD_HEALTH.get(step["item"], 0.0) < 0 and not is_wild(state):  # W1: a wild pet's knocks
         know(db, step["item"], "poisonous", at)
         drop_eats(state, step["item"])
     elif kind == "pick":
-        note_food_patch(db, context.grid, state, as_cell(step["target"]), at)
+        note_food_patch(db, context.grid, state, as_cell(step["target"]), at, scale)
     elif kind == "walk" and step.get("purpose") == "forage":
-        note_empty_patches(db, context.grid, state, at)
+        note_empty_patches(db, context.grid, state, at, scale)
     elif kind == "place" and step["block"] in FIRES:
         remember(db, "fire", as_cell(step["target"]), at, step["block"])
     elif kind == "mine" and step["block"] in FIRES:

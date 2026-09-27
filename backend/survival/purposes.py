@@ -268,6 +268,24 @@ def foods(inventory: dict, avoid=()) -> list[str]:
                   key=lambda item: -FOOD[item])
 
 
+# W1: functions (Situation, full) giving a wild pet's meal (backend.survival.meals), or None to leave it to
+# `meal` (a gentle pet's, as ever). One that crashes plans no meal (logged once).
+MEALS: list = []
+
+
+def meal_of(s: Situation, full: float = FULL) -> list[dict]:
+    """The meal Mimo would eat now, up to `full`: MEALS' first answer, else `meal` (a gentle pet's)."""
+    for plans in MEALS:
+        try:
+            found = plans(s, full)
+        except Exception as error:
+            log_once(logger, "meal", error)
+            return []
+        if found is not None:
+            return found
+    return meal(s.inventory, s.vitals["hunger"], full, s.poisons)
+
+
 def meal(inventory: dict, hunger: float, full: float = FULL, avoid=()) -> list[dict]:
     """Eat steps, best food first, until hunger would reach `full` or the food runs out. Food in
     `avoid` (known to be poisonous) is never eaten. Food that can make Mimo sick (steps.FOOD_HEALTH)
@@ -433,12 +451,12 @@ register(Purpose(
 def plan_eat(s: Situation, context: ActionContext) -> list[dict]:
     if s.brain["batches"] > 0:
         return []
-    return meal(s.inventory, s.vitals["hunger"], avoid=s.poisons)
+    return meal_of(s)
 
 
 register(Purpose(
     "eat", "eat", "Eat carried food, the best first.",
-    valid=lambda s: bool(foods(s.inventory, s.poisons)) and s.vitals["hunger"] < EAT_BELOW,
+    valid=lambda s: s.vitals["hunger"] < EAT_BELOW and bool(meal_of(s)),  # W1: what it would eat (meal_of)
     facts=lambda s: f"hunger {round(s.vitals['hunger'])}, carrying {s.count(*FOOD)} food",
     score=lambda s: 100.0 - s.vitals["hunger"], plan=plan_eat,
     thoughts=("Time for a snack.", "Food first, then everything else.")))

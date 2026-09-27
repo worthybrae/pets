@@ -22,7 +22,7 @@ ORES = ("coal_ore", "iron_ore", "copper_ore", "gold_ore", "diamond_ore")
 FOOD_SIGHT = 24
 WATER_SIGHT = 24
 # Wild food Mimo can pick (block names; a mushroom's item has the same name).
-PICKABLE = ("berry_bush_ripe", "brown_mushroom", "red_mushroom")
+PICKABLE = ("berry_bush_ripe", "brown_mushroom", "red_mushroom", "nightberry_bush_ripe")  # W1: nightberries
 SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
 FAILED_REACH = 4.0
 

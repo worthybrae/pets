@@ -18,6 +18,7 @@ from backend.survival.clock import DAY_SECONDS, clock_at, is_night
 from backend.survival.grid import Cell, Grid, world_grid
 from backend.survival.steps import as_cell
 from backend.survival.triggers import ensure_brain
+from backend.survival.wild import avoided
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -55,8 +56,10 @@ class Situation:
 
     @cached_property
     def poisons(self) -> tuple[str, ...]:
-        """Food Mimo learned is poisonous (it got sick eating it)."""
-        return tuple(memory.known(self.db, "poisonous")) if self.db is not None else ()
+        """Food Mimo learned is poisonous (it got sick eating it); W1: and what it knows to avoid (items and the
+        blocks they grow on: backend.survival.wild.avoided), a gentle pet's nightberries among them."""
+        learned = tuple(memory.known(self.db, "poisonous")) if self.db is not None else ()
+        return tuple(dict.fromkeys((*learned, *avoided(self.state, self.lessons, self.at, self.scale))))
 
     @cached_property
     def lessons(self) -> tuple[str, ...]:

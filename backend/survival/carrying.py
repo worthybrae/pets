@@ -189,10 +189,16 @@ def eat_what_is_left(state: dict, left: dict[str, int], at: float, events: list 
     from backend.survival.purposes import EAT_BELOW, FULL  # imported here: purposes imports steps, which imports this
     from backend.survival.steps import FOOD, label
 
+    from backend.survival.meals import STARVING, eat_raw_left  # W1: a wild pet eats only what carries no risk
+    from backend.survival.wild import SAFE, is_wild  # at all, unless it is starving
+
     vitals = state["vitals"]
     if vitals["hunger"] >= EAT_BELOW:
         return
-    for item in sorted((item for item in left if keeps_alive(item)), key=lambda item: (-FOOD[item], item)):
+    wild = is_wild(state)
+    starving = vitals["hunger"] < STARVING
+    for item in sorted((item for item in left if keeps_alive(item) and (not wild or item in SAFE or starving)),
+                       key=lambda item: (-FOOD[item], item)):
         eaten = 0
         while left[item] > 0 and vitals["hunger"] < FULL:
             vitals["hunger"] = min(100.0, vitals["hunger"] + FOOD[item])
@@ -202,6 +208,9 @@ def eat_what_is_left(state: dict, left: dict[str, int], at: float, events: list 
             del left[item]
         if eaten and events is not None:
             events.append((at, "ate", f"{state['name']} ate {eaten} {label(item)} it had no room to carry."))
+        sick = eat_raw_left(state, item, at) if eaten and wild and item not in SAFE else None
+        if sick and events is not None:
+            events.append((at, *sick))
 
 
 def after_step(state: dict, before: dict[str, int], at: float, events: list | None = None) -> None:

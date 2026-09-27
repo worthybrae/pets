@@ -53,10 +53,11 @@ FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "red_mushroom": 6.0, "carrot": 10
         "cooked_fish": 30.0, "apple": 15.0,
         # L1: meat from hunting. Raw it fills little; cooked at a fire it fills far more.
         "raw_beef": 8.0, "raw_mutton": 8.0, "raw_chicken": 6.0, "raw_rabbit": 6.0,
-        "cooked_beef": 35.0, "cooked_mutton": 30.0, "cooked_chicken": 25.0, "cooked_rabbit": 25.0}
+        "cooked_beef": 35.0, "cooked_mutton": 30.0, "cooked_chicken": 25.0, "cooked_rabbit": 25.0,
+        "nightberries": 8.0}  # W1: they fill like berries, and are poison
 # Health a food changes when eaten: a red mushroom is poisonous. Poison never takes the last point
 # of health (it is not a cause of death).
-FOOD_HEALTH = {"red_mushroom": -10.0}
+FOOD_HEALTH = {"red_mushroom": -10.0, "nightberries": -10.0}  # W1: nightberries, as a gentle pet would
 # Food that only sometimes makes Mimo sick: (chance, health). Raw chicken is a gamble, not poison, so
 # Mimo never learns to shun it (backend.survival.learning); cooking makes it safe.
 FOOD_RISK = {"raw_chicken": (0.25, -4.0)}
@@ -362,7 +363,8 @@ def start_eat(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> d
         raise StepFailed(f"{label(item)} is not food")
     if state["inventory"].get(item, 0) < 1:
         raise StepFailed(f"no {label(item)} to eat", "missing_item")
-    return {"kind": "eat", "started_at": at, "ends_at": round(at + EAT_SECONDS / scale, 3), "item": item}
+    return {"kind": "eat", "started_at": at, "ends_at": round(at + EAT_SECONDS / scale, 3), "item": item,
+            **({"risk": spec["risk"]} if "risk" in spec else {})}  # W1: a raw meal's risk (backend.survival.meals)
 
 
 def finish_eat(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str]:

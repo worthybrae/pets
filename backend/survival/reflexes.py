@@ -46,7 +46,7 @@ from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
 from backend.survival.purposes import (
-    AT_HOME, GO_HOME_RANGE, HOME_RANGE, away, foods, home_of, land_refuge, meal, walk_to,
+    AT_HOME, GO_HOME_RANGE, HOME_RANGE, away, home_of, land_refuge, meal_of, walk_to,
 )
 from backend.survival.purposes import homeward_from  # L5: far out, the window opens sooner
 from backend.survival.senses import near_failure
@@ -287,8 +287,8 @@ register(Reflex("avoid_drop", 20, trigger=lambda s: drop_ahead(s) is not None, p
 # eat_now ---------------------------------------------------------------------------------------
 
 register(Reflex("eat_now", 40,
-                trigger=lambda s: s.vitals["hunger"] < EAT_NOW_BELOW and bool(foods(s.inventory, s.poisons)),
-                plan=lambda s, context: meal(s.inventory, s.vitals["hunger"], EAT_NOW_FULL, s.poisons),
+                trigger=lambda s: s.vitals["hunger"] < EAT_NOW_BELOW and bool(meal_of(s, EAT_NOW_FULL)),  # W1
+                plan=lambda s, context: meal_of(s, EAT_NOW_FULL),
                 thought="I'm starving. I have to eat now.", event="{name} ate in a hurry.", cooldown=5.0))
 
 

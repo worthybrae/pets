@@ -36,12 +36,13 @@ from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell, Grid
 from backend.survival.home import home_cell  # L4a final fix wave, I1: the one home lookup, also for trips
 from backend.survival.memory import (
-    PATCH, explored, known, mark_explored, nearest, patch_of, places, remember, update_place,
+    PATCH, explored, mark_explored, nearest, patch_of, places, remember, update_place,
 )
 from backend.survival.senses import FOOD_SIGHT, PICKABLE, WATER_SIGHT, natural_plants, near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.triggers import ensure_brain
+from backend.survival.wild import poisons_known
 
 PATH_KINDS = ("walk", "swim")
 HEADINGS = 16
@@ -61,7 +62,8 @@ FOUND_KINDS = ("ore", "water", "food", "farm", "home")
 AWAY = 32.0  # new ground farther than this from home may hold a discovery
 SIGHT = max(FOOD_SIGHT, WATER_SIGHT)  # food or water this close to a known place of its kind is not new
 STAY = 60.0  # game seconds: staying in one patch counts one visit this often at most
-FOOD_WORDS = {"berry_bush_ripe": "berries", "brown_mushroom": "mushrooms", "red_mushroom": "mushrooms"}
+FOOD_WORDS = {"berry_bush_ripe": "berries", "brown_mushroom": "mushrooms", "red_mushroom": "mushrooms",
+              "nightberry_bush_ripe": "berries"}  # W1: red berries, to a pet that cannot tell them apart
 
 
 # Remembering the ground --------------------------------------------------------------------------
@@ -95,7 +97,7 @@ def discoveries(state: dict, context, patches: list[tuple[int, int]], at: float)
     that from there anyway."""
     db = context.db
     home = places(db, ("home",))
-    poisons = known(db, "poisonous")
+    poisons = poisons_known(db, state, at, context.clock_at(at)["time_scale"])  # W1
     found = []
     for rx, rz in patches:
         middle = (rx * PATCH + PATCH / 2, rz * PATCH + PATCH / 2)
