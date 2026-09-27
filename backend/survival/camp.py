@@ -50,6 +50,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.structures import reserved
 from backend.survival.triggers import ensure_brain
+from backend.survival.wild import unlocked
 from backend.survival.work import ladder_ores
 
 if TYPE_CHECKING:
@@ -224,7 +225,8 @@ def campfire_made(s: Situation) -> tuple[list[dict], dict]:
     worked out once per Situation: the same for every spot new_camp weighs."""
     def look() -> tuple[list[dict], dict]:
         inventory = dict(s.inventory)
-        steps = (made(inventory, "campfire") or []) if inventory.get("campfire", 0) < 1 else []
+        makes = inventory.get("campfire", 0) < 1 and unlocked(s, "fire")  # W1: a wild pet needs wild:fire
+        steps = (made(inventory, "campfire") or []) if makes else []
         return steps, inventory
     return s.sensed("camp campfire made", look)
 
@@ -244,7 +246,7 @@ def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
         if lights and inventory.get("campfire", 0) > 0:
             steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
             inventory["campfire"] -= 1
-    torches_wanted = max(0, CAMP_TORCHES - lit_near(s, spot, "torch"))
+    torches_wanted = max(0, CAMP_TORCHES - lit_near(s, spot, "torch")) if unlocked(s, "light") else 0  # W1
     for cell in lights[:min(torches_wanted, inventory.get("torch", 0))]:
         steps.append({"kind": "place", "target": list(cell), "block": "torch"})
         inventory["torch"] -= 1

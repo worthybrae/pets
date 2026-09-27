@@ -55,6 +55,7 @@ from backend.survival.steps import as_cell
 from backend.survival.toolmaking import place_station, station_spots
 from backend.survival.triggers import ensure_brain, mark_trigger
 from backend.survival.vitals import EXHAUSTED_BELOW, WARM_BLOCKS, is_sheltered
+from backend.survival.wild import fitting_open
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +300,7 @@ def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
     Below the surface the fire goes in a niche Mimo digs, never in its way out. A walk to a fire
     goes all the way or not at all (foraging.whole_walk), and a fire where a step just failed is
     left alone for a while (senses.near_failure)."""
-    fire = next((block for block in WARM_BLOCKS if s.inventory.get(block, 0) > 0), None)
+    fire = next((block for block in WARM_BLOCKS if s.inventory.get(block, 0) > 0 and fitting_open(block, s)), None)
     if fire is not None:
         steps: list[dict] = []
         if place_station(station_spots(s), fire, steps) is not None:

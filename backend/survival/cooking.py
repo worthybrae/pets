@@ -8,6 +8,9 @@
   blocks and cooks there next batch. A fire within 4 blocks of where a step just failed is left
   alone for a while (senses.near_failure).
 - Three wheat bake into bread (25) at a crafting table, like craft_tools does it.
+W1: a wild pet cooks raw food only once it knows `wild:cooking`, and makes or puts down a campfire only
+once it knows `wild:fire` (backend.survival.wild): before that it cooks at a furnace it carries or finds, and
+bakes bread as ever.
 A station or fire the plan placed is mined back into Mimo's inventory at the end. Those steps
 are kept (`keep`), so a new choice does not leave the station behind. cook is offered while
 there is raw food it can cook now, with room to carry what it makes, and scores in the needs band.
@@ -26,6 +29,7 @@ from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
 from backend.survival.toolmaking import Short, make, place_station, station_spots
+from backend.survival.wild import unlocked
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -69,6 +73,14 @@ def station(inventory: dict, name: str, spots: list[tuple[Cell, bool]], steps: l
     return True
 
 
+def light_fire(s: Situation, inventory: dict, spots, steps: list[dict], placed: list[Cell]) -> bool:
+    """Put down a fire to cook on: a carried campfire or furnace, or a campfire made now; W1: a wild pet that
+    does not know `wild:fire` only puts down a furnace it carries."""
+    if unlocked(s, "fire"):
+        return station(inventory, "campfire", spots, steps, placed, FIRES)
+    return inventory.get("furnace", 0) > 0 and station(inventory, "furnace", spots, steps, placed, ("furnace",))
+
+
 def cook_plan(s: Situation) -> list[dict] | None:
     """The steps that cook the raw food Mimo carries, or None when it cannot cook any now."""
     inventory = dict(s.inventory)
@@ -77,8 +89,8 @@ def cook_plan(s: Situation) -> list[dict] | None:
     spots = station_spots(s)
     steps: list[dict] = []
     placed: list[Cell] = []
-    raw = [(item, inventory[item]) for item in RAW_FOODS if inventory.get(item, 0) > 0]
-    if raw and not near.intersection(FIRES) and not station(inventory, "campfire", spots, steps, placed, FIRES):
+    raw = [(item, inventory[item]) for item in RAW_FOODS if inventory.get(item, 0) > 0] if unlocked(s, "cooking") else []
+    if raw and not near.intersection(FIRES) and not light_fire(s, inventory, spots, steps, placed):
         fires = sorted((found for found in s.grid.placed_cells(x, z, FIRE_TRAVEL, FIRES)
                         if not near_failure(s.state, found[0])), key=lambda found: s.distance(found[0]))
         if fires:

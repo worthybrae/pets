@@ -53,6 +53,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import REACH, as_cell
 from backend.survival.structures import blocked, blueprint_of, clearing, start, structure_at, todo
 from backend.survival.triggers import mark_trigger
+from backend.survival.wild import fitting_open
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -162,9 +163,12 @@ def shelter_design(s: Situation) -> Blueprint | None:
 
 
 def fittings_due(s: Situation, blueprint: Blueprint) -> list[Planned]:
-    """A bed and a campfire still missing that Mimo carries or can make now."""
+    """A bed and a campfire still missing that Mimo carries or can make now; W1: a wild pet puts in only the
+    ones it knows how to make (wild.fitting_open: a bed, a campfire, a door)."""
     due, trial = [], dict(s.inventory)
     for planned in todo(s.grid, blueprint, FURNISHINGS):
+        if not fitting_open(planned.block, s):
+            continue
         if trial.get(planned.block, 0) > 0:
             trial[planned.block] -= 1
             due.append(planned)

@@ -62,6 +62,7 @@ from backend.survival.senses import WATER_SIGHT, afloat, shores_near
 from backend.survival.situation import DUSK, NIGHTFALL, Situation
 from backend.survival.steps import FOOD, FOOD_HEALTH
 from backend.survival.trips import best_trip, lift, next_stop, trip_facts
+from backend.survival.wild import purpose_open
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -122,9 +123,10 @@ def register(purpose: Purpose) -> Purpose:
 
 
 def is_valid(purpose: Purpose, situation: Situation) -> bool:
-    """A purpose's validity check. One that crashes counts as not valid (logged once)."""
+    """A purpose's validity check. One that crashes counts as not valid (logged once). W1: a wild pet is offered
+    a purpose a survival lesson unlocks only once it knows the lesson (wild.purpose_open)."""
     try:
-        return bool(purpose.valid(situation))
+        return purpose_open(purpose.name, situation) and bool(purpose.valid(situation))
     except Exception as error:
         log_once(logger, f"{purpose.name} validity", error)
         return False

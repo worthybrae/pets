@@ -76,6 +76,7 @@ from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, SURVIVAL_FLOOR, is_valid, late_day
 from backend.survival.situation import Situation, in_tick
 from backend.survival.triggers import ensure_brain, mark_trigger
+from backend.survival.wild import goal_open
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -206,7 +207,7 @@ def is_open(s: Situation, goal: Goal) -> bool:
     """On offer: a milestone counts, the goals before it are settled, it is valid, not reached yet
     (unless it repeats) and not complete. A validity check that crashes counts as not valid (logged
     once)."""
-    if not counted(goal) or (goal.name in reached(s) and not goal.repeat):
+    if not counted(goal) or (goal.name in reached(s) and not goal.repeat) or not goal_open(goal.name, s):  # W1
         return False
     if not all(settled(s, name) for name in goal.after):
         return False

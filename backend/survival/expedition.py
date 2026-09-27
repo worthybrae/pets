@@ -69,6 +69,7 @@ from backend.survival.steps import as_cell
 from backend.survival.toolmaking import Short, make
 from backend.survival.triggers import ensure_brain, mark_trigger
 from backend.survival.trips import WANDER_PENALTY_SECONDS, Reason, register_reason
+from backend.survival.wild import unlocked
 from backend.survival.work import ladder_ores, ore_targets
 
 if TYPE_CHECKING:
@@ -225,16 +226,16 @@ def no_room_for_torches(s: Situation) -> bool:
 
 def torches_packed(s: Situation) -> float:
     """How far along the torches are: PACK_TORCHES of them, or none at all when there is no coal to be
-    had or no room for them (`no_room_for_torches`)."""
-    if not coal_known(s) or no_room_for_torches(s):
+    had or no room for them (`no_room_for_torches`); W1: none for a wild pet that does not know wild:light."""
+    if not unlocked(s, "light") or not coal_known(s) or no_room_for_torches(s):
         return 1.0
     return min(1.0, s.count("torch") / PACK_TORCHES)
 
 
 def campfire_ready(s: Situation) -> bool:
     """A campfire carried, or what makes one (2 logs and 3 sticks, of any wood): Mimo makes it at camp
-    when its arms have no room for it now."""
-    if s.count("campfire") >= 1:
+    when its arms have no room for it now. W1: a wild pet that does not know wild:fire goes without one."""
+    if s.count("campfire") >= 1 or not unlocked(s, "fire"):
         return True
     try:
         make(dict(s.inventory), "campfire", 1, [])
@@ -481,8 +482,8 @@ def pack_steps(s: Situation) -> list[dict]:
     """Craft steps for the torches and the campfire an expedition takes, as far as Mimo can make them
     and has room to carry them (carrying.crafts_fit)."""
     trial, steps = dict(s.inventory), []
-    wanted = [("torch", count) for count in range(s.count("torch") + 1, PACK_TORCHES + 1)]
-    for item, count in wanted + ([("campfire", 1)] if s.count("campfire") < 1 else []):
+    wanted = [("torch", count) for count in range(s.count("torch") + 1, PACK_TORCHES + 1)] if unlocked(s, "light") else []
+    for item, count in wanted + ([("campfire", 1)] if s.count("campfire") < 1 and unlocked(s, "fire") else []):
         attempt, more = dict(trial), []
         if attempt.get(item, 0) >= count:
             continue

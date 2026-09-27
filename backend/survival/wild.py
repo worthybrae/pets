@@ -90,6 +90,13 @@ SURVIVAL: tuple[Survival, ...] = (
 )
 BY_NAME = {lesson.name: lesson for lesson in SURVIVAL}
 SOURCES = {TAUGHT: "from_you", BORN_KNOWING: "from_start"}
+# What a wild pet has only once it knows a lesson (the table's "Unlocks" column): the purposes on offer
+# (purposes.is_valid), the goals (goals.is_open) and the fittings of a shelter it makes and puts in
+# (building.fittings_due, and the warm_up reflex's carried fire). The recipes behind them are gated where
+# they are planned: a campfire (cooking, camp, expedition), a bed and a door (building).
+PURPOSE_LESSONS = {"build_shelter": "shelter", "improve_home": "shelter", "camp": "shelter", "light_up": "light"}
+GOAL_LESSONS = {"first_shelter": "shelter", "safe_yard": "light"}
+FITTING_LESSONS = {"bed": "bed", "campfire": "fire", "door": "shelter"}
 
 
 def thing(name: str) -> str:
@@ -116,6 +123,24 @@ def unlocked(s: Situation, name: str) -> bool:
     """What the lesson `name` unlocks is open to Mimo: always for a gentle pet, and for a wild one once it
     knows the lesson."""
     return not is_wild(s.state) or knows(s, name)
+
+
+def purpose_open(name: str, s: Situation) -> bool:
+    """The purpose `name` may be offered: it needs no lesson, or Mimo may use what its lesson unlocks."""
+    lesson = PURPOSE_LESSONS.get(name)
+    return lesson is None or unlocked(s, lesson)
+
+
+def goal_open(name: str, s: Situation) -> bool:
+    """The goal `name` may be offered (a built home needs `wild:shelter`, a safe yard `wild:light`)."""
+    lesson = GOAL_LESSONS.get(name)
+    return lesson is None or unlocked(s, lesson)
+
+
+def fitting_open(block: str, s: Situation) -> bool:
+    """Mimo may make and put in the fitting `block` (a bed, a campfire, a door)."""
+    lesson = FITTING_LESSONS.get(block)
+    return lesson is None or unlocked(s, lesson)
 
 
 def wild_state(state: dict) -> dict:
