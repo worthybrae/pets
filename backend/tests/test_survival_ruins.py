@@ -15,7 +15,7 @@ from backend.survival.goals import adopt_goal, meets_need
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, places
 from backend.survival.purposes import PURPOSES
-from backend.survival.ruins import LOOT, LOOT_BATCHES, RUIN, ruin_loot, ruins_near, takeable
+from backend.survival.ruins import LOOT, LOOT_BATCHES, RUIN, chest_in_sight, room_for_riches, ruin_loot, ruins_near, takeable
 from backend.survival.situation import Situation
 from backend.survival.steps import OBSERVERS, StepFailed, finish_step, start_step
 from backend.survival.trips import REASONS
@@ -262,6 +262,47 @@ class RichesTests(unittest.TestCase):
         self.assertEqual(REASONS["riches"].look(s, pet.context).words, "an old ruin in the far wilds, danger 2")
         pet.state["chests"][chest_key(CHEST)] = {"arrow": 6}  # the riches are gone: arrows alone are no riches
         self.assertNotIn(CHEST, unopened_ruins(pet.situation(), 2))
+
+    def test_a_full_armed_pet_with_nothing_to_drop_does_not_go_back_for_it(self):
+        # The follow-up, Minor 1 (final-fix-rereview.md): an opened chest that still held riches was a
+        # target whatever Mimo's arms held. Seed 11 "found" the same chest 12 times at 16 stacks, with no
+        # room for the gold and amber inside and nothing it could leave behind to make room.
+        full = {**{f"item_{n}": 1 for n in range(11)}, **GEARED}  # 15 stacks: nothing low-value or junk to drop
+        pet = self.far_pet({"gold_nugget": 3}, full)
+        s = pet.situation()
+        self.assertEqual(takeable(s, CHEST), {})
+        self.assertEqual(room_for_riches(s, CHEST), ([], full))
+        self.assertNotIn(CHEST, unopened_ruins(s, 2))
+        self.assertIsNone(REASONS["riches"].look(s, pet.context))
+
+    def test_room_for_riches_never_drops_a_low_value_block_below_what_it_keeps(self):
+        # m4 (I2i): the tier of storage.kept is the floor low-value blocks are dropped to first -- it is
+        # not emptied outright the way the last tier (all of it) is.
+        inventory = {"cobblestone": 48, "sandstone": 32, "leather_cap": 1, "iron_cap": 1,
+                     **{f"item_{n}": 1 for n in range(10)}}  # 15 stacks
+        pet = self.far_pet({"gold_nugget": 65}, inventory)  # more than one low-value block's excess can free
+        drops, carried = room_for_riches(pet.situation(), CHEST)
+        self.assertEqual(carried["cobblestone"], 32)  # kept back at its floor (storage.KEEP["cobblestone"], 16)
+        self.assertEqual({item: amount for item, amount in ((d["item"], d["amount"]) for d in drops)}["cobblestone"], 16)
+
+    def test_room_for_riches_drops_junk_before_a_kept_low_value_blocks_floor(self):
+        # m4 (I2j): storage.junk (here, a leather cap an iron one replaced) is dropped before a low-value
+        # block's own kept floor is crossed -- the same case as the test above, from the other side.
+        inventory = {"cobblestone": 48, "sandstone": 32, "leather_cap": 1, "iron_cap": 1,
+                     **{f"item_{n}": 1 for n in range(10)}}
+        pet = self.far_pet({"gold_nugget": 65}, inventory)
+        drops, carried = room_for_riches(pet.situation(), CHEST)
+        self.assertIn("leather_cap", {d["item"] for d in drops})
+        self.assertNotIn("leather_cap", carried)
+        self.assertEqual(carried["cobblestone"], 32)  # its floor held: junk was dropped instead
+
+    def test_chest_in_sight_wants_an_opened_chest_that_still_holds_riches(self):
+        # m4 (I2h): chest_in_sight already reads holds_riches (the L5 final fix wave, I2), but nothing
+        # pinned it: an opened chest still holding riches, within URGE_REACH, is an urge on its own.
+        pet = self.far_pet({"gold_nugget": 2})
+        self.assertTrue(chest_in_sight(pet.situation()))
+        pet.state["chests"][chest_key(CHEST)] = {"arrow": 4}  # no riches left: arrows alone are no urge for this
+        self.assertFalse(chest_in_sight(pet.situation()))
 
     def test_taking_riches_from_an_old_chest_counts_as_opening_one_for_the_goal(self):
         pet = self.far_pet({"gold_nugget": 3}, dict(GEARED))

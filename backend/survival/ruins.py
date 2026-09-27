@@ -296,6 +296,15 @@ def room_for_riches(s: Situation, chest: Cell) -> tuple[list[dict], dict[str, in
     return [{"kind": "drop", "item": item, "amount": amount} for item, amount in dropped.items()], carried
 
 
+def takeable_riches(s: Situation, chest: Cell) -> bool:
+    """Whether Mimo could take some riches out of `chest` right now: some fit its arms as they are
+    (`takeable`), or dropping something first would make room for them (`room_for_riches`). The L5
+    follow-up (m1): without this an opened chest that still held riches stayed a target for the goal and
+    its trip even with nothing Mimo could leave behind -- seed 11 "found" the same chest 12 times at 16
+    stacks, with no room and nothing to drop for it."""
+    return any(item in RICHES for item in takeable(s, chest)) or bool(room_for_riches(s, chest)[0])
+
+
 def worth_a_visit(s: Situation, chest: Cell) -> bool:
     """The chest still stands, and was never opened or holds something Mimo can carry (the L5 final fix wave, I2:
     or riches it can make room for)."""

@@ -271,6 +271,28 @@ class FenceTests(unittest.TestCase):
         self.assertFalse(PURPOSES["loot_ruin"].valid(pet.situation()))
         self.assertNotIn(CHEST, unopened_ruins(pet.situation(), 2))
 
+    def test_a_sleeping_stranded_pet_stays_asleep(self):
+        # The follow-up, Minor 3 (final-fix-rereview.md): turn_back used to fire every ten seconds and end
+        # Mimo's sleep while it was stranded past its limit with no way home.
+        pet = at_home(dict(GEARED), offset=(300, 0))
+        pet.state["action"], pet.state["queue"] = {"kind": "sleep", "started_at": 5.0, "ends_at": 5000.0}, []
+        ensure_brain(pet.state)["purpose"] = "sleep"
+        pet.context.clock_at = lambda at: DAY
+        self.assertIsNone(reflex_hook(pet.state, pet.context, 20.0))
+
+    def test_turn_back_leaves_a_walk_that_already_heads_back_inside_alone(self):
+        # m4 (I4e): a walk already queued back inside the limit is left to run; turn_back does not cut it
+        # short to plan another walk to about the same place.
+        pet = at_home(dict(GEARED), offset=(300, 0))
+        self.assertIsNone(self.hook(pet, [walk_to_column(HOME[0] + 200, HOME[2])]))
+
+    def test_the_fence_never_refuses_an_escapes_own_walk(self):
+        # m4 (I4l): an escape step already queued (keep="escape", not a running flee reflex) is the
+        # fence's own exception too, the same one heading_out already gives a running flight.
+        pet = at_home(dict(GEARED), offset=(230, 0))
+        escape = {**walk_to_column(HOME[0] + 250, HOME[2]), "keep": "escape"}
+        self.assertIsNone(self.hook(pet, [escape]))
+
 
 class RequestTests(unittest.TestCase):
     def test_the_owner_can_ask_for_riches(self):

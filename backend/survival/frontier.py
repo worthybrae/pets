@@ -31,10 +31,14 @@
   (work.reachable_ores, since mine_ore remembers no refused spot) past the limit are no targets. On the
   final review's gate gathering wood,
   fishing and wandering took three pets that were not ready for it into the frontier, and one camped there.
+  The follow-up (m3): turn_back never fires while Mimo sleeps, and backs off when the walk home just failed
+  (near_failure), so a pet stranded with no path back is not woken and sent to try again every ten seconds.
 - Riches come home (the L5 final fix wave, I2): at an old chest, stacks of blocks Mimo carries make room for
-  the riches in it (ruins.room_for_riches), and an opened chest that still holds riches is a target again,
-  for the goal and its trip; taking riches from one counts as opening one. On the final review's gate 42 %
-  of the far chests' gold and amber was still in them on day 150.
+  the riches in it (ruins.room_for_riches), and an opened chest that still holds riches it could take now is
+  a target again, for the goal and its trip (the follow-up, m1: `ruins.takeable_riches`, so a chest with
+  nothing to drop for is not); taking riches from one counts as opening one. On the final review's gate 42 %
+  of the far chests' gold and amber was still in them on day 150; on m1's own gate a full-armed pet with
+  nothing to drop "found" the same chest 12 times.
 - Heading home before dark: from the far wilds on, the head_home window opens earlier by the walk
   home (purposes.HOMEWARD_LEADS: 0.45 game seconds a block at the normal pace, plus a game minute), and
   "late in the day" with it (purposes.late_day), so go_home scores 70 and more and outdoor work 30 less
@@ -66,7 +70,8 @@ from backend.survival.rings import (
     ANNOUNCED_FROM, DEEPEST, OPEN_RINGS, RINGS, center, distance_home, gear_short_of, ready_ring, ring_at, ring_here,
     ring_name,
 )
-from backend.survival.ruins import RUIN, RUIN_SIGHT, holds_riches, opened, ruin_targets, ruins_near
+from backend.survival.ruins import RUIN, RUIN_SIGHT, holds_riches, opened, ruin_targets, ruins_near, takeable_riches
+from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.trips import FENCES, Find, Reason, register_reason, stand_near
@@ -104,10 +109,11 @@ def ring_limit(ring: int) -> float:
 
 def unopened_ruins(s: Situation, deepest: int) -> list[tuple[int, int, int]]:
     """Ruins past the near wilds and no deeper than `deepest`, whose chest Mimo never opened (or, the L5 final fix
-    wave, I2: opened, but it still holds riches), inside `ring_limit(deepest)` (the L5 final fix wave, I4: no walk
-    goes past it; they used to count out to RUIN_NEAR past it, as far as Mimo could see from inside) and within
-    FRONTIER_REACH of home. On the final review's gate 42 % of the far chests' gold and amber was left in them:
-    once a chest was open, no riches trip went back to it."""
+    wave, I2: opened, but it still holds riches Mimo could take now -- the follow-up, m1: `ruins.takeable_riches`,
+    so a chest it has no room for and nothing to drop for is not counted), inside `ring_limit(deepest)` (the L5
+    final fix wave, I4: no walk goes past it; they used to count out to RUIN_NEAR past it, as far as Mimo could
+    see from inside) and within FRONTIER_REACH of home. On the final review's gate 42 % of the far chests' gold
+    and amber was left in them: once a chest was open, no riches trip went back to it."""
     def look() -> list[tuple[int, int, int]]:
         middle = center(s.state)
         if middle is None:
@@ -115,7 +121,7 @@ def unopened_ruins(s: Situation, deepest: int) -> list[tuple[int, int, int]]:
         reach = min(FRONTIER_REACH, ring_limit(deepest))  # the L5 final fix wave, I4: no walk goes past it
         return [chest for chest in ruins_near(s.seed, middle[0], middle[1], reach)
                 if ANNOUNCED_FROM <= ring_at(s.state, chest[0], chest[2]) <= deepest
-                and (not opened(s, chest) or holds_riches(s, chest))]
+                and (not opened(s, chest) or (holds_riches(s, chest) and takeable_riches(s, chest)))]
     return s.sensed(f"unopened ruins {deepest}", look)
 
 
@@ -237,7 +243,8 @@ def riches_look(s: Situation, context) -> Find | None:
     ready = ready_ring(s)
     for chest in ruins_near(s.seed, x, z, RUIN_SIGHT):
         ring = ring_at(s.state, chest[0], chest[2])
-        if (ANNOUNCED_FROM <= ring <= ready and (not opened(s, chest) or holds_riches(s, chest))
+        if (ANNOUNCED_FROM <= ring <= ready
+                and (not opened(s, chest) or (holds_riches(s, chest) and takeable_riches(s, chest)))
                 and s.grid.material(*chest) == "chest"):
             return Find(f"an old ruin in {danger_words(ring)}", True, new=False)
     return None
@@ -330,23 +337,35 @@ def plan_fence(s: Situation, context) -> list[dict]:
     return list(s.state["queue"])  # the plan's cleanup steps, which fail() kept
 
 
-def past_limit(s: Situation) -> bool:
-    """Mimo stands past its limit, not dug in for the night (a camp's first walk in the morning takes it back),
-    and no walk under way or next takes it back inside."""
-    if not past_readiness(s, s.here) or enclosed(s.grid, s.here):
-        return False
-    walk = next_walk(s)
-    return walk is None or past_readiness(s, as_cell(walk["target"]))
-
-
-def plan_turn_back(s: Situation, context) -> list[dict]:
-    """Walk back to EDGE inside the limit, on the line home (a dry cell there to stand on, when there is one)."""
+def turn_back_target(s: Situation) -> tuple[int, int, int]:
+    """The cell turn_back walks Mimo to: EDGE inside the limit, on the line home (a dry cell there to stand on,
+    when there is one). Shared with `past_limit`'s own near_failure back-off (the follow-up, m3)."""
     middle = center(s.state)
     x, y, z = s.here
     share = max(0.0, reach_limit(s) - EDGE) / max(from_centre(s, s.here), 1.0)
     column = (round(middle[0] + (x - middle[0]) * share), round(middle[1] + (z - middle[1]) * share))
-    cell = stand_near(s, *column) or (column[0], y, column[1])
-    return [walk_to(cell, TURN_BACK_REACH)]
+    return stand_near(s, *column) or (column[0], y, column[1])
+
+
+def past_limit(s: Situation) -> bool:
+    """Mimo stands past its limit, not dug in for the night (a camp's first walk in the morning takes it back),
+    asleep (the follow-up, m3: turn_back never wakes a stranded pet -- it used to fire every ten seconds and end
+    its sleep though there was no way home), or with the walk back having just failed (near_failure, the same
+    back-off senses.ruin_targets and others use, so it is not sent to try again at once), and no walk under way
+    or next takes it back inside."""
+    if not past_readiness(s, s.here) or enclosed(s.grid, s.here):
+        return False
+    if (s.state.get("action") or {}).get("kind") == "sleep":
+        return False
+    walk = next_walk(s)
+    if walk is not None and not past_readiness(s, as_cell(walk["target"])):
+        return False
+    return not near_failure(s.state, turn_back_target(s))
+
+
+def plan_turn_back(s: Situation, context) -> list[dict]:
+    """Walk back to EDGE inside the limit, on the line home (a dry cell there to stand on, when there is one)."""
+    return [walk_to(turn_back_target(s), TURN_BACK_REACH)]
 
 
 register_reflex(Reflex(

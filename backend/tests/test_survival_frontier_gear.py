@@ -103,6 +103,13 @@ class AmberTests(unittest.TestCase):
         self.assertIn(("amber_tunic",), tool_orders({"iron_pickaxe": 1, "iron_tunic": 1, "amber": 3}))
         self.assertIn(("warding_lantern",), tool_orders({"iron_pickaxe": 1, "lantern": 1, "gloom_dust": WARD_DUST}))
 
+    def test_lantern_orders_counts_an_amber_piece_as_its_iron_one(self):
+        # m4 (I3h): lantern_orders' own "done" check (worn on both iron pieces) already reads harm.worn,
+        # which lets an amber piece stand for its iron one (I3) -- but nothing pinned it: a pet that
+        # replaced both pieces with amber ones still gets the offer to make lanterns from spare iron.
+        self.assertIn(("lantern",), tool_orders({"amber_cap": 1, "amber_tunic": 1, "iron_ingot": 1}))
+        self.assertNotIn(("lantern",), tool_orders({"amber_cap": 1, "iron_ingot": 1}))  # only one slot covered
+
     def test_the_owner_can_teach_the_new_loot(self):
         # Pre-flight (carry 6): Mind's recipe lessons cover the amber pieces (they are armor), and the warding
         # lantern and gold nuggets get one of their own; each is written from the recipe, so it is true.
@@ -188,6 +195,13 @@ class ArmsTests(unittest.TestCase):
         stored = dict(storage.to_store(s, home.chest))
         self.assertEqual((stored.get("amber"), stored.get("gold_nugget")), (3, 7))  # no iron tunic: no amber tunic
         self.assertIn(("iron_cap", 1), storage.junk(s))
+
+    def test_a_leather_piece_under_an_amber_one_is_junk_with_no_iron_between(self):
+        # m4 (I3r): replaced_pieces' other branch -- storage.junk's own iron-check compares a leather
+        # piece only against the iron one it stands under, so with no iron cap in Mimo's arms (put away,
+        # or an old one never made) a leftover leather cap under an amber one needed this branch instead.
+        home = Home({"amber_cap": 1, "leather_cap": 1, "iron_pickaxe": 1}, chest={})
+        self.assertIn(("leather_cap", 1), storage.junk(home.situation()))
 
     def test_the_amber_an_order_takes_stays_and_comes_back_out_of_the_chest(self):
         wearing = {"iron_cap": 1, "iron_pickaxe": 1, "iron_ingot": 2, "crafting_table": 1}
