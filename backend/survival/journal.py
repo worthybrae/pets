@@ -67,6 +67,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.structures import reserved
 from backend.survival.triggers import ensure_brain, mark_trigger
+from backend.survival.wild import BORN_KNOWING
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -194,9 +195,10 @@ def journal_state(state: dict) -> dict:
 
 
 def learned(db) -> list[tuple[str, float]]:
-    """The lessons Mimo learned, (thing, when), first first."""
-    rows = db.execute("SELECT subject, learned_at FROM memory_knowledge WHERE fact=? ORDER BY learned_at, subject",
-                      (FACT,)).fetchall()
+    """The lessons Mimo learned, (thing, when), first first; W1: not those it knew from the start."""
+    rows = db.execute("SELECT subject, learned_at FROM memory_knowledge WHERE fact=? AND subject NOT IN "
+                      "(SELECT subject FROM memory_knowledge WHERE fact=?) ORDER BY learned_at, subject",
+                      (FACT, BORN_KNOWING)).fetchall()
     return [(row[0], row[1]) for row in rows]
 
 
@@ -412,8 +414,8 @@ register(Purpose(
 
 def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     """The lessons Mimo learned, newest first: {thing, kind, fact, line (Jev's pick, or the fact),
-    unlocks, at, from_you (Mind M2: the owner taught it)}. A world from before L3 read as an archive
-    has learned nothing."""
+    unlocks, at, from_you (Mind M2: the owner taught it), source (W1: "from_you", "figured" or
+    "from_start")}. A world from before L3 read as an archive has learned nothing."""
     words = ((brain or {}).get("journal") or {}).get("words", {})
     try:
         rows = learned(db)
@@ -422,13 +424,13 @@ def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     except sqlite3.OperationalError:  # no memory_knowledge table: an archive from before L3
         return []
     found = []
-    for thing, at in reversed(rows):
-        lesson = LESSONS.get(thing)
+    for name, at in reversed(rows):
+        lesson = LESSONS.get(name)
         if lesson is None:
             continue
-        found.append({"thing": thing, "kind": lesson.kind, "words": lesson.words, "fact": lesson.fact,
-                      "line": words.get(thing) or lesson.fact, "unlocks": lesson.unlocks, "at": at,
-                      "from_you": thing in from_owner})
+        found.append({"thing": name, "kind": lesson.kind, "words": lesson.words, "fact": lesson.fact,
+                      "line": words.get(name) or lesson.fact, "unlocks": lesson.unlocks, "at": at,
+                      "from_you": name in from_owner, "source": "from_you" if name in from_owner else "figured"})
     return found[:limit]
 
 

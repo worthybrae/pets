@@ -93,7 +93,8 @@ def _ensure_world_schema(path: Path) -> None:
         _schema_ready.add(resolved)
 
 
-def new_survival_state(*, name: str, seed: str, spawn: dict, born_at: float, traits: dict) -> dict:
+def new_survival_state(*, name: str, seed: str, spawn: dict, born_at: float, traits: dict,
+                       difficulty: str = "gentle") -> dict:
     return {
         "name": name,
         "world_seed": seed,
@@ -109,6 +110,7 @@ def new_survival_state(*, name: str, seed: str, spawn: dict, born_at: float, tra
         "care": {"day": None, "snack": 0, "bandage": 0},
         "died_at": None,
         "cause": None,
+        "difficulty": difficulty,  # W1: "wild" or "gentle", for good (backend.survival.wild)
     }
 
 

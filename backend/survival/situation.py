@@ -60,8 +60,12 @@ class Situation:
 
     @cached_property
     def lessons(self) -> tuple[str, ...]:
-        """L4b: the lessons Mimo learned (backend.survival.journal); what it knows unlocks work."""
-        return tuple(memory.known(self.db, "lesson")) if self.db is not None else ()
+        """L4b: the lessons Mimo learned (backend.survival.journal); what it knows unlocks work. W1: not the
+        ones a gentle pet knew from the start (backend.survival.wild), which unlock nothing and never count."""
+        if self.db is None:
+            return ()
+        start = set(memory.known(self.db, "born_knowing"))
+        return tuple(lesson for lesson in memory.known(self.db, "lesson") if lesson not in start)
 
     @cached_property
     def recipes(self) -> list[str]:

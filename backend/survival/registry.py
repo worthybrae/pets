@@ -161,7 +161,8 @@ class LifeRegistry:
                        (json.dumps(egg), time.time() if timestamp is None else timestamp))
             return egg
 
-    def create_life(self, *, name: str, seed: str, spawn: dict, born_at: float, egg: dict, traits: dict) -> dict:
+    def create_life(self, *, name: str, seed: str, spawn: dict, born_at: float, egg: dict, traits: dict,
+                    difficulty: str = "gentle") -> dict:
         """Add a survival life and its world in one step, and use up the pending egg."""
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -173,7 +174,7 @@ class LifeRegistry:
                 (name, seed, spawn["x"], spawn["z"], born_at, json.dumps(egg), json.dumps(traits))).lastrowid
             relative = Path("lives") / f"{life_id}.sqlite3"
             SurvivalWorld.create(self.directory / relative, new_survival_state(
-                name=name, seed=seed, spawn=spawn, born_at=born_at, traits=traits))
+                name=name, seed=seed, spawn=spawn, born_at=born_at, traits=traits, difficulty=difficulty))
             db.execute("UPDATE lives SET db_path=? WHERE id=?", (str(relative), life_id))
             db.execute("DELETE FROM pending_egg")
             return _life(db.execute("SELECT * FROM lives WHERE id=?", (life_id,)).fetchone())

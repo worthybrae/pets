@@ -111,7 +111,8 @@ def insights(db: sqlite3.Connection, state: dict, day: int, scale: float) -> lis
         found.append(Insight("evenings", "You visit me in the evenings.", 5, 1, ("owner",)))
     elif len(set().union(*(days.get(source, set()) for source in ("hello", "care", "owner", "taught")))) >= 3:
         found.append(Insight("daily", "You come to see me every day.", 5, 2, ("owner",)))
-    lessons = db.execute("SELECT COUNT(*) FROM memory_knowledge WHERE fact=?", (LESSON,)).fetchone()[0] // 10 * 10
+    lessons = db.execute("SELECT COUNT(*) FROM memory_knowledge WHERE fact=? AND subject NOT IN (SELECT subject FROM "
+                         "memory_knowledge WHERE fact='born_knowing')", (LESSON,)).fetchone()[0] // 10 * 10  # W1
     if lessons:
         found.append(Insight(f"learned:{lessons}", f"I have learned {lessons} things; there is so much more out there.",
                              5, 1))

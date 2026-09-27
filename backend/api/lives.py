@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from backend.survival.clock import time_scale
 from backend.survival.hatch import hatch
@@ -47,11 +49,15 @@ def list_lives():
     return [life_row(life, time_scale(), now) for life in registry.list_lives()]
 
 
+class Hatching(BaseModel):
+    difficulty: Literal["wild", "gentle"] = "wild"  # W1: a new egg hatches wild unless asked otherwise
+
+
 @router.post("/lives/hatch")
-def hatch_egg():
+def hatch_egg(request: Hatching | None = None):
     registry = open_registry()
     try:
-        life = hatch(registry)
+        life = hatch(registry, difficulty=(request or Hatching()).difficulty)
         world = SurvivalWorld(registry.world_path(life))
     except LifeConflict as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

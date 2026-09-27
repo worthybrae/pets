@@ -30,6 +30,9 @@ in the queue for the transaction's 2 whole searches while it is struck.
 
 Making: last of all, once a transaction while Mimo lives, the machines Mimo built run up to its end
 (backend.survival.signals.run_signals, bounded to MAX_CELLS cells a transaction).
+
+W1: first of all, a living pet's difficulty is settled (backend.survival.wild.settle): a world from before
+W1 becomes gentle, and a gentle pet is granted the survival lessons it knows from the start.
 """
 
 from __future__ import annotations
@@ -57,6 +60,7 @@ from backend.survival.signals import run_signals
 from backend.survival.vitals import (
     FIRE_REACH, FREEZING_BELOW, WARM_BLOCKS, Surroundings, is_sheltered, near_warm_block, step_vitals,
 )
+from backend.survival.wild import settle
 from backend.survival.world import SurvivalWorld, log_event, placed_near, read_state, write_state
 
 logger = logging.getLogger(__name__)
@@ -198,6 +202,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
         if state["died_at"] is not None or timestamp <= state["last_tick_at"]:
             return state
         ensure_actions(state)
+        settle(state, db, state["last_tick_at"])  # W1: gentle for an old world, and a gentle pet's lessons
         events: list[Event] = []
         context = ActionContext(grid=world_grid(db, world.seed), planner=mind.plan, events=events,
                                 clock_at=lambda at: clock_at(state["born_at"], at, scale),

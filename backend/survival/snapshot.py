@@ -26,6 +26,7 @@ from backend.survival.mind import life_memories, mind_fields
 from backend.survival.registry import LifeRegistry
 from backend.survival.rings import ring_view
 from backend.survival.trips import trip_view
+from backend.survival.wild import difficulty, survival_view as survival_lessons
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
 
 NOTABLE_LIMIT = 6
@@ -153,6 +154,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         creatures = creatures_view(db, state["position"], now)
         indoors = sheltered(db, here_of(state))
         journal = journal_view(db, state.get("brain"))
+        survival = survival_lessons(db)
         workshop = workshop_view(db)
     at = state["died_at"] if state["died_at"] is not None else now
     return {
@@ -202,6 +204,9 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "journal": journal,
         # Making: the workshop, the machines and the doors they hold open (backend.survival.machines).
         "workshop": workshop,
+        # W1: "wild" or "gentle", and every survival lesson with where it came from (backend.survival.wild).
+        "difficulty": difficulty(state),
+        "survival": survival,
     }
 
 

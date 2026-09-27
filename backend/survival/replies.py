@@ -45,7 +45,6 @@ from backend.survival.bond import CLOSE_FROM, FRIENDLY_FROM
 from backend.survival.care import utc_day
 from backend.survival.curiosity import curiosity_view
 from backend.survival.goals import GOALS, active, goal_purposes, goal_view, lower
-from backend.survival.memory import known
 from backend.survival.once import log_once
 from backend.survival.owner_facts import Noticed, notice
 from backend.survival.pickers import Option
@@ -608,7 +607,7 @@ def remember(s: Situation, heard: Heard) -> str | None:
 
 def journal(s: Situation, heard: Heard) -> str | None:
     """What Mimo learned lately, once L4b's journal is in (memory_knowledge fact "lesson")."""
-    things = known(s.db, "lesson") if s.db is not None else []
+    things = list(s.lessons)  # W1: not a gentle pet's born-knowing lessons
     nothing_yet = "Nothing new yet. I'm still looking!" if touches(heard, "journal") else None
     if not things:
         return nothing_yet
