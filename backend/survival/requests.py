@@ -76,7 +76,7 @@ from backend.survival.bond import bond_level, bond_state, grow_bond, utc_day
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.events import mirror
 from backend.survival.goals import (
-    GOALS, PULLS, REPEAT_REST, Goal, active, complete, counted, goal_view, holding, is_open, lower, own_score,
+    GOALS, PULLS, REPEAT_REST, SIDE, Goal, active, complete, counted, goal_view, holding, is_open, lower, own_score,
     penalized, pulls, reached, rules_score, settled, stalled,
 )
 from backend.survival.inbox import CONSUMER, asking, post_item, report
@@ -773,11 +773,16 @@ def goal_report(db: sqlite3.Connection, state: dict, event: dict, now: float, sc
                   {"event": event["id"], "promise": goal.name})
         return
     reached = goal_titled(event["text"])
+    # Making wave 2, fix round 1 (the re-review's I2): a goal reached on the side (goals.reached_aside) is not the
+    # goal choice a promise made for after Mimo's own goal waits for: that goal goes on.
+    aside = reached is not None and reached.name in ((state.get("brain") or {}).get(SIDE) or ())
     if request and not holds(request, state, now):
         lapse(db, state, now)
     elif request and request.get("until") is None and request["at"] <= event["at"]:
         waits = [name for name in request.get("waits") or [] if reached is None or name != reached.name]
-        if request.get("rival") or not waits:
+        if request.get("rival") and aside:
+            pass  # the promise still waits for the next goal choice
+        elif request.get("rival") or not waits:
             start_clock(request, event["at"], scale)  # the next goal choice, or the last goal it waited for
         else:
             request["waits"] = waits

@@ -8,8 +8,11 @@ import backend.survival.brain  # noqa: F401  (every purpose and goal registered)
 from backend.survival.actions import ensure_actions
 from backend.survival.bond import GAINS, bond_level
 from backend.survival.choosing import InlineExecutor
+from backend.survival.clock import DAY_SECONDS
 from backend.survival.events import MIRRORS
-from backend.survival.goals import GOALS, PULLS, REPEAT_REST, SET_ASIDE, offers, pulls, rules_score
+from backend.survival.goals import (
+    GOALS, PULLS, REPEAT_REST, SET_ASIDE, SIDE, adopt_goal, offers, pulls, rules_score,
+)
 from backend.survival.hatch import hatch
 from backend.survival.inbox import inbox_items
 from backend.survival.lessons import Claims, claims
@@ -19,7 +22,7 @@ from backend.survival.owner_facts import owner_facts
 from backend.survival.registry import LifeRegistry
 from backend.survival.replies import Heard
 from backend.survival.requests import (
-    CANT, NONE, REQUEST_DAYS, goal_report, note_for, pull, pull_points, request_view, rules_request,
+    CANT, NONE, REQUEST_DAYS, goal_report, note_for, promise_clock, pull, pull_points, request_view, rules_request,
 )
 from backend.survival.situation import from_db
 from backend.survival.snapshot import alive_snapshot
@@ -319,6 +322,29 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(self.say("go look at the cave"), "I gave up on that for now. Ask me again tomorrow?")
         self.edit(lambda state: ensure_brain(state)["goal_penalties"].update(cave=self.now + SET_ASIDE))
         self.assertEqual(self.say("go look at the cave"), "I gave up on that for now. Ask me again tomorrow?")
+
+    def test_a_goal_reached_on_the_side_leaves_a_promise_for_after_the_current_goal_waiting(self):
+        """Making wave 2, fix round 1 (the re-review's I2): a promise made for after the goal Mimo works on waits
+        for the next goal choice, and every "goal" event read as that choice. A goal reached on the side
+        (goals.reached_aside) is not one: Mimo's own goal goes on, so the promise's clock must not start, or it
+        lapses ("I couldn't build a bigger stone home in time") while that goal is still under way."""
+        with self.world.transaction() as db:
+            state = read_state(db)
+            adopt_goal(state, "armor_up", "rules", "", BORN + 10)
+            state.setdefault("bond", {})["request"] = {"goal": "better_home", "at": BORN + 20, "until": None,
+                                                       "status": "open", "waits": [], "rival": True, "maybe": False}
+            ensure_brain(state)[SIDE] = ["full_larder"]  # reached_aside lists it before its event
+            name = state["name"]
+            side = {"id": 999999, "at": BORN + 30, "kind": "goal", "text": f"{name} reached a goal: a full larder."}
+            goal_report(db, state, side, BORN + 30, 1.0)
+            self.assertIsNone(state["bond"]["request"]["until"])  # still waiting for the next goal choice
+            promise_clock(db, state, BORN + 30 + REQUEST_DAYS * DAY_SECONDS + 5, 1.0)
+            self.assertEqual(state["bond"]["request"]["goal"], "better_home")  # armor goes on: no lapse
+            own = {"id": 1000000, "at": BORN + 40, "kind": "goal", "text": f"{name} reached a goal: armor up."}
+            goal_report(db, state, own, BORN + 40, 1.0)  # armor reached: the next goal choice comes
+            self.assertIsNotNone(state["bond"]["request"]["until"])
+            texts = [item["text"] for item in inbox_items(db)]
+        self.assertEqual(sorted(texts), ["I reached a goal: a full larder.", "I reached a goal: armor up."])
 
     def test_a_promise_kept_too_late_or_a_goal_reached_before_the_request_is_a_plain_report(self):
         """Fix round 1 (Minor 3): the promise is kept only by a goal reached while the request lasts,
