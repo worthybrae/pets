@@ -32,7 +32,8 @@ Making: last of all, once a transaction while Mimo lives, the machines Mimo buil
 (backend.survival.signals.run_signals, bounded to MAX_CELLS cells a transaction).
 
 W1: first of all, a living pet's difficulty is settled (backend.survival.wild.settle): a world from before
-W1 becomes gentle, and a gentle pet is granted the survival lessons it knows from the start.
+W1 becomes gentle, and a gentle pet is granted the survival lessons it knows from the start. Each vitals
+step takes a wild pet's ailments into account (backend.survival.ailments: `ailing` before, `tend` after).
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from typing import Callable
 
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
+from backend.survival import ailments
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
@@ -79,6 +81,7 @@ FIGHT_SLICE = 1.0
 FIGHT_SLICES_MAX = 60
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
+CAUSE_WORDS = {"sickness": "fell sick and never got better"}  # W1
 
 Event = tuple[float, str, str]
 # After each vitals step: (state, context, vitals before the step, surroundings, step start, step end).
@@ -127,6 +130,8 @@ def note_crossings(state: dict, before: dict, at: float, events: list[Event]) ->
 
 def death_words(cause: str) -> str:
     """How a death reads: "died of the cold", or, for a creature's kind (L2), "was caught by a gloomling"."""
+    if cause in CAUSE_WORDS:
+        return CAUSE_WORDS[cause]
     if cause in CAUSE_TEXT:
         return f"died of {CAUSE_TEXT[cause]}"
     return f"was caught by a {cause.replace('_', ' ')}"
@@ -240,13 +245,15 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
             surroundings = surroundings_at(db, world.seed, state["position"])
+            activity = activity_of(state)
             state["vitals"], cause = step_vitals(
-                before, step, night=night, activity=activity_of(state), surroundings=surroundings,
-                lonely=(cursor - last_hello) * scale > DAY_SECONDS)
+                before, step, night=night, activity=activity, surroundings=surroundings,
+                lonely=(cursor - last_hello) * scale > DAY_SECONDS, ailing=ailments.ailing(state))
             since = cursor
             cursor += step / scale
             remaining -= step
             note_crossings(state, before, cursor, events)
+            ailments.tend(state, step, activity, cursor, events)  # W1: a sickness runs its time
             if cause:
                 record_death(state, cause, cursor, scale, events)
                 break

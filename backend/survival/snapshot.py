@@ -10,6 +10,7 @@ from backend.services.block_table import blocks_seq
 from backend.services.crafting import RECIPES
 from backend.services.live_mimo import MimoStore
 from backend.survival.actions import PATH_WINDOW
+from backend.survival.ailments import ailments_view
 from backend.survival.bond_view import bond_fields
 from backend.survival.diary import life_diary
 from backend.survival.care import care_remaining
@@ -207,6 +208,7 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # W1: "wild" or "gentle", and every survival lesson with where it came from (backend.survival.wild).
         "difficulty": difficulty(state),
         "survival": survival,
+        "ailments": ailments_view(state),
     }
 
 

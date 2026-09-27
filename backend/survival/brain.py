@@ -60,6 +60,7 @@ from backend.survival import frontier, frontier_gear  # noqa: F401  (L5: riches 
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
+from backend.survival import herbs  # noqa: F401  (W1: sunleaf: take_herb, find_herb, gather_herbs, nibble)
 from backend.survival.computer import observe_computer
 from backend.survival.ruins import find_manual
 from backend.survival.tinker import observe_tinker

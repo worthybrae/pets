@@ -3,6 +3,11 @@
 All values run 0-100 and every rate is per game second. `step_vitals` advances one step
 (the tick module keeps steps at 60 game seconds or less) and reads its conditions at the
 start of the step.
+
+W1: a wild pet's ailments (backend.survival.ailments) change a step through `Ailing`: a sickness or a
+festering wound drains health (the cause "sickness" when it is the largest damage of the killing step),
+no health regenerates while Mimo is sick or wounded, a tummy ache drains hunger and a chill energy half
+again as fast, and mood's target falls.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ FIRE_REACH = 4
 WARM_BLOCKS = ("campfire", "furnace")
 ACTIVITIES = ("idle", "working", "sleeping", "sleeping_in_bed")
 # When several kinds of damage land in the killing step, the largest wins; ties go to the first here.
-CAUSE_ORDER = ("drowning", "cold", "starvation")
+CAUSE_ORDER = ("drowning", "cold", "starvation", "sickness")  # W1: sickness
 HORIZONTAL = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 MaterialAt = Callable[[int, int, int], str]
@@ -51,6 +56,17 @@ class Surroundings:
     sheltered: bool = False
     near_fire: bool = False
     head_in_water: bool = False
+
+
+@dataclass(frozen=True)
+class Ailing:
+    """W1: what Mimo's ailments do to its vitals this step (backend.survival.ailments.ailing)."""
+
+    drain: float = 0.0  # health a game second a sickness or festering wound takes (cause "sickness")
+    hunger: float = 1.0  # hunger drains this many times as fast (a tummy ache)
+    energy: float = 1.0  # energy drains this many times as fast while awake (a chill)
+    heals: bool = True  # whether health regenerates at all (not while sick or wounded)
+    mood: float = 0.0  # how far mood's target falls
 
 
 def clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
@@ -73,8 +89,9 @@ def target_warmth(night: bool, biome: str, sheltered: bool, near_fire: bool) -> 
     return min(100.0, base + (SHELTER_BONUS if sheltered else 0.0))
 
 
-def mood_target(vitals: dict, lonely: bool) -> float:
-    """Where mood drifts: up when fed and warm, down when starving, freezing, hurt or alone."""
+def mood_target(vitals: dict, lonely: bool, ailing: float = 0.0) -> float:
+    """Where mood drifts: up when fed and warm, down when starving, freezing, hurt or alone; W1: `ailing`
+    lower while Mimo is sick or its wound festers."""
     target = 60.0
     if vitals["hunger"] > 60 and vitals["warmth"] > 50:
         target += 20
@@ -86,12 +103,13 @@ def mood_target(vitals: dict, lonely: bool) -> float:
         target -= 15
     if lonely:
         target -= 10
-    return clamp(target)
+    return clamp(target - ailing)
 
 
 def step_vitals(vitals: dict, seconds: float, *, night: bool, activity: str,
-                surroundings: Surroundings, lonely: bool = False) -> tuple[dict, str | None]:
+                surroundings: Surroundings, lonely: bool = False, ailing: Ailing | None = None) -> tuple[dict, str | None]:
     """Advance vitals by `seconds` game seconds. Returns the new vitals and a cause of death, if any."""
+    ailing = ailing or Ailing()
     if activity not in ACTIVITIES:
         raise ValueError(f"Unknown activity: {activity}")
     working = activity == "working"
@@ -100,14 +118,16 @@ def step_vitals(vitals: dict, seconds: float, *, night: bool, activity: str,
         "starvation": STARVING_DAMAGE * seconds if vitals["hunger"] <= 0 else 0.0,
         "cold": FREEZING_DAMAGE * seconds if vitals["warmth"] < FREEZING_BELOW else 0.0,
         "drowning": DROWNING_DAMAGE * seconds if surroundings.head_in_water and vitals["air"] <= 0 else 0.0,
+        "sickness": ailing.drain * seconds,
     }
     hurt = any(amount > 0 for amount in damage.values())
-    healing = HEAL_RATE * seconds if vitals["hunger"] > 60 and vitals["warmth"] > 50 and not hurt else 0.0
+    fed_and_warm = vitals["hunger"] > 60 and vitals["warmth"] > 50
+    healing = HEAL_RATE * seconds if fed_and_warm and not hurt and ailing.heals else 0.0
     if sleeping:
         energy_change = (ENERGY_BED if activity == "sleeping_in_bed" else ENERGY_SLEEP) * seconds
     else:
-        energy_change = -(ENERGY_WORK if working else ENERGY_IDLE) * seconds
-    hunger_rate = HUNGER_IDLE * (WORK_HUNGER_MULTIPLIER if working else 1.0)
+        energy_change = -(ENERGY_WORK if working else ENERGY_IDLE) * ailing.energy * seconds
+    hunger_rate = HUNGER_IDLE * (WORK_HUNGER_MULTIPLIER if working else 1.0) * ailing.hunger
     air_change = -AIR_DRAIN * seconds if surroundings.head_in_water else AIR_RECOVER * seconds
     warmth_target = target_warmth(night, surroundings.biome, surroundings.sheltered, surroundings.near_fire)
     result = {
@@ -116,7 +136,7 @@ def step_vitals(vitals: dict, seconds: float, *, night: bool, activity: str,
         "warmth": clamp(approach(vitals["warmth"], warmth_target, WARMTH_RATE * seconds)),
         "energy": clamp(vitals["energy"] + energy_change),
         "air": clamp(vitals["air"] + air_change),
-        "mood": clamp(approach(vitals["mood"], mood_target(vitals, lonely), MOOD_RATE * seconds)),
+        "mood": clamp(approach(vitals["mood"], mood_target(vitals, lonely, ailing.mood), MOOD_RATE * seconds)),
     }
     cause = None
     if result["health"] <= 0 and hurt:

@@ -66,6 +66,12 @@ MAX_SEGMENTS = 12
 # L5: functions (state, cell, block) -> items a finished mine drops besides the block's own (backend.
 # survival.loot: an extra ore farther from home). One that crashes adds nothing (logged once).
 MINED: list = []
+# W1: herbs Mimo eats as medicine, not as food (a sunleaf ends a sickness: backend.survival.ailments).
+HERBS = ("sunleaf",)
+# W1: functions (step, state, at) that eat a finished eat step their own way and return its event (kind, text),
+# or None to leave it to the next and then to the rules below (a sunleaf's cure, backend.survival.ailments; a
+# wild pet's meals, backend.survival.meals). One that crashes is logged once and passed over.
+EATING: list = []
 # L5: functions (state, step, context, at) the brain calls after each step that finished well, before
 # curiosity looks over the step's events (brain.observe_step; backend.survival.ruins: ruins seen, an old
 # chest opened). One that crashes is logged once and skipped.
@@ -352,7 +358,7 @@ def finish_place(step: dict, state: dict, grid: Grid, at: float) -> None:
 
 def start_eat(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
     item = spec["item"]
-    if item not in FOOD:
+    if item not in FOOD and item not in HERBS:
         raise StepFailed(f"{label(item)} is not food")
     if state["inventory"].get(item, 0) < 1:
         raise StepFailed(f"no {label(item)} to eat", "missing_item")
@@ -360,6 +366,14 @@ def start_eat(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> d
 
 
 def finish_eat(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str]:
+    for eats in EATING:  # W1
+        try:
+            event = eats(step, state, at)
+        except Exception as error:
+            log_once(logger, "eating", error)
+            continue
+        if event is not None:
+            return event
     item, vitals, name = step["item"], state["vitals"], state["name"]
     state["inventory"] = take_items(state["inventory"], {item: 1})
     vitals["hunger"] = min(100.0, vitals["hunger"] + FOOD[item])
