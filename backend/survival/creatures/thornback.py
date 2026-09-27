@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 
 from backend.survival.creatures.acts import Scene
-from backend.survival.creatures.darkness import SPAWN_FAR, SPAWN_NEAR, born, cap, hostiles_alive, spots
+from backend.survival.creatures.darkness import SPAWN_FAR, born, cap, hostiles_alive, spots
 from backend.survival.creatures.defense import BOW_ONLY
 from backend.survival.creatures.kinds import Kind, register_kind
 from backend.survival.creatures.moves import roll
@@ -38,6 +38,9 @@ THORNBACK = register_kind(Kind("thornback", health=24.0, speed=1.2, size=0.9, ho
                                shell=SHELL, daylight=True))
 FROM_RING = 2
 SPAWN_EVERY = 90.0  # game seconds between two chances
+# Fix (carried from Task 3's review): its own near bound, not darkness.SPAWN_NEAR (16.0, for ordinary
+# hostiles). Resolution 7 says a thornback comes out 20 to 40 blocks from Mimo.
+SPAWN_NEAR = 20.0
 CHANCE = {2: 0.35, 3: 0.5, 4: 0.65}
 MOST_NEAR = 2
 TRIES = 4

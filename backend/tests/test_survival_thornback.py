@@ -1,13 +1,15 @@
+import math
 import unittest
 from unittest.mock import patch
 
 from backend.survival import brain  # noqa: F401  (registers the thornback, its spawner and the ringed hooks)
+from backend.survival.creatures.acts import Scene
 from backend.survival.creatures.archery import finish_shoot
 from backend.survival.creatures.combat import finish_attack
 from backend.survival.creatures.defense import fight_target, flee_due, plan_fight
 from backend.survival.creatures.hostiles import sunlit
 from backend.survival.creatures.kinds import KINDS, huntable
-from backend.survival.creatures.thornback import MOST_NEAR, SPAWN_EVERY, spawn_thornbacks
+from backend.survival.creatures.thornback import MOST_NEAR, SPAWN_EVERY, SPAWN_NEAR, spawn_thornbacks
 from backend.survival.journal import LESSONS
 from backend.survival.lessons import claims
 from backend.tests.test_survival_darkness import DAY, land, scene
@@ -85,6 +87,29 @@ class SpawnTests(unittest.TestCase):
             self.assertEqual(creature["kind"], "thornback")
             self.assertTrue(20 <= abs(complex(creature["x"] - 150.0, creature["z"])) <= 41)
             self.assertEqual((creature["y"], creature["health"], creature["state"]["ring"]), (1.0, 40.8, 2))
+
+    def test_it_never_spawns_closer_than_twenty_blocks(self):
+        # Task 3 review fix: thornback.py has its own near bound, not darkness.SPAWN_NEAR (16.0, for
+        # ordinary hostiles) -- resolution 7 says a thornback comes out 20 to 40 blocks from Mimo. The
+        # bound below is a literal 20.0 (not SPAWN_NEAR itself), so a regression in the constant fails
+        # this test instead of just moving its own tolerance.
+        self.assertEqual(SPAWN_NEAR, 20.0)
+        sampled = 0
+        for seed in (str(number) for number in range(80)):
+            for tick in range(4):
+                grid = land()
+                state = far_out(150.0)
+                at = 100.0 + tick * SPAWN_EVERY
+                # Sampled directly (not through the fixed-seed `scene()` helper), since the old code,
+                # reusing darkness.SPAWN_NEAR, only happened to clear 20 blocks for seed "4".
+                found = spawn_thornbacks(Scene(grid, grid.herd, seed, state, at, events=[], clock=DAY))
+                for creature in found:
+                    sampled += 1
+                    distance = math.hypot(creature["x"] - 150.0, creature["z"])
+                    # a whole block of slack for the independent rounding of x and z (as the codebase's
+                    # own SPAWN_FAR + 1 upper-bound tolerance allows on the far side).
+                    self.assertGreaterEqual(distance, 19.0, (seed, tick, creature["x"], creature["z"], distance))
+        self.assertGreater(sampled, 20)  # the sample actually exercised spawns, not just empty rolls
 
 
 class LessonTests(unittest.TestCase):
