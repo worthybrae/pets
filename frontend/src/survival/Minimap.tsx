@@ -5,7 +5,8 @@ import {
   seenPatches, spreadMarks, travelHeading, type MapMark,
 } from './overheadMap'
 import { creatureDots, type CreatureDot } from './creatures'
-import type { Built, Creature, ExploredPatch, Landmark, MimoAction, Point } from './types'
+import { ringBands, type RingBand } from './frontier'
+import type { Built, Creature, ExploredPatch, Landmark, MimoAction, Point, RingView } from './types'
 
 const SIZE = MAP_BLOCKS * MAP_SCALE
 const PET = '#f0845c'
@@ -113,6 +114,21 @@ function drawMark(context: CanvasRenderingContext2D, mark: MapMark, u: number): 
   else drawFarm(context, x, y, mark.building, u)
 }
 
+/** L5: a danger ring around home, shaded faintly, a little darker each level, with a fine edge. */
+function drawBand(context: CanvasRenderingContext2D, band: RingBand, u: number): void {
+  const x = band.px * MAP_SCALE, y = band.py * MAP_SCALE
+  context.beginPath()
+  context.arc(x, y, band.outer * MAP_SCALE, 0, Math.PI * 2)
+  context.arc(x, y, band.inner * MAP_SCALE, 0, Math.PI * 2, true)
+  context.fillStyle = `rgba(199, 70, 58, ${band.alpha})`
+  context.fill()
+  context.beginPath()
+  context.arc(x, y, band.inner * MAP_SCALE, 0, Math.PI * 2)
+  context.lineWidth = 0.8 * u
+  context.strokeStyle = 'rgba(36, 62, 61, 0.35)'
+  context.stroke()
+}
+
 /** A creature (L1): a small cream dot, blue for a fish and (L2) red for a hostile, about 4 CSS pixels
  * across at any size the map shows. */
 function drawCreature(context: CanvasRenderingContext2D, x: number, y: number, dot: CreatureDot): void {
@@ -133,7 +149,7 @@ function drawCreature(context: CanvasRenderingContext2D, x: number, y: number, d
  * keep the same size on screen whether the map shows at 140 or 110 px. It redraws when a new
  * snapshot arrives, not every frame, working out at most PATCHES_PER_DRAW new patches each time.
  */
-export default function Minimap({ store, position, explored, structures, landmarks, creatures, action, name, onHide }: {
+export default function Minimap({ store, position, explored, structures, landmarks, creatures, ring, action, name, onHide }: {
   store: WorldStore
   position: Point
   explored: readonly ExploredPatch[] | undefined
@@ -141,6 +157,8 @@ export default function Minimap({ store, position, explored, structures, landmar
   landmarks: readonly Landmark[] | undefined
   /** The creatures near Mimo (L1), drawn as small dots. */
   creatures?: readonly Creature[]
+  /** L5: the danger ring Mimo stands in, and home at its centre: the rings are shaded faintly. */
+  ring?: RingView | null
   action: MimoAction | null
   name: string
   onHide: () => void
@@ -175,6 +193,7 @@ export default function Minimap({ store, position, explored, structures, landmar
     context.drawImage(offscreen, 0, 0, SIZE, SIZE)
     // Glyphs keep their size on screen: `u` canvas pixels make one CSS pixel at the shown size.
     const u = SIZE / (canvas.current?.clientWidth || SHOWN)
+    for (const band of ringBands(ring, origin)) drawBand(context, band, u)
     const marks = spreadMarks(mapMarks(structures, landmarks, origin), (GAP * u) / MAP_SCALE)
     for (const mark of marks) if (mark.kind === 'farm') drawMark(context, mark, u)
     for (const mark of marks) if (mark.kind === 'home') drawMark(context, mark, u)
@@ -185,7 +204,7 @@ export default function Minimap({ store, position, explored, structures, landmar
       && Math.hypot(mark.px * MAP_SCALE - middle, mark.py * MAP_SCALE - middle) < HOUSE * u)
     drawPet(context, middle, middle, travelHeading(action, position), u, homes.length ? DOT_AT_HOME : DOT)
     for (const home of homes) ringHome(context, home.px * MAP_SCALE, home.py * MAP_SCALE, u)
-  }, [cache, position, explored, structures, landmarks, creatures, action])
+  }, [cache, position, explored, structures, landmarks, creatures, ring, action])
 
   return (
     <div className="relative h-[110px] w-[110px] overflow-hidden rounded-2xl border-2 border-white/80 bg-[#b0beba] shadow-[0_14px_40px_rgba(57,95,91,0.18)] sm:h-[140px] sm:w-[140px]">

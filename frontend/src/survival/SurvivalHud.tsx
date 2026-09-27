@@ -4,6 +4,7 @@ import { dialPosition } from './clock'
 import {
   actionText, careLabel, clockTime, dangerText, dayLabel, homeText, hurtFlashDelay, purposeText, vitalBars, type VitalLevel,
 } from './hud'
+import { ringLine, ringTone } from './frontier'
 import { curiosityBar, goalHint, goalLine, planSteps, tripLines } from './goals'
 import { expeditionLine, journalButton } from './journal'
 import { memoriesButton } from './memories'
@@ -87,6 +88,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const { clock, life } = state
   const careKinds: CareKind[] = ['snack', 'bandage']
   const home = homeText(state.structures)
+  const ring = ringLine(state.ring)
   const danger = dangerText(state.creatures, state.position, state.sheltered)
   const flash = hurtFlashDelay(state.hurt_at, state.server_time)
   const goal = goalLine(state.goal)
@@ -134,6 +136,10 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
           )}
           {expedition && <p className="mt-1 truncate text-xs font-medium text-[#8a6a2f]">{expedition}</p>}
           {home && <p className="mt-0.5 truncate text-xs text-[#54726e]">{home}</p>}
+          {ring && (
+            <p className={`mt-0.5 truncate text-xs ${ringTone(state.ring) === 'wary' ? 'font-semibold text-[#a8662c]' : 'text-[#54726e]'}`}
+              title="The farther from home, the tougher the creatures and the richer the finds">{ring}</p>
+          )}
           {caption && <p className="mt-0.5 truncate font-mono text-xs font-semibold text-[#8a6a2f]" aria-label="Computer">{caption}</p>}
           <p className="mt-0.5 text-xs text-[#54726e]">
             <span className={online ? 'text-[#3c9a73]' : 'text-[#c76e5c]'}>●</span> {online ? actionText(state.action, state.status) : 'Worker offline'}

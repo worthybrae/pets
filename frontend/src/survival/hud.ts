@@ -33,7 +33,7 @@ const CAUSES: Record<string, string> = {
   starvation: 'starvation', cold: 'the cold', drowning: 'drowning', fall: 'a fall', creature: 'a creature',
 }
 /** Causes of death that are a creature's kind (L2): the pet was caught, not killed by the world. */
-const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature'])
+const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature', 'thornback'])  // L5: the thornback
 /** How close (blocks, across) a hostile creature is for the HUD to warn of it. */
 export const DANGER_REACH = 12
 /**
@@ -72,7 +72,7 @@ const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
   walk: 'Walking', swim: 'Swimming', fall: 'Falling!', mine: 'Mining', place: 'Placing', eat: 'Eating',
   craft: 'Crafting', smelt: 'Smelting', sleep: 'Sleeping', pick: 'Picking', harvest: 'Harvesting',
   till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking', store: 'Putting away', take: 'Taking out',
-  drop: 'Dropping', attack: 'Attacking', shoot: 'Shooting', flip: 'Flipping',
+  drop: 'Dropping', attack: 'Attacking', shoot: 'Shooting', open_chest: 'Opening an old chest', flip: 'Flipping',
 }
 
 /** A block or item in plain words: a crop's stage and a bush's ripeness are left out. */
@@ -99,6 +99,7 @@ const PURPOSE_TEXT: Record<string, string> = {
   build_farm: 'Laying out a farm', build_storage: 'Putting things away', drop_items: 'Dropping what it cannot use',
   light_up: 'Lighting torches', hunt: 'Hunting', make_gear: 'Making gear',
   gather_flint: 'Digging for flint', build_pen: 'Building a pen', stock_pen: 'Planting creature seeds',
+  loot_ruin: 'Looting an old ruin', ward_home: 'Hanging a warding lantern',  // L5
   // Making (T1)
   gather_materials: 'Gathering materials', build_workshop: 'Building the workshop', decorate_home: 'Making home cozy',
   // Making (T2)

@@ -22,6 +22,17 @@ function attached(part: readonly Cell[], whole: readonly Cell[]): boolean {
 }
 
 describe('creatureModel', () => {
+  it('builds the thornback (L5): low and broad, as tall as its kind, its head on its body', () => {
+    const model = creatureModel('thornback')
+    expect(model.scale).toBeCloseTo(VOXEL)
+    expect(height('thornback')).toBeCloseTo(0.9)
+    const cells = [...model.body, ...model.head].map(key)
+    expect(new Set(cells).size).toBe(cells.length)
+    expect(attached(model.head, [...model.body, ...model.head])).toBe(true)
+    expect(dropColor('amber')).not.toEqual(dropColor('unknown_thing'))
+    expect(dropColor('gold_nugget')).not.toEqual(dropColor('unknown_thing'))
+  })
+
   it('builds every kind from voxels of one shared size, as tall as the kind is', () => {
     const sizes: Record<string, number> = { rabbit: 0.5, chicken: 0.6, sheep: 1, cow: 1.3, fish: 0.3 }
     expect(VOXEL).toBeGreaterThanOrEqual(0.1)

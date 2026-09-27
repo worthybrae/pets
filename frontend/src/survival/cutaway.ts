@@ -30,6 +30,7 @@ const HIDE_STEP = 0.5
 const NOT_COVER = new Set([
   'leaves', 'oak_log', 'crafting_table', 'furnace', 'lantern', 'glass', 'campfire', 'torch', 'bed', 'chest',
   'birch_leaves', 'spruce_leaves', 'birch_log', 'spruce_log', 'fence',  // L3
+  'warding_lantern',  // L5
 ])
 
 export interface BlockReader {

@@ -17,6 +17,15 @@ describe('petGear', () => {
     expect(cap.every((voxel) => voxel.y === 4)).toBe(true)
   })
 
+  it('wears amber-studded armor over iron (L5), in the same places, in amber', () => {
+    expect(wornTunic({ iron_tunic: 1, amber_tunic: 1 })).toBe('amber_tunic')
+    expect(wornCap({ iron_cap: 1, amber_cap: 1, leather_cap: 1 })).toBe('amber_cap')
+    const amber = tunicVoxels({ iron_tunic: 1, amber_tunic: 1 })
+    expect(amber.map(key)).toEqual(tunicVoxels({ leather_tunic: 1 }).map(key))
+    expect(amber.filter((voxel) => voxel.y === 1).every((voxel) => voxel.r - voxel.b > 100)).toBe(true)
+    expect(capVoxels({ amber_cap: 1 }).map(key)).toEqual(capVoxels({ leather_cap: 1 }).map(key))
+  })
+
   it('wears iron over leather, in the same places, in grey', () => {
     expect(wornTunic({ leather_tunic: 1, iron_tunic: 1 })).toBe('iron_tunic')
     expect(wornCap({ leather_cap: 1 })).toBe('leather_cap')

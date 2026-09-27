@@ -20,6 +20,7 @@ export interface Point {
 
 export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | 'craft' | 'smelt' | 'sleep' | 'wait'
   | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop' | 'attack' | 'shoot'
+  | 'open_chest'  // L5: an old chest in a ruin
   | 'flip'
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
@@ -122,6 +123,16 @@ export interface Creature extends Point {
   struck_at?: number
   /** Server time a hostile caught fire in the sun. */
   burning_at?: number
+  /** L5: an elder, born in the frontier or beyond; it glows faintly. Only sent when true. */
+  elder?: boolean
+}
+
+/** The danger ring Mimo stands in and the rings' centre, home (L5, backend/survival/rings.py ring_view). */
+export interface RingView {
+  /** 0 home ground, 1 near wilds, 2 far wilds, 3 frontier, 4 deep frontier: the ring's danger. */
+  level: number
+  name: string
+  center: { x: number; z: number }
 }
 
 /** A creature's last move, for replay: one block from `from` to `to`, or through every cell of `cells`. */
@@ -336,6 +347,8 @@ export interface SurvivalState {
   hurt_by?: string | null
   /** Mimo stands in a room or passage of the shelter it built, where no blow reaches (L2); an older API sends none. */
   sheltered?: boolean
+  /** L5: the danger ring Mimo stands in; null before the tick tended it (an older API sends none). */
+  ring?: RingView | null
   /** The patches Mimo visited within 96 blocks of it, for the minimap's fog of war. */
   explored: ExploredPatch[]
   /** Its home and nearest farm, for the minimap. */

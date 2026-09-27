@@ -7,6 +7,7 @@ import { dropPops, drawn, healthBar, lookAt, placeAt, puffAge } from './creature
 import { hostileLook } from './hostileMotion'
 import { mergeMoves, type MoveHistory } from './creatureMoves'
 import { puffBits } from './effects'
+import { elderGlow, emissiveOf } from './frontier'
 import type { Creature, CreatureMove } from './types'
 
 /** Creatures drawn at most: the nearest ones, as the server lists them. */
@@ -59,8 +60,9 @@ function Voxels({ voxels, material }: { voxels: Voxel[]; material: RefObject<THR
   )
 }
 
-function flashRed(material: THREE.MeshStandardMaterial | null, flash: number) {
-  material?.emissive.setRGB(0.9 * flash, 0.12 * flash, 0.1 * flash)
+/** A blow's red flash, or (L5) an elder's faint glow when there is none. */
+function lightUp(material: THREE.MeshStandardMaterial | null, flash: number, glow: number) {
+  material?.emissive.setRGB(...emissiveOf(flash, glow))
 }
 
 /**
@@ -71,6 +73,7 @@ function flashRed(material: THREE.MeshStandardMaterial | null, flash: number) {
  */
 function CreatureFigure({ creature, history, now }: { creature: Creature; history: RefObject<MoveHistory>; now: () => number }) {
   const model = creatureModel(creature.kind)
+  const glow = elderGlow(creature)
   const low = Math.min(...[...model.body, ...model.head].map((voxel) => voxel.y))
   const height = (Math.max(...[...model.body, ...model.head].map((voxel) => voxel.y)) - low + 1) * model.scale
   const colors = useMemo(() => (creature.drops ?? []).slice(0, MOST_DROPS).map((item) => {
@@ -104,8 +107,8 @@ function CreatureFigure({ creature, history, now }: { creature: Creature; histor
     body.current?.rotation.set(look.pitch, 0, look.roll)
     body.current?.scale.setScalar(Math.max(0.001, look.size))
     if (head.current) head.current.rotation.x = look.headPitch
-    flashRed(bodyMaterial.current, look.flash)
-    flashRed(headMaterial.current, look.flash)
+    lightUp(bodyMaterial.current, look.flash, glow)
+    lightUp(headMaterial.current, look.flash, glow)
 
     const health = healthBar(creature, t)
     if (bar.current) {

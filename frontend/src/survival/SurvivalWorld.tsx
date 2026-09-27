@@ -133,7 +133,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
 
   const minimap = mapOpen
     ? <Minimap store={store} position={state.position} explored={state.explored} structures={state.structures}
-        landmarks={state.landmarks} creatures={state.creatures} action={state.action} name={state.life.name}
+        landmarks={state.landmarks} creatures={state.creatures} ring={state.ring} action={state.action} name={state.life.name}
         onHide={() => showMap(false)} />
     : (
       <button type="button" onClick={() => showMap(true)} title="Show the map (M)"

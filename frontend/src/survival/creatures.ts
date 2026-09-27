@@ -6,7 +6,8 @@ import type { Creature, Point } from './types'
  * Blocky voxel models of the creatures, in the soft pixel style of the pet (PetVoxels): a white
  * rabbit with long ears, a woolly sheep, a spotted cow with horns, a small chicken with a comb and
  * a fish, and (L2) the hostile gloomling, tall and dark with glowing eyes and its arms held out,
- * and the skitter, low and wide on eight legs with red eyes. Each model is two voxel lists, the
+ * and the skitter, low and wide on eight legs with red eyes, and (L5) the thornback, a low crawler under
+a humped shell of thorny plates. Each model is two voxel lists, the
  * body and the head, so the head can dip to graze.
  * Voxel units: x across, y up from the feet, z forward (the way the creature faces). Every kind is
  * drawn on the same grid of VOXEL blocks, coarse enough that eyes, ears and horns still read from
@@ -50,12 +51,16 @@ const GLOW: Color = [170, 238, 255]
 const SHELL: Color = [78, 64, 54]
 const SHELL_DARK: Color = [54, 44, 38]
 const RED_EYE: Color = [226, 70, 62]
+const THORN: Color = [96, 112, 74]
+const THORN_DARK: Color = [64, 78, 50]
+const THORN_TIP: Color = [214, 196, 132]
+const AMBER_EYE: Color = [240, 176, 64]
 
 /** Blocks tall, as in the kinds registry. Each model is this divided by VOXEL voxels tall. */
 const SIZES: Record<string, number> = { rabbit: 0.5, chicken: 0.6, sheep: 1.0, cow: 1.3, fish: 0.3, gloomling: 1.7,
-  skitter: 0.6 }
+  skitter: 0.6, thornback: 0.9 }
 const HOPS: Record<string, number> = { rabbit: 0.25, chicken: 0.08, sheep: 0.06, cow: 0.04, fish: 0, gloomling: 0.03,
-  skitter: 0.02 }
+  skitter: 0.02, thornback: 0.01 }
 
 class Builder {
   voxels: Voxel[] = []
@@ -150,13 +155,25 @@ function skitter(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 3, z: 2 } }
 }
 
+/** L5, 9 voxels tall: a low, broad crawler under a humped shell of plates with pale thorns along its
+ * ridge, four stubby legs and a blunt head with amber eyes. */
+function thornback(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
+  const body = new Builder().box([-3, 3], [2, 5], [-4, 3], THORN).box([-2, 2], [6, 6], [-3, 2], THORN_DARK)
+    .box([0, 0], [7, 8], [-2, -2], THORN_TIP).box([0, 0], [7, 8], [1, 1], THORN_TIP).box([0, 0], [7, 7], [-4, -4], THORN_TIP)
+    .pair(3, [6, 6], [-1, -1], THORN_TIP).pair(3, [6, 6], [2, 2], THORN_TIP)
+  for (const z of [-3, 2]) body.pair(2, [0, 1], [z, z], THORN_DARK)
+  const head = new Builder().box([-2, 2], [2, 4], [4, 6], THORN_DARK).pair(1, [4, 4], [6, 6], AMBER_EYE)
+    .box([-1, 1], [2, 2], [7, 7], THORN_TIP)
+  return { body: body.voxels, head: head.voxels, neck: { x: 0, y: 3, z: 4 } }
+}
+
 /** A plain grey block for a kind this viewer does not know yet. */
 function unknown(): Omit<CreatureModel, 'scale' | 'height' | 'hop'> {
   return { body: new Builder().box([-2, 2], [0, 5], [-2, 2], [150, 150, 150]).voxels, head: [], neck: { x: 0, y: 5, z: 2 } }
 }
 
 const MODELS: Record<string, () => Omit<CreatureModel, 'scale' | 'height' | 'hop'>> = {
-  rabbit, chicken, sheep, cow, fish, gloomling, skitter,
+  rabbit, chicken, sheep, cow, fish, gloomling, skitter, thornback,
 }
 const cache = new Map<string, CreatureModel>()
 
@@ -178,7 +195,10 @@ export function creatureModel(kind: string): CreatureModel {
 export function dropColor(item: string): Color {
   if (item.startsWith('raw_')) return [214, 112, 108]
   return ({ leather: [150, 96, 62], wool: WOOL, feather: [250, 250, 246], rabbit_hide: [196, 164, 124],
-    gloom_dust: [132, 120, 176], string: [236, 236, 230] } as Record<string, Color>)[item] ?? [180, 180, 180]
+    gloom_dust: [132, 120, 176], string: [236, 236, 230],
+    // L5: what a hostile born farther out may drop too.
+    amber: [232, 156, 44], gold_nugget: [246, 206, 84], diamond: [120, 226, 232], flint: [70, 70, 76],
+  } as Record<string, Color>)[item] ?? [180, 180, 180]
 }
 
 /** A creature as a small dot on the minimap, in blocks from the map's top-left corner. */

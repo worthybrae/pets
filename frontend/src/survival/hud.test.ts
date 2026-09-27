@@ -57,6 +57,9 @@ describe('HUD text', () => {
       .toBe('Survived 1 day · died of starvation')
     expect(lifeLine({ kind: 'survival', alive: false, days: 3, cause: 'gloomling' }))
       .toBe('Survived 3 days · caught by a gloomling')
+    expect(lifeLine({ kind: 'survival', alive: false, days: 5, cause: 'thornback' }))
+      .toBe('Survived 5 days · caught by a thornback')  // L5
+    expect(purposeText({ purpose: 'loot_ruin', reflex: null, choosing: false })).toBe('Looting an old ruin')
   })
 })
 
