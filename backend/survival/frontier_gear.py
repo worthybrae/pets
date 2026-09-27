@@ -34,7 +34,9 @@ import math
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import RECIPES, TOOL_RANK
+from backend.services.worldgen import WORLD_MAX_Y
 from backend.survival import carrying, storage
+from backend.survival.carrying import STACK
 from backend.survival.creatures.acts import BARRIERS, Scene
 from backend.survival.creatures.harm import ARMOR, SLOTS
 from backend.survival.creatures.kinds import Kind
@@ -48,7 +50,7 @@ from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.structures import STANDS_IN
 from backend.survival.steps import OBSERVERS, as_cell
-from backend.survival.toolmaking import MORE_ORDERS, STATIONS
+from backend.survival.toolmaking import MORE_ORDERS, STATIONS, chain_steps
 from backend.survival.work import ladder_ores, pickaxe_rank
 
 if TYPE_CHECKING:
@@ -125,59 +127,84 @@ MORE_ORDERS.append(frontier_orders)
 
 # What goes in the chest, and what comes back out (the L5 final fix wave, I3) ---------------------------------
 
-LOOT_KEPT = ("amber", "gold_nugget", "diamond", "gloom_dust")  # put away but for what a craft in reach takes
+LOOT_KEPT = ("amber", "gold_nugget", "diamond", "gloom_dust", "arrow")  # put away but for what a craft in reach takes
 storage.KEEP.update({item: 0 for item in LOOT_KEPT})
 NUGGETS_PER_INGOT = RECIPES["gold_nuggets"]["ingredients"]["gold_nugget"]
 GOLD_PICKAXE_INGOTS = RECIPES["gold_pickaxe"]["ingredients"]["gold_ingot"]
+ANYWHERE = (((0, WORLD_MAX_Y, 0), False), ((1, WORLD_MAX_Y, 0), False))  # stand-in station spots for `makeable`
+
+
+def makeable(inventory: dict, item: str) -> bool:
+    """craft_tools could make `item` from `inventory` wherever there is room for its stations: the chain its
+    recipe takes, the stations carried or made (a furnace when it smelts), and room in Mimo's arms for every
+    step of it (toolmaking.chain_steps)."""
+    return chain_steps(inventory, (item,), set(), list(ANYWHERE)) is not None
 
 
 def loot_plan(s: Situation) -> tuple[dict[str, int], dict[str, int]]:
     """(kept, wanted): what of LOOT_KEPT Mimo keeps on hand (storage.KEEPS_MORE) and what it wants on hand
-    (storage.WANTED_ON_HAND: what its chests hold of it comes back out), from what its arms and chests hold
-    together; read once per Situation. On the final review's gate amber, gold nuggets and diamonds were never
-    put away (they had no KEEP), and every pet that stalled on the way to its computer carried them:
-    - amber: what the amber pieces take on the slots Mimo wears iron on without one, once there is amber
-      enough for a piece and the iron ingots (or ore) it takes, which come out of the chest with it;
-    - gloom dust: WARD_DUST for a warding lantern while fewer than WARDS_WANTED are carried or hung, once
-      there is that much and a lantern (or a torch and iron) in hand;
-    - gold nuggets: while the pickaxe ladder counts gold (work.ladder_ores), what makes up the gold pickaxe's
-      ingots, once there are nuggets enough for them;
-    - diamonds: what the next diamond tool takes (the pickaxe over an iron one, then the sword), kept on hand
-      however few (life_goals' diamond goal counts the ones carried), wanted back once there are enough.
-    Everything else of them waits in the chest."""
+    (storage.WANTED_ON_HAND: what its chests hold of it comes back out), read once per Situation. The rule: the
+    frontier's loot stays on hand only for a craft Mimo could make with it now, the loot its chests hold added
+    to its arms (`makeable`); everything else of it waits in the chest. On the final review's gate amber, gold
+    nuggets and diamonds were never put away (they had no KEEP), and every pet that stalled on the way to its
+    computer carried them; a first version of this fix kept them for any craft they were short of, and a pet
+    stood 58 game days at full arms with 3 amber for a tunic it had no furnace for, and 2 diamonds for a sword
+    it had no room to make.
+    - amber: an amber piece on a slot Mimo wears iron on, with the iron ingots (or ore) it takes, which come out
+      of the chest with it;
+    - gloom dust: WARD_DUST for a warding lantern while fewer than WARDS_WANTED are carried or hung;
+    - gold nuggets: while the pickaxe ladder counts gold (work.ladder_ores), what makes up the gold pickaxe;
+    - diamonds: the next diamond tool, the sword once the pickaxe is made. Toward the diamond pickaxe (over an
+      iron one) they stay on hand however few, since the diamond goal counts the ones carried
+      (life_goals.better_tools), as the ladder's gold does (work.ladder_ores);
+    - arrows: all of them while Mimo carries a bow (old chests hold arrows, and a pet with no bow carried a
+      stack of them for good)."""
     def look() -> tuple[dict[str, int], dict[str, int]]:
         inventory, stored = s.inventory, storage.in_chests(s)
 
         def have(*items: str) -> int:
             return sum(inventory.get(item, 0) + stored.get(item, 0) for item in items)
 
+        def with_stored(**wanted: int) -> dict[str, int]:
+            """Mimo's arms with what its chests hold of `wanted` added, up to that many of each."""
+            trial = dict(inventory)
+            for item, count in wanted.items():
+                trial[item] = max(inventory.get(item, 0), min(count, have(item)))
+            return trial
+
         kept: dict[str, int] = {}
         wanted: dict[str, int] = {}
-        amber = iron = 0
         for piece, (under, count) in AMBER_PIECES.items():
             ingots = RECIPES[piece]["ingredients"]["iron_ingot"]
-            if (inventory.get(piece, 0) < 1 and inventory.get(under, 0) > 0 and have("amber") >= amber + count
-                    and have("iron_ingot", "iron_ore") >= iron + ingots):
-                amber, iron = amber + count, iron + ingots
-        if amber:
-            kept["amber"] = wanted["amber"] = amber
-            ingots = min(iron, have("iron_ingot"))
-            wanted.update({item: count for item, count in (("iron_ingot", ingots), ("iron_ore", iron - ingots)) if count})
+            if inventory.get(piece, 0) > 0 or inventory.get(under, 0) < 1 or have("amber") < count:
+                continue
+            ore = max(0, ingots - have("iron_ingot"))
+            if makeable(with_stored(amber=count, iron_ingot=ingots, iron_ore=ore), piece):
+                kept["amber"] = wanted["amber"] = count
+                wanted.update({item: n for item, n in (("iron_ingot", min(ingots, have("iron_ingot"))),
+                                                         ("iron_ore", ore)) if n})
+                break
         wards = inventory.get(WARD, 0) + len(s.state.get("wards", []))
-        lit = inventory.get("lantern", 0) > 0 or (inventory.get("torch", 0) > 0 and have("iron_ingot", "iron_ore") > 0)
-        if wards < WARDS_WANTED and lit and have("gloom_dust") >= WARD_DUST:
+        if wards < WARDS_WANTED and have("gloom_dust") >= WARD_DUST and makeable(with_stored(gloom_dust=WARD_DUST), WARD):
             kept["gloom_dust"] = wanted["gloom_dust"] = WARD_DUST
-        if ladder_ores(inventory):
-            short = max(0, GOLD_PICKAXE_INGOTS - have("gold_ingot", "gold_ore"))
-            if short and have("gold_nugget") >= short * NUGGETS_PER_INGOT:
-                kept["gold_nugget"] = wanted["gold_nugget"] = short * NUGGETS_PER_INGOT
+        short = max(0, GOLD_PICKAXE_INGOTS - have("gold_ingot", "gold_ore"))
+        nuggets = short * NUGGETS_PER_INGOT
+        if (ladder_ores(inventory) and short and have("gold_nugget") >= nuggets
+                and makeable(with_stored(gold_nugget=nuggets, gold_ingot=GOLD_PICKAXE_INGOTS, gold_ore=GOLD_PICKAXE_INGOTS),
+                             "gold_pickaxe")):
+            kept["gold_nugget"] = wanted["gold_nugget"] = nuggets
         rank = pickaxe_rank(inventory)
-        tool = "diamond_pickaxe" if TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["diamond_pickaxe"] else \
-            "diamond_sword" if rank >= TOOL_RANK["diamond_pickaxe"] and inventory.get("diamond_sword", 0) < 1 else None
-        if tool is not None:
-            kept["diamond"] = RECIPES[tool]["ingredients"]["diamond"]
-            if have("diamond") >= kept["diamond"]:
-                wanted["diamond"] = kept["diamond"]
+        if TOOL_RANK["iron_pickaxe"] <= rank < TOOL_RANK["diamond_pickaxe"]:
+            need = RECIPES["diamond_pickaxe"]["ingredients"]["diamond"]
+            kept["diamond"] = need
+            if have("diamond") >= need and makeable(with_stored(diamond=need), "diamond_pickaxe"):
+                wanted["diamond"] = need
+        elif rank >= TOOL_RANK["diamond_pickaxe"] and inventory.get("diamond_sword", 0) < 1:
+            need = RECIPES["diamond_sword"]["ingredients"]["diamond"]
+            if have("diamond") >= need and makeable(with_stored(diamond=need), "diamond_sword"):
+                kept["diamond"] = wanted["diamond"] = need
+        if inventory.get("bow", 0) > 0 and have("arrow"):
+            kept["arrow"] = wanted["arrow"] = min(STACK, have("arrow"))
         return kept, wanted
     return s.sensed("frontier loot kept", look)
 

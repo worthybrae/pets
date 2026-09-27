@@ -243,21 +243,28 @@ def tool_steps(s: Situation, tools: tuple[str, ...]) -> list[dict] | None:
     lantern nothing, so a plan that smelted their iron from ore passed here and failed at its first smelt, and
     craft_tools was chosen again at once (432 times over 75 game days for one pet on the final review's gate)."""
     x, _, z = s.here
-    near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
+    return chain_steps(s.inventory, tools, s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS), station_spots(s))
+
+
+def chain_steps(inventory: dict, tools: tuple[str, ...], near: set[str],
+                spots: list[tuple[Cell, bool]]) -> list[dict] | None:
+    """`tool_steps` for `inventory`, the stations `near` and the station `spots`: the stations STATIONS name,
+    and a furnace when the chain smelts (with a table to make it at, when it has to be made)."""
     stations = tuple(dict.fromkeys(station for tool in tools for station in STATIONS[tool]))
-    steps = stationed(s, tools, stations, near)
+    steps = stationed(inventory, tools, stations, near, spots)
     if (steps is not None and "furnace" not in stations and "furnace" not in near
             and any(step["kind"] == "smelt" for step in steps)):
-        needs = ("furnace",) if s.count("furnace") > 0 else ("crafting_table", "furnace")
-        steps = stationed(s, tools, tuple(dict.fromkeys((*stations, *needs))), near)
+        needs = ("furnace",) if inventory.get("furnace", 0) > 0 else ("crafting_table", "furnace")
+        steps = stationed(inventory, tools, tuple(dict.fromkeys((*stations, *needs))), near, spots)
     return steps
 
 
-def stationed(s: Situation, tools: tuple[str, ...], stations: tuple[str, ...], near: set[str]) -> list[dict] | None:
-    """The steps that place `stations` (those not already placed near), make `tools` in order and mine the
-    stations back; None when they cannot all be made now."""
-    inventory = dict(s.inventory)
-    spots = station_spots(s)
+def stationed(carried: dict, tools: tuple[str, ...], stations: tuple[str, ...], near: set[str],
+              spots: list[tuple[Cell, bool]]) -> list[dict] | None:
+    """The steps that place `stations` (those not already placed near) in `spots`, make `tools` in order from
+    `carried` and mine the stations back; None when they cannot all be made now."""
+    inventory = dict(carried)
+    spots = list(spots)
     steps: list[dict] = []
     placed: list[Cell] = []
     try:
@@ -275,7 +282,7 @@ def stationed(s: Situation, tools: tuple[str, ...], stations: tuple[str, ...], n
     except Short:
         return None
     steps.extend({"kind": "mine", "target": list(cell), "keep": True} for cell in reversed(placed))
-    return steps if crafts_fit(s.inventory, steps) else None
+    return steps if crafts_fit(carried, steps) else None
 
 
 def tool_choice(s: Situation) -> tuple[tuple[str, ...], list[dict]] | None:

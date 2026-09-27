@@ -190,13 +190,22 @@ class ArmsTests(unittest.TestCase):
         self.assertIn(("iron_cap", 1), storage.junk(s))
 
     def test_the_amber_an_order_takes_stays_and_comes_back_out_of_the_chest(self):
-        wearing = {"iron_cap": 1, "iron_pickaxe": 1, "iron_ingot": 2}
+        wearing = {"iron_cap": 1, "iron_pickaxe": 1, "iron_ingot": 2, "crafting_table": 1}
         home = Home({**wearing, "amber": 2}, chest={})
         self.assertNotIn("amber", dict(storage.to_store(home.situation(), home.chest)))
         stored = Home(dict(wearing), chest={"amber": 2})
         self.assertIn((stored.chest, "amber", 2), storage.to_take(stored.situation()))
-        no_iron = Home({"iron_cap": 1, "iron_pickaxe": 1, "amber": 2}, chest={})  # nothing to make one with
+        no_iron = Home({"iron_cap": 1, "iron_pickaxe": 1, "amber": 2, "crafting_table": 1}, chest={})
         self.assertEqual(dict(storage.to_store(no_iron.situation(), no_iron.chest)).get("amber"), 2)
+
+    def test_amber_for_a_piece_it_cannot_make_now_waits_in_the_chest(self):
+        # The gate's seed 42 on the first version of this fix: 58 game days at 15 and 16 stacks, 3 amber kept for a
+        # tunic whose iron was ore and no cobblestone for the furnace to smelt it in.
+        full = {"iron_cap": 1, "iron_tunic": 1, "iron_pickaxe": 1, "iron_ore": 3, "amber": 3, "crafting_table": 1}
+        home = Home(dict(full), chest={})
+        self.assertEqual(dict(storage.to_store(home.situation(), home.chest)).get("amber"), 3)
+        furnace = Home({**full, "cobblestone": 8, "coal": 3}, chest={})  # with a furnace's stone it can smelt them
+        self.assertNotIn("amber", dict(storage.to_store(furnace.situation(), furnace.chest)))
 
     def test_nothing_asks_for_an_iron_piece_an_amber_piece_replaced(self):
         inventory = {"amber_cap": 1, "iron_tunic": 1, "iron_pickaxe": 1, "iron_ingot": 5}
@@ -223,22 +232,37 @@ class ArmsTests(unittest.TestCase):
         self.assertEqual(dict(storage.to_store(hung.situation(), hung.chest)).get("gloom_dust"), 2)
 
     def test_diamonds_stay_for_the_next_diamond_tool_and_go_in_the_chest_after(self):
-        ladder = Home({"iron_pickaxe": 1, "diamond": 2}, chest={})
+        ladder = Home({"iron_pickaxe": 1, "diamond": 2}, chest={})  # the diamond goal counts the ones carried
         self.assertNotIn("diamond", dict(storage.to_store(ladder.situation(), ladder.chest)))
         early = Home({"stone_pickaxe": 1, "diamond": 1}, chest={})  # no pickaxe that can use them yet
         self.assertEqual(dict(storage.to_store(early.situation(), early.chest)).get("diamond"), 1)
         done = Home({"diamond_pickaxe": 1, "diamond_sword": 1, "diamond": 3}, chest={})
         self.assertEqual(dict(storage.to_store(done.situation(), done.chest)).get("diamond"), 3)
-        back = Home({"iron_pickaxe": 1, "diamond": 1}, chest={"diamond": 2})  # enough for the pickaxe now
-        self.assertIn((back.chest, "diamond", 2), storage.to_take(back.situation()))
+        back = Home({"iron_pickaxe": 1, "diamond": 1, "sticks": 2, "crafting_table": 1}, chest={"diamond": 2})
+        self.assertIn((back.chest, "diamond", 2), storage.to_take(back.situation()))  # enough for the pickaxe now
+        sword = Home({"diamond_pickaxe": 1, "iron_sword": 1, "diamond": 2, "sticks": 1, "crafting_table": 1}, chest={})
+        self.assertNotIn("diamond", dict(storage.to_store(sword.situation(), sword.chest)))
+        crowded = Home({"diamond_pickaxe": 1, "iron_sword": 1, "diamond": 2, "oak_log": 2, "crafting_table": 1,
+                        **{f"item_{n}": 1 for n in range(11)}}, chest={})  # 16 stacks: no room for its planks
+        self.assertEqual(dict(storage.to_store(crowded.situation(), crowded.chest)).get("diamond"), 2)
 
     def test_gold_nuggets_stay_only_while_they_make_up_a_gold_pickaxe(self):
-        short = Home({"iron_pickaxe": 1, "gold_nugget": 7}, chest={})  # one ingot's worth short of three
+        makings = {"iron_pickaxe": 1, "sticks": 2, "crafting_table": 1, "cobblestone": 8}  # a gold pickaxe's furnace too
+        short = Home({**makings, "gold_nugget": 7}, chest={})  # one ingot's worth short of three
         self.assertEqual(dict(storage.to_store(short.situation(), short.chest)).get("gold_nugget"), 7)
-        enough = Home({"iron_pickaxe": 1, "gold_nugget": 8, "gold_ingot": 1}, chest={})
+        enough = Home({**makings, "gold_nugget": 8, "gold_ingot": 1}, chest={})
         self.assertNotIn("gold_nugget", dict(storage.to_store(enough.situation(), enough.chest)))
         past = Home({"diamond_pickaxe": 1, "gold_nugget": 8, "gold_ingot": 1}, chest={})
         self.assertEqual(dict(storage.to_store(past.situation(), past.chest)).get("gold_nugget"), 8)
+
+    def test_arrows_wait_in_the_chest_while_there_is_no_bow(self):
+        # Old chests hold arrows; on the final review's gate a pet with no bow carried a stack of them for good.
+        loose = Home({"arrow": 32}, chest={})
+        self.assertEqual(dict(storage.to_store(loose.situation(), loose.chest)).get("arrow"), 32)
+        bow = Home({"arrow": 32, "bow": 1}, chest={})
+        self.assertNotIn("arrow", dict(storage.to_store(bow.situation(), bow.chest)))
+        back = Home({"bow": 1, "arrow": 4}, chest={"arrow": 20})
+        self.assertIn((back.chest, "arrow", 20), storage.to_take(back.situation()))
 
 
 class WardHomeTests(unittest.TestCase):
