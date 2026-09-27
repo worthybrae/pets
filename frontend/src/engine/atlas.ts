@@ -331,6 +331,26 @@ export const PATTERNS: Record<string, Painter> = {
       return tone(color, (random() < 0.22 ? 0.76 : 1) * jitter(random, 0.14))
     })
   },
+  // W1: a nightberry bush, the berry bush's shape with dark berries, each with a pale speck beside it
+  sprite_speckled_bush: ({ color, accent }, random) => {
+    const berries = [[1, 4], [3, 3], [5, 5], [2, 6], [6, 3]]
+    return grid((i, j) => {
+      const dx = (i - 3.5) / 4, dy = (j - 4.6) / 3.4
+      if (dx * dx + dy * dy > 1) return CLEAR
+      if (berries.some(([x, y]) => x === i && y === j)) return tone(accent ?? color, jitter(random))
+      if (berries.some(([x, y]) => x + 1 === i && y === j)) return tone([214, 206, 222], jitter(random))
+      return tone(color, (random() < 0.22 ? 0.76 : 1) * jitter(random, 0.14))
+    })
+  },
+  // W1: sunleaf, a low yellow-green rosette of leaves round a bright middle
+  sprite_rosette: ({ color, accent }, random) => grid((i, j) => {
+    if (j < 4) return CLEAR
+    const dx = i - 3.5, dy = (j - 6) * 1.6
+    const reach = dx * dx + dy * dy
+    if (reach > 12.5) return CLEAR
+    if (reach < 1.5) return tone(accent ?? color, jitter(random))
+    return tone(color, ((i + j) % 2 === 0 ? 0.84 : 1) * jitter(random, 0.12))
+  }),
   sprite_mushroom: ({ color, accent }, random) => grid((i, j) => {
     if (j >= 5 && (i === 3 || i === 4)) return tone(accent ?? color, (i === 4 ? 0.88 : 1) * jitter(random))
     const cap = (j === 2 && i >= 2 && i <= 5) || ((j === 3 || j === 4) && i >= 1 && i <= 6)

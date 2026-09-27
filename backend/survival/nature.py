@@ -28,6 +28,8 @@ PICKS = {"berry_bush_ripe": ({"berries": 3}, "berry_bush"),
          "brown_mushroom": ({"brown_mushroom": 1}, "air"),
          "red_mushroom": ({"red_mushroom": 1}, "air")}
 MUSHROOMS = ("brown_mushroom", "red_mushroom")
+# W1: a ripe nightberry bush gives 3 nightberries and regrows like a berry bush; a sunleaf is taken whole.
+PICKS.update({"nightberry_bush_ripe": ({"nightberries": 3}, "nightberry_bush"), "sunleaf": ({"sunleaf": 1}, "air")})
 # harvest(cell): what a ripe crop gives. The crop's cell turns to air; the farmland stays.
 HARVESTS = {"wheat_3": {"wheat": 1, "seeds": 2}, "carrot_3": {"carrot": 3}}
 # Extra drops when a block is mined, or a leaf decays: (item, chance, roll channel).

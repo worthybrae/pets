@@ -165,6 +165,18 @@ describe('worldgen', () => {
     expect(Array.from(generateColumn(...caveChunk!, WILD_SEED)).some((id) => food.includes(id))).toBe(true)
   })
 
+  it('grows W1\'s nightberry bushes and sunleaf on bare columns inside columns exactly like blockAt', () => {
+    const chunks = new Map<string, [number, number]>()
+    for (let x = 300; x < 900 && chunks.size < 2; x++) {
+      for (let z = -40; z < 40 && chunks.size < 2; z++) {
+        const plant = plantStack(x, z, WILD_SEED)?.[0]
+        if (plant === 'nightberry_bush_ripe' || plant === 'sunleaf') chunks.set(plant, [Math.floor(x / 16), Math.floor(z / 16)])
+      }
+    }
+    expect([...chunks.keys()].sort()).toEqual(['nightberry_bush_ripe', 'sunleaf'])
+    for (const [cx, cz] of chunks.values()) expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
+
   it('keeps cave mushrooms off the air an entrance carved, exactly like blockAt', () => {
     // A sinkhole shaft at (1129, -1245), span (-3, 7): the cell right below y -1 is itself carved
     // to air by the entrance (backend/tests/test_worldgen_surface.py mirrors this cell).

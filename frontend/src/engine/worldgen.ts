@@ -40,6 +40,12 @@ const DEAD_BUSH_RARITY = 53
 const FERN_RARITY = 5
 const FRUIT_RARITY = 421
 const FRUIT_BIOMES = new Set(['meadow', 'forest', 'birch_forest'])
+// W1: nightberry bushes and sunleaf, only where nothing grew before (see backend/services/worldgen.py).
+const NIGHTBERRY_RARITY = 150
+const NIGHTBERRY_CHANNEL = 160
+const SUNLEAF_RARITY = 180
+const SUNLEAF_CHANNEL = 161
+const SUNLEAF_BIOMES = new Set(['meadow', 'forest', 'birch_forest', 'taiga', 'swamp'])
 const SIDES: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
 // L3 underground: bigger, taller caves, lakes and lava in them, seams of other stone, gold and diamond.
 const CAVE_SCALE = 13
@@ -656,6 +662,18 @@ export function cavePlant(x: number, y: number, z: number, seed = DEFAULT_WORLD_
   return Math.floor(roll / CAVE_MUSHROOM_RARITY) % 3 === 0 ? 'red_mushroom' : 'brown_mushroom'
 }
 
+/** W1: a ripe nightberry bush (meadow and forest-edge grass) or a sunleaf (grass, moss or mud in the green lands)
+ * on a bare column of generated land; null in the legacy clearing. */
+export function wildHerb(x: number, z: number, seed: string, biome: string, surface: string): string | null {
+  if (Math.hypot(x, z) <= LEGACY_RADIUS) return null
+  const wooded = biome === 'forest' || biome === 'birch_forest'
+  if (surface === 'grass' && (biome === 'meadow' || (wooded && noise2(x, z, 160, seed, 5) < FOREST_EDGE))) {
+    if (hash32(x, 0, z, seed, NIGHTBERRY_CHANNEL) % NIGHTBERRY_RARITY === 0) return 'nightberry_bush_ripe'
+  }
+  if (SUNLEAF_BIOMES.has(biome) && hash32(x, 0, z, seed, SUNLEAF_CHANNEL) % SUNLEAF_RARITY === 0) return 'sunleaf'
+  return null
+}
+
 /** A cactus in the desert, or sugar cane on a shore right beside a lake, with how many blocks high it
  * stands (1 to 3). Null in the legacy clearing. */
 function tallPlant(x: number, z: number, seed: string): [string, number] | null {
@@ -699,7 +717,9 @@ export function plantStack(x: number, z: number, seed = DEFAULT_WORLD_SEED): [st
     const roll = hash32(x, 0, z, seed, 24)
     if (roll % FRUIT_RARITY === 0) return [Math.floor(roll / FRUIT_RARITY) % 2 === 0 ? 'pumpkin' : 'melon', 1]
   }
-  return hash32(x, 0, z, seed, 14) % (biome === 'swamp' ? 11 : 19) === 0 ? ['tall_grass', 1] : null
+  if (hash32(x, 0, z, seed, 14) % (biome === 'swamp' ? 11 : 19) === 0) return ['tall_grass', 1]
+  const herb = wildHerb(x, z, seed, biome, surface)  // W1: only where nothing grew before
+  return herb ? [herb, 1] : null
 }
 
 /** The plant (or fruit) growing on top of the terrain at (x, z): the base of plantStack. */

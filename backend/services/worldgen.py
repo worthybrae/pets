@@ -54,6 +54,14 @@ DEAD_BUSH_RARITY = 53
 FERN_RARITY = 5
 FRUIT_RARITY = 421  # a pumpkin or melon patch, on meadow and forest grass
 FRUIT_BIOMES = ("meadow", "forest", "birch_forest")
+# W1: two plants that grow only where nothing grew before (after tall grass), never in the legacy clearing,
+# so no plant anywhere moves: nightberry bushes on berries' ground (1 in 150 such bare columns, channel 160)
+# and sunleaf on the grass, moss or mud of the green lands (1 in 180, channel 161).
+NIGHTBERRY_RARITY = 150
+NIGHTBERRY_CHANNEL = 160
+SUNLEAF_RARITY = 180
+SUNLEAF_CHANNEL = 161
+SUNLEAF_BIOMES = ("meadow", "forest", "birch_forest", "taiga", "swamp")
 SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
 # L3 underground: bigger, taller caves, lakes and lava in them, seams of other stone, gold and diamond.
 CAVE_SCALE = 13  # blocks across the cave network's noise (it was 11)
@@ -702,6 +710,20 @@ def cave_plant(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | N
     return "red_mushroom" if roll // CAVE_MUSHROOM_RARITY % 3 == 0 else "brown_mushroom"
 
 
+def wild_herb(x: int, z: int, seed: str, biome: str, surface: str) -> str | None:
+    """W1: a ripe nightberry bush (the berry bush's ground: meadow and forest-edge grass) or a sunleaf (grass,
+    moss or mud in the green lands) on a bare column of generated land; None in the legacy clearing."""
+    if math.hypot(x, z) <= LEGACY_RADIUS:
+        return None
+    wooded = biome in ("forest", "birch_forest")
+    if surface == "grass" and (biome == "meadow" or (wooded and noise2(x, z, 160, seed, 5) < FOREST_EDGE)):
+        if hash32(x, 0, z, seed, NIGHTBERRY_CHANNEL) % NIGHTBERRY_RARITY == 0:
+            return "nightberry_bush_ripe"
+    if biome in SUNLEAF_BIOMES and hash32(x, 0, z, seed, SUNLEAF_CHANNEL) % SUNLEAF_RARITY == 0:
+        return "sunleaf"
+    return None
+
+
 def tall_plant(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """A cactus in the desert, or sugar cane on a shore right beside a lake (not in a swamp pool), with
     how many blocks high it stands (1 to 3). None in the legacy clearing."""
@@ -752,7 +774,10 @@ def plant_stack(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int
         if roll % FRUIT_RARITY == 0:
             return ("pumpkin" if roll // FRUIT_RARITY % 2 == 0 else "melon"), 1
     rarity = 11 if biome == "swamp" else 19
-    return ("tall_grass", 1) if hash32(x, 0, z, seed, 14) % rarity == 0 else None
+    if hash32(x, 0, z, seed, 14) % rarity == 0:
+        return "tall_grass", 1
+    herb = wild_herb(x, z, seed, biome, surface)  # W1: only where nothing grew before
+    return (herb, 1) if herb else None
 
 
 def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:

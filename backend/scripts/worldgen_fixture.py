@@ -26,6 +26,7 @@ WILD_NEG_CHUNKS = [(cx, cz) for cz in range(-15, 15) for cx in range(-46, -16)]
 FAR_CHUNKS = [(cx, cz) for cz in range(-8, 8) for cx in range(250, 270)]
 FAR_LIMIT = 30000
 WILD_FOOD = ("berry_bush_ripe", "brown_mushroom", "red_mushroom")
+WILD_HERBS = ("nightberry_bush_ripe", "sunleaf")  # W1: the plants of bare columns
 # L3: trees of each wood, the taller plants and fruit, swamp pools and frozen lakes.
 KIND_CHUNKS = [(cx, cz) for cz in range(-30, 30) for cx in range(16, 80)]
 KIND_CHUNKS_NEG = [(cx, cz) for cz in range(-30, 30) for cx in range(-80, -16)]
@@ -67,6 +68,21 @@ def _wild_food(seed: str, count: int) -> list[tuple[int, int]]:
             if plant_at(x, z, seed) in WILD_FOOD:
                 found.append((x, z))
                 if len(found) == count:
+                    return found
+    return found
+
+
+def _wild_herbs(seed: str, count: int) -> list[tuple[int, int]]:
+    """W1: columns with a nightberry bush and columns with a sunleaf, `count` of each."""
+    seen: dict[str, int] = {}
+    found = []
+    for x in range(250, 1250):
+        for z in range(-60, 60, 2):
+            plant = plant_at(x, z, seed)
+            if plant in WILD_HERBS and seen.get(plant, 0) < count:
+                seen[plant] = seen.get(plant, 0) + 1
+                found.append((x, z))
+                if len(seen) == len(WILD_HERBS) and all(value == count for value in seen.values()):
                     return found
     return found
 
@@ -205,7 +221,7 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
         for tx, tz, base in trees:
             cells |= {(seed, tx + dx, base + dy, tz + dz)
                       for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 8)}
-        for x, z in _plants(seed, 20) + _wild_food(seed, 40):
+        for x, z in _plants(seed, 20) + _wild_food(seed, 40) + _wild_herbs(seed, 6):
             height = terrain_height(x, z, seed)
             cells |= {(seed, x, height, z), (seed, x, height + 1, z)}
         for x, y, z in _cave_plants(seed, 12):

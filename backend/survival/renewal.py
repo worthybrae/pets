@@ -20,7 +20,10 @@ long gap regrows the world in time order. Each call:
      leaf may drop a sapling (1 in 12) or an apple (1 in 20), which Mimo gathers when it is
      within 16 blocks, and it is kept in state["decays"] so the viewer can show a puff;
    - a picked mushroom comes back on forest floor in its chunk after a game day, one per chunk
-     per game day and at most 3 in the chunk, never in a claimed cell.
+     per game day and at most 3 in the chunk, never in a claimed cell;
+   - W1: a picked nightberry bush turns ripe again after 2 game days, like a berry bush, and a picked
+     sunleaf comes back in its chunk like a mushroom, on the grass, moss or mud of the lands it grows in,
+     one a chunk a game day and at most 2 in the chunk.
 2. Applies every entry due by then, oldest first. An entry only happens while its cell still
    holds what it grows from (the unripe bush, the crop one stage earlier, the bare farmland);
    otherwise it is dropped. A crop stage that happens schedules the next one from its own due
@@ -40,7 +43,7 @@ from typing import Callable
 
 from backend.services.blocks import is_replaceable
 from backend.services.crafting import LOGS, add_item
-from backend.services.worldgen import biome_at, is_leaf, terrain_height
+from backend.services.worldgen import SUNLEAF_BIOMES, biome_at, is_leaf, terrain_height
 from backend.survival import nature
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import CHUNK, Cell, Grid
@@ -72,6 +75,8 @@ MUSHROOM_RESPAWN = DAY_SECONDS
 MUSHROOM_CAP = 3
 MUSHROOM_SPOT_CHANNEL = 37
 FOREST_FLOOR = ("grass", "moss")
+SUNLEAF_CAP = 2  # W1
+SUNLEAF_GROUND = ("grass", "moss", "mud")
 NEIGHBOURS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 Entry = tuple[Cell, str, float]
@@ -226,7 +231,8 @@ def grow_tree(grid: Grid, sapling: Cell) -> None:
 
 
 def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float,
-                 avoid: frozenset[Cell] = frozenset()) -> Cell | None:
+                 avoid: frozenset[Cell] = frozenset(), biomes: tuple[str, ...] = ("forest", "birch_forest"),
+                 ground: tuple[str, ...] = FOREST_FLOOR) -> Cell | None:
     """An open cell on grass or moss in the chunk, in a forest or a birch forest, picked by the roll;
     None if 8 tries miss. A cell in `avoid` (already scheduled there, or already chosen earlier in
     this batch) is skipped in favour of the next attempt, so two picks in one chunk in one call land
@@ -235,22 +241,22 @@ def forest_floor(grid: Grid, seed: str, chunk: tuple[int, int], at: float,
     for attempt in range(8):
         pick = nature.roll(seed, (cx, attempt, cz), MUSHROOM_SPOT_CHANNEL, int(at))
         x, z = cx * CHUNK + int(pick * CHUNK), cz * CHUNK + int(pick * CHUNK * CHUNK) % CHUNK
-        if biome_at(x, z, seed) not in ("forest", "birch_forest"):
+        if biome_at(x, z, seed) not in biomes:
             continue
         y = terrain_height(x, z, seed) + 1
         cell = (x, y, z)
         if cell in avoid or grid.claimed(cell):
             continue
-        if grid.material(x, y, z) == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR:
+        if grid.material(x, y, z) == "air" and grid.material(x, y - 1, z) in ground:
             return cell
     return None
 
 
-def mushrooms_in_chunk(grid: Grid, seed: str, chunk: tuple[int, int]) -> int:
-    """Mushrooms standing on the chunk's surface."""
+def mushrooms_in_chunk(grid: Grid, seed: str, chunk: tuple[int, int], kinds: tuple[str, ...] = nature.MUSHROOMS) -> int:
+    """Mushrooms (W1: or any of `kinds`) standing on the chunk's surface."""
     cx, cz = chunk
     return sum(1 for x in range(cx * CHUNK, cx * CHUNK + CHUNK) for z in range(cz * CHUNK, cz * CHUNK + CHUNK)
-               if grid.material(x, terrain_height(x, z, seed) + 1, z) in nature.MUSHROOMS)
+               if grid.material(x, terrain_height(x, z, seed) + 1, z) in kinds)
 
 
 def respawn_mushroom(db: sqlite3.Connection, grid: Grid, seed: str, picked: Cell, kind: str, at: float,
@@ -261,10 +267,13 @@ def respawn_mushroom(db: sqlite3.Connection, grid: Grid, seed: str, picked: Cell
     picks in the same chunk in one call get different cells; `chosen` is updated in place."""
     chunk = (picked[0] // CHUNK, picked[2] // CHUNK)
     x0, z0 = chunk[0] * CHUNK, chunk[1] * CHUNK
-    rows = db.execute("SELECT x, y, z, ready_at FROM growth WHERE block IN (?, ?) AND x BETWEEN ? AND ? "
-                      "AND z BETWEEN ? AND ?", (*nature.MUSHROOMS, x0, x0 + CHUNK - 1, z0, z0 + CHUNK - 1)).fetchall()
+    kinds = ("sunleaf",) if kind == "sunleaf" else nature.MUSHROOMS  # W1: sunleaf comes back the same way
+    marks = ",".join("?" * len(kinds))
+    rows = db.execute(f"SELECT x, y, z, ready_at FROM growth WHERE block IN ({marks}) AND x BETWEEN ? AND ? "
+                      "AND z BETWEEN ? AND ?", (*kinds, x0, x0 + CHUNK - 1, z0, z0 + CHUNK - 1)).fetchall()
     avoid = chosen | {(row[0], row[1], row[2]) for row in rows}
-    spot = forest_floor(grid, seed, chunk, at, avoid)
+    spot = (forest_floor(grid, seed, chunk, at, avoid, SUNLEAF_BIOMES, SUNLEAF_GROUND) if kind == "sunleaf"
+            else forest_floor(grid, seed, chunk, at, avoid))
     if spot is None:
         return
     chosen.add(spot)
@@ -285,14 +294,14 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
         if before in LOGS and after not in LOGS:
             for leaf in orphaned_leaves(grid, cell):
                 schedule(db, leaf, "air", later(at, decay_seconds(seed, leaf, at), scale), keep_earlier=True)
-        if before in nature.MUSHROOMS and after == "air":
+        if (before in nature.MUSHROOMS or before == "sunleaf") and after == "air":
             respawn_mushroom(db, grid, seed, cell, before, at, scale, chosen)
         if after in GROWERS:
             schedule(db, cell, GROWERS[after].marker, later(at, GROWERS[after].seconds, scale))
         elif after == "sapling":
             schedule(db, cell, LOG, later(at, SAPLING_GROWS, scale))
-        elif after == "berry_bush":
-            schedule(db, cell, "berry_bush_ripe", later(at, BERRY_REGROW, scale))
+        elif after in ("berry_bush", "nightberry_bush"):  # W1: nightberries regrow like berries
+            schedule(db, cell, f"{after}_ripe", later(at, BERRY_REGROW, scale))
         elif grown is not None:
             schedule(db, cell, grown, later(at, stage_seconds(grid, cell), scale))
         elif after == "farmland":
@@ -308,8 +317,8 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
     x, y, z = cell
     here = grid.material(*cell)
     stage = nature.crop_stage(block)
-    if block == "berry_bush_ripe":
-        if here == "berry_bush":
+    if block in ("berry_bush_ripe", "nightberry_bush_ripe"):
+        if here == block[:-len("_ripe")]:
             grid.put(*cell, block)
     elif stage is not None:
         crop, number = stage
@@ -337,6 +346,11 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
         seed = state.get("world_seed", "0")
         if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR and not grid.claimed(cell)
                 and mushrooms_in_chunk(grid, seed, (x // CHUNK, z // CHUNK)) < MUSHROOM_CAP):
+            grid.put(*cell, block)
+    elif block == "sunleaf":  # W1
+        seed = state.get("world_seed", "0")
+        if (here == "air" and grid.material(x, y - 1, z) in SUNLEAF_GROUND and not grid.claimed(cell)
+                and mushrooms_in_chunk(grid, seed, (x // CHUNK, z // CHUNK), ("sunleaf",)) < SUNLEAF_CAP):
             grid.put(*cell, block)
     elif (grower := grower_of(block)) is not None:
         grower.grow(db, grid, state, cell, ready_at, scale, events)

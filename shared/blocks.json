@@ -134,7 +134,10 @@
     "lamp": {"pattern": "lamp", "color": [118, 84, 62], "accent": [168, 112, 78]},
     "lamp_lit": {"pattern": "lamp", "color": [255, 216, 140], "accent": [214, 130, 74]},
     "bell": {"pattern": "sprite_bell", "color": [232, 196, 96], "accent": [110, 82, 58]},
-    "warding_lantern": {"pattern": "glow", "color": [176, 150, 236]}
+    "warding_lantern": {"pattern": "glow", "color": [176, 150, 236]},
+    "nightberry_bush": {"pattern": "sprite_bush", "color": [76, 128, 100]},
+    "nightberry_bush_ripe": {"pattern": "sprite_speckled_bush", "color": [76, 128, 100], "accent": [74, 40, 96]},
+    "sunleaf": {"pattern": "sprite_rosette", "color": [178, 196, 70], "accent": [226, 214, 96]}
   },
   "blocks": [
     {"name": "air", "color": [0, 0, 0], "textures": "missing", "layer": "none", "solid": false, "replaceable": true, "drop": null, "hardness": null},
@@ -258,6 +261,9 @@
     {"name": "lamp", "color": [118, 84, 62], "textures": "lamp", "layer": "opaque", "solid": true, "drop": "lamp", "hardness": 0.6},
     {"name": "lamp_lit", "color": [255, 216, 140], "textures": "lamp_lit", "layer": "opaque", "solid": true, "drop": "lamp", "glow": true, "hardness": 0.6},
     {"name": "bell", "color": [232, 196, 96], "textures": "bell", "layer": "cutout", "solid": false, "drop": "bell", "hardness": 2.0, "tool": "pickaxe"},
-    {"name": "warding_lantern", "color": [176, 150, 236], "textures": "warding_lantern", "layer": "opaque", "solid": true, "drop": "warding_lantern", "glow": true, "hardness": 0.6}
+    {"name": "warding_lantern", "color": [176, 150, 236], "textures": "warding_lantern", "layer": "opaque", "solid": true, "drop": "warding_lantern", "glow": true, "hardness": 0.6},
+    {"name": "nightberry_bush", "color": [76, 128, 100], "textures": "nightberry_bush", "layer": "cutout", "solid": false, "replaceable": true, "drop": null, "hardness": 0.1},
+    {"name": "nightberry_bush_ripe", "color": [74, 40, 96], "textures": "nightberry_bush_ripe", "layer": "cutout", "solid": false, "replaceable": true, "drop": null, "hardness": 0.1},
+    {"name": "sunleaf", "color": [178, 196, 70], "textures": "sunleaf", "layer": "cutout", "solid": false, "replaceable": true, "drop": "sunleaf", "hardness": 0.1}
   ]
 }
