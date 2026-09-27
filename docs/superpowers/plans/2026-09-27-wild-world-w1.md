@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the owner's teaching the thing that keeps a young pet alive, as the owner asked ("i kinda want to make it hard for the pet to survive unless you talk to it and help teach it"). A life hatches wild or gentle, for good: the API hatches wild, `hatch()` stays gentle, and every world made before W1 reads gentle and is granted every survival lesson on its first tick, silently. A wild newborn knows instinct only. Eleven survival lessons (`wild:berries`, `wild:nightberries`, `wild:red_mushroom`, `wild:sunleaf`, `wild:bandage`, `wild:fire`, `wild:cooking`, `wild:keeping`, `wild:light`, `wild:shelter`, `wild:bed`) are journal lessons of their own kind, each taught in one sentence, and each unlocks what the spec's table says for a wild pet: the purposes, goals, recipes and fittings behind a campfire, cooking, a shelter with its door, a bed, torches round home, food kept in a chest, sunleaf and bandages. Five hazards come to a wild pet only: poison lookalikes (nightberries, which look like berries until Mimo learns them apart, and red mushrooms), sickness with symptoms and a remedy (a tummy ache and a chill, which drain health, stop healing and can kill, and sunleaf, which ends either), food that spoils in lots that follow every move, wounds that fester unless dressed, and cold nights that bring a chill at dawn. Mimo learns alone by knocks, slowly and painfully, and it asks: the wonders it meets become questions in its inbox and its chat, with answer chips, a bare yes or no in the chat answers a yes-or-no question, and it waits a while before it risks what it asked about. Wrong answers are doubted and never learned. Worldgen grows nightberry bushes and sunleaf on bare columns in both ports. The viewer shows what ails the pet, a "Wild" badge, Mimo's questions with their chips, a Survival section in the journal and what the memorial says of a life's lessons. A committed gate script runs the balance gate's lives headless.
+**Goal:** Make the owner's teaching the thing that keeps a young pet alive, as the owner asked ("i kinda want to make it hard for the pet to survive unless you talk to it and help teach it"). A life hatches wild or gentle, for good: the API hatches wild, `hatch()` stays gentle, and every world made before W1 reads gentle and is granted every survival lesson on its first tick, silently. A wild newborn knows instinct only. Eleven survival lessons (`wild:berries`, `wild:nightberries`, `wild:red_mushroom`, `wild:sunleaf`, `wild:bandage`, `wild:fire`, `wild:cooking`, `wild:keeping`, `wild:light`, `wild:shelter`, `wild:bed`) are journal lessons of their own kind, each taught in one sentence, and each unlocks what the spec's table says for a wild pet: the purposes, goals, recipes and fittings behind a campfire, cooking, a shelter with its door, a bed, torches round home, food kept in a chest, sunleaf and bandages. Five hazards come to a wild pet only: poison lookalikes (nightberries, which look like berries until Mimo learns them apart, and red mushrooms), sickness with symptoms and a remedy (a tummy ache and a chill, which drain health, stop healing and can kill, and sunleaf, which ends either), food that spoils in lots that follow every move, wounds that fester unless dressed, and cold nights that bring a chill at dawn. Mimo learns nine of the lessons alone by knocks, slowly and painfully; sunleaf and bandages only the owner can teach (the controller's ruling on the first dry run); and it asks: the wonders it meets become questions in its inbox and its chat, with answer chips, a bare yes or no in the chat answers a yes-or-no question, and it waits a while before it risks what it asked about. Wrong answers are doubted and never learned. Worldgen grows nightberry bushes and sunleaf on bare columns in both ports. The viewer shows what ails the pet, a "Wild" badge, Mimo's questions with their chips, a Survival section in the journal and what the memorial says of a life's lessons. A committed gate script runs the balance gate's lives headless.
 
-**Architecture:** One low-level module, `backend/survival/wild.py`, holds the difficulty, the eleven lessons' table (with what the chat's parser needs of each), the gates (`unlocked`, `purpose_open`, `goal_open`, `fitting_open`), what a pet avoids eating (`avoided`) and the gentle pet's grant (`settle`, from the tick). It imports only memory, so any module may ask it whether a gate is open. The hazards are modules of their own that register into small hooks added to the modules they touch, as L5's did: `ailments.py` (the sickness and wound state, `Ailing` for the vitals step, cold nights and dawn, `DAWN` and `FESTERS`), `herbs.py` (take_herb, find_herb, gather_herbs, nibble), `meals.py` (a wild pet's meals through `purposes.MEALS`, its eating through `steps.EATING`, throw_out), `spoilage.py` (lots, aging, `SPOILS`), `wounds.py` (a blow's wound through `harm.BLOWS`, the `dress` step, dress_wound, the owner's bandage through `care.CARED`), `knocks.py` (learning alone, heard through `steps.OBSERVERS` and the hooks above), `wonders.py` (what the tick marks as met, and hesitation through `meals.HOLDS`), and on the Talker's side `questions.py` (the `ask_wonders` chore, chips, yes and no through `teaching.REWORDS`, closing through `teaching.TAUGHT_HOOKS` and the chat's "answer" question) and `wild_news.py` (Mind's moments and the inbox's news and danger). `lessons.py` learns the survival lessons' subjects, warnings and survival commands; `vitals.step_vitals` takes an `Ailing`; the tick settles the difficulty, runs the ailments, the cold night and the lots after each vitals step. Worldgen places the two plants in one new function in each port, checked by the regenerated fixture. The viewer gets a pure `frontend/src/survival/wild.ts` module. `backend/scripts/wild_gate.py` runs the gate's lives and checks the W1 criteria.
+**Architecture:** One low-level module, `backend/survival/wild.py`, holds the difficulty, the eleven lessons' table (with what the chat's parser needs of each), the gates (`unlocked`, `purpose_open`, `goal_open`, `fitting_open`), what a pet avoids eating (`avoided`) and the gentle pet's grant (`settle`, from the tick). It imports only memory, so any module may ask it whether a gate is open. The hazards are modules of their own that register into small hooks added to the modules they touch, as L5's did: `ailments.py` (the sickness and wound state, `Ailing` for the vitals step, cold nights and dawn, `DAWN`), `herbs.py` (take_herb, find_herb, gather_herbs, nibble), `meals.py` (a wild pet's meals through `purposes.MEALS`, its eating through `steps.EATING`, throw_out), `spoilage.py` (lots, aging, `SPOILS`), `wounds.py` (a blow's wound through `harm.BLOWS`, the `dress` step, dress_wound, the owner's bandage through `care.CARED`), `knocks.py` (learning alone, heard through `steps.OBSERVERS` and the hooks above), `wonders.py` (what the tick marks as met, and hesitation through `meals.HOLDS`), and on the Talker's side `questions.py` (the `ask_wonders` chore, chips, yes and no through `teaching.REWORDS`, closing through `teaching.TAUGHT_HOOKS` and the chat's "answer" question) and `wild_news.py` (Mind's moments and the inbox's news and danger). `lessons.py` learns the survival lessons' subjects, warnings and survival commands; `vitals.step_vitals` takes an `Ailing`; the tick settles the difficulty, runs the ailments, the cold night and the lots after each vitals step. Worldgen places the two plants in one new function in each port, checked by the regenerated fixture. The viewer gets a pure `frontend/src/survival/wild.ts` module. `backend/scripts/wild_gate.py` runs the gate's lives and checks the W1 criteria.
 
 **Tech Stack:** Python 3.10+ (3.12 in Docker), FastAPI, SQLite, `unittest`; React 19, three.js 0.184, @react-three/fiber 9, Vite 8, TypeScript 6, Vitest 5.
 
-**Spec:** `docs/superpowers/specs/2026-09-27-wild-world-design.md` (`2060a3e`): the section "W1: A newborn in a wild world" and the W1 parts of "Resolutions" (1 to 12, 23 to 28), "Error handling and testing", "Balance gates" ("The harness", "W1 gate", "The existing sims") and "Risks" (1 to 5, 12). It builds on everything on the branch: the survival core, L1 to L5 with the L5 final fix wave (`e021753`), Bond and Mind and Making. W2 and W3 are planned later; this plan leaves every hook they need (`wild.GRANTED`, the survival table, `ailments.AILMENTS`, the gate script's `--check`).
+**Spec:** `docs/superpowers/specs/2026-09-27-wild-world-design.md` (`2060a3e`, amended with this plan's revision by resolution 29: sunleaf and bandages come only from the owner, the knock table, and gate criteria 6′, 7′ and 10′): the section "W1: A newborn in a wild world" and the W1 parts of "Resolutions" (1 to 12, 23 to 29), "Error handling and testing", "Balance gates" ("The harness", "W1 gate", "The existing sims") and "Risks" (1 to 5, 12). It builds on everything on the branch: the survival core, L1 to L5 with the L5 final fix wave (`e021753`), Bond and Mind and Making. W2 and W3 are planned later; this plan leaves every hook they need (`wild.GRANTED`, the survival table, `ailments.AILMENTS`, the gate script's `--check`).
 
 ## Global Constraints
 
@@ -20,10 +20,10 @@
 - React runs in StrictMode. `eslint-plugin-react-hooks` 7 is on: no `Date.now()` or ref reads during render, never mutate props, state or hook arguments, no synchronous `setState` in an effect body.
 - Vitest runs in the `node` environment and only picks up `src/**/*.test.ts`. Viewer logic that needs tests lives in `.ts` modules, not in components. No stylesheet changes: Tailwind classes inline, as the HUD has them.
 - SQLite: WAL, `BEGIN IMMEDIATE` for writes (`SurvivalWorld.transaction()`), `busy_timeout`. W1 adds no table and no column (spec resolution 23). Its state has a default wherever it is read, so older saves and archives read as empty: `state["difficulty"]`, `state["wild"]` (`knocks`, `wonders`, `shun`, `night_cold`, `floor_nights`, `granted`, and the night's own counters), `state["ailments"]` (`sick`, `wound`), `state["lots"]` and `state["chest_lots"]`. The lessons live in `memory_knowledge`, the questions in `mimo_inbox`. Read-only GETs never write: `/api/mimo`'s `difficulty`, `survival`, `ailments` and the inbox's `questions` only read.
-- **No model call inside the tick.** Knocks, sickness, spoilage, wounds and cold nights are rules in the tick; wonders are marked there and never posted. Every new hook is crash-guarded and logged once (`once.log_once`), a crash counting as nothing: `purposes.MEALS`, `steps.EATING`, `meals.HOLDS`, `harm.BLOWS`, `care.CARED`, `ailments.DAWN` and `FESTERS`, `spoilage.SPOILS`, `knocks.LEARNED`, the tick's `ailments.tend`, `tend_night` and `spoilage.age`, the brain's `meet_wonders` and the observers `observe_lots`, `sighted` and `after_step`. A crashing Talker chore rolls back alone and posts nothing; a crashing answer changes nothing (its own transaction).
+- **No model call inside the tick.** Knocks, sickness, spoilage, wounds and cold nights are rules in the tick; wonders are marked there and never posted. Every new hook is crash-guarded and logged once (`once.log_once`), a crash counting as nothing: `purposes.MEALS`, `steps.EATING`, `meals.HOLDS`, `harm.BLOWS`, `care.CARED`, `ailments.DAWN`, `spoilage.SPOILS`, `knocks.LEARNED`, the tick's `ailments.tend`, `tend_night` and `spoilage.age`, the brain's `meet_wonders` and the observers `observe_lots`, `sighted` and `after_step`. A crashing Talker chore rolls back alone and posts nothing; a crashing answer changes nothing (its own transaction).
 - **A gentle world is today's game.** Every gate reads open for a gentle pet, no hazard ever comes to it, it never asks, and it only ever avoids the nightberries it knows from the start. The tick's grant writes memory rows and nothing else. Proved in the dry run: a gentle seed's 3-day event log is the base's, event for event.
 - **Worldgen parity.** `backend/services/worldgen.py` and `frontend/src/engine/worldgen.ts` change together, in Task 4 only, with the same constants and channels (160, 161). No plant moves and the legacy clearing keeps every block. Regenerate the fixture after Task 4 (`python3 -m backend.scripts.worldgen_fixture`). The three new blocks go at the end of `shared/blocks.json`, after L5's `warding_lantern`: `nightberry_bush`, `nightberry_bush_ripe`, `sunleaf`. Items that are not blocks: `nightberries`, `bandage`, `spoiled_food` (and `sunleaf`, the block's own drop).
-- Values from the spec (W1): a life's difficulty `"wild"` or `"gentle"`, set at hatch; the API's default wild and `hatch()`'s gentle; a world with no key reads gentle and its first tick writes it and grants every survival lesson (fact `"lesson"` and a second fact `"born_knowing"`), silently, only in a living pet's tick, and born-knowing lessons stay out of every tally of lessons learned; eleven survival lessons of kind `"survival"` named `wild:<name>`, each fact one sentence with no negation word, one side of a pair; the instinct foods (apples, carrots, bread, brown mushrooms, fish and meat) and the untried ones (red berries, red mushrooms, sunleaf); the eat-now reflex under 15; nightberry bushes (3 nightberries a pick, ripe again in 2 game days) seen as "red berries" until `wild:nightberries`, a meal of red berries eating nightberries at their share, a seeded roll a serving; a nightberry or red mushroom 5 health and a tummy ache; after a sickness from the red berries the group shunned `SHUN` = 2 game days unless the knock taught the difference; one sickness at a time, the longer kept; a tummy ache 12 game minutes, 1 health per 45 game s (tuned to 25: resolution 20), hunger ×1.5; a chill 25 game minutes, 1 health per 60 game s (tuned to 30), energy ×1.5, twice as fast resting or asleep at warmth 60 or more; no health regenerating while sick, mood's target 15 lower; one sunleaf ending any sickness; `take_herb` at priority 45; `find_herb` at 75 while a sunleaf lies within 64 blocks; a raw meal rolling once at its highest chance (raw chicken 0.35; beef, mutton, rabbit 0.2; fish 0.1; tuned to 0.5, 0.35 and 0.2: resolution 20); the cause `"sickness"` after starvation in `vitals.CAUSE_ORDER`; shelf lives (raw meat and fish 1.5 game days; berries, nightberries and brown mushrooms 2; cooked meat and fish 4; apples and carrots 5; bread 6), half as fast in a chest, `LOTS` = 3 lots of `[count, wear]`, food within a game minute of the newest lot joining it, a fourth merging into the oldest, the most worn moved first, a lot at wear 1 turning into that many `spoiled_food` (4 hunger, a tummy ache 0.6); `wild:keeping` lifting cook by 20 past wear 0.5 and storing food beyond a day's worth; a creature's blow of 2 or more after armor opening a wound with chance 0.35, one at a time, no healing while open, festering after 10 undressed game minutes (1 health per 90 game s, tuned to 45: resolution 20; mood's target 10 lower), healing a game day after it opened, closing 5 game minutes after it is dressed (a bandage, 1 wool making 2 with no station, or a sunleaf, or the owner's care bandage); `CHILL_BELOW` = 35, a chill at dawn with chance 0.6 after 5 game minutes under it, for sure after 15 or any freezing; knocks at `first + step × knocks so far` times `0.8 + curiosity / 250`, the spec's table of knocks and sure knocks, a notable `figured` event; ten wonders with their words and chips, `OPEN_MOST` = 3 open questions, `ASK_GAP` = 5 game minutes, each wonder once a life, a seeded shuffle of the chips, `HESITATE` = 8 game minutes; chips through `POST /api/mimo/inbox/{id}/answer` with `{"choice": n}` (404, 400, 409 as Bond's naming answer); yes-words and no-words binding to the newest open yes-or-no question; wrong answers doubted ("Hmm, I'm not sure that's right. I'll be careful."); the teaching table; nightberries on berries' ground one per 150 bare columns (channel 160) and sunleaf on the green lands' grass, moss or mud one per 180 (channel 161), never in the legacy clearing, both replaceable; the events, Mind moments, inbox news and danger of "Moments, news and voice"; the viewer's textures, pet, HUD, inbox, journal and memorial.
+- Values from the spec (W1): a life's difficulty `"wild"` or `"gentle"`, set at hatch; the API's default wild and `hatch()`'s gentle; a world with no key reads gentle and its first tick writes it and grants every survival lesson (fact `"lesson"` and a second fact `"born_knowing"`), silently, only in a living pet's tick, and born-knowing lessons stay out of every tally of lessons learned; eleven survival lessons of kind `"survival"` named `wild:<name>`, each fact one sentence with no negation word, one side of a pair; the instinct foods (apples, carrots, bread, brown mushrooms, fish and meat) and the untried ones (red berries, red mushrooms, sunleaf); the eat-now reflex under 15; nightberry bushes (3 nightberries a pick, ripe again in 2 game days) seen as "red berries" until `wild:nightberries`, a meal of red berries eating nightberries at their share, a seeded roll a serving; a nightberry or red mushroom 5 health and a tummy ache; after a sickness from the red berries the group shunned `SHUN` = 2 game days unless the knock taught the difference; one sickness at a time, the longer kept; a tummy ache 12 game minutes, 1 health per 45 game s (tuned to 20: resolution 20), hunger ×1.5; a chill 25 game minutes, 1 health per 60 game s (tuned to 30), energy ×1.5, twice as fast resting or asleep at warmth 60 or more; no health regenerating while sick, mood's target 15 lower; one sunleaf ending any sickness; `take_herb` at priority 45; `find_herb` at 75 while a sunleaf lies within 64 blocks; a raw meal rolling once at its highest chance (raw chicken 0.35; beef, mutton, rabbit 0.2; fish 0.1; tuned to 0.5, 0.35 and 0.2: resolution 20); the cause `"sickness"` after starvation in `vitals.CAUSE_ORDER`; shelf lives (raw meat and fish 1.5 game days; berries, nightberries and brown mushrooms 2; cooked meat and fish 4; apples and carrots 5; bread 6), half as fast in a chest, `LOTS` = 3 lots of `[count, wear]`, food within a game minute of the newest lot joining it, a fourth merging into the oldest, the most worn moved first, a lot at wear 1 turning into that many `spoiled_food` (4 hunger, a tummy ache 0.6); `wild:keeping` lifting cook by 20 past wear 0.5 and storing food beyond a day's worth; a creature's blow of 2 or more after armor opening a wound with chance 0.35, one at a time, no healing while open, festering after 10 undressed game minutes (1 health per 90 game s, tuned to 40: resolution 20; mood's target 10 lower), healing a game day after it opened, closing 5 game minutes after it is dressed (a bandage, 1 wool making 2 with no station, or a sunleaf, or the owner's care bandage); `CHILL_BELOW` = 35, a chill at dawn with chance 0.6 after 5 game minutes under it, for sure after 15 or any freezing; knocks at `first + step × knocks so far` times `0.8 + curiosity / 250`, the spec's table of knocks and sure knocks for nine lessons (`wild:sunleaf` and `wild:bandage` are never learned alone: spec resolution 29), a notable `figured` event; ten wonders with their words and chips, `OPEN_MOST` = 3 open questions, `ASK_GAP` = 5 game minutes, each wonder once a life, a seeded shuffle of the chips, `HESITATE` = 8 game minutes; chips through `POST /api/mimo/inbox/{id}/answer` with `{"choice": n}` (404, 400, 409 as Bond's naming answer); yes-words and no-words binding to the newest open yes-or-no question; wrong answers doubted ("Hmm, I'm not sure that's right. I'll be careful."); the teaching table; nightberries on berries' ground one per 150 bare columns (channel 160) and sunleaf on the green lands' grass, moss or mud one per 180 (channel 161), never in the legacy clearing, both replaceable; the events, Mind moments, inbox news and danger of "Moments, news and voice"; the viewer's textures, pet, HUD, inbox, journal and memorial.
 - Performance: W1 adds O(items carried) for lots and O(1) for ailments per vitals step; chests' lots age once a game minute; the tick's p99 stays in the low milliseconds.
 - Never run `docker` or `docker compose` in the numbered code tasks. Task 14's manual check is the controller's, on the demo stack (`mimo-l3demo-api` on :8011 and `mimo-l3demo-worker`, volume `mimo_l3demo`, the viewer on :3000); never touch, mount or migrate the owner's real volume `pets_mimo_data` or the real stack (`pets-api-1`, `pets-mimo-worker-1`), and never touch port 5173. Never open, read or print `.env`, `TYPESAFE_API_KEY`, `MIMO_MODEL_API_KEY`, `OPENAI_API_KEY` or any other key; the owner watches the viewer in the Browser pane, so no task drives it.
 - `docs/` is in `.gitignore`. Add files under `docs/` with `git add -f`.
@@ -31,56 +31,57 @@
 
 ## Commands
 
-- Backend tests, from the repo root: `python3 -m unittest discover -s backend/tests` (`Ran 1819 tests` run at `5da9fba`: `OK (skipped=5)`; `Ran 1915 tests` `OK (skipped=6)` after Task 13)
+- Backend tests, from the repo root: `python3 -m unittest discover -s backend/tests` (`Ran 1828 tests` run at `e021753`: `OK (skipped=5)`; `Ran 1926 tests` `OK (skipped=6)` after Task 13)
 - One backend test file: `python3 -m unittest discover -s backend/tests -p "test_survival_meals.py" -v`
 - The slow headless runs: `MIMO_SLOW_TESTS=1 python3 -m unittest discover -s backend/tests -p "test_survival_sim.py"`, the same with `-p "test_survival_days.py"`, `-p "test_survival_expedition_run.py"`, `-p "test_survival_making_route.py"`, `-p "test_survival_frontier_run.py"`, `-p "test_survival_away.py"`, and (from Task 13) `-p "test_survival_wild_run.py"`
 - The worldgen fixture: `python3 -m backend.scripts.worldgen_fixture` (rewrites `shared/worldgen-fixture.json`; about 15 seconds); the two parity suites: `python3 -m unittest discover -s backend/tests -p "test_worldgen*.py"` and `cd frontend && npx vitest run src/engine/worldgen.test.ts src/survival/overheadMap.test.ts`
 - The gate (from Task 13): `python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 6 --out DIR`, then `--days 30 --conditions liar --parallel 6 --out DIR`, then `python3 -m backend.scripts.wild_gate --check W1 DIR`
-- Frontend tests: `cd frontend && npm test` (366 pass at `5da9fba`; 373 after Task 12)
+- Frontend tests: `cd frontend && npm test` (366 pass at `e021753`; 373 after Task 12)
 - One frontend test file: `cd frontend && npx vitest run src/survival/wild.test.ts`
 - Frontend build (type check + bundle): `cd frontend && npm run build`
 - Lint touched files: `cd frontend && npx eslint src/survival src/engine` (prints nothing when clean)
 
 Each task says how many tests it adds. If the starting totals differ (another fix wave lands first), expect the same increases on top of them.
 
-Transcription: every edit is a fenced block, either a whole new file ("Create `path`:") or a "replace: … with: …" pair in a named file ("In `path`, replace:", then "and replace:" for more pairs in the same file). Old texts are kept short and unique in their file at the moment they are applied, so each task still applies when a neighbouring line changes. The fixture `shared/worldgen-fixture.json` is never transcribed: Task 4 regenerates it with the script. The dry run applied each task with the controller's apply script (`.superpowers/sdd/2026-09-26-making/apply_plan.py`) to a `git archive` copy of `5da9fba`, regenerated the fixture after Task 4, and ran the task's checks after each one; see resolution 1 and "Dry-run measurements".
+Transcription: every edit is a fenced block, either a whole new file ("Create `path`:") or a "replace: … with: …" pair in a named file ("In `path`, replace:", then "and replace:" for more pairs in the same file). Old texts are kept short and unique in their file at the moment they are applied, so each task still applies when a neighbouring line changes. The fixture `shared/worldgen-fixture.json` is never transcribed: Task 4 regenerates it with the script. The dry run applied each task with the controller's apply script (`.superpowers/sdd/2026-09-26-making/apply_plan.py`) to a `git archive` copy of `e021753`, regenerated the fixture after Task 4, and ran the task's checks after each one; see resolution 1 and "Dry-run measurements".
 
 ## Plan-level resolutions
 
 The spec leaves "the plan decides how" in several places. These are the details; every task follows them and the controller ledgers them.
 
-1. **Base, order and dry run.** `e021753`: the branch after the L5 final fix wave (a furnace for every smelting chain, riches come home, loot leaves the arms, the fence and turn_back reflexes, loot kept only for a craft Mimo can make now, no ore past the readiness limit, no chest with nothing to spare as a target), on top of the spec's `2060a3e`. The plan was written on `2060a3e` and rebased as that wave landed while it was written (`94dad38`, `41a919b`, `5da9fba`, whose code is `41a919b`'s, then `e021753`): the only anchor that moved was the reflex order in `test_survival_reflexes.py` (Task 5 now puts `take_herb` beside L5's `fence` at 45); everything else applied as it was. Task 4 also changes one line of L5's `test_survival_frontier_gear.py`, whose last block is no longer the warding lantern once the three plants follow it in `shared/blocks.json`. The brief's order is kept, with two moves so each task is testable on its own: Mind's teaching of the lessons (the parser) comes with the lessons themselves (Task 2), since registering them in `journal.LESSONS` without it would teach "sticks make torches" wrongly, and the plants come before the hazards (Task 4), since the lookalike hazard picks the new blocks. Dry run: each task applied in order with the apply script to a `git archive 5da9fba` copy (node_modules linked), the fixture regenerated after Task 4, the task's checks run after each (the whole backend suite every time; the frontend's tests, build and eslint after Tasks 4 and 12); then, on `e021753`, the whole plan again with every check, the six slow sims and the wild run, a gentle seed's event log against the base's; and the gate; see "Dry-run measurements".
-2. **One low-level module, then hooks** (Task 1). `wild.py` imports only `memory`, so every module may ask it a gate; nothing it holds needs the journal. The hazards register into hooks added to the modules they touch (`purposes.MEALS`, `steps.EATING` and `HERBS`, `meals.HOLDS`, `harm.BLOWS`, `care.CARED`, `ailments.DAWN` and `FESTERS`, `spoilage.SPOILS`, `teaching.REWORDS` and `TAUGHT_HOOKS`, `knocks.LEARNED`), each guarded and logged once. The spec's registry names (`wild.KNOCKS`, `wild.WONDERS`, `wild.AILMENTS`, `wild.PERISHABLE`) live beside the code that uses them: `knocks.KNOCKS`, `wonders.WONDERS`, `ailments.AILMENTS`, `spoilage.PERISHABLE`.
+1. **Base, order and dry run.** `e021753`: the branch after the L5 final fix wave (a furnace for every smelting chain, riches come home, loot leaves the arms, the fence and turn_back reflexes, loot kept only for a craft Mimo can make now, no ore past the readiness limit, no chest with nothing to spare as a target), on top of the spec's `2060a3e`. The plan was written on `2060a3e` and rebased as that wave landed while it was written (`94dad38`, `41a919b`, `5da9fba`, then `e021753`): the only anchor that moved was the reflex order in `test_survival_reflexes.py` (Task 5 now puts `take_herb` beside L5's `fence` at 45); everything else applied as it was. Task 4 also changes one line of L5's `test_survival_frontier_gear.py`, whose last block is no longer the warding lantern once the three plants follow it in `shared/blocks.json`. The brief's order is kept, with two moves so each task is testable on its own: Mind's teaching of the lessons (the parser) comes with the lessons themselves (Task 2), since registering them in `journal.LESSONS` without it would teach "sticks make torches" wrongly, and the plants come before the hazards (Task 4), since the lookalike hazard picks the new blocks. Dry run: each task applied in order with the apply script to a `git archive e021753` copy (node_modules linked), the fixture regenerated after Task 4, the task's checks run after each (the whole backend suite every time; the frontend's tests, build and eslint after Tasks 4 and 12), then the six slow sims and the wild run, a gentle seed's event log against the base's, and the gate; see "Dry-run measurements". The plan was revised after its first dry run by the controller's ruling (spec resolution 29, this plan's resolution 21), and every measure here is the revised plan's.
+2. **One low-level module, then hooks** (Task 1). `wild.py` imports only `memory`, so every module may ask it a gate; nothing it holds needs the journal. The hazards register into hooks added to the modules they touch (`purposes.MEALS`, `steps.EATING` and `HERBS`, `meals.HOLDS`, `harm.BLOWS`, `care.CARED`, `ailments.DAWN`, `spoilage.SPOILS`, `teaching.REWORDS` and `TAUGHT_HOOKS`, `knocks.LEARNED`), each guarded and logged once. The spec's registry names (`wild.KNOCKS`, `wild.WONDERS`, `wild.AILMENTS`, `wild.PERISHABLE`) live beside the code that uses them: `knocks.KNOCKS`, `wonders.WONDERS`, `ailments.AILMENTS`, `spoilage.PERISHABLE`.
 3. **Difficulty and the grant** (Task 1). `new_survival_state` writes `"difficulty"` (gentle unless told), `hatch(..., difficulty="gentle")` refuses anything else, and `POST /api/lives/hatch` takes an optional body `{"difficulty": "wild" | "gentle"}` defaulting to wild (no body: wild). `wild.settle`, first thing in each tick transaction of a living pet, writes `"gentle"` for a world with no key and grants a gentle pet the survival lessons once (`state["wild"]["granted"]` = 1, W1's version; W2 and W3 raise it and grant theirs the same way): two memory rows each, `"lesson"` and `"born_knowing"`, and nothing else: no event, no discovery, no memory, no choice, no journal line. `advance_world` still returns before any write for a dead world, so an archive is never written.
 4. **Born-knowing lessons count for nothing** (Task 1). `Situation.lessons`, `journal.learned` (the journal's list and its payload's newest), the replies' "I learned something new" line and Mind's "I have learned 20 things" count all leave them out, so investigate's and tinker's facts, the journal payload and the thoughts read as before. The gates never need them: `unlocked` is open for any gentle pet whatever it knows.
 5. **The survival lessons in the journal, listed apart** (Tasks 1, 2). They are `journal.LESSONS` entries of kind `"survival"`, so Mind's teaching, "from you" and "You were right" work unchanged, and the colon keeps them out of investigate. `/api/mimo` lists them apart, known or not, as `survival` (`{name, words, fact, known, source}`, source `"from_you"`, `"figured"` or `"from_start"`), and the journal's own list (`journal`) leaves them out, so the viewer's Survival section shows each once, with "?" for the unknown ones. Every journal entry gains `source` (Mind's `from_you` stays). The memorial's summary carries the life's `survival` list too.
 6. **The parser** (Task 2). Each survival lesson names its own subjects (`Survival.subjects`: "red berries"; "nightberries", "purple berries", "dark berries"; "red mushrooms"; "sunleaf", "yellow herb"; "bandage"; "campfire"; "meat", "cooked meat", "cooked fish"; "food chest", "spoiled food"; "dark creatures"; "shelter"; "bed") instead of the words of its name and head word: "light" as a subject would widen to every "night" and "day", and "torch" would have doubted "sticks make torches". `named` reads the part after `wild:`. Each lesson also means a few words its fact does not say (`means`: "safe", "poison" and "eat" for the foods, so "Sunleaf is poison." is a claim to weigh), and the shelter's fact stands for warmth too (`sides`: "keeps out the cold" is not "keeps you cold"). TEACH_SYNONYMS gains purple/dark/night, herb/sunleaf, bandage/wrap, campfire/fire, torch/light, shelter/house/home, poison/poisonous/toxic, cook/cooked/cooking, festering/fester, sickness/sick/ill. OPPOSITES gains safe, fine, edible, cure, clean and heal against poison, poisonous, toxic and bad; raw against cooked; away against bring and attract; warm against cold. A warning ("don't eat", "do not eat", "never eat", "avoid", with or without "eat") followed by a poison lesson's subject reads as "<subject> are poison.", and one followed by raw meat or fish as "Cooked meat and fish are safe to eat." (`lessons.warned`, before the question check, since "Do not" opens like a question). A command still teaches nothing and doubts nothing, but it may teach a survival lesson whose words it fits with nothing wrong ("Cook your meat on a fire."); B2 still reads it as a request (`wants`).
 7. **The gates** (Task 3). `purposes.is_valid` asks `wild.purpose_open` first (build_shelter, improve_home and camp need `wild:shelter`, light_up `wild:light`), `goals.is_open` asks `goal_open` (first_shelter needs shelter, safe_yard light: every other goal waits for first_shelter anyway), and `building.fittings_due` and the warm_up reflex ask `fitting_open` (a bed needs `wild:bed`, a campfire `wild:fire`, a door `wild:shelter`). The recipes are gated where they are planned: cook cooks raw food only with `wild:cooking` (bread is no lesson) and makes or puts down a campfire only with `wild:fire` (a carried furnace will do); the camp makes a campfire only with fire and sets torches only with light; the expedition packs a campfire only with fire and torches only with light, and goes without otherwise. The craft step itself is not gated: the owner may still craft for Mimo.
 8. **The plants** (Task 4). `worldgen.wild_herb`, called in `plant_stack` only where tall grass's roll failed and nothing else grew, so no plant moves: a ripe nightberry bush on the berry bush's ground (meadow and forest-edge grass) one time in 150 (channel 160), else a sunleaf on grass, moss or mud in the meadow, forest, birch forest, taiga and swamp one time in 180 (channel 161); never within `LEGACY_RADIUS`. Measured over 160 × 160 columns of a generated world: 393 nightberry bushes to 682 berry bushes (0.58, about two for three), 461 sunleaf. Both blocks and the unripe bush are cutout plants, `replaceable` like tall grass. Picking a ripe bush gives 3 nightberries and leaves `nightberry_bush`, ripe again after `BERRY_REGROW`; a picked sunleaf comes back in its chunk like a mushroom, on its own ground, one a chunk a game day and at most 2. The fixture samples 6 columns of each (43,588 cells, was 43,540). The viewer paints a speckled bush (dark purple berries, a pale speck beside each) and a low rosette.
-9. **Sickness** (Task 5). `ailments.fall_sick` keeps one sickness, the longer; `ailing` turns it into a `vitals.Ailing` (drain, hunger and energy rates, no healing, mood) the tick passes to `step_vitals`, whose damage map gains `"sickness"` (0 for a gentle pet, so its numbers are unchanged to the last bit); `tend` runs its time after each vitals step, a chill twice as fast while not working at warmth 60 or more. A sunleaf eaten (`steps.HERBS`, eaten as medicine and never as a meal) ends any sickness: "Pip ate sunleaf and felt better." (a `cured` event). The instinct's nibble is rolled once, when a sickness begins (`NIBBLE_CHANCE` 0.4, channel 200), so a sick pet that does not know sunleaf either wants the plant within 16 blocks all through that sickness or not at all. `gather_herbs` (52, a need) carries up to 2 once Mimo knows sunleaf. The death reads "Pip fell sick and never got better on day 9.".
-10. **Meals** (Task 6). `purposes.meal_of` asks `MEALS` first, and the eat purpose (valid when a meal is non-empty, which for a gentle pet is exactly when it carries food) and the eat_now reflex both use it. A wild meal eats what it trusts first (familiar food and known-safe berries), tastes an untried food one serving at a time and only when starving or when hunger is under 50 with nothing it trusts and nothing holding it back, never eats sunleaf or spoiled food as a meal (spoiled food only when nothing else is left, hungry, without `wild:keeping`), and, knowing `wild:cooking`, eats raw food only when starving (a liar cannot make it skip cooking; resolution 6 of the spec). The red berries' share is rolled at plan time, a serving at a time with the counts left (channel 203). The meal's risk rides on its first raw serving and the running eat step carries it (`start_eat`), rolled once when it is eaten (channel 201). A food that made Mimo sick is not eaten again in that meal: `sick_from` drops the rest of its servings from the queue (of the whole group, for the red berries), so a meal of red berries ends at its first nightberry. `Situation.poisons` adds `wild.avoided`: for a gentle pet the nightberries it knows from the start (so it never picks or eats one, and its patches and finds never count them), for a wild pet the nightberries and red mushrooms it knows and the red berries while shunned. Learning's patches and exploring's finds read the same list (`wild.poisons_known`). A wild pet never learns "poisonous" the M4 way; its knocks teach it. Food a full pair of arms leaves behind is eaten on the spot only when it carries no risk at all (`wild.SAFE`). `throw_out` (58, a need) drops the nightberries and red mushrooms it knows (and, from Task 7, spoiled food once it knows keeping).
+9. **Sickness** (Task 5). `ailments.fall_sick` keeps one sickness, the longer; `ailing` turns it into a `vitals.Ailing` (drain, hunger and energy rates, no healing, mood) the tick passes to `step_vitals`, whose damage map gains `"sickness"` (0 for a gentle pet, so its numbers are unchanged to the last bit); `tend` runs its time after each vitals step, a chill twice as fast while not working at warmth 60 or more. A sunleaf eaten (`steps.HERBS`, eaten as medicine and never as a meal) ends any sickness: "Pip ate sunleaf and felt better." (a `cured` event). The instinct's nibble is rolled once, when a sickness begins (`NIBBLE_CHANCE` 0.4, channel 200), so a sick pet that does not know sunleaf either wants the plant within 16 blocks all through that sickness or not at all; the nibble cures that sickness and teaches nothing (resolution 21). `gather_herbs` (52, a need) carries up to 2 once Mimo knows sunleaf. The death reads "Pip fell sick and never got better on day 9.".
+10. **Meals** (Task 6). `purposes.meal_of` asks `MEALS` first, and the eat purpose (valid when a meal is non-empty, which for a gentle pet is exactly when it carries food) and the eat_now reflex both use it. A wild meal eats what it trusts first (familiar food and known-safe berries), tastes an untried food one serving at a time and only when starving or when hunger is under 50 with nothing it trusts and nothing holding it back, never eats sunleaf or spoiled food as a meal (spoiled food only when nothing else is left, hungry, without `wild:keeping`), and, knowing `wild:cooking`, eats raw food only when starving (a liar cannot make it skip cooking; resolution 6 of the spec). The red berries' share is rolled at plan time, a serving at a time with the counts left (channel 203). The meal's risk rides on its first raw serving and the running eat step carries it (`start_eat`), rolled once when it is eaten (channel 201). A food that made Mimo sick is not eaten again in that meal: `sick_from` drops the rest of its servings from the queue (of the whole group, for the red berries), so a meal of red berries ends at its first nightberry. `Situation.poisons` adds `wild.avoided`: for a gentle pet the nightberries it knows from the start (so it never picks or eats one, and its patches and finds never count them), for a wild pet the nightberries and red mushrooms it knows and the red berries while shunned. Learning's patches and exploring's finds read the same list (`wild.poisons_known`). A wild pet never learns "poisonous" the M4 way; its knocks teach it. Food a full pair of arms leaves behind is eaten on the spot only when it carries no risk at all (`wild.SAFE`), or, raw, when Mimo is starving, with the raw meal's roll once (`meals.eat_raw_left`): without that, a starving wild pet whose arms were full hunted again and again, left every piece of meat behind and starved (two untaught deaths in the re-run gate). `throw_out` (58, a need) drops the nightberries and red mushrooms it knows (and, from Task 7, spoiled food once it knows keeping).
 11. **Lots** (Task 7). A chest's lots are kept beside its contents in their own key, `state["chest_lots"]["x,y,z"]`, because a list inside a chest's own dict would read as an item to every chest reader. Food added joins the newest lot when their wear is within a game minute's, else starts a lot; a fourth merges into the oldest. `settle_lots` repairs every lot toward the counts after each vitals step and each finished step (new food fresh, food gone from the most worn), so a path that moves food without a step (the owner's help, the arms' overflow, crafting and cooking, a chest mined) never leaves them out of step, and `observe_lots` carries a store's or take's lots across first. The tick ages Mimo's lots each vitals step and its chests' once a game minute; a spoiled lot is a routine `spoiled` event ("Pip's raw beef went bad."). Without `wild:keeping` a wild pet keeps its spare food on it (`storage.spare_food` is empty); `foods()` never counts spoiled food as food. Food that spoils while Mimo is eating it fails the eat step, as missing food always did (the `EATING` hook lets a `ValueError` through instead of logging it).
-12. **Wounds** (Task 8). `harm.hurt_pet` runs `BLOWS` after each blow; `wounds.cut` opens one wound on 2 or more health lost (channel 204): "A skitter cut Pip.". The `dress` step (2 game s) takes a bandage or a sunleaf; `dress_wound` (76, a need) makes a bandage from wool first when it must. The owner's care bandage dresses the wound through `care.CARED`. A wound's `age` counts game seconds in the tick, so its festering, healing and closing need no clock. A festering wound's drain is the cause `"sickness"` too.
+12. **Wounds** (Task 8). `harm.hurt_pet` runs `BLOWS` after each blow; `wounds.cut` opens one wound on 2 or more health lost (channel 204): "A skitter cut Pip.". The `dress` step (2 game s) takes a bandage or a sunleaf; `dress_wound` (76, a need) makes a bandage from wool first when it must. The owner's care bandage dresses the wound through `care.CARED`. An untaught pet knows neither the bandage nor sunleaf (resolution 21), so its wound festers until it heals by itself unless the owner dresses it. A wound's `age` counts game seconds in the tick, so its festering, healing and closing need no clock. A festering wound's drain is the cause `"sickness"` too.
 13. **Cold nights** (Task 8). `ailments.tend_night`, after each vitals step of a wild pet: game seconds under 35 at night, any freezing, and time asleep on the floor of a sheltered spot (activity `sleeping`, sheltered), each counted in `state["wild"]`; at the step that crosses into dawn a chill is rolled (channel 205; a routine `chill` event "Pip caught a chill in the night."), a night of 5 game minutes or more asleep on the floor counts in `floor_nights`, and `DAWN` hears `{cold, froze, chill, blows, floor}`. Two routine events at dawn show two lessons true: "Pip slept soundly in its bed." (`rested`, 5 game minutes asleep in a bed) and "Pip spent a quiet night at home." (`safe_night`, no blow that night and within 8 blocks of the home it built).
-14. **Knocks** (Task 9). As the spec's table, heard where they happen (eat and smelt steps through `steps.OBSERVERS`; blows through `harm.BLOWS`; nights through `ailments.DAWN`; a festering wound through `FESTERS`; spoiled food through `SPOILS`). A lesson worked out is learned as the journal learns, with memory's second fact `"figured"`, a notable `figured` event, a discovery for curiosity (never below `curiosity.GROUND_FLOOR`, as `learn_lesson`), a new choice, and the journal line "I worked it out myself: …". Knowing the nightberries lifts the red berries' shun at once. Each lesson rolls on its own channel (206 + its place in the table). "Stands within 8 blocks of a fire it did not make" is W2's and W3's and is not wired yet.
+14. **Knocks** (Task 9). As the spec's table, heard where they happen (eat and smelt steps through `steps.OBSERVERS`; blows through `harm.BLOWS`; nights through `ailments.DAWN`; spoiled food through `SPOILS`), for nine lessons: `knocks.OWNER_ONLY` (sunleaf, bandage) are never worked out (resolution 21). A lesson worked out is learned as the journal learns, with memory's second fact `"figured"`, a notable `figured` event, a discovery for curiosity (never below `curiosity.GROUND_FLOOR`, as `learn_lesson`), a new choice, and the journal line "I worked it out myself: …". Knowing the nightberries lifts the red berries' shun at once. Each lesson rolls on its own channel (206 + its place in the table). "Stands within 8 blocks of a fire it did not make" is W2's and W3's and is not wired yet.
 15. **Wonders** (Task 10). The tick marks them met (`wonders.meet` from `brain.notice_step`, and `sighted` after a walk); the food it met fills Mimo's words ("those berries", "raw beef", "A skitter", " north of home" from `exploring.compass`). A wonder is met whatever Mimo knows; it is asked only when some of its lessons are unknown. Each wonder has a false chip or, for the liar, a false claim for the chat (the doubted lines of the teaching table, and "Spoiled food is safe to eat." for keeping, which the table gives none). Hesitation (`meals.HOLDS`) holds a taste of an untried food while its wonder was asked less than `HESITATE` ago, or met and not asked while fewer than 3 are open; starving tastes at once.
 16. **Questions** (Task 10). The Talker's `ask_wonders` chore (after the mirrors) first closes as `"figured"` every open question whose lessons Mimo now knows, then asks the oldest wonder met within the caps. The chips' order is a seeded sort (channel 220) stored as `order`, so an answer's index maps back to the wonder's own chip and only the index is stored. `POST /api/mimo/inbox/{id}/answer` takes `{"text"}` or `{"choice"}` (exactly one; 400 otherwise). A taught chip teaches through `teaching.teach_lesson` (so "from you", the told memory and "You were right" follow) and says "Oh, <fact> Thank you for teaching me!"; a false one closes as doubted with "Hmm, I'm not sure that's right. I'll be careful."; one that teaches nothing closes as noted ("Okay. Thanks for telling me."). A bare yes or no is read through `teaching.REWORDS` as the newest open yes-or-no question's claim when the line names no lesson's subject; the chat's "answer" question (one option, never asked of a model) and its keeper close, as doubted and with the careful line, the bound question or the open questions about what a doubted claim names. Any lesson taught closes the questions it answers as taught (`teaching.TAUGHT_HOOKS`). `/api/mimo`'s inbox gains `questions` (`{id, at, text, chips, yes_no}`), oldest first.
 17. **Moments, news and voice** (Task 11). Mind's moments as the spec's table (`figured` a lesson), `asked` about the owner so it never reaches Luna; the inbox tells what Mimo worked out as news ("I worked it out myself: cooking makes meat safe.", kind `report`) and a festering wound, a chill or a sickness as danger, each kind at most once a game day. `cured`, `dressed`, `spoiled`, `asked`, `rested` and `safe_night` are routine events; `figured`, `wound`, `festering`, `chill` and `sick` are notable. `teaching.SEEN_BY` says which events show each survival lesson true (berries eaten, meat cooked, a campfire crafted, a cure or a dressing with sunleaf, a bandage, a shelter built and moved into, `rested`, `safe_night`); the other lessons keep their seeing kinds exactly. The voice table test's allowed things gain "worked it out" (its "it" is the lesson, not Mimo).
 18. **The viewer** (Task 12). A pure `wild.ts` (the ailment line, the badge, the questions' count, a closed question's words, the survival entries and the memorial's tally, the pet's tint, droop, hop, shiver, wrap, mark and "?" bubble), the chips as buttons in the inbox, "?" count beside the inbox button (it opens the inbox), the ailment line and the "Wild" badge on the HUD, a Survival section at the top of the journal, the memorial's line of lessons and its words for a death by sickness, the new purposes' and reflex's words, and the new items' colours. The pet's droop is a slight forward tilt (the pet model has no separate ears).
-19. **The gate script** (Task 13). `backend/scripts/wild_gate.py`, as the spec's harness: one life per process, the scripted owner through `talk.owner_says` and `questions.answer_question`, the liar, a summary per life, `--parallel`, `--check W1`. Sick minutes, near-death days and the health mean are sampled once a tick (a game minute); a life's health mean is over the time it lived. A life is born on day 1.0, so criterion 10's first 3 game days run to day 4.0 and a wonder met at the third dawn counts. Its unit test runs one short life of each kind with the `no_model` stub, and the slow one two 20-day lives of each.
-20. **Balance** (the dry run). The knobs moved in the spec's order, each measured on the six seeds' untaught lives (the first 20 game days of a 40-day gate, then 20-day lives; the taught pets were never sick more than 3 game minutes in any run). Before any move, with the spec's values: 40-day gate, untaught sick minutes 312 in all (199 by day 20), no near-death day, health mean 98.2 against the taught pets' 100.0. (a) Knock chances: not moved first, since the spec moves them up only when untaught pets die too often, and down would have slowed learning past criterion 9. (b) Raw-meal chances 0.35, 0.2 and 0.1 to **0.5, 0.35 and 0.2** (raw chicken; beef, mutton and rabbit; fish): sick minutes by day 20 199 to 190 (a raw sickness teaches cooking sooner), no near-death day; kept. (c) `CHILL_BELOW` 35 to 45, measured with (d): no change (190 to 189 sick minutes), because a sheltered pet's night warmth settles at 75 and an unsheltered one falls through 45 and 35 within 20 game seconds of each other; put back to **35**. (d) Sickness drains doubled: a tummy ache 1 health per 45 game s to **1 per 25** (29 health over its 12 minutes), a chill 1 per 60 to **1 per 30** (50 over 25 minutes), a festering wound 1 per 90 to **1 per 45**: by day 20 near-death days 0 to 2 and the health mean 96.8 to 93.9, no death; kept. (e) Tried after (d): knock chances two steps lower for cooking, keeping and nightberries (0.30, 0.25 and 0.30 to 0.20, 0.15 and 0.20): sick minutes 189 to 211 and a death on day 6.4 (seed 11, of sickness), nothing else moved; put back. The 150-day gate on the final numbers (with the meal fix of "Notes for the controller") passes 11 of its 14 rows (see "Dry-run measurements"): the taught pets all live (health means 99.8 to 100.0, sick at most 3 minutes, no near-death day, 6 of 6 lamps on levers, 7 machines as gentle's best), one untaught pet dies (seed 11, caught by a skitter on day 7 with a festering wound and a chill), every untaught pet alive on day 60 has worked out 8 or 9 lessons, the liar learns nothing and fares as the untaught pet, and gentle is clean. It fails 6 (untaught sick minutes 299 against the taught pets' 4, near-death days 1), 7 (health means 97.6 against 99.9) and 10 (seed 3 meets 4 wonders by day 4; its first cold night is on day 4.7). 6 and 7 are out of reach of the four knobs: an untaught pet works out 6 to 9 lessons within about three game weeks and is rarely sick after, and health comes back at 1 a game minute, so each sickness costs its health mean over 150 game days (9,000 game minutes) only about 0.07 points (a tummy ache at the doubled drain) to 0.2 (a chill); a 10-point gap would take 50 to 150 sicknesses a life, where the untaught pets had 2 to 12 (tummy aches and chills together). Raising the drains further kills sooner: the lower knocks of (e) already killed a pet on day 6 at the doubled drains. 10 hangs on one seed and on numbers the tuning order does not name (when the cold-night and hard-floor wonders are met). The controller decides with the owner whether the gate's criteria or the hazards change; the plan keeps the spec's criteria and these numbers.
+19. **The gate script** (Task 13). `backend/scripts/wild_gate.py`, as the spec's harness: one life per process, the scripted owner through `talk.owner_says` and `questions.answer_question`, the liar, a summary per life, `--parallel`, `--check W1`. Sick minutes, near-death days and the health mean are sampled once a tick (a game minute); a life's health mean is over the time it lived. A life is born on day 1.0, so criterion 10′'s first 3 game days run to day 4.0 and a wonder met at the third dawn counts, and criterion 6′'s first month is game days 1 to 30. The health lost to hazards is `state["wild"]["lost"]`, which `ailments.lose` counts: the drain of a sickness or a festering wound (after each vitals step, in `tend`) and a poison plant's 5 (in `eat_wild`); the gate samples it each game day. `check_w1` has a unit test on made-up summaries for 6′, 7′ and 10′. Its unit test runs one short life of each kind with the `no_model` stub, and the slow one two 20-day lives of each.
+20. **Balance** (the dry run). The knobs moved in the spec's order, twice: on the plan as first written, then on its revision (resolution 21). Each move was measured on the six seeds' untaught lives; the taught pets were never sick more than 3 game minutes in any run. **First written.** With the spec's values a 40-day gate gave untaught sick minutes 312 in all, no near-death day and a health mean of 98.2 against 100.0. Raw-meal chances 0.35, 0.2 and 0.1 went to **0.5, 0.35 and 0.2** (raw chicken; beef, mutton and rabbit; fish; kept); `CHILL_BELOW` 35 to 45 changed nothing (a sheltered pet's night warmth settles at 75, and an unsheltered one falls through 45 and 35 within 20 game seconds; put back to **35**); the drains were doubled (a tummy ache 1 health per 45 game s to 25, a chill 60 to **30**, a festering wound 90 to 45; kept); knock chances two steps lower killed a pet on day 6 and were put back. The 150-day gate on those numbers failed the first criteria 6, 7 and 10: an untaught pet worked out 6 to 9 lessons in about three game weeks, among them sunleaf (a nibble while sick taught it for sure), and was rarely sick after. The controller's ruling followed (resolution 21). **The revision.** With sunleaf and bandages owner-only and the first knock chances: 2 deaths (a skitter on day 7; starvation on day 117, the bug in (a)) and 2 near-death days, so 7′ at 4; every pet alive on day 60 knew exactly 8 lessons alone. (a) Knock chances two steps (0.10) lower: two pets alive on day 60 knew 6 and 7 lessons alone (criterion 9 fails); **one step (0.05) lower**: every pet knew 8 (kept). Both of that run's deaths were starvation, from a bug the revision exposed (resolution 10: a starving pet with full arms left all the meat it hunted behind); fixed, the same run gave 1 death and 4 near-death days, 7′ at 5. (b) Raw-meal chances two steps higher (0.6, 0.45, 0.3): 7′ fell to 1; put back. (c) `CHILL_BELOW`: not moved again. (d) The drains: a tummy ache 1 per 15 game s, a chill 1 per 20 and festering 1 per 36 killed 5 pets, four of them by day 31 (criterion 8 fails); 1 per 20, 1 per 25 and 1 per 40 killed 3 on days 9, 12 and 21 and left a pet with 7 lessons alone by day 60 (criterion 9 fails); **a tummy ache 1 per 20 (36 health a bout), a chill 1 per 30 as before (50) and festering 1 per 40 (75 over a day)**: 2 deaths (days 21 and 69) and 5 near-death days, 7′ at 7, with 8 and 9 passing; kept. The chill's drain is the one at its limit: one step more (1 per 25) is what killed three pets in their first three weeks. Final numbers: the knock chances of resolution 21, raw-meal chances 0.5, 0.35 and 0.2, `CHILL_BELOW` 35, a tummy ache 1 health per 20 game s, a chill 1 per 30, a festering wound 1 per 40. The gate on them is in "Dry-run measurements".
+21. **Sunleaf and bandages come only from the owner; the gate measures a newborn's first month and a life without the owner** (spec resolution 29: the controller's ruling on this plan's first dry run, `.superpowers/sdd/2026-09-27-wild-world-w1/replan-ruling.md`). `knocks.OWNER_ONLY = ("sunleaf", "bandage")`: `figure` refuses them and `knock` knows no chance for them, so the first plan's sure knock for a sunleaf eaten while sick and its knock for a wound festering while Mimo carries wool are gone, and with them the `ailments.FESTERS` hook, which nothing else heard. A nibble still cures that one sickness ("That's better. I feel well again.", no longer "Sunleaf really works."), and the wonders, their chips, the chat and Mind's teaching still teach both. The seven knock chances are one step (0.05) lower than first planned (nightberries 0.25, fire 0.15, cooking 0.25, keeping 0.20, light 0.10, shelter 0.25, bed 0.10; the steps unchanged); a second step lower left two untaught pets with 6 and 7 lessons alone by day 60 (criterion 9). The gate's new measure, the health lost to hazards, is `state["wild"]["lost"]` (resolution 19), and `check_w1` reads criteria 6′, 7′ and 10′ as the spec now words them; the others are unchanged. The measures are in resolution 20 and "Dry-run measurements".
 
 ## File Structure
 
 | Path | Status | Responsibility |
 |------|--------|----------------|
 | `backend/survival/wild.py` | Create | Difficulty, the eleven survival lessons (words, fact, what each unlocks, the parser's subjects), the gates, what a pet avoids eating, the gentle grant, the payload's `survival` |
-| `backend/survival/ailments.py` | Create | One sickness and one wound, `Ailing` for the vitals step, sunleaf's cure, cold nights and dawn (`DAWN`, `FESTERS`), the payload's `ailments` |
+| `backend/survival/ailments.py` | Create | One sickness and one wound, `Ailing` for the vitals step, sunleaf's cure, cold nights and dawn (`DAWN`), the health lost to hazards (`lose`), the payload's `ailments` |
 | `backend/survival/herbs.py` | Create | take_herb (reflex 45), find_herb (75), gather_herbs (52), the instinct's nibble (70) |
 | `backend/survival/meals.py` | Create | A wild pet's meals (`purposes.MEALS`), its eating (`steps.EATING`), the red berries' share, raw meals, shun, `HOLDS`, throw_out |
 | `backend/survival/spoilage.py` | Create | Lots in the arms and in each chest, aging, spoiling (`SPOILS`), `observe_lots`, keeping's help to cook and store |
 | `backend/survival/wounds.py` | Create | A blow's wound (`harm.BLOWS`), the `dress` step, dress_wound (76), the owner's bandage (`care.CARED`) |
-| `backend/survival/knocks.py` | Create | Learning alone: the knock table, sure knocks, `figure`, where each knock is heard, `LEARNED` |
+| `backend/survival/knocks.py` | Create | Learning alone: the knock table for nine lessons, sure knocks, the owner-only lessons (`OWNER_ONLY`), `figure`, where each knock is heard, `LEARNED` |
 | `backend/survival/wonders.py` | Create | The ten wonders with their chips and claims, what the tick marks as met, hesitation (`meals.HOLDS`) |
 | `backend/survival/questions.py` | Create | The Talker's `ask_wonders` chore, answering by chip (`answer_question`), yes and no, closing, the inbox's `questions` |
 | `backend/survival/wild_news.py` | Create | Mind's moments and the inbox's news and danger for W1's events |
@@ -857,7 +858,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_wild.py"`
 Expected: `Ran 9 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1828 tests` … `OK (skipped=5)` (9 new).
+Expected: `Ran 1837 tests` … `OK (skipped=5)` (9 new).
 
 - [ ] **Step 5: Commit**
 
@@ -1404,7 +1405,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_wild_teach
 Expected: `Ran 8 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1836 tests` … `OK (skipped=5)` (8 new).
+Expected: `Ran 1845 tests` … `OK (skipped=5)` (8 new).
 
 - [ ] **Step 5: Commit**
 
@@ -1865,7 +1866,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_wild_gates
 Expected: `Ran 7 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1843 tests` … `OK (skipped=5)` (7 new).
+Expected: `Ran 1852 tests` … `OK (skipped=5)` (7 new).
 
 - [ ] **Step 5: Commit**
 
@@ -2517,7 +2518,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_worldgen*.py"`
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1848 tests` … `OK (skipped=5)` (5 new).
+Expected: `Ran 1857 tests` … `OK (skipped=5)` (5 new).
 
 Run: `cd frontend && npm test && npm run build && npx eslint src/survival src/engine`
 Expected: `Tests  367 passed (367)`, the build succeeds, eslint prints nothing.
@@ -2545,6 +2546,7 @@ git commit -m "feat(W1): nightberry bushes and sunleaf grow on bare ground, in b
   - `vitals.Ailing(drain, hunger, energy, heals, mood)`; `step_vitals(..., ailing=None)`; `CAUSE_ORDER` gains `"sickness"` after starvation.
   - `ailments.AILMENTS` (tummy, chill), `sickness(state)`, `sick(state)`, `fall_sick(state, kind, at, events=None, text=None) -> bool`, `cure(state)`, `ailing(state) -> Ailing | None`, `tend(state, context, seconds, activity, at)`, `eat_herb` (in `steps.EATING`), `ailments_view(state)`; `NIBBLE_CHANCE = 0.4` (channel 200).
   - `steps.EATING: list` of `(step, state, at) -> event | None`, run first in `finish_eat`; `steps.HERBS = ("sunleaf",)` (eaten as medicine, never as a meal).
+  - `ailments.lose(state, health)`: `state["wild"]["lost"]`, the health a wild pet lost to its hazards (`tend` counts the drain after each vitals step).
   - `herbs`: the reflex `take_herb` (45), the purposes `find_herb` (75), `gather_herbs` (52, a need) and `nibble` (70).
   - `/api/mimo` gains `ailments` (`{"sick": {kind, label, words, minutes} | null, "wound": null}`; Task 8 fills `wound` with `{festering, dressed, minutes}`).
 
@@ -2599,13 +2601,14 @@ def run(state, seconds, activity="working", step=10.0):
 
 
 class SicknessTests(unittest.TestCase):
-    def test_a_tummy_ache_lasts_twelve_game_minutes_and_takes_about_twenty_nine_health(self):
+    def test_a_tummy_ache_lasts_twelve_game_minutes_and_takes_thirty_six_health(self):
         state = pet()
         self.assertTrue(fall_sick(state, "tummy", 0.0))
         self.assertEqual(state["last_thought"], "My tummy hurts.")
         run(state, 12 * 60)
         self.assertIsNone(sickness(state))
-        self.assertAlmostEqual(state["vitals"]["health"], 100 - 12 * 60 / 25, places=3)
+        self.assertAlmostEqual(state["vitals"]["health"], 100 - 12 * 60 / 20, places=3)
+        self.assertAlmostEqual(state["wild"]["lost"], 12 * 60 / 20, places=3)  # lost to a hazard
 
     def test_a_chill_takes_fifty_and_passes_twice_as_fast_resting_warm(self):
         state = pet()
@@ -2755,13 +2758,14 @@ game seconds), and a new one keeps the longer of the two (`fall_sick`). The kind
 
 | Kind | Symptom | Lasts | Drain | Also |
 |---|---|---|---|---|
-| tummy ache | "My tummy hurts." | 12 game minutes | 1 health per 25 game s | hunger drains 1.5 times as fast |
+| tummy ache | "My tummy hurts." | 12 game minutes | 1 health per 20 game s | hunger drains 1.5 times as fast |
 | chill | "I'm shivery and hot." | 25 game minutes | 1 health per 30 game s | energy drains 1.5 times as fast |
 
 While Mimo is sick no health regenerates and mood's target falls 15 (`ailing`, read by the tick for each
 vitals step: vitals.Ailing). A chill's time runs twice as fast while Mimo rests or sleeps with warmth 60 or
 more (`tend`, after each vitals step). The sickness can kill: its drain is the cause "sickness" when it is
-the largest damage of the killing step (vitals.CAUSE_ORDER).
+the largest damage of the killing step (vitals.CAUSE_ORDER). What the drain takes counts in
+`state["wild"]["lost"]`, the health a wild pet lost to its hazards (`lose`; the balance gate reads it).
 
 Eating one sunleaf ends any sickness at once: the eat step of a sunleaf (steps.EATING: `eat_herb`) logs
 "Pip ate sunleaf and felt better." (a "cured" event). What makes Mimo sick (food, a cold night) and what
@@ -2782,6 +2786,7 @@ from backend.survival.nature import roll
 from backend.survival.once import log_once
 from backend.survival.steps import EATING
 from backend.survival.vitals import Ailing
+from backend.survival.wild import wild_state
 
 logger = logging.getLogger(__name__)
 
@@ -2806,7 +2811,7 @@ class Ailment:
 
 
 AILMENTS: dict[str, Ailment] = {
-    "tummy": Ailment("tummy", "My tummy hurts.", "Tummy ache", 12 * GAME_MINUTE, 1 / 25, hunger=1.5),
+    "tummy": Ailment("tummy", "My tummy hurts.", "Tummy ache", 12 * GAME_MINUTE, 1 / 20, hunger=1.5),
     "chill": Ailment("chill", "I'm shivery and hot.", "Chill", 25 * GAME_MINUTE, 1 / 30, energy=1.5),
 }
 
@@ -2872,10 +2877,21 @@ def ailing(state: dict) -> Ailing | None:
     return Ailing(drain=ailment.drain, hunger=ailment.hunger, energy=ailment.energy, heals=False, mood=SICK_MOOD)
 
 
+def lose(state: dict, health: float) -> None:
+    """Count `health` a wild pet lost to its hazards (a sickness's drain, a poison plant) in
+    `state["wild"]["lost"]`."""
+    if health > 0:
+        found = wild_state(state)
+        found["lost"] = found.get("lost", 0.0) + health
+
+
 def tend(state: dict, seconds: float, activity: str, at: float, events: list) -> None:
-    """After a vitals step of `seconds` game seconds: the sickness runs its time (a chill twice as fast while
-    Mimo rests or sleeps warm). A crash is logged once and changes nothing."""
+    """After a vitals step of `seconds` game seconds: what its drain took is counted, and the sickness runs its
+    time (a chill twice as fast while Mimo rests or sleeps warm). A crash is logged once and changes nothing."""
     try:
+        ill = ailing(state)  # what the vitals step just took
+        if ill is not None:
+            lose(state, ill.drain * seconds)
         found = sickness(state)
         if found is None:
             return
@@ -2896,7 +2912,7 @@ def eat_herb(step: dict, state: dict, at: float) -> tuple[str, str] | None:
     state["vitals"]["hunger"] = min(100.0, state["vitals"]["hunger"] + HERB_HUNGER)
     name = state["name"]
     if cure(state):
-        state["last_thought"] = "That's better. Sunleaf really works."
+        state["last_thought"] = "That's better. I feel well again."
         return "cured", f"{name} ate sunleaf and felt better."
     return "ate", f"{name} ate sunleaf."
 
@@ -3369,7 +3385,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_ailments.p
 Expected: `Ran 11 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1859 tests` … `OK (skipped=5)` (11 new).
+Expected: `Ran 1868 tests` … `OK (skipped=5)` (11 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3503,6 +3519,7 @@ class EatingTests(unittest.TestCase):
             s = wild({item: 1})
             self.assertEqual(eat(s, item), ("sick", f"Pip ate {item.replace('_', ' ')} and felt sick."))
             self.assertEqual((s.state["vitals"]["health"], sickness(s.state)["kind"]), (95.0, "tummy"))
+            self.assertEqual(s.state["wild"]["lost"], 5.0)
 
     def test_a_raw_meal_rolls_once_at_the_highest_chance_of_its_raw_items(self):
         steps = wild_meal(wild({"raw_chicken": 1, "raw_fish": 2, "raw_beef": 1}, 20.0))
@@ -3519,11 +3536,21 @@ class EatingTests(unittest.TestCase):
         self.assertEqual(wild_meal(wild({"raw_beef": 2}, 40.0, "cooking")), [])
         self.assertEqual(items(wild_meal(wild({"raw_beef": 2}, 10.0, "cooking"))), ["raw_beef", "raw_beef"])
 
-    def test_food_left_over_is_eaten_only_when_it_carries_no_risk(self):
+    def test_food_left_over_is_eaten_only_when_it_carries_no_risk_or_mimo_is_starving(self):
         state = {"name": "Pip", "vitals": {"hunger": 20.0}, **WILD}
         left = {"raw_beef": 2, "bread": 1}
         eat_what_is_left(state, left, 0.0, [])
         self.assertEqual(left, {"raw_beef": 2})
+        # starving with full arms, the meat it hunts and cannot carry is eaten raw, and may make it sick
+        starving = {"name": "Pip", "world_seed": "1", "position": {"x": 0.0, "y": 1.0, "z": 0.0},
+                    "vitals": {"hunger": 5.0, "health": 100.0}, **WILD}
+        left, events = {"raw_mutton": 3}, []
+        with patch("backend.survival.meals.roll", return_value=0.3):
+            eat_what_is_left(starving, left, 0.0, events)
+        self.assertEqual((starving["vitals"]["hunger"], left), (29.0, {}))
+        self.assertEqual(events, [(0.0, "ate", "Pip ate 3 raw mutton it had no room to carry."),
+                                  (0.0, "sick", "Pip ate raw mutton and felt sick.")])
+        self.assertEqual(sickness(starving)["kind"], "tummy")
 
 
 class GentleTests(unittest.TestCase):
@@ -3572,7 +3599,8 @@ with:
 
 ```python
 
-    from backend.survival.wild import SAFE, is_wild  # W1: a wild pet eats only what carries no risk at all
+    from backend.survival.meals import STARVING, eat_raw_left  # W1: a wild pet eats only what carries no risk
+    from backend.survival.wild import SAFE, is_wild  # at all, unless it is starving
 
     vitals = state["vitals"]
 ```
@@ -3587,8 +3615,24 @@ with:
 
 ```python
     wild = is_wild(state)
-    for item in sorted((item for item in left if keeps_alive(item) and (not wild or item in SAFE)),
+    starving = vitals["hunger"] < STARVING
+    for item in sorted((item for item in left if keeps_alive(item) and (not wild or item in SAFE or starving)),
                        key=lambda item: (-FOOD[item], item)):
+```
+
+and replace:
+
+```python
+            events.append((at, "ate", f"{state['name']} ate {eaten} {label(item)} it had no room to carry."))
+```
+
+with:
+
+```python
+            events.append((at, "ate", f"{state['name']} ate {eaten} {label(item)} it had no room to carry."))
+        sick = eat_raw_left(state, item, at) if eaten and wild and item not in SAFE else None
+        if sick and events is not None:
+            events.append((at, *sick))
 ```
 
 In `backend/survival/exploring.py`, replace:
@@ -3773,7 +3817,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import take_items
-from backend.survival.ailments import fall_sick
+from backend.survival.ailments import fall_sick, lose
 from backend.survival.goals import add_urge
 from backend.survival.nature import roll
 from backend.survival.once import log_once
@@ -3893,6 +3937,14 @@ MEALS.append(wild_meal)
 
 # Eating ------------------------------------------------------------------------------------------
 
+def eat_raw_left(state: dict, item: str, at: float) -> tuple[str, str] | None:
+    """carrying.eat_what_is_left: a starving wild pet ate raw food it had no room to carry, on the spot. The raw
+    meal's roll, once (RAW_RISK, RAW_CHANNEL); the sickness's event, or None."""
+    if roll(state.get("world_seed", "0"), pet_cell(state), RAW_CHANNEL, int(at)) < RAW_RISK.get(item, 0.0):
+        return sick_from(state, item, at)
+    return None
+
+
 def sick_from(state: dict, item: str, at: float) -> tuple[str, str]:
     """Mimo ate `item` and it made it sick: a tummy ache, the rest of that food left uneaten this meal, and the red
     berries shunned for a while."""
@@ -3915,7 +3967,9 @@ def eat_wild(step: dict, state: dict, at: float) -> tuple[str, str] | None:
     state["inventory"] = take_items(state["inventory"], {item: 1})
     vitals["hunger"] = min(100.0, vitals["hunger"] + FOOD[item])
     if item in POISONOUS:
-        vitals["health"] = max(min(vitals["health"], 1.0), vitals["health"] - POISON_HEALTH)
+        before = vitals["health"]
+        vitals["health"] = max(min(before, 1.0), before - POISON_HEALTH)
+        lose(state, before - vitals["health"])  # lost to a hazard (backend.survival.ailments)
         step["sick"] = True
         return sick_from(state, item, at)
     risk = float(step.get("risk", 0.0))
@@ -4185,7 +4239,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_meals.py"`
 Expected: `Ran 12 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1871 tests` … `OK (skipped=5)` (12 new).
+Expected: `Ran 1880 tests` … `OK (skipped=5)` (12 new).
 
 - [ ] **Step 5: Commit**
 
@@ -4883,7 +4937,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_spoilage.p
 Expected: `Ran 9 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1880 tests` … `OK (skipped=5)` (9 new).
+Expected: `Ran 1889 tests` … `OK (skipped=5)` (9 new).
 
 - [ ] **Step 5: Commit**
 
@@ -4898,7 +4952,7 @@ git commit -m "feat(W1): a wild pet's food spoils, half as fast in a chest, and 
 
 **Files:**
 - Create: `backend/survival/wounds.py`
-- Modify: `backend/survival/ailments.py` (the wound, cold nights, dawn, `DAWN`, `FESTERS`), `backend/survival/tick.py` (`tend_night`), `backend/survival/creatures/harm.py` (`BLOWS`), `backend/survival/care.py` (`CARED`), `backend/services/crafting.py` (the bandage), `backend/survival/brain.py` (imports `wounds`)
+- Modify: `backend/survival/ailments.py` (the wound, cold nights, dawn, `DAWN`), `backend/survival/tick.py` (`tend_night`), `backend/survival/creatures/harm.py` (`BLOWS`), `backend/survival/care.py` (`CARED`), `backend/services/crafting.py` (the bandage), `backend/survival/brain.py` (imports `wounds`)
 - Modify: `backend/tests/test_survival_ailments.py` (its helper)
 - Test: `backend/tests/test_survival_wounds.py`
 
@@ -4906,7 +4960,7 @@ git commit -m "feat(W1): a wild pet's food spoils, half as fast in a chest, and 
 - Consumes: Task 5's ailments; `harm.hurt_pet`; `care.give_care`; `clock.NIGHT_PHASES`; `vitals.FREEZING_BELOW`; the tick's sheltered check.
 - Produces:
   - `harm.BLOWS: list` of `(scene, lost, source)`, run after each blow; `care.CARED: list` of `(state, kind, timestamp)`.
-  - `ailments.open_wound`, `dress`, `wound_of`, `tend_night(state, context, seconds, phases, activity, sheltered, at)`, `dawn`, `DAWN: list` of `(state, context, summary, at)`, `FESTERS: list` of `(state, context, at)`; `CHILL_BELOW = 35`, `CHILL_CHANCE = 0.6` (channel 205), `FESTER_AFTER`, `HEALS_AFTER`, `DRESSED_CLOSES`, `FESTER_DRAIN`.
+  - `ailments.open_wound`, `dress`, `wound_of`, `tend_night(state, context, seconds, phases, activity, sheltered, at)`, `dawn`, `DAWN: list` of `(state, context, summary, at)`; `CHILL_BELOW = 35`, `CHILL_CHANCE = 0.6` (channel 205), `FESTER_AFTER`, `HEALS_AFTER`, `DRESSED_CLOSES`, `FESTER_DRAIN`.
   - `wounds.cut` (in `BLOWS`, channel 204), `cared` (in `CARED`), the step `dress`, the purpose `dress_wound` (76, a need); the recipe `bandage` (1 wool makes 2).
 
 - [ ] **Step 1: Write the failing tests**
@@ -5007,6 +5061,7 @@ class WoundTests(unittest.TestCase):
         after(state, 3000)
         self.assertIsNone(wound_of(state))
         self.assertIsNone(ailing(state))
+        self.assertAlmostEqual(state["wild"]["lost"], 3000 * FESTER_DRAIN)  # what festering took, a hazard's
 
     def test_a_dressed_wound_stops_festering_at_once_and_closes_five_minutes_later(self):
         state = wild_pet()
@@ -5139,7 +5194,7 @@ with:
 
 A wound (`state["ailments"]["wound"]` = {"since", "age", "festering", "dressed_age"}; `age` in game seconds;
 backend.survival.wounds opens one): while it is open no health regenerates. Undressed for FESTER_AFTER (10 game
-minutes) it festers ("Pip's wound is festering."): 1 health per 45 game s, and mood's target falls 10. It heals
+minutes) it festers ("Pip's wound is festering."): 1 health per 40 game s, and mood's target falls 10. It heals
 by itself HEALS_AFTER (a game day) after it opened, festering or not; a dressed one stops festering at once and
 closes DRESSED_CLOSES (5 game minutes) later (`dress`).
 
@@ -5147,7 +5202,7 @@ Cold nights (`tend_night`, after each vitals step): each night the game seconds 
 (35) are counted (`state["wild"]["night_cold"]`); at dawn 5 game minutes or more give a chill with chance
 CHILL_CHANCE, 15 or more, or any freezing that night, a chill for sure ("Pip caught a chill in the night.", a
 "chill" event). A night asleep on the floor of a sheltered spot counts in `floor_nights`. DAWN then hears how
-the night went (backend.survival.knocks), and FESTERS of a wound that festers.
+the night went (backend.survival.knocks).
 
 A gentle pet never has an ailment: nothing in W1 makes one, and `ailing` gives nothing without one. A
 ```
@@ -5169,6 +5224,7 @@ and replace:
 
 ```python
 from backend.survival.vitals import Ailing
+from backend.survival.wild import wild_state
 ```
 
 with:
@@ -5191,7 +5247,7 @@ NIBBLE_CHANNEL = 200  # Wild World's roll channels are 200 to 259 (spec resoluti
 FESTER_AFTER = 10 * GAME_MINUTE
 HEALS_AFTER = DAY_SECONDS
 DRESSED_CLOSES = 5 * GAME_MINUTE
-FESTER_DRAIN = 1 / 45
+FESTER_DRAIN = 1 / 40
 FESTER_MOOD = 10.0
 CHILL_BELOW = 35.0
 CHILL_SOME = 5 * GAME_MINUTE  # a chill with CHILL_CHANCE
@@ -5201,10 +5257,8 @@ CHILL_CHANNEL = 205
 FLOOR_SLEEP = 5 * GAME_MINUTE  # asleep on the floor of a sheltered spot this long: a night on the floor
 # W1: functions (state, context, summary, at) run at a wild pet's dawn with how its night went: {"cold" (game
 # seconds under CHILL_BELOW), "froze", "chill" (it caught one), "blows" (hostile blows that night), "floor" (a
-# night asleep on the floor of a sheltered spot)} (backend.survival.knocks); and (state, context, at) when its
-# wound festers. One that crashes is logged once.
+# night asleep on the floor of a sheltered spot)} (backend.survival.knocks). One that crashes is logged once.
 DAWN: list = []
-FESTERS: list = []
 ```
 
 and replace:
@@ -5219,22 +5273,6 @@ def ailing(state: dict) -> Ailing | None:
     if ailment is None:
         return None
     return Ailing(drain=ailment.drain, hunger=ailment.hunger, energy=ailment.energy, heals=False, mood=SICK_MOOD)
-
-
-def tend(state: dict, seconds: float, activity: str, at: float, events: list) -> None:
-    """After a vitals step of `seconds` game seconds: the sickness runs its time (a chill twice as fast while
-    Mimo rests or sleeps warm). A crash is logged once and changes nothing."""
-    try:
-        found = sickness(state)
-        if found is None:
-            return
-        rested = activity != "working" and state["vitals"]["warmth"] >= WARM_REST
-        found["left"] = max(0.0, found["left"] - seconds * (2.0 if found["kind"] == "chill" and rested else 1.0))
-        if found["left"] <= 0:
-            state["ailments"]["sick"] = None
-            state["last_thought"] = "I feel better now."
-    except Exception as error:
-        log_once(logger, "ailments", error)
 ```
 
 with:
@@ -5255,8 +5293,31 @@ def ailing(state: dict) -> Ailing | None:
     return Ailing(drain=(ailment.drain if ailment else 0.0) + (FESTER_DRAIN if festering else 0.0),
                   hunger=ailment.hunger if ailment else 1.0, energy=ailment.energy if ailment else 1.0, heals=False,
                   mood=(SICK_MOOD if ailment else 0.0) + (FESTER_MOOD if festering else 0.0))
+```
 
+and replace:
 
+```python
+    """Count `health` a wild pet lost to its hazards (a sickness's drain, a poison plant) in
+```
+
+with:
+
+```python
+    """Count `health` a wild pet lost to its hazards (a sickness's or a festering wound's drain, a poison plant) in
+```
+
+and replace:
+
+```python
+def tend(state: dict, seconds: float, activity: str, at: float, events: list) -> None:
+    """After a vitals step of `seconds` game seconds: what its drain took is counted, and the sickness runs its
+    time (a chill twice as fast while Mimo rests or sleeps warm). A crash is logged once and changes nothing."""
+```
+
+with:
+
+```python
 def open_wound(state: dict, at: float) -> bool:
     """A creature's blow opens a wound, unless Mimo has one already. True when it did."""
     found = ailments_of(state)
@@ -5287,10 +5348,28 @@ def heard(hooks: list, *args) -> None:
 
 
 def tend(state: dict, context, seconds: float, activity: str, at: float) -> None:
-    """After a vitals step of `seconds` game seconds: the sickness runs its time (a chill twice as fast while
-    Mimo rests or sleeps warm), and a wound festers, closes or heals. A crash is logged once and changes nothing."""
-    try:
-        found = sickness(state)
+    """After a vitals step of `seconds` game seconds: what its drain took is counted, the sickness runs its time
+    (a chill twice as fast while Mimo rests or sleeps warm), and a wound festers, closes or heals. A crash is
+    logged once and changes nothing."""
+```
+
+and replace:
+
+```python
+        if found is None:
+            return
+        rested = activity != "working" and state["vitals"]["warmth"] >= WARM_REST
+        found["left"] = max(0.0, found["left"] - seconds * (2.0 if found["kind"] == "chill" and rested else 1.0))
+        if found["left"] <= 0:
+            state["ailments"]["sick"] = None
+            state["last_thought"] = "I feel better now."
+    except Exception as error:
+        log_once(logger, "ailments", error)
+```
+
+with:
+
+```python
         if found is not None:
             rested = activity != "working" and state["vitals"]["warmth"] >= WARM_REST
             found["left"] = max(0.0, found["left"] - seconds * (2.0 if found["kind"] == "chill" and rested else 1.0))
@@ -5308,7 +5387,6 @@ def tend(state: dict, context, seconds: float, activity: str, at: float) -> None
                 wound["festering"] = True
                 state["last_thought"] = "My wound hurts more and more."
                 context.events.append((at, "festering", f"{state['name']}'s wound is festering."))
-                heard(FESTERS, state, context, at)
     except Exception as error:
         log_once(logger, "ailments", error)
 
@@ -5631,7 +5709,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_wounds.py"
 Expected: `Ran 10 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1890 tests` … `OK (skipped=5)` (10 new).
+Expected: `Ran 1899 tests` … `OK (skipped=5)` (10 new).
 
 - [ ] **Step 5: Commit**
 
@@ -5650,8 +5728,8 @@ git commit -m "feat(W1): a blow can leave a wound that festers unless dressed, a
 - Test: `backend/tests/test_survival_knocks.py`
 
 **Interfaces:**
-- Consumes: Tasks 5 to 8's hooks (`steps.OBSERVERS`, `harm.BLOWS`, `ailments.DAWN`, `FESTERS`, `spoilage.SPOILS`); `journal`'s learning (`FACT`, `NEW_LESSON`, `journal_state`); `curiosity.discovered`; `triggers.mark_trigger`.
-- Produces: `knocks.KNOCKS` (`Knock(first, step)` for eight lessons), `KNOCK_CHANNEL = 206`, `figure(state, db, events, at, name) -> bool` (a `figured` event, `wild.FIGURED`, the journal line "I worked it out myself: …"), `knock(...)`, `sure(...)`, `LEARNED: list` of `(db, state, name, at)`.
+- Consumes: Tasks 5 to 8's hooks (`steps.OBSERVERS`, `harm.BLOWS`, `ailments.DAWN`, `spoilage.SPOILS`); `journal`'s learning (`FACT`, `NEW_LESSON`, `journal_state`); `curiosity.discovered`; `triggers.mark_trigger`.
+- Produces: `knocks.KNOCKS` (`Knock(first, step)` for seven lessons; berries, red mushrooms and fire's first smelt are sure knocks), `OWNER_ONLY = ("sunleaf", "bandage")` (never worked out: spec resolution 29), `KNOCK_CHANNEL = 206`, `figure(state, db, events, at, name) -> bool` (a `figured` event, `wild.FIGURED`, the journal line "I worked it out myself: …"), `knock(...)`, `sure(...)`, `LEARNED: list` of `(db, state, name, at)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5666,7 +5744,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every observer and hook registered)
-from backend.survival.knocks import KNOCKS, after_step, at_dawn, blown, festers, knock, spoils, sure
+from backend.survival.knocks import KNOCKS, OWNER_ONLY, after_step, at_dawn, blown, knock, spoils, sure
 from backend.survival.memory import create_memory_tables, know
 from backend.survival.vitals import START_VITALS
 from backend.survival.wild import survival_view, thing, wild_state
@@ -5689,18 +5767,18 @@ def knows(context, name):
 class KnockTests(unittest.TestCase):
     def test_the_chance_grows_with_every_knock_and_curiosity(self):
         state, context = world()
-        with patch("backend.survival.knocks.roll", return_value=0.41):
-            self.assertFalse(knock(state, context.db, context.events, 1.0, "light"))  # 0.15
-            self.assertFalse(knock(state, context.db, context.events, 2.0, "light"))  # 0.25
-            self.assertFalse(knock(state, context.db, context.events, 3.0, "light"))  # 0.35
-            self.assertTrue(knock(state, context.db, context.events, 4.0, "light"))  # 0.45
+        with patch("backend.survival.knocks.roll", return_value=0.31):
+            self.assertFalse(knock(state, context.db, context.events, 1.0, "light"))  # 0.10
+            self.assertFalse(knock(state, context.db, context.events, 2.0, "light"))  # 0.20
+            self.assertFalse(knock(state, context.db, context.events, 3.0, "light"))  # 0.30
+            self.assertTrue(knock(state, context.db, context.events, 4.0, "light"))  # 0.40
         self.assertEqual(wild_state(state)["knocks"]["light"], 4)
         curious, where = world(traits={"curiosity": 100})
-        with patch("backend.survival.knocks.roll", return_value=0.17):
-            self.assertTrue(knock(curious, where.db, where.events, 1.0, "light"))  # 0.15 x 1.2 = 0.18
+        with patch("backend.survival.knocks.roll", return_value=0.11):
+            self.assertTrue(knock(curious, where.db, where.events, 1.0, "light"))  # 0.10 x 1.2 = 0.12
         dull, there = world(traits={"curiosity": 0})
-        with patch("backend.survival.knocks.roll", return_value=0.13):
-            self.assertFalse(knock(dull, there.db, there.events, 1.0, "light"))  # 0.15 x 0.8 = 0.12
+        with patch("backend.survival.knocks.roll", return_value=0.09):
+            self.assertFalse(knock(dull, there.db, there.events, 1.0, "light"))  # 0.10 x 0.8 = 0.08
 
     def test_a_lesson_worked_out_is_a_figured_event_journalled_as_worked_out(self):
         state, context = world()
@@ -5712,9 +5790,20 @@ class KnockTests(unittest.TestCase):
 
     def test_the_table_of_knocks(self):
         self.assertEqual({name: (rule.first, rule.step) for name, rule in KNOCKS.items()},
-                         {"nightberries": (0.30, 0.15), "bandage": (0.30, 0.15), "fire": (0.20, 0.15),
-                          "cooking": (0.30, 0.15), "keeping": (0.25, 0.15), "light": (0.15, 0.10),
-                          "shelter": (0.30, 0.20), "bed": (0.15, 0.10)})
+                         {"nightberries": (0.25, 0.15), "fire": (0.15, 0.15),
+                          "cooking": (0.25, 0.15), "keeping": (0.20, 0.15), "light": (0.10, 0.10),
+                          "shelter": (0.25, 0.20), "bed": (0.10, 0.10)})
+
+    def test_sunleaf_and_bandages_are_never_learned_alone(self):
+        state, context = world(inventory={"wool": 1})
+        self.assertEqual(OWNER_ONLY, ("sunleaf", "bandage"))
+        with patch("backend.survival.knocks.roll", return_value=0.0):
+            for name in OWNER_ONLY:
+                self.assertFalse(sure(state, context.db, context.events, 1.0, name))
+                self.assertFalse(knock(state, context.db, context.events, 1.0, name))
+            after_step(state, {"kind": "eat", "item": "sunleaf", "cured": True}, context, 2.0)  # a nibble cured it
+        self.assertFalse(knows(context, "sunleaf") or knows(context, "bandage"))
+        self.assertEqual(context.events, [])
 
     def test_a_gentle_pet_never_knocks(self):
         state, context = world(difficulty="gentle")
@@ -5730,8 +5819,6 @@ class WhereKnocksAreHeardTests(unittest.TestCase):
         self.assertTrue(knows(context, "berries"))
         after_step(state, {"kind": "eat", "item": "red_mushroom", "sick": True}, context, 2.0)
         self.assertTrue(knows(context, "red_mushroom"))
-        after_step(state, {"kind": "eat", "item": "sunleaf", "cured": True}, context, 3.0)
-        self.assertTrue(knows(context, "sunleaf"))
         wild_state(state)["shun"]["red_berries"] = 3.0
         with patch("backend.survival.knocks.roll", return_value=0.0):
             after_step(state, {"kind": "eat", "item": "nightberries", "sick": True}, context, 4.0)
@@ -5752,16 +5839,15 @@ class WhereKnocksAreHeardTests(unittest.TestCase):
         after_step(state, {"kind": "smelt", "item": "iron_ore"}, context, 1.0)
         self.assertTrue(knows(context, "fire"))
 
-    def test_nights_blows_wounds_and_spoiled_food_knock(self):
-        state, context = world(inventory={"wool": 1})
+    def test_nights_blows_and_spoiled_food_knock(self):
+        state, context = world()
         with patch("backend.survival.knocks.roll", return_value=0.0):
             at_dawn(state, context, {"chill": True, "blows": 0, "floor": True, "cold": 900.0, "froze": False}, 1.0)
-            festers(state, context, 2.0)
             spoils(state, context, "raw_beef", 1, "arms", 3.0)
             scene = SimpleNamespace(night=True, state=state, herd=SimpleNamespace(db=context.db), events=context.events,
                                     at=4.0)
             blown(scene, 3.0, "gloomling")
-        for name in ("fire", "shelter", "bed", "bandage", "keeping", "light"):
+        for name in ("fire", "shelter", "bed", "keeping", "light"):
             self.assertTrue(knows(context, name), name)
 
 
@@ -5775,19 +5861,6 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_knocks.py"
 Expected: ERROR: `ModuleNotFoundError: No module named 'backend.survival.knocks'`
 
 - [ ] **Step 3: Knocks and where they are heard**
-
-In `backend/survival/ailments.py`, replace:
-
-```python
-    if cure(state):
-```
-
-with:
-
-```python
-    if cure(state):
-        step["cured"] = True  # for what learns from it (backend.survival.knocks)
-```
 
 In `backend/survival/brain.py`, replace:
 
@@ -5817,22 +5890,28 @@ and the journal line "I worked it out myself: ...". The counts live in `state["w
 | Lesson | Knock | First | Step | Sure when |
 |---|---|---|---|---|
 | berries | | | | it eats from the red berries and is not sick |
-| nightberries | sick from a nightberry | 0.30 | 0.15 | |
+| nightberries | sick from a nightberry | 0.25 | 0.15 | |
 | red_mushroom | | | | sick from a red mushroom |
-| sunleaf | | | | it eats a sunleaf while sick (the instinct nibble: backend.survival.herbs) |
-| bandage | a wound festers while Mimo carries wool | 0.30 | 0.15 | |
-| fire | a chilled night | 0.20 | 0.15 | it smelts at a furnace for the first time |
-| cooking | sick from a raw meal, knowing fire | 0.30 | 0.15 | |
-| keeping | sick from spoiled food, or food spoils in its arms or chest | 0.25 | 0.15 | |
-| light | a hostile's blow at night | 0.15 | 0.10 | |
-| shelter | a bad night: a chill at dawn, or a hostile's blow that night | 0.30 | 0.20 | |
-| bed | a night asleep on the floor of a sheltered spot | 0.15 | 0.10 | |
+| fire | a chilled night | 0.15 | 0.15 | it smelts at a furnace for the first time |
+| cooking | sick from a raw meal, knowing fire | 0.25 | 0.15 | |
+| keeping | sick from spoiled food, or food spoils in its arms or chest | 0.20 | 0.15 | |
+| light | a hostile's blow at night | 0.10 | 0.10 | |
+| shelter | a bad night: a chill at dawn, or a hostile's blow that night | 0.25 | 0.20 | |
+| bed | a night asleep on the floor of a sheltered spot | 0.10 | 0.10 | |
+
+The chances are as unlikely as the gate's "not hopeless" criteria allow (spec resolution 29, the controller's
+ruling on the W1 dry run): each first chance is one step (0.05) lower than first planned, and a second step left
+pets that knew only 6 or 7 lessons alone by day 60. Two lessons are never learned alone (OWNER_ONLY, the same
+ruling): sunleaf and bandage. A pet cannot guess that an herb cures a sickness, or that wool on a wound stops it
+festering. A sunleaf the instinct nibbles while sick (backend.survival.herbs) makes Mimo better that once and
+teaches nothing; Mimo still asks about the herb and its wounds, and the owner's answer or teaching is the only
+way in.
 
 The knocks are heard where they happen: finished steps (steps.OBSERVERS: eating, smelting), blows
-(harm.BLOWS), dawn and a festering wound (ailments.DAWN, ailments.FESTERS) and spoiled food
-(spoilage.SPOILS). Learning the difference between the red berries lifts their shun at once. Only a wild pet
-has knocks; a gentle pet knows every lesson already. LEARNED hears of each lesson worked out (the questions
-Mimo asked close as "figured out": backend.survival.questions). A crash is logged once and teaches nothing.
+(harm.BLOWS), dawn (ailments.DAWN) and spoiled food (spoilage.SPOILS). Learning the difference between the red
+berries lifts their shun at once. Only a wild pet has knocks; a gentle pet knows every lesson already.
+LEARNED hears of each lesson worked out (the questions Mimo asked close as "figured out":
+backend.survival.questions). A crash is logged once and teaches nothing.
 """
 
 from __future__ import annotations
@@ -5841,7 +5920,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 
-from backend.survival.ailments import DAWN, FESTERS
+from backend.survival.ailments import DAWN
 from backend.survival.creatures.harm import BLOWS
 from backend.survival.curiosity import GROUND_FLOOR, discovered, value_of
 from backend.survival.journal import FACT, NEW_LESSON, journal_state
@@ -5856,6 +5935,7 @@ from backend.survival.wild import BY_NAME, FIGURED, RED_BERRIES, RED_MUSHROOM, S
 logger = logging.getLogger(__name__)
 
 KNOCK_CHANNEL = 206  # and one more for each lesson, in the table's order (206 to 216)
+OWNER_ONLY = ("sunleaf", "bandage")  # never learned alone: only the owner teaches them
 # W1: functions (db, state, name, at) run when Mimo works a survival lesson out alone. One that crashes is logged once.
 LEARNED: list = []
 
@@ -5867,9 +5947,9 @@ class Knock:
 
 
 KNOCKS: dict[str, Knock] = {
-    "nightberries": Knock(0.30, 0.15), "bandage": Knock(0.30, 0.15), "fire": Knock(0.20, 0.15),
-    "cooking": Knock(0.30, 0.15), "keeping": Knock(0.25, 0.15), "light": Knock(0.15, 0.10),
-    "shelter": Knock(0.30, 0.20), "bed": Knock(0.15, 0.10),
+    "nightberries": Knock(0.25, 0.15), "fire": Knock(0.15, 0.15),
+    "cooking": Knock(0.25, 0.15), "keeping": Knock(0.20, 0.15), "light": Knock(0.10, 0.10),
+    "shelter": Knock(0.25, 0.20), "bed": Knock(0.10, 0.10),
 }
 
 
@@ -5883,9 +5963,9 @@ def pet_cell(state: dict) -> tuple[int, int, int]:
 
 
 def figure(state: dict, db: sqlite3.Connection, events: list, at: float, name: str) -> bool:
-    """Mimo works the lesson `name` out alone. True the first time."""
+    """Mimo works the lesson `name` out alone. True the first time; never for an OWNER_ONLY lesson."""
     lesson = BY_NAME[name]
-    if not know(db, thing(name), FACT, at):
+    if name in OWNER_ONLY or not know(db, thing(name), FACT, at):
         return False
     know(db, thing(name), FIGURED, at)
     events.append((at, "figured", f"{state['name']} worked out that {lesson.figured}."))
@@ -5906,7 +5986,7 @@ def figure(state: dict, db: sqlite3.Connection, events: list, at: float, name: s
 
 def knock(state: dict, db: sqlite3.Connection | None, events: list, at: float, name: str) -> bool:
     """A knock for the lesson `name`: rolled for at its growing chance. True when it taught the lesson."""
-    if not is_wild(state) or db is None or known(db, name):
+    if not is_wild(state) or db is None or name not in KNOCKS or known(db, name):
         return False
     rule = KNOCKS[name]
     counts = wild_state(state)["knocks"]
@@ -5951,8 +6031,6 @@ def after_step(state: dict, step: dict, context, at: float) -> None:
             guarded(lambda: knock(state, db, events, at, "keeping"))
         elif step.get("raw") and step.get("sick") and db is not None and known(db, "fire"):
             guarded(lambda: knock(state, db, events, at, "cooking"))
-        if step.get("cured"):
-            guarded(lambda: sure(state, db, events, at, "sunleaf"))
     elif step["kind"] == "smelt":
         guarded(lambda: sure(state, db, events, at, "fire"))
 
@@ -5974,12 +6052,6 @@ def at_dawn(state: dict, context, summary: dict, at: float) -> None:
         guarded(lambda: knock(state, db, events, at, "bed"))
 
 
-def festers(state: dict, context, at: float) -> None:
-    """ailments.FESTERS: a wound festers while Mimo carries wool."""
-    if state["inventory"].get("wool", 0) > 0:
-        guarded(lambda: knock(state, context.db, context.events, at, "bandage"))
-
-
 def spoils(state: dict, context, item: str, count: int, where: str, at: float) -> None:
     """spoilage.SPOILS: food went bad in Mimo's arms or chest."""
     guarded(lambda: knock(state, context.db, context.events, at, "keeping"))
@@ -5988,22 +6060,21 @@ def spoils(state: dict, context, item: str, count: int, where: str, at: float) -
 OBSERVERS.append(after_step)
 BLOWS.append(blown)
 DAWN.append(at_dawn)
-FESTERS.append(festers)
 SPOILS.append(spoils)
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `python3 -m unittest discover -s backend/tests -p "test_survival_knocks.py"`
-Expected: `Ran 8 tests` … `OK`
+Expected: `Ran 9 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1898 tests` … `OK (skipped=5)` (8 new).
+Expected: `Ran 1908 tests` … `OK (skipped=5)` (9 new).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/survival/ailments.py backend/survival/brain.py backend/survival/knocks.py backend/tests/test_survival_knocks.py
+git add backend/survival/brain.py backend/survival/knocks.py backend/tests/test_survival_knocks.py
 git commit -m "feat(W1): alone, a wild pet works its lessons out from what hurts it, slowly" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
@@ -6988,7 +7059,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_questions.
 Expected: `Ran 10 tests` … `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1908 tests` … `OK (skipped=5)` (10 new).
+Expected: `Ran 1918 tests` … `OK (skipped=5)` (10 new).
 
 - [ ] **Step 5: Commit**
 
@@ -7436,7 +7507,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_voice.py"`
 Expected: `OK` each
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1913 tests` … `OK (skipped=5)` (5 new).
+Expected: `Ran 1923 tests` … `OK (skipped=5)` (5 new).
 
 - [ ] **Step 5: Commit**
 
@@ -8512,7 +8583,7 @@ Run: `cd frontend && npm test && npm run build && npx eslint src/survival src/en
 Expected: `Tests  373 passed (373)`, the build succeeds, eslint prints nothing.
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1913 tests` … `OK (skipped=5)` (0 new).
+Expected: `Ran 1923 tests` … `OK (skipped=5)` (0 new).
 
 - [ ] **Step 5: Commit**
 
@@ -8530,8 +8601,8 @@ git commit -m "feat(W1): the viewer shows what ails the pet, asks the owner with
 - Test: `backend/tests/test_survival_wild_run.py`
 
 **Interfaces:**
-- Consumes: everything above; `hatch`, `tick_life`, the Chooser and the Talker with a counting model stand-in; `talk.owner_says`; `questions.answer_question`.
-- Produces: `wild_gate.live(seed, days, condition, http=None) -> dict` (a life's summary), `check_w1(out) -> [(criterion, passed, measure)]`, the command line of "The harness".
+- Consumes: everything above; `hatch`, `tick_life`, the Chooser and the Talker with a counting model stand-in; `talk.owner_says`; `questions.answer_question`; `state["wild"]["lost"]` (Task 5).
+- Produces: `wild_gate.live(seed, days, condition, http=None) -> dict` (a life's summary, with `sick_by_day` and `lost_by_day`), `check_w1(out) -> [(criterion, passed, measure)]` (the criteria as amended by spec resolution 29: 6′, 7′ and 10′), the command line of "The harness".
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -8543,14 +8614,39 @@ Create `backend/tests/test_survival_wild_run.py`:
 By default seed 8 for 3 game days, untaught and taught: the untaught pet posts at least 3 questions, the taught
 one knows all 11 W1 lessons by the end of day 1, and both live. With MIMO_SLOW_TESTS=1, seeds 3 and 11 for 20
 game days: the untaught pet's sick minutes are at least twice the taught pet's, both are alive on day 5, and the
-taught one on day 20. No model is ever called and nothing is logged as an error.
+taught one on day 20. No model is ever called and nothing is logged as an error. The W1 criteria that compare
+the conditions (6', 7', 10') are checked on made-up summaries.
 """
 
+import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
-from backend.scripts.wild_gate import live
+from backend.scripts.wild_gate import CONDITIONS, SEEDS, check_w1, live
 from backend.tests.no_model import no_model
+
+
+def summary(condition, seed, **changes):
+    """A made-up life's summary, as `live` writes it: a quiet 150-day life unless changed."""
+    found = {"seed": seed, "condition": condition, "died_day": None, "health_mean": 99.0, "near_death_days": [],
+             "sick_minutes": 0, "sick_by_day": [0] * 150, "lost_by_day": [0.0] * 150,
+             "machines": {"lamp_lever": 50.0}, "lessons": {}, "wonders_met": {}, "questions": [], "open_most": 0,
+             "ever": {"sick": False, "wound": False, "lots": False, "question": False}, "model_calls": 0, "errors": []}
+    found.update(changes)
+    return found
+
+
+def untaught(seed, **changes):
+    """An untaught life that is sick 40 game minutes and loses 110 health in its first month, 150 minutes in all,
+    and meets 5 wonders and asks 3 questions in its first 3 days."""
+    found = summary("untaught", seed, sick_minutes=150, sick_by_day=[40] * 30 + [150] * 120,
+                    lost_by_day=[110.0] * 30 + [300.0] * 120, near_death_days=[12],
+                    wonders_met={name: 1.5 for name in ("a", "b", "c", "d", "e")},
+                    questions=[[1.5, "a"], [2.0, "b"], [3.5, "c"]], open_most=3)
+    found.update(changes)
+    return found
 
 
 class WildRunTests(unittest.TestCase):
@@ -8578,6 +8674,33 @@ class WildRunTests(unittest.TestCase):
             for found in (untaught, taught):
                 self.assertTrue(found["died_day"] is None or found["died_day"] > 5, (seed, found["condition"]))
             self.assertIsNone(taught["died_day"], seed)
+
+
+class CheckTests(unittest.TestCase):
+    def rows(self, **untaught_changes):
+        """The W1 check on six lives of each condition; `untaught_changes` changes the untaught life of seed 3."""
+        with tempfile.TemporaryDirectory() as root:
+            for condition in CONDITIONS:
+                for seed in SEEDS:
+                    if condition == "untaught":
+                        life = untaught(seed, **(untaught_changes if seed == 3 else {}))
+                    else:
+                        life = summary(condition, seed, sick_minutes=10, sick_by_day=[5] * 30 + [10] * 120,
+                                       lost_by_day=[20.0] * 150)
+                    (Path(root) / f"{condition}_{seed}.json").write_text(json.dumps(life))
+            return {name.split(" ")[0]: passed for name, passed, _ in check_w1(Path(root))}
+
+    def test_a_newborns_first_month_a_life_without_the_owner_and_four_wonders(self):
+        rows = self.rows()
+        self.assertEqual((rows["6'"], rows["7'"], rows["10'"]), (True, True, True))
+        # 6': 100 health a life lost to hazards in the first month, at least (550 over six lives is too few)
+        self.assertFalse(self.rows(lost_by_day=[0.0] * 150)["6'"])
+        # 7': deaths and near-death days together 6 at least (six near-death days above; one fewer here)
+        self.assertFalse(self.rows(near_death_days=[])["7'"])
+        self.assertTrue(self.rows(near_death_days=[], died_day=80.5)["7'"])
+        # 10': 4 wonders met by the end of the third game day, on every seed
+        self.assertTrue(self.rows(wonders_met={name: 3.9 for name in "abcd"})["10'"])
+        self.assertFalse(self.rows(wonders_met={name: 3.9 for name in "abc"})["10'"])
 
 
 if __name__ == "__main__":
@@ -8609,9 +8732,10 @@ tick. Their HTTP is a counting stand-in that refuses every call; any call fails 
 - `liar`: answers each question within ANSWER_AFTER game minutes with a false chip, or with the wonder's false
   claim in the chat when it has none. It teaches nothing else.
 
-Each life writes a JSON summary to --out: its death day and cause, sick game minutes (and by day), wounds and
-festering minutes, near-death days (health under 20 at least once), the time-weighted health mean, freezing and
-starving minutes, the lessons it knows with their sources and days, the wonders it met and the questions it
+Each life writes a JSON summary to --out: its death day and cause, sick game minutes (and by day), the health
+it lost to its hazards (`state["wild"]["lost"]`: a sickness's or a festering wound's drain, a poison plant; and
+by day), wounds and festering minutes, near-death days (health under 20 at least once), the time-weighted health
+mean, freezing and starving minutes, the lessons it knows with their sources and days, the wonders it met and the questions it
 asked in its first 3 game days and the most open at once, the machines it built by day, whether it ever had a
 sickness, a wound, a lot or a question, logged errors and model calls.
 
@@ -8640,6 +8764,7 @@ CONDITIONS = ("gentle", "untaught", "taught", "liar")
 OWNER_EVERY = 5  # game minutes between the scripted owner's lines on day 1
 ANSWER_AFTER = 2  # game minutes after a question is asked that the owner answers it
 NEAR_DEATH = 20.0
+FIRST_MONTH = 30  # W1 criterion 6: a newborn's first month, game days 1 to 30
 # The scripted owner's lines: the first line of the teaching table for each W1 lesson.
 TEACHES = ("Red berries are safe to eat.", "Nightberries are the dark purple ones, and they are poison.",
            "Red mushrooms are poison.", "Sunleaf cures sickness and cleans wounds.",
@@ -8736,7 +8861,8 @@ def live(seed: int, days: int, condition: str, http=None) -> dict:
         chooser = Chooser(env={}, http=model, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
         talker = Talker(env={}, http=model, scale=SCALE)
         answered: set = set()
-        found = {"health": 0.0, "ticks": 0, "sick": 0, "sick_by_day": [], "wounds": 0, "festering": 0, "near": set(),
+        found = {"health": 0.0, "ticks": 0, "sick": 0, "sick_by_day": [], "lost_by_day": [], "wounds": 0,
+                 "festering": 0, "near": set(),
                  "freezing": 0, "starving": 0, "open_most": 0, "ever": {"sick": False, "wound": False, "lots": False}}
         state = world.state()
         for minute in range(1, days * 60 + 1):
@@ -8763,6 +8889,9 @@ def sample(found: dict, state: dict, minute: int, world) -> None:
     day = (minute - 1) // 60 + 1
     while len(found["sick_by_day"]) < day:
         found["sick_by_day"].append(found["sick"])
+    while len(found["lost_by_day"]) < day:
+        found["lost_by_day"].append(found["lost_by_day"][-1] if found["lost_by_day"] else 0.0)
+    found["lost_by_day"][day - 1] = round(float((state.get("wild") or {}).get("lost", 0.0)), 2)
     if ailments.get("sick"):
         found["sick"] += 1
         found["ever"]["sick"] = True
@@ -8814,7 +8943,9 @@ def summarize(world, found: dict, seed: int, days: int, condition: str, wall: fl
     return {"seed": seed, "days": days, "condition": condition, "wall": round(wall, 1), "difficulty": state.get("difficulty"),
             "died_day": None if died is None else round((died - BORN) / 60 + 1, 2), "cause": state.get("cause"),
             "lived_minutes": found["ticks"], "health_mean": round(found["health"] / ticks, 2),
-            "sick_minutes": found["sick"], "sick_by_day": found["sick_by_day"], "wounds": found["wounds"],
+            "sick_minutes": found["sick"], "sick_by_day": found["sick_by_day"],
+            "hazard_lost": found["lost_by_day"][-1] if found["lost_by_day"] else 0.0,
+            "lost_by_day": found["lost_by_day"], "wounds": found["wounds"],
             "festering_minutes": found["festering"], "near_death_days": sorted(found["near"]),
             "freezing_minutes": found["freezing"], "starving_minutes": found["starving"], "lessons": facts,
             "wonders_met": met, "questions": asks, "open_most": found["open_most"], "machines": machines,
@@ -8854,6 +8985,13 @@ def alive_on(life: dict, day: int) -> bool:
     return life["died_day"] is None or life["died_day"] > day
 
 
+def by_day(life: dict, key: str, day: int) -> float:
+    """A life's running count `key` ("sick_by_day", "lost_by_day") at the end of game day `day` (its last, if it
+    died before)."""
+    counts = life[key]
+    return counts[min(day, len(counts)) - 1] if counts else 0
+
+
 def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     """The W1 gate's criteria, each (name, passed, the measure)."""
     lives = load(out)
@@ -8877,15 +9015,20 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     most_gentle = max((len(life["machines"]) for life in gentle.values()), default=0)
     row("5 taught: 3 of 6 build a lamp on a lever; the furthest taught within one of gentle's",
         lamps >= 3 and most_taught >= most_gentle - 1, f"lamps {lamps}/6; machines taught {most_taught}, gentle {most_gentle}")
+    def first_month(key: str, group: list) -> float:
+        return sum(by_day(life, key, FIRST_MONTH) for life in group)
+
+    sick_u30, sick_t30 = first_month("sick_by_day", u), first_month("sick_by_day", t)
+    lost_u30, lost_t30 = first_month("lost_by_day", u), first_month("lost_by_day", t)
+    row("6' untaught, first month: sick minutes 3x taught; health lost to hazards 3x taught and 100+ a life",
+        u and t and sick_u30 >= 3 * sick_t30 and lost_u30 >= 3 * lost_t30 and lost_u30 / len(u) >= 100,
+        f"sick {sick_u30} vs {sick_t30}; lost {lost_u30:.0f} vs {lost_t30:.0f}, {lost_u30 / max(1, len(u)):.0f} a life")
     sick_u, sick_t = sum(life["sick_minutes"] for life in u), sum(life["sick_minutes"] for life in t)
-    near_u, near_t = sum(len(life["near_death_days"]) for life in u), sum(len(life["near_death_days"]) for life in t)
-    row("6 untaught: sick minutes 3x taught and 600+; near-death days 3x taught and 6+",
-        sick_u >= max(3 * sick_t, 600) and near_u >= max(3 * near_t, 6),
-        f"sick {sick_u} vs {sick_t}; near-death days {near_u} vs {near_t}")
-    mean_u = sum(life["health_mean"] for life in u) / max(1, len(u))
-    mean_t = sum(life["health_mean"] for life in t) / max(1, len(t))
-    row("7 untaught: health mean 10 or more below taught", u and t and mean_t - mean_u >= 10,
-        f"untaught {mean_u:.1f}, taught {mean_t:.1f}")
+    died_u = sum(1 for life in u if not alive_on(life, 150))
+    near_u = sum(len(life["near_death_days"]) for life in u)
+    row("7' untaught, a life without the owner: sick minutes 5x taught; deaths and near-death days 6+",
+        u and t and sick_u >= 5 * sick_t and died_u + near_u >= 6,
+        f"sick {sick_u} vs {sick_t}; deaths {died_u} + near-death days {near_u}")
     deaths = [life for life in u if not alive_on(life, 150)]
     row("8 untaught: at most 3 of 6 die, none before day 5", len(deaths) <= 3 and all(alive_on(life, 5) for life in u),
         f"deaths {len(deaths)} on days {[life['died_day'] for life in deaths]}")
@@ -8897,8 +9040,8 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     early = {life["seed"]: (sum(1 for day in life["wonders_met"].values() if day <= 4),  # its first 3 game days:
                             sum(1 for day, _ in life["questions"] if day <= 4)) for life in u}  # born on day 1.0
     open_most = max((life["open_most"] for group in lives.values() for life in group.values()), default=0)
-    row("10 untaught: 5 wonders met and 3 questions in 3 days; never more than 3 open",
-        all(met >= 5 and asked >= 3 for met, asked in early.values()) and open_most <= 3,
+    row("10' untaught: 4 wonders met and 3 questions in 3 days; never more than 3 open",
+        all(met >= 4 and asked >= 3 for met, asked in early.values()) and open_most <= 3,
         f"(met, asked) {early}; most open {open_most}")
     lied = [name for life in liar.values() for name, entry in life["lessons"].items() if entry["source"] == "from_you"]
     row("11 liar: no lesson learned from a false chip or claim", liar and not lied, f"taught by the liar {lied}")
@@ -8961,13 +9104,13 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `python3 -m unittest discover -s backend/tests -p "test_survival_wild_run.py"`
-Expected: `Ran 2 tests` … `OK (skipped=1)` (about 15 seconds)
+Expected: `Ran 3 tests` … `OK (skipped=1)` (about 15 seconds)
 
 Run: `MIMO_SLOW_TESTS=1 python3 -m unittest discover -s backend/tests -p "test_survival_wild_run.py"`
-Expected: `Ran 2 tests` … `OK` (about 7 minutes)
+Expected: `Ran 3 tests` … `OK` (about 7 minutes)
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1915 tests` … `OK (skipped=6)` (2 new).
+Expected: `Ran 1926 tests` … `OK (skipped=6)` (3 new).
 
 - [ ] **Step 5: Commit**
 
@@ -8978,10 +9121,10 @@ git commit -m "feat(W1): the wild gate's lives, headless, with a scripted owner 
 
 - [ ] **Step 6: Run the gate**
 
-This takes about 90 minutes at 6 in parallel; run it in the background and keep to 6 lives at once (the machine is shared).
+This takes about 100 minutes (3 hours on a busy machine) at 5 or 6 in parallel; run it in the background and keep to 6 lives at once (the machine is shared).
 
 Run, with `GATE` a new directory in your scratchpad: `python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 6 --out $GATE`, then `python3 -m backend.scripts.wild_gate --days 30 --conditions liar --parallel 6 --out $GATE`, then `python3 -m backend.scripts.wild_gate --check W1 $GATE`
-Expected: the table in "Dry-run measurements" (11 of the 14 rows pass; 6, 7 and 10 fail, as resolution 20 explains).
+Expected: the table in "Dry-run measurements" (every row passes, 6′, 7′ and 10′ included).
 
 ---
 
@@ -9012,8 +9155,8 @@ with:
 
 - **Wild or gentle.** A life hatches wild or gentle, for good (`backend/survival/wild.py`). `POST /api/lives/hatch` hatches a wild pet unless its body says `{"difficulty": "gentle"}`. Every world made before Wild World is gentle: its first tick grants it every survival lesson, silently, and it plays exactly as before. The HUD shows a "Wild" badge beside a wild pet's name, and `/api/mimo` has `difficulty`.
 - **What a wild newborn knows.** Instinct only: it eats apples, carrots, bread, brown mushrooms, fish and meat, sleeps, flees, gathers, crafts tools and weapons, hunts, farms and explores. Eleven survival lessons are what it must learn: which red berries are safe, that nightberries (the dark purple ones) and red mushrooms are poison, that sunleaf cures sickness and cleans wounds, that a wool bandage stops a wound festering, how to make a campfire and that cooked food is safe, that food keeps in a chest, that torches keep the dark creatures away, that a shelter with a roof and a door keeps it safe, and that a bed is for sleeping. Until it knows them it builds no shelter, bed, campfire or torches round home, cooks nothing raw and keeps no food in a chest. The journal's **Survival** section lists all eleven, known or not, and how each was learned: from you, worked out alone, or known from the start.
-- **Hazards, for a wild pet only.** Nightberry bushes look like berry bushes, and until Mimo knows them apart a meal of red berries eats some nightberries too; a nightberry or a red mushroom takes 5 health and gives a tummy ache. A raw meal can too (chicken most often). A tummy ache lasts 12 game minutes and a chill 25; while sick Mimo does not heal and loses health slowly, and a sickness can kill. One sunleaf eaten ends any sickness; a sick newborn nibbles one it finds nearby now and then by instinct. Food spoils (raw meat in a day and a half, bread in six), half as fast in a chest, and spoiled food makes Mimo sick more often than not. A creature's blow can leave a wound that festers after 10 game minutes unless it is dressed with a bandage (a wool makes 2) or a sunleaf; the owner's bandage dresses it too. A night spent cold can bring a chill at dawn. The HUD shows what ails the pet ("Tummy ache · 11 min", "Wound festering"), and the pet looks it: pale and drooping when sick, shivering with a chill, a red mark on a wound and a white wrap once it is dressed.
-- **Learning alone.** A wild pet works its lessons out from what hurts it (`knocks.py`): each painful knock may teach the lesson it points at, likelier each time, and some experiences teach for sure (the first smelt teaches fire; a sunleaf eaten while sick teaches sunleaf). "Pip worked out that cooking makes meat safe." is news in the owner's inbox.
+- **Hazards, for a wild pet only.** Nightberry bushes look like berry bushes, and until Mimo knows them apart a meal of red berries eats some nightberries too; a nightberry or a red mushroom takes 5 health and gives a tummy ache. A raw meal can too (chicken most often). A tummy ache lasts 12 game minutes and a chill 25; while sick Mimo does not heal and loses health slowly, and a sickness can kill. One sunleaf eaten ends any sickness; a sick newborn nibbles one it finds nearby now and then by instinct, and feels better without learning why. Food spoils (raw meat in a day and a half, bread in six), half as fast in a chest, and spoiled food makes Mimo sick more often than not. A creature's blow can leave a wound that festers after 10 game minutes unless it is dressed with a bandage (a wool makes 2) or a sunleaf; the owner's bandage dresses it too. A night spent cold can bring a chill at dawn. The HUD shows what ails the pet ("Tummy ache · 11 min", "Wound festering"), and the pet looks it: pale and drooping when sick, shivering with a chill, a red mark on a wound and a white wrap once it is dressed.
+- **Learning alone.** A wild pet works nine of its lessons out from what hurts it (`knocks.py`): each painful knock may teach the lesson it points at, a little likelier each time, and some experiences teach for sure (the first smelt teaches fire). "Pip worked out that cooking makes meat safe." is news in the owner's inbox. Two lessons only the owner can teach: that sunleaf cures sickness and cleans wounds, and that a wool bandage stops a wound festering. Without them every sickness runs its course and every wound festers until it heals by itself.
 - **Mimo asks.** What puzzles a wild pet (red berries it found, a raw beef it carries, a cold night, a creature with glowing eyes, food gone bad) becomes a question in the inbox and the chat, with answer chips (`wonders.py`, `questions.py`), at most three open at once. A chip, a sentence in the chat ("Two logs and three sticks make a campfire.") or, for a yes-or-no question, a bare "yes" teaches the lesson, and Mimo waits a little before it risks what it asked about. A wrong answer is doubted and never learned: "Hmm, I'm not sure that's right. I'll be careful." The viewer shows "?" and a count beside the inbox button while questions wait. What the owner answers stays between the owner and Jev.
 - **Worldgen.** Nightberry bushes grow on the berry bushes' ground (about two for every three berry bushes) and sunleaf on the green lands' grass, moss and mud, on columns where nothing else grew, in both ports; picked, they grow back.
 - `/api/mimo` has `difficulty`, `survival` (the eleven lessons), `ailments` (`sick` and `wound`) and, in the inbox, `questions`. `POST /api/mimo/inbox/{id}/answer` takes `{"choice": n}` for a chip. `python3 -m backend.scripts.wild_gate` runs the balance gate's lives headless (`--check W1 DIR` applies its criteria).
@@ -9024,7 +9167,7 @@ with:
 - [ ] **Step 2: Run every automated check**
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1915 tests` … `OK (skipped=6)`
+Expected: `Ran 1926 tests` … `OK (skipped=6)`
 
 Run: `MIMO_SLOW_TESTS=1 python3 -m unittest discover -s backend/tests -p "test_survival_sim.py"`, the same with `-p "test_survival_days.py"`, `-p "test_survival_expedition_run.py"`, `-p "test_survival_making_route.py"`, `-p "test_survival_frontier_run.py"`, `-p "test_survival_away.py"` and `-p "test_survival_wild_run.py"`
 Expected: `OK` each
@@ -9113,7 +9256,7 @@ Ask the owner to answer one question with its true chip in the inbox: the chip's
 
 - [ ] **Step 9: Hazards and knocks**
 
-Over the following hours on the wild stack, watch `wild.sh` for what W1 brings: a `sick` event after a taste of red berries, a red mushroom or a raw meal (the HUD's ailment line, "Tummy ache · 11 min", and the pet's pale tint and droop); a `cured` event when it finds and eats a sunleaf; `spoiled` food in its arms; a `chill` at dawn after a cold night (the pet shivers); a wound after a blow (a red mark, and a white wrap once dressed); and a `figured` event when it works a lesson out ("Pip worked out that …", news in the inbox, the lesson marked "worked it out" in the journal). Note each one seen, and any that is not seen in the first game day; that is expected for the rarer ones.
+Over the following hours on the wild stack, watch `wild.sh` for what W1 brings: a `sick` event after a taste of red berries, a red mushroom or a raw meal (the HUD's ailment line, "Tummy ache · 11 min", and the pet's pale tint and droop); a `cured` event when it finds and eats a sunleaf; `spoiled` food in its arms; a `chill` at dawn after a cold night (the pet shivers); a wound after a blow (a red mark, and a white wrap once dressed); and a `figured` event when it works a lesson out ("Pip worked out that …", news in the inbox, the lesson marked "worked it out" in the journal). Note each one seen, and any that is not seen in the first game day; that is expected for the rarer ones. Confirm no `figured` event is about sunleaf or bandages, and that a `cured` event after a nibble leaves sunleaf "?" in the journal: only the owner teaches those two.
 
 - [ ] **Step 10: A quiet worker**
 
@@ -9135,7 +9278,7 @@ Confirm `docker logs mimo-l3demo-worker 2>&1 | grep -c "crashed"` and the same f
 | Hazard 3, spoilage: shelf lives, lots, a chest halves it, spoiled food, keeping's help | Task 7 (`spoilage`; `test_the_lots_follow_every_step_kind_and_always_sum_to_the_counts`; resolution 11) |
 | Hazard 4, wounds: a blow's chance, festering, healing, dressing by bandage, sunleaf or the owner's care | Task 8 (`wounds`, `ailments.open_wound`, `dress`; resolution 12) |
 | Hazard 5, cold nights: a chill at dawn; the floor | Task 8 (`tend_night`, `dawn`; resolution 13) |
-| Learning alone: knocks, their growing chance, curiosity, sure knocks, `figured` | Task 9 (`knocks`; resolution 14) |
+| Learning alone: knocks, their growing chance, curiosity, sure knocks, `figured`; sunleaf and bandage never learned alone (spec resolution 29) | Task 9 (`knocks`, `OWNER_ONLY`, `test_sunleaf_and_bandages_are_never_learned_alone`; resolutions 14, 21) |
 | Mimo asks: wonders, their words, chips and claims; `OPEN_MOST`, `ASK_GAP`, once a life; the shuffle; hesitation | Task 10 (`wonders`, `questions.ask_wonders`; resolutions 15, 16) |
 | Answering: a chip, yes or no in the chat, anything else in the chat; wrong answers doubted; a lesson taught another way closes the question | Task 10 (`answer_question`, `REWORDS`, `TAUGHT_HOOKS`, the "answer" question), Task 2 (the parser) |
 | The teaching table: every line taught or doubted as listed; warnings teach | Task 2 (`TEACHES`, `DOUBTED` in `test_survival_wild_teaching.py`; `lessons.warned`) |
@@ -9145,7 +9288,7 @@ Confirm `docker logs mimo-l3demo-worker 2>&1 | grep -c "crashed"` and the same f
 | Viewer: the ailment line, the badge, the pet's look, the questions and chips, the Survival section, the memorial | Task 12 (`wild.ts`; resolution 18) |
 | Privacy: an answer never reaches Luna | Task 11 (`AnswersNeverReachLunaTests` in `test_survival_mind_privacy.py`), Task 10 (the "asked" moment is about the owner) |
 | No model call: rules only in the tick and the Talker's chore; `no_model` in every headless test | Global Constraints; Tasks 2, 10, 11 and 13 run the Talker with the counting stub |
-| The gate harness and the W1 gate | Task 13 (`wild_gate.py`; resolution 19), "Dry-run measurements" |
+| The gate harness and the W1 gate, with criteria 6′, 7′ and 10′ (spec resolution 29) and the health lost to hazards | Task 5 (`ailments.lose`), Task 6 (poison), Task 13 (`wild_gate.py`, `CheckTests`; resolutions 19, 20, 21), "Dry-run measurements" |
 | The existing sims pass unchanged for a gentle world | The dry run's slow sims ("Dry-run measurements") |
 
 Spec gaps the plan fills or leaves (the controller ledgers them):
@@ -9153,58 +9296,59 @@ Spec gaps the plan fills or leaves (the controller ledgers them):
 - "Stands within 8 blocks of a fire it did not make" (the fire lesson's sure knock) needs W2's and W3's fires and is not wired in W1 (resolution 14).
 - The spec does not say when a lot joins another, how many lots a stack keeps, or where a chest's lots live: resolution 11 sets them.
 - The chips' order is a seeded shuffle stored with the question, so only the index is sent and stored (resolution 16).
-- "The first 3 game days" in criterion 10: a life is born on day 1.0, so the gate counts what happened by day 4.0 (resolution 19).
+- "The first 3 game days" in criterion 10′: a life is born on day 1.0, so the gate counts what happened by day 4.0; "game days 0 to 30" in 6′ are the first 30 game days, 1 to 30 (resolution 19).
+- "Health lost to hazards" in 6′: the spec names sickness, poison, festering and chills; the plan counts the drain of a sickness (a tummy ache or a chill) or a festering wound, and a poison plant's 5 health, in `state["wild"]["lost"]` (resolution 19). Freezing and a creature's blows are not W1 hazards and are not counted.
 - The pet's "ears droop": the pet model has no separate ears, so the whole pet tilts forward a little (resolution 18).
 
 ## Dry-run measurements
 
+These are the revised plan's (resolution 21). The plan as first written was dry-run the same way on `41a919b` and `5da9fba`; its gate is summarised in resolution 20 and at the end of the notes below.
+
 ### The dry run, task by task
 
-The code was written and measured task by task on a scratch branch, rebased as the L5 final fix wave landed (`94dad38`, then `41a919b`; the wave's last commits up to `5da9fba` changed only a README line). The plan was then generated from it and applied with `apply_plan.py`, task by task in order, to a `git archive 5da9fba` copy (node_modules linked), with the fixture regenerated after Task 4 and the checks the tasks name after each. The load average on the shared machine was 9 to 18 throughout, so the times are slow.
+The code was written and measured task by task on a scratch branch, rebased as the L5 final fix wave landed (`94dad38`, `41a919b`, `5da9fba`, `e021753`), and revised on `e021753` after the controller's ruling. The plan was generated from it and applied with `apply_plan.py`, task by task in order, to a `git archive e021753` copy (node_modules linked), with the fixture regenerated after Task 4 and the checks the tasks name after each. The load average on the shared machine was 10 to 24 throughout (other gate runs shared it), so the times are slow.
 
 | Task | Applied | Backend | New | Frontend |
 |------|---------|---------|-----|----------|
-| base `5da9fba` | | `Ran 1819 tests` `OK (skipped=5)` | | `Tests  366 passed (366)` |
-| 1 | yes | 1828 OK | 9 | |
-| 2 | yes | 1836 OK | 8 | |
-| 3 | yes | 1843 OK | 7 | |
-| 4 | yes | 1848 OK | 5 | 367 passed (1 new), build ok, eslint clean; fixture 43,588 cells |
-| 5 | yes | 1859 OK | 11 | |
-| 6 | yes | 1871 OK | 12 | |
-| 7 | yes | 1880 OK | 9 | |
-| 8 | yes | 1890 OK | 10 | |
-| 9 | yes | 1898 OK | 8 | |
-| 10 | yes | 1908 OK | 10 | |
-| 11 | yes | 1913 OK | 5 | |
-| 12 | yes | 1913 OK | 0 (two changed) | 373 passed (6 new), build ok, eslint clean |
-| 13 | yes | 1915 `OK (skipped=6)` | 2 (1 slow) | |
-| 14 | yes | 1915 `OK (skipped=6)` | 0 | |
+| base `e021753` | | `Ran 1828 tests` `OK (skipped=5)` | | `Tests  366 passed (366)` |
+| 1 | yes | 1837 OK | 9 | |
+| 2 | yes | 1845 OK | 8 | |
+| 3 | yes | 1852 OK | 7 | |
+| 4 | yes | 1857 OK | 5 | 367 passed (1 new), build ok, eslint clean; fixture 43,588 cells |
+| 5 | yes | 1868 OK | 11 | |
+| 6 | yes | 1880 OK | 12 | |
+| 7 | yes | 1889 OK | 9 | |
+| 8 | yes | 1899 OK | 10 | |
+| 9 | yes | 1908 OK | 9 | |
+| 10 | yes | 1918 OK | 10 | |
+| 11 | yes | 1923 OK | 5 | |
+| 12 | yes | 1923 OK | 0 (two changed) | 373 passed (6 new), build ok, eslint clean |
+| 13 | yes | 1926 `OK (skipped=6)` | 3 (1 slow) | |
+| 14 | yes | 1926 `OK (skipped=6)` | 0 | |
 
-After Task 14 the copy matches the scratch branch file for file, but for the branch's own README line. Each task's failing run (Step 2) was taken the same way: the task's test files on the code of the task before it. An earlier full dry run on `41a919b` (before the meal fix in the notes below) gave the same counts at every task.
-
-`e021753` (one more L5 fix: `frontier.py`, `ruins.py` and their tests) landed while the gate ran. The whole plan applied to a `git archive e021753` copy unchanged, the fixture regenerated to the same 43,588 cells, and there: backend `Ran 1924 tests` `OK (skipped=6)` (`Ran 1828 tests` `OK (skipped=5)` at the base: the same 96 new), frontend `Tests  373 passed (373)`, the build succeeds and eslint prints nothing. The gentle log and the slow sims below were run on that copy.
+After Task 14 the copy matches the scratch branch file for file. Each task's failing run (Step 2) was taken the same way: the task's test files on the code of the task before it. Tasks 1 to 4 are the same as in the plan as first written, file for file; the revision changes Tasks 5, 6, 8, 9, 13 and 14.
 
 ### A gentle world is today's game
 
-Seed 8, 3 game days, the rules chooser with no model, on `e021753` and on its copy after Task 14 (and before that on `41a919b`): 257 events without the Talker and 260 with it, identical event for event (time, kind and text), and the same inventory, vitals and position at the end. The gate's gentle lives (below) never had a sickness, a wound, a lot or a question.
+Seed 8, 3 game days, the rules chooser with no model, on `e021753` and on its copy after Task 14: 257 events without the Talker and 260 with it, identical event for event (time, kind and text), and the same inventory, vitals and position at the end. The gate's gentle lives (below) never had a sickness, a wound, a lot or a question.
 
-### The slow sims (MIMO_SLOW_TESTS=1, on `e021753` after Task 14)
+### The slow sims (MIMO_SLOW_TESTS=1, on the copy after Task 14)
 
 | Sim | Result | Time |
 |-----|--------|------|
-| `test_survival_sim.py` | `Ran 7 tests` OK | 487 s |
-| `test_survival_days.py` | `Ran 3 tests` OK | 237 s |
-| `test_survival_expedition_run.py` | `Ran 2 tests` OK | 23 s |
-| `test_survival_making_route.py` | `Ran 1 test` OK | 2 s (1.5 s on the base) |
-| `test_survival_frontier_run.py` | `Ran 5 tests` OK | 325 s |
-| `test_survival_away.py` | `Ran 2 tests` OK | 14 s |
-| `test_survival_wild_run.py` | `Ran 2 tests` OK | 281 s (15 s without the slow one) |
+| `test_survival_sim.py` | `Ran 7 tests` OK | 853 s |
+| `test_survival_days.py` | `Ran 3 tests` OK | 538 s |
+| `test_survival_expedition_run.py` | `Ran 2 tests` OK | 62 s |
+| `test_survival_making_route.py` | `Ran 1 test` OK | 4 s |
+| `test_survival_frontier_run.py` | `Ran 5 tests` OK | 904 s |
+| `test_survival_away.py` | `Ran 2 tests` OK | 43 s |
+| `test_survival_wild_run.py` | `Ran 3 tests` OK | 1090 s (15 s without the slow one) |
 
-All six existing sims pass unchanged: their pets are gentle. (They passed on `41a919b` too, before the meal fix.)
+All six existing sims pass unchanged: their pets are gentle.
 
 ### The W1 gate
 
-On the final numbers (resolution 20), seeds 3, 5, 8, 11, 21 and 42: `untaught` and `taught` for 150 game days and `liar` for 30, at scale 60, 5 lives at a time (52 minutes for the 12 long lives, 4 for the liars); the `gentle` lives are the first gate run's (99 minutes for 18 lives), since nothing the meal fix changed runs for a gentle pet. `--check W1`:
+On the final numbers (resolutions 20 and 21), on the copy after Task 14 (`e021753` with the plan applied), seeds 3, 5, 8, 11, 21 and 42: `untaught`, `taught` and `gentle` for 150 game days and `liar` for 30, at scale 60, 5 lives at a time (about 3 hours at that load). `--check W1`:
 
 | Criterion | Result | Measure |
 |-----------|--------|---------|
@@ -9213,34 +9357,39 @@ On the final numbers (resolution 20), seeds 3, 5, 8, 11, 21 and 42: `untaught` a
 | 3 taught: each at most 3 near-death days | PASS | most 0 |
 | 4 taught: each at most 150 sick minutes | PASS | most 3 |
 | 5 taught: 3 of 6 lamps on levers; the furthest within one of gentle's | PASS | lamps 6/6; machines taught 7, gentle 7 |
-| 6 untaught: sick minutes 3× taught and 600+; near-death days 3× taught and 6+ | FAIL | sick 299 vs 4; near-death days 1 vs 0 |
-| 7 untaught: health mean 10 or more below taught | FAIL | untaught 97.6, taught 99.9 |
-| 8 untaught: at most 3 of 6 die, none before day 5 | PASS | 1 death, day 7.45 (a skitter) |
-| 9 untaught: alive on day 60 knows 8 of 11 learned alone | PASS | {21: 8, 3: 9, 42: 9, 5: 9, 8: 9} |
-| 10 untaught: 5 wonders and 3 questions in 3 days; never more than 3 open | FAIL | (met, asked) {11: (6, 3), 21: (5, 4), 3: (4, 3), 42: (5, 3), 5: (5, 4), 8: (6, 4)}; most open 3 |
+| 6′ untaught, first month: sick minutes 3× taught; health lost to hazards 3× taught and 100 a life | PASS | sick 406 vs 2; lost 1197 vs 4, 200 a life |
+| 7′ untaught, a life without the owner: sick minutes 5× taught; deaths and near-death days 6 or more | PASS | sick 518 vs 5; 2 deaths + 5 near-death days = 7 |
+| 8 untaught: at most 3 of 6 die, none before day 5 | PASS | 2 deaths, days 21.15 and 69.38, both of sickness |
+| 9 untaught: alive on day 60 knows 8 of 11 learned alone | PASS | 8 each (seeds 3, 5, 8, 11, 21) |
+| 10′ untaught: 4 wonders and 3 questions in 3 days; never more than 3 open | PASS | (met, asked) {3: (4, 3), 5: (5, 4), 8: (7, 3), 11: (6, 3), 21: (5, 4), 42: (5, 3)}; most open 3 |
 | 11 liar: nothing learned from a false chip or claim | PASS | none |
-| 12 liar: deaths by day 30 no more than untaught; sick minutes at most untaught + 30 | PASS | deaths 1 vs 1; each seed's sick minutes equal |
+| 12 liar: deaths by day 30 no more than untaught; sick minutes at most untaught + 30 | PASS | 1 vs 1; equal on every seed |
 | 13 gentle: all alive; no sickness, wound, lot or question; every lesson from the first tick | PASS | 6/6, clean, known |
 | all: no model call and no logged error | PASS | 0 calls, 0 errors |
 
 The lives:
 
-| Life | Died | Health mean | Sick min | Near-death days | Lessons (alone) | Questions | Machines |
-|------|------|-------------|----------|-----------------|-----------------|-----------|----------|
-| untaught 3 | | 98.88 | 37 | 0 | 9 (9) | 7 | 7 |
-| untaught 5 | | 99.10 | 55 | 0 | 9 (9) | 7 | 5 |
-| untaught 8 | | 99.16 | 52 | 0 | 9 (9) | 6 | 5 |
-| untaught 11 | day 7.45, a skitter | 93.69 | 35 | 1 | 4 (4) | 3 | 0 |
-| untaught 21 | | 96.25 | 83 | 0 | 8 (8) | 6 | 6 |
-| untaught 42 | | 98.34 | 37 | 0 | 9 (9) | 6 | 6 |
-| taught 3, 5, 8, 11, 21, 42 | | 99.96, 99.95, 99.98, 99.99, 99.93, 99.76 | 1, 0, 3, 0, 0, 0 | 0 | 11 each | 2 or 3 | 7, 7, 7, 7, 5, 5 |
-| gentle 3, 5, 8, 11, 21, 42 | | 99.96 to 99.99 | 0 | 0 | 11 from the start | 0 | 7, 7, 7, 7, 6, 7 |
-| liar (30 days) | seed 11 on day 7.45 | 91.7 to 99.2 | as untaught | at most 1 | 4 to 9, none from the liar | 7 to 10 | |
+| Life | Died | Health mean | Sick min (first month) | Lost to hazards (first month) | Near-death days | Lessons alone | Machines |
+|------|------|-------------|------------------------|-------------------------------|-----------------|---------------|----------|
+| untaught 3 | | 98.63 | 96 (96) | 243 (243) | | 8 | 7 |
+| untaught 5 | | 99.12 | 75 (63) | 197 (156) | | 8 | 6 |
+| untaught 8 | | 97.69 | 63 (39) | 278 (131) | 114 | 8 | 7 |
+| untaught 11 | day 69.38, sickness | 93.81 | 148 (72) | 425 (214) | 69 | 8 | 6 |
+| untaught 21 | | 99.29 | 59 (59) | 164 (164) | | 8 | 7 |
+| untaught 42 | day 21.15, sickness | 85.60 | 77 (77) | 289 (289) | 19, 20, 21 | 6 | 0 |
+| taught 3, 5, 8, 11, 21, 42 | | 99.76 to 99.98 | 0 to 3 | 0 to 6 | | 0 or 1 (11 known) | 5 to 7 |
+| gentle 3, 5, 8, 11, 21, 42 | | 99.96 to 99.99 | 0 | 0 | | 11 from the start | 6 or 7 |
+| liar (30 days) | seed 42, day 21.15 | 85.6 to 98.0 | as untaught | as untaught | seed 42: 19, 20, 21 | 6 to 8, none from the liar | |
 
-The untaught pets learn fire first (days 1.2 to 2.3, from their first smelt), the bed within 5 days, the shelter and keeping within about a week and cooking within six (days 3 to 38); the food lessons come as they are met (days 2 to 45), light is learned by 2 of 6 and the bandage by none. Seed 11 was cut by a gloomling on the night of day 6; the wound festered (it knew neither the bandage nor sunleaf), it caught a chill at dawn, and a skitter caught it on day 7. Seed 21 had the most sickness (83 minutes, a wound festering 100 minutes) and lived. The liar's pets live as the untaught ones do up to day 30: every false chip is doubted, and the sick minutes are the same on every seed.
+No untaught pet learned sunleaf or bandages (the nibble cured one sickness on every seed but seed 21 and taught nothing). They learned fire first (days 1.2 to 2.3, their first smelt), the bed, the shelter and keeping within 11 days, cooking on days 3 to 40 (seed 42 never), the food lessons as they met them (days 2 to 51), and light never. Seed 42 never learned cooking; tummy aches, two chills and a festering wound it could not dress left it near death on days 19 to 21, and it died of sickness on day 21. Seed 11 was sick ten times (it knew the nightberries apart only on day 46) and died of a sickness on day 69, hungry. The liar's pets fare as the untaught ones do up to day 30: every false chip is doubted, and the sick minutes are the same on every seed.
+
+The untaught lives are the same, byte for byte but for their wall times, as the last tuning run's (resolution 20's drains): every life is deterministic from its seed.
 
 ### Notes for the controller
 
-- The gate fails 6, 7, 9 and 10 after tuning in the spec's order (resolution 20). 6 and 7 are out of reach of the knobs: each sickness costs the 150-day health mean less than a quarter of a point, and the untaught pet stops falling sick once it has learned its first seven lessons, within about two game weeks. 9 (seed 11: 7 lessons alone, never cured by a nibble and never hungry enough for red berries) and 10 (seed 3: 4 wonders by day 4; its first cold night and third floor night come after) each miss by one, on numbers outside the tuning order. The owner decides whether the criteria or the hazards change; the plan keeps the spec's criteria.
-- Two untaught pets die of sickness (days 27 and 83), inside criterion 8. At the spec's drains nobody died in 40 days; at the doubled drains a run of poisonings or a chill on an empty stomach can kill.
-- Found while measuring, fixed in the plan: (1) a raw meal's risk was dropped when the eat step started, so raw meals never made a pet sick; Task 6's `start_eat` carries it and its test eats through the running step. (2) Food that spoiled while Mimo was eating it crashed the eat step's hook (a logged error in a 40-day gate run); Task 7 makes the step fail as it always did for missing food (`test_food_that_spoils_while_it_is_eaten_fails_the_step_and_logs_nothing`). (3) A meal of red berries went on after its first poisoning: the first 150-day gate's seed 42 ate ten nightberries in one meal on day 25 (50 health at once, and it died on day 27); Task 6's `sick_from` now drops the rest of the meal's servings of a food that made Mimo sick (for the red berries, of the whole group), and the gate above was run again on it (the gentle lives were kept: nothing of the fix runs for a gentle pet). Before the fix the gate failed 9 as well (seed 11 with 7 lessons alone by day 60) and had two untaught deaths of sickness (days 27 and 83).
+- The plan was revised by the ruling of 2026-09-27 (spec resolution 29, resolution 21 here). Tasks 1 to 4 did not change; `1139c50` (Task 1) and `eebbdec` (Task 4), already on the branch, match the revised plan's Tasks 1 and 4 file for file. Tasks 5, 6, 8, 9, 13 and 14 changed: `ailments.lose` and `state["wild"]["lost"]`, the tuned drains and raw-meal chances, `meals.eat_raw_left`, the removed `FESTERS` hook, `knocks.OWNER_ONLY` and the lower knock chances, the gate's 6′, 7′ and 10′ with a unit test, the README.
+- Found while measuring the revision, fixed in Task 6 (resolution 10): a starving wild pet with full arms hunted and fished again and again and left every piece of meat behind (a wild pet ate only riskless food it could not carry, and its arms held none), and starved. It killed two untaught pets in a tuning run and nearly starved a taught one in the first plan's gate (17 starving minutes); with the fix the taught pets never starve. What is left of it: a pet that knows cooking still leaves raw food it cannot carry behind until it is starving, so full arms can keep it hovering near starvation, sick from the raw bites it takes (one tuning run lost an untaught pet that way on day 93). Freeing its arms for food is L-level carrying, left as it is.
+- The knobs at their limits (resolution 20): the knock chances (a second step lower breaks criterion 9), and the chill's drain (1 per 25 game s killed three pets in their first three weeks). The margins are thin: criterion 9 passes with exactly 8 lessons on every seed alive on day 60, and 7′ with 7 against 6.
+- Mimo's sunleaf question keeps the spec's words ("There's a little yellow herb here. What is it for?"); the ruling's "This little yellow herb — is it good for anything?" read as an example, not new words.
+- Earlier finds, fixed in the plan: a raw meal's risk was dropped when the eat step started (Task 6); food that spoiled while eaten crashed the eat hook (Task 7); a meal of red berries went on after its first poisoning (Task 6).
+- The plan as first written, for the record: its gate passed 11 of the first 14 rows (the first criteria 6, 7 and 10 failed: untaught sick minutes 299 against 4, near-death days 1, health means 97.6 against 99.9, and seed 3's 4 wonders).
