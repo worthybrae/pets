@@ -33,7 +33,8 @@ Making: last of all, once a transaction while Mimo lives, the machines Mimo buil
 
 W1: first of all, a living pet's difficulty is settled (backend.survival.wild.settle): a world from before
 W1 becomes gentle, and a gentle pet is granted the survival lessons it knows from the start. Each vitals
-step takes a wild pet's ailments into account (backend.survival.ailments: `ailing` before, `tend` after).
+step takes a wild pet's ailments into account (backend.survival.ailments: `ailing` before, `tend` after),
+and its food ages (backend.survival.spoilage.age).
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ from typing import Callable
 
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
-from backend.survival import ailments
+from backend.survival import ailments, spoilage
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
@@ -254,6 +255,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             remaining -= step
             note_crossings(state, before, cursor, events)
             ailments.tend(state, step, activity, cursor, events)  # W1: a sickness runs its time
+            spoilage.age(state, context, step, cursor)  # W1: a wild pet's food ages
             if cause:
                 record_death(state, cause, cursor, scale, events)
                 break

@@ -29,7 +29,8 @@ from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
 from backend.survival.toolmaking import Short, make, place_station, station_spots
-from backend.survival.wild import unlocked
+from backend.survival.spoilage import turning
+from backend.survival.wild import knows, unlocked
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -114,9 +115,13 @@ def plan_cook(s: Situation, context: ActionContext) -> list[dict]:
     return cook_plan(s) or []
 
 
+KEEPING_LIFT = 20.0  # W1: a pet that knows keeping cooks raw food before it turns
+
+
 def cook_score(s: Situation) -> float:
     servings = s.count(*RAW_FOODS) + s.count("wheat") // BREAD_WHEAT
-    return min(80.0, 50.0 + (100.0 - s.vitals["hunger"]) / 4 + 5.0 * servings)
+    lift = KEEPING_LIFT if knows(s, "keeping") and turning(s.state, RAW_FOODS) else 0.0
+    return min(80.0, 50.0 + (100.0 - s.vitals["hunger"]) / 4 + 5.0 * servings + lift)
 
 
 register(Purpose(

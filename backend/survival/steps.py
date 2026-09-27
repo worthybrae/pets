@@ -54,7 +54,7 @@ FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "red_mushroom": 6.0, "carrot": 10
         # L1: meat from hunting. Raw it fills little; cooked at a fire it fills far more.
         "raw_beef": 8.0, "raw_mutton": 8.0, "raw_chicken": 6.0, "raw_rabbit": 6.0,
         "cooked_beef": 35.0, "cooked_mutton": 30.0, "cooked_chicken": 25.0, "cooked_rabbit": 25.0,
-        "nightberries": 8.0}  # W1: they fill like berries, and are poison
+        "nightberries": 8.0, "spoiled_food": 4.0}  # W1: nightberries fill like berries, and are poison
 # Health a food changes when eaten: a red mushroom is poisonous. Poison never takes the last point
 # of health (it is not a cause of death).
 FOOD_HEALTH = {"red_mushroom": -10.0, "nightberries": -10.0}  # W1: nightberries, as a gentle pet would
@@ -371,6 +371,8 @@ def finish_eat(step: dict, state: dict, grid: Grid, at: float) -> tuple[str, str
     for eats in EATING:  # W1
         try:
             event = eats(step, state, at)
+        except (ValueError, KeyError):
+            raise  # the food is gone (it spoiled while eaten): the step fails, as it would without W1
         except Exception as error:
             log_once(logger, "eating", error)
             continue

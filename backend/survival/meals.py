@@ -17,11 +17,14 @@ Eating, for a wild pet (steps.EATING: `eat_wild`):
   (RAW_RISK: raw chicken 0.5; beef, mutton and rabbit 0.35; fish 0.2): a tummy ache on a hit;
 - a sickness from the red berries makes Mimo shun the whole group for wild.SHUN (2 game days): "Berries made
   me sick. I'll leave them alone for a while." (backend.survival.knocks lifts it when the sickness taught it
-  the difference).
+  the difference);
+- spoiled food (backend.survival.spoilage) fills 4 hunger and gives a tummy ache with chance SPOILED_RISK, and
+  is eaten only when hungry with nothing else to eat, by a pet that does not know `wild:keeping`.
 A food that made Mimo sick is not eaten again in that meal: the rest of its servings (of the whole group, for the
 red berries) are dropped from the queue. The step is marked with what happened (`sick`, `raw`) for what learns
 from it after (the knocks).
-`throw_out` (58, a need) drops what Mimo knows is poison once it carries any.
+`throw_out` (58, a need) drops what Mimo knows is poison once it carries any, and spoiled food once it knows
+`wild:keeping`.
 
 A gentle pet keeps today's rules (purposes.meal, steps.FOOD_HEALTH and FOOD_RISK): MEALS and EATING give it
 nothing, and it only ever avoids nightberries (wild.avoided).
@@ -39,6 +42,7 @@ from backend.survival.nature import roll
 from backend.survival.once import log_once
 from backend.survival.purposes import FULL, MEALS, Purpose, register
 from backend.survival.situation import Situation
+from backend.survival.spoilage import SPOILED
 from backend.survival.steps import EATING, FOOD, HERBS, label
 from backend.survival.wild import FAMILIAR, RED_BERRIES, RED_MUSHROOM, is_wild, knows, wild_state
 
@@ -54,6 +58,8 @@ POISONOUS = ("nightberries", RED_MUSHROOM)  # what makes a wild pet sick for sur
 RAW_RISK = {"raw_chicken": 0.5, "raw_beef": 0.35, "raw_mutton": 0.35, "raw_rabbit": 0.35, "raw_fish": 0.2}
 SHARE_CHANNEL = 203  # the red berries' share roll
 RAW_CHANNEL = 201  # a raw meal's roll
+SPOILED_CHANNEL = 202
+SPOILED_RISK = 0.6
 SHUN_WORDS = "Berries made me sick. I'll leave them alone for a while."
 # W1: functions (Situation, item) that hold a taste of an untried food back (a question Mimo is waiting on:
 # backend.survival.questions). One that crashes holds nothing back (logged once).
@@ -121,8 +127,10 @@ def wild_meal(s: Situation, full: float = FULL) -> list[dict] | None:
     starving = hunger < STARVING
     cooks = knows(s, "cooking") and not starving
     counts = {item: count for item, count in s.inventory.items()
-              if count > 0 and item in FOOD and item not in s.poisons and item not in HERBS
+              if count > 0 and item in FOOD and item not in s.poisons and item not in HERBS and item != SPOILED
               and not (cooks and item in RAW_RISK)}
+    if not counts and s.inventory.get(SPOILED, 0) > 0 and hunger < TASTE_BELOW and not knows(s, "keeping"):
+        counts = {SPOILED: s.inventory[SPOILED]}  # nothing else left: what went bad
     eatable = sorted(counts, key=lambda item: (untried(s, item), -FOOD[item], item))  # what it trusts first
     steps: list[dict] = []
     served = 0
@@ -188,6 +196,11 @@ def eat_wild(step: dict, state: dict, at: float) -> tuple[str, str] | None:
         lose(state, before - vitals["health"])  # lost to a hazard (backend.survival.ailments)
         step["sick"] = True
         return sick_from(state, item, at)
+    if item == SPOILED:
+        if roll(state.get("world_seed", "0"), pet_cell(state), SPOILED_CHANNEL, int(at)) < SPOILED_RISK:
+            step["sick"] = True
+            return sick_from(state, item, at)
+        return "ate", f"{state['name']} ate {label(item)}."
     risk = float(step.get("risk", 0.0))
     if risk > 0:
         step["raw"] = True
@@ -203,9 +216,10 @@ EATING.append(eat_wild)
 # throw_out ---------------------------------------------------------------------------------------
 
 def junk_food(s: Situation) -> list[tuple[str, int]]:
-    """(item, count) Mimo carries and knows it must not eat: poison it learned (nightberries, red mushrooms)."""
-    return [(item, s.inventory[item]) for item, lesson in (("nightberries", "nightberries"), (RED_MUSHROOM, "red_mushroom"))
-            if s.inventory.get(item, 0) > 0 and knows(s, lesson)]
+    """(item, count) Mimo carries and knows it must not eat: poison it learned (nightberries, red mushrooms), and
+    food that went bad once it knows keeping."""
+    known = (("nightberries", "nightberries"), (RED_MUSHROOM, "red_mushroom"), (SPOILED, "keeping"))
+    return [(item, s.inventory[item]) for item, lesson in known if s.inventory.get(item, 0) > 0 and knows(s, lesson)]
 
 
 def throw_out_valid(s: Situation) -> bool:

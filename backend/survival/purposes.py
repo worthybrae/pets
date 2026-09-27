@@ -263,8 +263,9 @@ def wait_for_nightfall(s: Situation) -> dict:
 
 
 def foods(inventory: dict, avoid=()) -> list[str]:
-    """Food Mimo carries, best first, leaving out what it knows is poisonous (`avoid`)."""
-    return sorted((item for item in FOOD if inventory.get(item, 0) > 0 and item not in avoid),
+    """Food Mimo carries, best first, leaving out what it knows is poisonous (`avoid`); W1: and food that went
+    bad, which is no meal to count on (backend.survival.meals eats it only when nothing else is left)."""
+    return sorted((item for item in FOOD if inventory.get(item, 0) > 0 and item not in avoid and item != "spoiled_food"),
                   key=lambda item: -FOOD[item])
 
 

@@ -71,6 +71,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
 from backend.survival.structures import blueprint_of, clearing, todo
 from backend.survival.toolmaking import SWORD_LADDER
+from backend.survival.wild import unlocked
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -246,7 +247,10 @@ def chest_contents(s: Situation, cell) -> dict[str, int]:
 
 def spare_food(s: Situation) -> list[tuple[str, int]]:
     """Food beyond a day's worth (60 hunger), the least filling first. Raw food Mimo can cook
-    (cooking.RAW_FOODS) is neither: it waits for the fire, since cook only uses what Mimo carries."""
+    (cooking.RAW_FOODS) is neither: it waits for the fire, since cook only uses what Mimo carries. W1: a wild pet
+    puts spare food away only once it knows `wild:keeping`."""
+    if not unlocked(s, "keeping"):
+        return []
     kept, spare, wanted = 0.0, [], FOOD_WANTED + more_kept(s, "food")
     for item in foods(s.inventory, s.poisons):
         if item in RAW_FOODS:
