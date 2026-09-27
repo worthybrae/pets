@@ -56,7 +56,7 @@ from backend.survival.grid import Cell, Grid
 from backend.survival.memory import BUILT, cell_of
 from backend.survival.once import log_once
 from backend.survival.pathing import route
-from backend.survival.purposes import home_of, underground, walk_to
+from backend.survival.purposes import BUILT_HOME_RANGE, home_of, underground, walk_to
 from backend.survival.reflexes import Reflex, register
 from backend.survival.senses import afloat, near_failure
 from backend.survival.situation import Situation
@@ -289,7 +289,7 @@ def plan_flee(s: Situation, context: ActionContext) -> list[dict]:
         return []
     danger = where(threat, s.at)
     home = home_of(s)
-    if home is not None and home["note"] == BUILT and not indoors(s):
+    if home is not None and home["note"] == BUILT and not indoors(s) and s.distance(cell_of(home)) <= BUILT_HOME_RANGE:
         refuge = cell_of(home)
         if s.distance(refuge) > 0.5 and math.dist(danger, refuge) >= s.distance(refuge):
             return [walk_to(refuge)]

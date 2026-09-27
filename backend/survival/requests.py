@@ -197,8 +197,11 @@ REQUEST_WORDS = {
     "workshop": ("workshop", "kiln", "workbench", "bench"),
     "first_circuits": ("circuit", "circuits", "wire", "wires", "wiring", "lamp", "lamps", "lever", "spark", "bell"),
     "thinking_machine": ("computer", "computers", "thinking", "calculator", "counter"),
+    # L5 (pre-flight, carry 6): "could you go find some treasure?" is riches farther out.
+    "frontier": ("riches", "treasure", "treasures", "ruin", "ruins", "loot", "frontier"),
 }
-TITLE_STOP = frozenset({"a", "an", "the", "of", "its", "up", "own", "into", "to", "and", "see", "meet", "look"})
+TITLE_STOP = frozenset({"a", "an", "the", "of", "its", "up", "own", "into", "to", "and", "see", "meet", "look",
+                        "out"})  # L5 (pre-flight): "Riches farther out" made "map out your day" a request
 # What working on a goal is, in Mimo's words: "I'll make iron tools next.", "After I build my home, ...".
 TO_DO = {
     "first_shelter": "build my home", "better_home": "build a bigger stone home", "iron_tools": "make iron tools",
@@ -207,7 +210,7 @@ TO_DO = {
     "new_land": "go see new lands", "new_creature": "go meet a new creature", "cave": "look into a cave",
     "water": "follow the water", "far_hills": "walk the far hills", "expedition": "go on an expedition",
     "cozy_home": "make my home cozy", "workshop": "build my workshop", "first_circuits": "wire up my first circuits",
-    "thinking_machine": "build a computer",
+    "thinking_machine": "build a computer", "frontier": "go looking for riches farther out",
 }
 STATUS_WORDS = {"current": "it works on this now", "reached": "it already did this", "open": "it could take this up",
                 "after": "it must first finish another goal", "set_aside": "it gave this up lately",

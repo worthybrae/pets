@@ -48,6 +48,7 @@ from backend.survival.pathing import find_path
 from backend.survival.purposes import (
     AT_HOME, GO_HOME_RANGE, HOME_RANGE, HOMEWARD, away, foods, home_of, land_refuge, meal, walk_to,
 )
+from backend.survival.purposes import homeward_from  # L5: far out, the window opens sooner
 from backend.survival.senses import near_failure
 from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
@@ -322,7 +323,7 @@ register(Reflex("warm_up", 50, trigger=lambda s: s.vitals["warmth"] < WARM_UP_BE
 # head_home -------------------------------------------------------------------------------------
 
 def head_home_due(s: Situation) -> bool:
-    if not HOMEWARD <= s.clock["seconds_into_day"] < NIGHTFALL:
+    if not homeward_from(s) <= s.clock["seconds_into_day"] < NIGHTFALL:
         return False
     if s.brain["purpose"] in ("go_home", "sleep", *AT_HOME_WORK) or away(s):  # L4b: an expedition stays out
         return False

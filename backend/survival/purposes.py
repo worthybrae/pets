@@ -146,12 +146,13 @@ def walk_to(cell, reach: float = 0.0) -> dict:
 def home_of(s: Situation, reach: float = BUILT_HOME_RANGE) -> dict | None:
     """The home Mimo built, when it is within `reach` blocks (BUILT_HOME_RANGE: M5, doubled in L2;
     going home looks GO_HOME_RANGE, the final fix wave); else the nearest remembered home or shelter
-    within HOME_RANGE. L4a final fix wave, I1: the built home is read through the one home lookup
-    (backend.survival.home), not only from the places in sight."""
+    within HOME_RANGE; else (L5) the home FAR_HOMES name. L4a final fix wave, I1: the built home is
+    read through the one home lookup (backend.survival.home), not only from the places in sight."""
     home = home_place(s)
     if home is not None and home["note"] == BUILT and s.distance(cell_of(home)) <= reach:
         return home
-    return nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)
+    found = nearest(s.places, s.here, SHELTER_KINDS, HOME_RANGE)
+    return found if found is not None else far_home(s)  # L5: the home it built, from far out
 
 
 # L4b: functions of the Situation that say Mimo means to stay out tonight (an expedition,
@@ -192,14 +193,52 @@ def land_refuge(s: Situation) -> dict | None:
 
 
 def late_day(s: Situation) -> bool:
-    """Dusk, or the last 5 game minutes of the day before it."""
-    return s.phase == "dusk" or (s.phase == "day" and s.clock["seconds_into_day"] >= LATE_DAY)
+    """Dusk, or the last 5 game minutes of the day before it; L5: far from home, earlier by the walk
+    home (`homeward_from`), so going home wins and outdoor work gives way from then on."""
+    early = HOMEWARD - homeward_from(s)
+    return s.phase == "dusk" or (s.phase == "day" and s.clock["seconds_into_day"] >= LATE_DAY - early)
 
 
 def late_penalty(s: Situation, outdoors: bool = True) -> float:
     """How much lower outdoor work scores now: 30 late in the day, so sleep (60) and go_home win
     at dusk over work that would take Mimo away from home."""
     return LATE_PENALTY if outdoors and late_day(s) else 0.0
+
+
+# L5: functions of the Situation naming the home Mimo built when home_of's own reach does not find it
+# (backend.survival.frontier: from the far wilds on), and functions giving game seconds the head_home
+# window opens early (frontier: the walk home from out there). One that crashes counts for nothing.
+FAR_HOMES: list = []
+HOMEWARD_LEADS: list = []
+
+
+def far_home(s: Situation) -> dict | None:
+    """The first home FAR_HOMES name (L5), looked up once per Situation."""
+    def look() -> dict | None:
+        for find in FAR_HOMES:
+            try:
+                home = find(s)
+            except Exception as error:
+                log_once(logger, "far home", error)
+                continue
+            if home is not None:
+                return home
+        return None
+    return s.sensed("far home", look)
+
+
+def homeward_from(s: Situation) -> float:
+    """When the head_home window opens: HOMEWARD, earlier by the largest of HOMEWARD_LEADS (L5), worked
+    out once per Situation."""
+    def look() -> float:
+        lead = 0.0
+        for more in HOMEWARD_LEADS:
+            try:
+                lead = max(lead, float(more(s)))
+            except Exception as error:
+                log_once(logger, "homeward lead", error)
+        return max(0.0, HOMEWARD - lead)
+    return s.sensed("homeward from", look)
 
 
 def homeward(s: Situation) -> bool:

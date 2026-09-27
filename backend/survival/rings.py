@@ -23,6 +23,7 @@ brain.notice_step, after every vitals step) reads the home place once, keeps the
 birthplace until a home stands; a life from before L5 takes its oldest home place, or where it
 stands, as its birthplace), and notes the ring Mimo stands in. The first time Mimo stands in a ring
 past the near wilds is a notable "found" event ("Pip reached the far wilds for the first time.").
+L5's frontier goal adds "far_at", the last time Mimo stood past the near wilds.
 
 Readiness: what Mimo needs to go into a ring on purpose (L5's frontier trip). Rings 0 and 1 are
 open to every pet. The far wilds (2) take a stone sword or better (or a bow and 8 arrows), armor that
@@ -132,6 +133,8 @@ def tend_frontier(state: dict, context: ActionContext, at: float) -> None:
         frontier["center"] = list(frontier["birthplace"])
     ring = ring_here(state)
     frontier["ring"] = ring
+    if ring >= ANNOUNCED_FROM:
+        frontier["far_at"] = at  # the last time Mimo stood past the near wilds (the frontier goal reads it)
     reached = frontier.get("reached", 0)
     if ring > reached:
         frontier["reached"] = ring
@@ -151,8 +154,9 @@ def arrows(s: Situation) -> int:
     return s.count("arrow") if s.count("bow") > 0 else 0
 
 
-def short_of(s: Situation, ring: int) -> list[str]:
-    """What Mimo lacks to go into `ring` on purpose, in words; [] when it is ready (always for 0 and 1)."""
+def short_of(s: Situation, ring: int, gear_only: bool = False) -> list[str]:
+    """What Mimo lacks to go into `ring` on purpose, in words; [] when it is ready (always for 0 and 1).
+    With `gear_only`, only its weapons and armor are weighed (not its health or food)."""
     need = READY.get(min(ring, DEEPEST))
     if ring <= OPEN_RINGS or need is None:
         return []
@@ -164,11 +168,18 @@ def short_of(s: Situation, ring: int) -> list[str]:
         missing.append(f"a bow and {need.arrows} arrows")
     if armor_cut(s.inventory) < need.armor - 1e-9:
         missing.append(ARMOR_WORDS[need.armor])
+    if gear_only:
+        return missing
     if s.vitals["health"] < need.health:
         missing.append(f"{round(need.health)} health")
     if food_points(s) < need.food:
         missing.append("food for half a day")
     return missing
+
+
+def gear_short_of(s: Situation, ring: int) -> list[str]:
+    """The weapons and armor Mimo lacks for `ring`, in words."""
+    return short_of(s, ring, gear_only=True)
 
 
 def ready_ring(s: Situation) -> int:

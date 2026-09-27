@@ -154,6 +154,9 @@ LIFTS: list = []
 # Functions of (state, Find, at) told of every find after it is logged (L4's curiosity: a place new
 # to Mimo is a discovery).
 FINDS: list = []
+# L5: functions (s, cell) -> True for a place no trip may head for, whatever its reason
+# (backend.survival.frontier: a ring deeper than Mimo is ready for). One that crashes fences nothing.
+FENCES: list = []
 
 
 def register_reason(reason: Reason) -> Reason:
@@ -242,11 +245,25 @@ def reach_of(s: Situation, reason: Reason) -> float:
 
 
 def beyond(s: Situation, reason: Reason, home: Cell | None, cell: Cell) -> bool:
-    """Farther from home than the reason's reach, and no nearer to it than Mimo is now."""
+    """Farther from home than the reason's reach, and no nearer to it than Mimo is now; or (L5) a
+    place FENCES keep every trip from."""
+    if fenced(s, cell):
+        return True
     if home is None:
         return False
     away = math.hypot(cell[0] - home[0], cell[2] - home[2])
     return away > reach_of(s, reason) and away >= math.hypot(s.here[0] - home[0], s.here[2] - home[2])
+
+
+def fenced(s: Situation, cell: Cell) -> bool:
+    """A place one of FENCES keeps every trip from (L5); one that crashes fences nothing (logged once)."""
+    for fence in FENCES:
+        try:
+            if fence(s, cell):
+                return True
+        except Exception as error:
+            log_once(logger, "trip fence", error)
+    return False
 
 
 def stand_near(s: Situation, x: int, z: int) -> Cell | None:

@@ -31,6 +31,7 @@ from backend.survival.journal import journal_payload
 from backend.survival.memory import cell_of
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, offered
+from backend.survival.rings import ring_payload
 from backend.survival.situation import Situation
 from backend.survival.trips import offers, reasons_payload, trip_view
 
@@ -139,6 +140,9 @@ def context_payload(s: Situation, events: list[dict]) -> dict:
         "exploration": exploration_payload(s),
         # L2: the hostile creatures that could come after Mimo, and how it can meet them.
         **threats_payload(s),
+        # L5: the danger ring Mimo stands in, how far from home, the deepest ring it is ready for and
+        # what it lacks for the next one.
+        "frontier": ring_payload(s),
         # L4: the goal Mimo works toward, how far along it is and what comes next (or None).
         "goal": goal_payload(s),
         # L4: what an explore trip would go looking for, why, and which ways it could head (with what
