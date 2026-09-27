@@ -27,7 +27,9 @@
   stands, so gathering wood, fishing or a camp's walk to its spot plans again or gives up; and out past
   the limit, turn_back walks Mimo back EDGE inside it, on the line home, before anything else (a camp then
   digs in inside). A flight or a fight is the one exception: both are more urgent, and turn_back takes Mimo
-  back once they end. A camp dug in for the night is left alone. On the final review's gate gathering wood,
+  back once they end. A camp dug in for the night is left alone; old ruins (ruins.ruin_targets) and ores
+  (work.reachable_ores, since mine_ore remembers no refused spot) past the limit are no targets. On the
+  final review's gate gathering wood,
   fishing and wandering took three pets that were not ready for it into the frontier, and one camped there.
 - Riches come home (the L5 final fix wave, I2): at an old chest, stacks of blocks Mimo carries make room for
   the riches in it (ruins.room_for_riches), and an opened chest that still holds riches is a target again,

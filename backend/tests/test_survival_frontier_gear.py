@@ -231,6 +231,12 @@ class ArmsTests(unittest.TestCase):
         hung.state["wards"] = [[0, 2, 0], [2, 2, 0]]  # both warding lanterns already hang
         self.assertEqual(dict(storage.to_store(hung.situation(), hung.chest)).get("gloom_dust"), 2)
 
+    def test_the_iron_for_a_wards_lantern_comes_out_of_the_chest_with_the_dust(self):
+        # Hazel on the gate: 5 gloom dust in the chest, torches in hand, the iron for a lantern in the chest.
+        home = Home({"torch": 2, "iron_pickaxe": 1, "iron_cap": 1, "iron_tunic": 1}, chest={"gloom_dust": 5, "iron_ingot": 4})
+        takes = {item: amount for _, item, amount in storage.to_take(home.situation())}
+        self.assertEqual((takes.get("gloom_dust"), takes.get("iron_ingot")), (2, 1))
+
     def test_diamonds_stay_for_the_next_diamond_tool_and_go_in_the_chest_after(self):
         ladder = Home({"iron_pickaxe": 1, "diamond": 2}, chest={})  # the diamond goal counts the ones carried
         self.assertNotIn("diamond", dict(storage.to_store(ladder.situation(), ladder.chest)))

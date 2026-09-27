@@ -15,6 +15,7 @@ from backend.survival.rings import ring_at
 from backend.survival.ruins import RUIN, notice_ruins, ruins_near
 from backend.survival.situation import Situation
 from backend.survival.trips import REASONS, beyond, offers, targets, wanted_now
+from backend.survival.work import ore_targets
 from backend.survival.triggers import ensure_brain
 from backend.tests.test_survival_pickers import DAY, NIGHT
 from backend.survival.replies import Heard
@@ -247,6 +248,20 @@ class FenceTests(unittest.TestCase):
         spot = next(step["target"] for step in steps if step["kind"] == "mine")
         self.assertLessEqual(math.dist(spot[::2], HOME[::2]), 240)
         self.assertIsNone(self.hook(pet, [{**step, "purpose": "camp"} for step in steps], clock=dusk))
+
+    def test_no_ore_past_its_limit_is_a_target(self):
+        # The gate on the fix wave's second commit: mine_ore went back to coal past the limit 18 times while a
+        # thinking machine was the goal; each walk was refused and mine_ore was chosen again (seed 8).
+        pet = at_home(dict(GEARED, stone_pickaxe=1), offset=(215, 0))
+        seed = pet.state["world_seed"]
+        past, inside = ((x, terrain_height(x, HOME[2], seed) - 2, HOME[2]) for x in (HOME[0] + 250, HOME[0] + 225))
+        for cell in (past, inside):
+            pet.grid.put(*cell, "coal_ore")
+            pet.grid.put(cell[0], cell[1] + 1, cell[2], "stone")  # buried: not the floor of a passage
+        remember(pet.db, "ore", past, 5.0, "coal_ore")
+        self.assertFalse(PURPOSES["mine_ore"].valid(pet.situation()))
+        remember(pet.db, "ore", inside, 5.0, "coal_ore")
+        self.assertEqual([(place["x"], place["z"]) for place in ore_targets(pet.situation())], [(inside[0], inside[2])])
 
     def test_no_ruin_past_its_limit_is_a_target(self):
         edge = (CHEST[0] - 248, 9, CHEST[2])  # home 248 blocks west of the ruin: the far wilds, past the limit

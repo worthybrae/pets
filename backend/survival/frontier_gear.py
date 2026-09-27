@@ -152,7 +152,8 @@ def loot_plan(s: Situation) -> tuple[dict[str, int], dict[str, int]]:
     it had no room to make.
     - amber: an amber piece on a slot Mimo wears iron on, with the iron ingots (or ore) it takes, which come out
       of the chest with it;
-    - gloom dust: WARD_DUST for a warding lantern while fewer than WARDS_WANTED are carried or hung;
+    - gloom dust: WARD_DUST for a warding lantern while fewer than WARDS_WANTED are carried or hung, with the
+      iron its lantern takes when Mimo carries no lantern;
     - gold nuggets: while the pickaxe ladder counts gold (work.ladder_ores), what makes up the gold pickaxe;
     - diamonds: the next diamond tool, the sword once the pickaxe is made. Toward the diamond pickaxe (over an
       iron one) they stay on hand however few, since the diamond goal counts the ones carried
@@ -185,8 +186,13 @@ def loot_plan(s: Situation) -> tuple[dict[str, int], dict[str, int]]:
                                                          ("iron_ore", ore)) if n})
                 break
         wards = inventory.get(WARD, 0) + len(s.state.get("wards", []))
-        if wards < WARDS_WANTED and have("gloom_dust") >= WARD_DUST and makeable(with_stored(gloom_dust=WARD_DUST), WARD):
-            kept["gloom_dust"] = wanted["gloom_dust"] = WARD_DUST
+        if wards < WARDS_WANTED and have("gloom_dust") >= WARD_DUST:
+            iron = {} if inventory.get("lantern", 0) > 0 or inventory.get("iron_ingot", 0) > 0 else \
+                {"iron_ingot": 1} if have("iron_ingot") else {"iron_ore": 1} if have("iron_ore") else {}
+            if makeable(with_stored(gloom_dust=WARD_DUST, **iron), WARD):  # its lantern's iron comes out too
+                kept["gloom_dust"] = wanted["gloom_dust"] = WARD_DUST
+                for item, count in iron.items():
+                    wanted[item] = wanted.get(item, 0) + count
         short = max(0, GOLD_PICKAXE_INGOTS - have("gold_ingot", "gold_ore"))
         nuggets = short * NUGGETS_PER_INGOT
         if (ladder_ores(inventory) and short and have("gold_nugget") >= nuggets

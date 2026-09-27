@@ -52,6 +52,7 @@ from backend.survival.senses import ORES, by_distance, failed_columns, standing_
 from backend.survival.situation import Situation
 from backend.survival.steps import REACH
 from backend.survival.structures import reserved
+from backend.survival.trips import fenced
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -463,7 +464,9 @@ def passage_floor(s: Situation, cell: Cell) -> bool:
 
 def reachable_ores(s: Situation, kinds) -> list[dict]:
     """Remembered ores of `kinds` Mimo could go for: within ORE_RANGE blocks (MAKING_ORE_RANGE for one
-    making wants, MORE_ORES), not the floor of a passage."""
+    making wants, MORE_ORES), not the floor of a passage, and (the L5 final fix wave, I4) not past the limit
+    Mimo's readiness sets (trips.fenced): L5's fence refuses the walk there, and mine_ore, which remembers
+    no failed spot, went back to the same ore 18 times in a row on the final fix wave's gate."""
     making, (x, _, z) = set(more_ores(s)), s.here
 
     def reach(ore: str) -> float:
@@ -471,7 +474,7 @@ def reachable_ores(s: Situation, kinds) -> list[dict]:
 
     return [place for place in s.places if place["kind"] == "ore" and place["note"] in kinds
             and math.hypot(place["x"] - x, place["z"] - z) <= reach(place["note"])
-            and not passage_floor(s, cell_of(place))]
+            and not passage_floor(s, cell_of(place)) and not fenced(s, cell_of(place))]
 
 
 def in_reach(s: Situation, ore: str) -> bool:
