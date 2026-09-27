@@ -49,7 +49,8 @@ import math
 import sqlite3
 
 from backend.survival.creatures.acts import (
-    IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, flat_distance, pause, register_action, wander,
+    IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, barred, flat_distance, pause, register_action,
+    wander,
 )
 from backend.survival.creatures.harm import hurt_pet, pet_alive, sheltered
 from backend.survival.creatures.kinds import Kind, hostile_kinds, kind_of, register_kind
@@ -280,7 +281,8 @@ def chase(creature: dict, kind: Kind, scene: Scene) -> None:
     for _ in range(CHASE_STEPS):
         if can_hit(scene.grid, cell, target, kind.reach):
             break
-        options = [step for step in steps(scene.grid, cell, kind.water, kind.height) if step not in cells]
+        options = [step for step in steps(scene.grid, cell, kind.water, kind.height)
+                   if step not in cells and not barred(scene, creature, cell, step)]  # L5: a warding lantern
         best = min(options, key=lambda step: (math.dist(step, target), step), default=None)
         if best is None or math.dist(best, target) >= math.dist(cell, target):
             break

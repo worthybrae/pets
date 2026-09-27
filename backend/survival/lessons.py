@@ -77,7 +77,8 @@ SHORTLIST = 5  # lessons offered for one line
 NUMBERS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
 GROUPS = (("tool", ("_pickaxe", "_axe")), ("weapon", ("_sword", "bow", "arrow")), ("armor", ("_cap", "_tunic")))
 # Ingredients that are not counted one by one ("three string", "two leather").
-MASS = frozenset({"string", "leather", "cobblestone", "raw_beef", "raw_mutton", "wool", "gloom_dust", "tallow"})
+MASS = frozenset({"string", "leather", "cobblestone", "raw_beef", "raw_mutton", "wool", "gloom_dust", "tallow",
+                  "amber"})  # L5 (pre-flight): "two amber"
 PLURAL = {"sheep": "sheep", "fish": "fish"}
 LANDS = {"meadow": "meadows", "forest": "forests", "birch_forest": "birch forests", "taiga": "the taiga",
          "swamp": "swamps", "desert": "deserts", "alpine": "the mountains"}

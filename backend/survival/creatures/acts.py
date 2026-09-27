@@ -17,7 +17,8 @@ check and an `act` that starts the creature's next move or pose and sets when it
 
 L2's hostile kinds register their chase and attack here the same way. Every duration is in
 server seconds and is divided by the action scale (`Scene.pace`, MIMO_ACTION_SCALE), like Mimo's
-own steps. Nothing here searches for a path or edits a block.
+own steps. Nothing here searches for a path or edits a block. L5: BARRIERS keep a creature from
+some steps (hostiles from a warding lantern's reach).
 """
 
 from __future__ import annotations
@@ -98,6 +99,15 @@ class CreatureAction:
 
 
 CREATURE_ACTIONS: list[CreatureAction] = []
+# L5: functions (scene, kind, cell, step) that bar a creature of `kind` from stepping from `cell` to
+# `step` (backend.survival.frontier_gear: hostiles keep away from a warding lantern). Wandering and
+# chasing (backend.survival.creatures.hostiles) ask `barred`.
+BARRIERS: list = []
+
+
+def barred(scene: Scene, creature: dict, cell: Cell, step: Cell) -> bool:
+    kind = kind_of(creature["kind"])
+    return kind is not None and any(barrier(scene, kind, cell, step) for barrier in BARRIERS)
 
 
 def register_action(action: CreatureAction) -> CreatureAction:
@@ -198,7 +208,8 @@ def wander_cells(creature: dict, scene: Scene) -> list[Cell]:
     home = tuple(creature["state"].get("home") or where(creature, scene.at))
     cell, cells = where(creature, scene.at), []
     for number in range(1 + int(scene.roll(creature, LENGTH) * WANDER_MOST)):
-        options = [step for step in steps(scene.grid, cell, False, height_of(creature)) if step not in cells]
+        options = [step for step in steps(scene.grid, cell, False, height_of(creature))
+                   if step not in cells and not barred(scene, creature, cell, step)]
         near = [step for step in options if flat_distance(step, home) <= LEASH]
         if not near and options:
             near = [min(options, key=lambda step: (flat_distance(step, home), step))]

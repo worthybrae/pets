@@ -54,6 +54,9 @@ LANTERNS_WANTED = 4  # lanterns Mimo makes to carry home (light_up hangs them), 
 # L5: an item small pieces make too, by the recipe named here (4 gold nuggets make a gold ingot),
 # made that way when there is no ore to smelt for it (`pooled`).
 POOLED = {"gold_ingot": "gold_nuggets"}
+# L5: functions of the inventory giving more orders for craft_tools, after its own (backend.survival.
+# frontier_gear: amber-studded armor and warding lanterns). Each item they order needs its STATIONS.
+MORE_ORDERS: list = []
 SMELTED = {output: ore for ore, output in SMELTING.items()}
 # Cells beside Mimo at its level, then the one above it.
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
@@ -98,7 +101,8 @@ def tool_orders(inventory: dict, armor: bool = False) -> list[tuple[str, ...]]:
         orders += [(pickaxe, sword) for sword in open_swords({**inventory, pickaxe: 1})]
         orders.append((pickaxe,))
     orders += [(sword,) for sword in open_swords(inventory)]
-    return orders + (armor_orders(inventory) if armor else []) + lantern_orders(inventory)
+    extra = [order for more in MORE_ORDERS for order in more(inventory)]  # L5
+    return orders + (armor_orders(inventory) if armor else []) + lantern_orders(inventory) + extra
 
 
 def armor_orders(inventory: dict) -> list[tuple[str, ...]]:

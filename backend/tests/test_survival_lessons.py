@@ -9,7 +9,7 @@ from backend.survival.lessons import SHORTLIST, claims, contradicts, denied, gea
 
 GEAR = ("wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "gold_pickaxe", "diamond_pickaxe", "wooden_axe", "stone_axe",
         "iron_axe", "wooden_sword", "stone_sword", "iron_sword", "gold_sword", "diamond_sword", "bow", "arrow",
-        "leather_cap", "leather_tunic", "iron_cap", "iron_tunic")
+        "leather_cap", "leather_tunic", "iron_cap", "iron_tunic", "amber_cap", "amber_tunic")  # L5: amber armor
 
 
 class TeachableLessonsTests(unittest.TestCase):
@@ -48,7 +48,8 @@ class TeachableLessonsTests(unittest.TestCase):
 
     def test_the_new_lessons_are_never_things_to_go_and_study(self):
         added = [thing for thing in LESSONS if ":" in thing]
-        self.assertEqual(len(added), len(GEAR) + 2 * len(KINDS) - sum(1 for kind in KINDS.values() if not kind.drops))
+        self.assertEqual(len(added), len(GEAR) + 2 * len(KINDS) - sum(1 for kind in KINDS.values() if not kind.drops)
+                         + 2)  # L5: the warding lantern's and gold nuggets' recipe lessons (frontier_gear)
         self.assertEqual(len(LESSONS) - len(added), 36)  # L4b's 32, plus Making T2's 4 (copper_spark, clock, latch, adder)
         self.assertFalse(set(added) & (set(SURFACE) | set(PLANTS) | set(KINDS)))
 

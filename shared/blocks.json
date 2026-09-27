@@ -133,7 +133,8 @@
     "joiner_lit": {"pattern": "gate", "color": [164, 164, 160], "accent": [255, 128, 84], "size": 3},
     "lamp": {"pattern": "lamp", "color": [118, 84, 62], "accent": [168, 112, 78]},
     "lamp_lit": {"pattern": "lamp", "color": [255, 216, 140], "accent": [214, 130, 74]},
-    "bell": {"pattern": "sprite_bell", "color": [232, 196, 96], "accent": [110, 82, 58]}
+    "bell": {"pattern": "sprite_bell", "color": [232, 196, 96], "accent": [110, 82, 58]},
+    "warding_lantern": {"pattern": "glow", "color": [176, 150, 236]}
   },
   "blocks": [
     {"name": "air", "color": [0, 0, 0], "textures": "missing", "layer": "none", "solid": false, "replaceable": true, "drop": null, "hardness": null},
@@ -256,6 +257,7 @@
     {"name": "joiner_lit", "color": [255, 128, 84], "textures": "joiner_lit", "layer": "cutout", "shape": "flat", "solid": false, "drop": "joiner", "glow": true, "hardness": 0.1},
     {"name": "lamp", "color": [118, 84, 62], "textures": "lamp", "layer": "opaque", "solid": true, "drop": "lamp", "hardness": 0.6},
     {"name": "lamp_lit", "color": [255, 216, 140], "textures": "lamp_lit", "layer": "opaque", "solid": true, "drop": "lamp", "glow": true, "hardness": 0.6},
-    {"name": "bell", "color": [232, 196, 96], "textures": "bell", "layer": "cutout", "solid": false, "drop": "bell", "hardness": 2.0, "tool": "pickaxe"}
+    {"name": "bell", "color": [232, 196, 96], "textures": "bell", "layer": "cutout", "solid": false, "drop": "bell", "hardness": 2.0, "tool": "pickaxe"},
+    {"name": "warding_lantern", "color": [176, 150, 236], "textures": "warding_lantern", "layer": "opaque", "solid": true, "drop": "warding_lantern", "glow": true, "hardness": 0.6}
   ]
 }

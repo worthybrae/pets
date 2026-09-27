@@ -15,6 +15,8 @@ const MAKING = ['bookshelf', 'wool_orange', 'wool_pink', 'wool_yellow', 'rug_ora
 /** Making's T2 blocks, the wiring, right after its T1 blocks (backend/tests/test_blocks_wiring.py). */
 const WIRING = ['copper_wire', 'copper_wire_lit', 'lever', 'lever_on', 'button', 'button_on', 'pressure_plate',
   'daylight_sensor', 'repeater', 'repeater_lit', 'inverter', 'inverter_lit', 'joiner', 'joiner_lit', 'lamp', 'lamp_lit', 'bell']
+/** L5's blocks, after Making's wiring, the last (backend/tests/test_survival_frontier_gear.py). */
+const FRONTIER = ['warding_lantern']
 
 describe('block registry', () => {
   it('puts air at id 0 and keeps ids below the missing id', () => {
@@ -132,5 +134,12 @@ describe('block registry', () => {
     }
     expect(LAYER_BY_ID[blockId('lamp_lit')]).toBe(LAYER_OPAQUE)
     for (const name of ['lever', 'lever_on', 'button', 'bell']) expect(CUBE_BY_ID[blockId(name)], name).toBe(0)  // sprites
+  })
+
+  it('adds L5\'s warding lantern last, after the wiring, glowing like a lantern', () => {
+    const names = BLOCKS.map((block) => block.name)
+    expect(blockId('warding_lantern')).toBe(blockId('bell') + 1)
+    expect(names.slice(-FRONTIER.length)).toEqual(FRONTIER)
+    expect(GLOW_BY_ID[blockId('warding_lantern')]).toBe(1)  // L5: it glows like a lantern
   })
 })

@@ -2,7 +2,7 @@ import sqlite3
 import unittest
 
 from backend.services.crafting import craft
-from backend.survival import storage
+from backend.survival import frontier_gear, storage  # noqa: F401  (L5: frontier_gear keeps 4 gloom dust on hand)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.carrying import valuable
 from backend.survival.creatures.gear import gear_orders
@@ -104,7 +104,7 @@ class GearTests(unittest.TestCase):
     def test_what_gear_takes_is_kept_on_hand_and_the_rest_put_away(self):
         home = Home({"leather": 9, "string": 5, "flint": 4, "feather": 4, "rabbit_hide": 8, "gloom_dust": 2}, chest={})
         self.assertEqual(storage.to_store(home.situation(), home.chest),
-                         [("leather", 4), ("gloom_dust", 2), ("string", 2)])
+                         [("leather", 4), ("string", 2)])  # L5: gloom dust is kept for a warding lantern
 
     def test_once_the_gear_is_made_what_it_took_is_put_away_too(self):
         # Final fix wave: the gear materials were kept on hand for good, up to 5 stacks in Mimo's

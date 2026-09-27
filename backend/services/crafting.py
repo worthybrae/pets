@@ -57,6 +57,11 @@ RECIPES.update({
 # L5, the frontier: gold nuggets that far-off hostiles and ruins give, 4 to a gold ingot, anywhere.
 RECIPES.update({
     "gold_nuggets": {"ingredients": {"gold_nugget": 4}, "output": {"gold_ingot": 1}},
+    # A warding lantern (a lantern and gloom dust, anywhere) and amber-studded armor, a step past iron.
+    "warding_lantern": {"ingredients": {"lantern": 1, "gloom_dust": 4}, "output": {"warding_lantern": 1}},
+    "amber_cap": {"ingredients": {"iron_ingot": 2, "amber": 2}, "output": {"amber_cap": 1}, "station": "crafting_table"},
+    "amber_tunic": {"ingredients": {"iron_ingot": 3, "amber": 3}, "output": {"amber_tunic": 1},
+                    "station": "crafting_table"},
 })
 # Making (T1): paper and books, dyes and coloured wool, rugs, bookshelves, a kiln, stairs, slabs, glass panes,
 # trapdoors, iron bars, flower pots, signs, barrels, composters and candles.

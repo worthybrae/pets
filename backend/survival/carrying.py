@@ -108,6 +108,7 @@ def crafts_fit(inventory: dict[str, int], steps: list[dict]) -> bool:
 # L3: diamonds, creature seeds, iron armor and lanterns are worth carrying too.
 TREASURES = ("diamond", "creature_seed", "iron_cap", "iron_tunic", "lantern")
 TREASURES += ("amber", "gold_nugget")  # L5: the frontier's riches (backend.survival.loot)
+# backend.survival.frontier_gear adds its warding lantern and amber-studded armor.
 
 
 def valuable(item: str) -> bool:
