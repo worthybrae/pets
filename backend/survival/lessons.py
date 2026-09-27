@@ -72,6 +72,7 @@ from backend.services.crafting import RECIPES
 from backend.survival.creatures.kinds import KINDS, Kind
 from backend.survival.journal import LESSONS, Lesson, teach
 from backend.survival.mind import singular, vocabulary, words_of
+from backend.survival.wild import BY_NAME as SURVIVAL, KIND as SURVIVAL_KIND, PREFIX as SURVIVAL_PREFIX
 
 SHORTLIST = 5  # lessons offered for one line
 NUMBERS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
@@ -99,6 +100,10 @@ TEACH_SYNONYMS = (
     {"give", "drop"}, {"take", "need", "cost"}, {"make", "made", "craft"}, {"dark", "light", "shadow", "night"},
     {"sun", "sunlight", "day", "daylight", "light"}, {"fade", "burn"}, {"mountain", "alpine"},
     {"ingot", "bar"}, {"wooden", "wood"}, {"stone", "cobblestone"},
+    # W1: the survival lessons' words (backend.survival.wild).
+    {"purple", "dark", "night"}, {"herb", "sunleaf"}, {"bandage", "wrap"}, {"campfire", "fire"}, {"torch", "light"},
+    {"shelter", "house", "home"}, {"poison", "poisonous", "toxic"}, {"cook", "cooked", "cooking"},
+    {"festering", "fester"}, {"sickness", "sick", "ill"},
 )
 # Words every recipe lesson means, whether its fact says "takes" or "make" ("leather armor is made
 # from leather", final fix wave M10).
@@ -132,7 +137,13 @@ COUNTS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven
           "ten": 10, "eleven": 11, "twelve": 12}
 OPPOSITES = ((frozenset({"love", "like", "enjoy"}), frozenset({"hate", "fear", "fade", "burn", "away", "avoid"})),
              (frozenset({"day", "daytime", "daylight", "noon", "morning", "sun", "sunlight", "sunny"}),
-              frozenset({"night", "nighttime", "midnight", "dark", "evening"})))
+              frozenset({"night", "nighttime", "midnight", "dark", "evening"})),
+             # W1: safe or poison, raw or cooked, kept away or brought, warm or cold (the survival lessons)
+             (frozenset({"safe", "fine", "edible", "cure", "clean", "heal"}),
+              frozenset({"poison", "poisonous", "toxic", "bad"})),
+             (frozenset({"raw"}), frozenset({"cooked", "cook"})),
+             (frozenset({"away"}), frozenset({"bring", "attract"})),
+             (frozenset({"warm", "warmth"}), frozenset({"cold", "chill"})))
 _NOT = ((re.compile(r"\bcan['’]t\b", re.IGNORECASE), "cannot"),
         (re.compile(r"\bwon['’]t\b", re.IGNORECASE), "will not"),
         (re.compile(r"n['’]t\b", re.IGNORECASE), " not"))
@@ -179,6 +190,15 @@ MODALS = frozenset({"would", "will", "could", "should", "might", "must", "can", 
 COMMANDS = frozenset({"please", "go", "let", "make", "craft", "build", "find", "get", "dig", "fetch", "bring", "cook",
                       "smelt", "try", "visit", "explore", "wire", "put", "place", "plant", "hunt", "catch", "gather",
                       "collect", "chop", "grab"})
+
+
+# W1: a warning teaches (resolution 8): a sentence that opens with "don't eat", "do not eat", "never eat" or
+# "avoid", followed by what a poison lesson is about, reads as "<that> are poison"; followed by raw meat or
+# fish, as "Cooked meat and fish are safe to eat." (`warned`). Its own "don't" would doubt a true warning.
+WARNING = re.compile(r"^\s*(?:please\s+)?(?:(?:don['’]?t|do\s+not|never)\s+(?:ever\s+)?eat(?:ing)?|avoid(?:\s+eating)?)"
+                     r"\s+(?:the\s+|any\s+)?(?P<rest>[^.!?]+?)[\s.!]*$", re.IGNORECASE)
+RAW_MEAT = re.compile(r"^raw\s+(?:meat|fish|beef|mutton|chicken|rabbit)\b", re.IGNORECASE)
+COOKED_IS_SAFE = "Cooked meat and fish are safe to eat."
 
 
 def number(n: int) -> str:
@@ -305,9 +325,10 @@ def tokens(text: str) -> list[str]:
 
 
 def named(lesson: Lesson) -> str:
-    """What a lesson is about: "iron_sword" of "recipe:iron_sword", "cow" of "cow:drops"."""
+    """What a lesson is about: "iron_sword" of "recipe:iron_sword", "cow" of "cow:drops", (W1) "fire" of
+    "wild:fire"."""
     parts = lesson.thing.split(":")
-    return parts[1] if parts[0] == "recipe" and len(parts) > 1 else parts[0]
+    return parts[1] if parts[0] in ("recipe", "wild") and len(parts) > 1 else parts[0]
 
 
 def keys_of(lesson: Lesson) -> Keys:
@@ -317,10 +338,13 @@ def keys_of(lesson: Lesson) -> Keys:
     RECIPE_WORDS among them, whichever verb its fact uses)."""
     thing, words = tokens(named(lesson)), tokens(lesson.words)
     group = gear_group(named(lesson)) if lesson.kind == "recipe" else ""
+    survival = SURVIVAL.get(named(lesson)) if lesson.kind == SURVIVAL_KIND else None
     subjects = {frozenset(thing), frozenset(words)}
     for found in (thing, words):
         if len(found) > 1:
             subjects.add(frozenset(found[:1] if found[-1] in ("ore", "mouth") else found[-1:]))
+    if survival is not None:  # W1: a survival lesson names what it is about itself ("dark creatures", not "light")
+        subjects = {frozenset(tokens(subject)) for subject in survival.subjects}
     if group:
         subjects.add(frozenset(thing[:-1] + [group]))
     for subject in list(subjects):
@@ -328,7 +352,7 @@ def keys_of(lesson: Lesson) -> Keys:
             for other in widened(word) - {word}:
                 subjects.add(subject - {word} | {other})
     said = {*thing, *words, *tokens(lesson.fact), *([group] if group else []),
-            *(RECIPE_WORDS if lesson.kind == "recipe" else ())}
+            *(RECIPE_WORDS if lesson.kind == "recipe" else ()), *(survival.means if survival is not None else ())}
     return Keys(tuple(sorted(subjects, key=sorted)), frozenset(set().union(*(widened(word) for word in said))))
 
 
@@ -428,6 +452,8 @@ def contradicts(lesson: Lesson, text: str, raw: list[str]) -> bool:
     what comes out at night). A fact that says both sides ("the caves and dark places, and the
     sunlight") is never contradicted by either."""
     fact, words = set(raw_words(lesson.fact)), set(raw)
+    if lesson.kind == SURVIVAL_KIND and named(lesson) in SURVIVAL:  # W1: what its fact stands for besides
+        fact |= set(SURVIVAL[named(lesson)].sides)
     if words & NEGATIONS or counts_in(text) - counts_in(lesson.fact):
         return True
     return any((words & one and fact & other and not fact & one) or (words & other and fact & one and not fact & other)
@@ -471,6 +497,24 @@ def unsupported(marked: list[str], claim: frozenset[str], words: frozenset[str])
     return False
 
 
+def warned(text: str) -> str:
+    """W1: a warning said as the fact it warns of ("Don't eat the purple berries." -> "purple berries are
+    poison."; "Never eat raw meat." -> COOKED_IS_SAFE), or the words as they are."""
+    match = WARNING.match(text)
+    if match is None:
+        return text
+    rest = match.group("rest").strip()
+    if RAW_MEAT.match(rest):
+        return COOKED_IS_SAFE
+    keys, _, _ = lesson_keys()
+    said = set(tokens(rest))
+    for name, lesson in SURVIVAL.items():
+        found = keys.get(f"{SURVIVAL_PREFIX}{name}")
+        if found is not None and "poison" in raw_words(lesson.fact) and any(subject <= said for subject in found.subjects):
+            return f"{rest} are poison."
+    return text
+
+
 def commanded(text: str) -> bool:
     """A sentence that opens with a command ("make a bow!", "please wire up a lamp", "let's go"):
     it asks for something and teaches nothing (pre-flight 2, carry 5)."""
@@ -504,8 +548,12 @@ def claims_one(text: str) -> Claims:
     before its subject, nor bare numbers); a verb followed by a word the lesson does not know is
     doubtful (`unsupported`); and a lesson whose subject is only part of a longer one the words name
     ("iron" of "iron sword") never makes them doubtful: the words are about the longer one, which
-    decides ("you should craft an iron sword" is no doubtful claim about iron ore)."""
-    if asks(text) or commanded(text):
+    decides ("you should craft an iron sword" is no doubtful claim about iron ore). W1: a warning is read as
+    the fact it warns of (`warned`), and a command still teaches a survival lesson whose words it fits with
+    nothing wrong ("Cook your meat on a fire."), doubting nothing (resolution 8)."""
+    text = warned(text)
+    commanding = commanded(text)
+    if asks(text):
         return Claims((), False, False)
     keys, world, all_subjects = lesson_keys()
     text = denied(text)
@@ -515,6 +563,8 @@ def claims_one(text: str) -> Claims:
     marked = clause_words(text)
     matched = {}
     for index, (thing, found) in enumerate(keys.items()):
+        if commanding and LESSONS[thing].kind != SURVIVAL_KIND:
+            continue
         named = [subject for subject in found.subjects if subject <= said]
         if named:
             matched[thing] = (index, found, max(named, key=len))
@@ -532,6 +582,8 @@ def claims_one(text: str) -> Claims:
         elif not inside and bare_claim(text, raw, subject, found.words, all_subjects):
             doubtful = True
     fits.sort()
+    if commanding:
+        return Claims(tuple(thing for _, _, thing in fits[:SHORTLIST]), False, False)
     # Narrowed the way bare_claim narrows doubt (fix round 2, Important 2): no person words, and the
     # line must start with a recognized thing ("bread is made from wheat" stays unknown; "keep the
     # torch lit" does not, since "keep" is not a thing).

@@ -50,33 +50,43 @@ class Survival:
     fact: str  # the one sentence the owner can teach
     unlocks: str  # what it lets a wild pet do
     figured: str  # "Pip worked out that {figured}."
+    subjects: tuple[str, ...] = ()  # what the owner's words name when they speak of it (backend.survival.lessons)
+    means: tuple[str, ...] = ()  # words it means besides its fact's own ("poison" of the berries: safe or not)
+    sides: tuple[str, ...] = ()  # words its fact stands for when opposites are weighed ("warm" of the shelter)
 
 
 SURVIVAL: tuple[Survival, ...] = (
     Survival("berries", "red berries", "Bright red berries are safe to eat.",
-             "eats and forages red berries without asking", "bright red berries are safe to eat"),
+             "eats and forages red berries without asking", "bright red berries are safe to eat",
+             ("red berries",), ("safe", "poison", "eat")),
     Survival("nightberries", "nightberries", "Nightberries, the dark purple berries with pale specks, are poison.",
-             "tells nightberries from berries and never eats them", "the dark purple berries are poison"),
+             "tells nightberries from berries and never eats them", "the dark purple berries are poison",
+             ("nightberries", "purple berries", "dark berries"), ("safe", "poison", "eat")),
     Survival("red_mushroom", "red mushrooms", "Red mushrooms are poison.", "never picks or eats red mushrooms",
-             "red mushrooms are poison"),
+             "red mushrooms are poison", ("red mushrooms",), ("safe", "poison", "eat")),
     Survival("sunleaf", "sunleaf", "Sunleaf, the little yellow herb, cures sickness when eaten and cleans a wound.",
-             "carries sunleaf, eats one when sick and dresses a wound with one", "sunleaf cures a sickness"),
+             "carries sunleaf, eats one when sick and dresses a wound with one", "sunleaf cures a sickness",
+             ("sunleaf", "yellow herb"), ("safe", "poison", "eat")),
     Survival("bandage", "a wool bandage", "A bandage of wool on a wound stops it festering.",
-             "makes wool bandages and dresses a wound", "a wool bandage stops a wound festering"),
+             "makes wool bandages and dresses a wound", "a wool bandage stops a wound festering",
+             ("bandage",), ("wrap", "clean")),
     Survival("fire", "a campfire", "Two logs and three sticks make a campfire, and a fire keeps you warm at night.",
-             "makes campfires and lights one to get warm", "a campfire keeps the cold away"),
+             "makes campfires and lights one to get warm", "a campfire keeps the cold away",
+             ("campfire",), ("fire",)),
     Survival("cooking", "cooked meat", "Meat and fish cooked on a fire are safe to eat and fill you up far more.",
-             "cooks meat and fish on a fire", "cooking makes meat safe"),
+             "cooks meat and fish on a fire", "cooking makes meat safe",
+             ("meat", "cooked meat", "cooked fish"), ("safe", "poison", "eat", "raw", "cook")),
     Survival("keeping", "food keeping", "Raw food goes bad in a day or two, and food in a chest keeps twice as long.",
              "cooks raw food before it turns, stores spare food and throws out what went bad",
-             "food keeps longer in a chest"),
+             "food keeps longer in a chest", ("food chest", "spoiled food"), ("fresh", "spoil", "rot")),
     Survival("light", "torches", "Torches keep the dark creatures away, because they only come out where it is dark.",
-             "lights torches round home at night", "torches keep the dark creatures away"),
+             "lights torches round home at night", "torches keep the dark creatures away",
+             ("dark creatures",), ("bring", "attract")),
     Survival("shelter", "a shelter", "A shelter with walls, a roof and a door keeps out the cold and the dark "
              "creatures at night.", "builds a shelter with a door and makes it a home",
-             "a shelter with a door keeps the night out"),
+             "a shelter with a door keeps the night out", ("shelter",), ("safe", "warm"), ("warm",)),
     Survival("bed", "a bed", "Six planks make a bed, and sleep in a bed rests you best.",
-             "makes a bed and sleeps in it", "a bed rests you best"),
+             "makes a bed and sleeps in it", "a bed rests you best", ("bed",), ("sleep",)),
 )
 BY_NAME = {lesson.name: lesson for lesson in SURVIVAL}
 SOURCES = {TAUGHT: "from_you", BORN_KNOWING: "from_start"}

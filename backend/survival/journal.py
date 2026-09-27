@@ -67,7 +67,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import as_cell
 from backend.survival.structures import reserved
 from backend.survival.triggers import ensure_brain, mark_trigger
-from backend.survival.wild import BORN_KNOWING
+from backend.survival.wild import BORN_KNOWING, KIND as SURVIVAL_KIND, SURVIVAL, thing as survival_thing
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -93,7 +93,7 @@ class Lesson:
     # a block, plant, creature or biome name, a landmark ("cave_mouth", "sinkhole", "lake"), a making lesson
     # ("copper_spark", "clock") or one of Mind's ("recipe:bow", "cow:drops")
     thing: str
-    kind: str  # "block", "plant", "creature", "biome", "landmark", "recipe" (Mind) or "making"
+    kind: str  # "block", "plant", "creature", "biome", "landmark", "recipe" (Mind), "making" or "survival" (W1)
     words: str  # "gravel", "a sheep"
     fact: str  # "Gravel sometimes hides flint."
     unlocks: str = ""  # what it lets Mimo do: "digs gravel for flint"
@@ -179,6 +179,9 @@ teach(
     Lesson("lake", "landmark", "a lake", "Lakes hold fish, and gravel lines their beds.", "",
            ("A lake! Fish in it, gravel under it.", "Water, fish, and gravel on the bottom.")),
 )
+# W1: the survival lessons a wild pet learns from its owner or alone (backend.survival.wild).
+teach(*(Lesson(survival_thing(lesson.name), SURVIVAL_KIND, lesson.words, lesson.fact, lesson.unlocks)
+        for lesson in SURVIVAL))
 SURFACE = tuple(name for name, lesson in LESSONS.items() if lesson.kind == "block")
 PLANTS = tuple(name for name, lesson in LESSONS.items() if lesson.kind == "plant")
 LANDMARKS = {"mouth": "cave_mouth", "sinkhole": "sinkhole"}
@@ -415,7 +418,8 @@ register(Purpose(
 def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     """The lessons Mimo learned, newest first: {thing, kind, fact, line (Jev's pick, or the fact),
     unlocks, at, from_you (Mind M2: the owner taught it), source (W1: "from_you", "figured" or
-    "from_start")}. A world from before L3 read as an archive has learned nothing."""
+    "from_start")}. A world from before L3 read as an archive has learned nothing. W1: the survival lessons
+    are listed apart, known or not (wild.survival_view), so they are left out here."""
     words = ((brain or {}).get("journal") or {}).get("words", {})
     try:
         rows = learned(db)
@@ -426,7 +430,7 @@ def journal_view(db, brain: dict | None, limit: int = 40) -> list[dict]:
     found = []
     for name, at in reversed(rows):
         lesson = LESSONS.get(name)
-        if lesson is None:
+        if lesson is None or lesson.kind == SURVIVAL_KIND:
             continue
         found.append({"thing": name, "kind": lesson.kind, "words": lesson.words, "fact": lesson.fact,
                       "line": words.get(name) or lesson.fact, "unlocks": lesson.unlocks, "at": at,
