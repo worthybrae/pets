@@ -42,9 +42,11 @@ FED = 50.0  # hunger from which Mimo gathers for the larder
 
 
 def chest_food(s: Situation) -> float:
-    """Hunger points of the food in all of Mimo's chests, leaving out food it knows is poisonous."""
-    return sum(FOOD[item] * chest[item] for chest in s.state.get("chests", {}).values()
-               for item in foods(chest, s.poisons))
+    """Hunger points of the food in all of Mimo's chests, leaving out food it knows is poisonous. L5
+    (pre-flight, carry 5): an old ruin's chest is loot left out there, not Mimo's larder."""
+    from backend.survival.ruins import ruin_chest_key  # here: brain imports the larder before the ruins
+    return sum(FOOD[item] * chest[item] for key, chest in s.state.get("chests", {}).items()
+               if not ruin_chest_key(s.seed, key) for item in foods(chest, s.poisons))
 
 
 def filling(s: Situation) -> bool:

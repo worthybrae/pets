@@ -66,6 +66,10 @@ MAX_SEGMENTS = 12
 # L5: functions (state, cell, block) -> items a finished mine drops besides the block's own (backend.
 # survival.loot: an extra ore farther from home). One that crashes adds nothing (logged once).
 MINED: list = []
+# L5: functions (state, step, context, at) the brain calls after each step that finished well, before
+# curiosity looks over the step's events (brain.observe_step; backend.survival.ruins: ruins seen, an old
+# chest opened). One that crashes is logged once and skipped.
+OBSERVERS: list = []
 
 
 FAILURE_CODES = ("no_path", "out_of_reach", "gone", "missing_item", "blocked", "bad_step")

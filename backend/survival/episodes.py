@@ -81,6 +81,7 @@ MOMENTS: dict[str, Moment] = {
     "goal": Moment(7, 2),
     "built": Moment(7, 2),
     "computer": Moment(8, 2),  # Making final fix wave (M2): the machine that remembers how long Mimo has lived
+    "loot": Moment(5, 2),  # L5 (pre-flight, carry 6): an old chest opened in a ruin
     "sick": Moment(5, -2),
     "hunt": Moment(2, 1, many="I hunted {n} times."),
     "fish": Moment(1, 1, many="I caught {n} fish."),

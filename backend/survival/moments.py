@@ -3,7 +3,8 @@
 Besides B2's milestones (a goal reached, a home built, a promise kept) and (Making, pre-flight 2) the
 computer Mimo built ("report", from its notable "computer" event), the owner hears about:
 - a first sighting ("found"): a first creature of a kind, a first biome, a first ore, first water,
-  and a place a trip found that is new to Mimo (the "found" and "discovered" events);
+  and a place a trip found that is new to Mimo (the "found" and "discovered" events); L5 (pre-flight,
+  carry 6): an old chest opened in a ruin ("loot"), told as a find;
 - a creature seed hatching ("hatched", Bond's final fix wave m1): "My creature seed grew into a sheep!"
   (a "grow" event about a seed; a sapling growing is left out);
 - danger ("danger"): a blow from a creature or one coming (the "hurt" and "threat" events), stuck in
@@ -77,7 +78,7 @@ def danger(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: 
 # The inbox's writers on the event log's mirrors (backend.survival.events), one a kind (pre-flight 2).
 for _kind, _write in {"found": found, "discovered": found, "grow": hatched, "hurt": danger, "threat": danger,
                       "trapped": danger, "starving": danger, "freezing": danger, "computer": report,
-                      "built": built}.items():
+                      "built": built, "loot": found}.items():  # L5: an old chest opened in a ruin
     mirror(CONSUMER, _kind, _write)
 
 

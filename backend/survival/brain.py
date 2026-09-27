@@ -55,7 +55,7 @@ from backend.survival import farmstead, lighting, storage  # noqa: F401  (M5's b
 from backend.survival import flint, pens  # noqa: F401  (L3's gather_flint, build_pen and stock_pen)
 from backend.survival.creatures import defense, gear, hunting  # noqa: F401  (L1's hunt; L2's make_gear, fight, flee)
 from backend.survival.creatures import ringed, thornback  # noqa: F401  (L5: tougher hostiles, the thornback)
-from backend.survival import loot  # noqa: F401  (L5: better drops and mining luck farther out)
+from backend.survival import loot, ruins  # noqa: F401  (L5: better drops and mining luck, ruins and their loot)
 from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  (L4's goals and trips)
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
@@ -80,7 +80,7 @@ from backend.survival.rings import tend_frontier
 from backend.survival.script import rest_plan
 from backend.survival.senses import ORES, afloat, ores_around
 from backend.survival.situation import Situation, in_tick
-from backend.survival.steps import as_cell, label
+from backend.survival.steps import OBSERVERS, as_cell, label
 from backend.survival.tick import Mind
 from backend.survival.trips import cool_down, look_after
 from backend.survival.triggers import HOUR, crossings, ensure_brain, hour_passed, mark_trigger, phase_trigger
@@ -268,6 +268,11 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
     finds = note_ground(state, step, context, at)
     if finds:
         announce_find(state, step, context, at, *finds[0])  # one a step: the rest are remembered quietly
+    for observer in OBSERVERS:  # L5: ruins seen, an old chest opened (backend.survival.ruins)
+        try:
+            observer(state, step, context, at)
+        except Exception as error:
+            log_once(logger, "step observer", error)
     note_discoveries(state, step, context, at, context.events[mark:])
     look_after(state, step, context, at)
     observe_journal(state, step, context, at)

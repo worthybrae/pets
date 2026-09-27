@@ -111,6 +111,17 @@ def templates() -> list[tuple[str, str]]:
               ("owner", f"You crafted iron pickaxe for {NAME}."), ("fish", f"{NAME} caught a fish."),
               ("grow", "A creature seed grew into a sheep."), ("ate", f"{NAME} ate cooked beef."),
               ("sick", f"{NAME} ate rotten flesh and felt sick.")]
+    # L5 (pre-flight, carry 6): the rings, the ruins, their old chests and the manual one may hold.
+    from backend.survival.rings import RINGS
+    from backend.survival.ruins import LOOT, loot_words
+    for _, ring, _ in RINGS:
+        found += [("found", f"{NAME} reached the {ring.lower()} for the first time."),
+                  ("found", f"{NAME} found an old ruin in the {ring.lower()}.")]
+    for table in LOOT.values():
+        found.append(("loot", f"{NAME} opened an old chest in a ruin: "
+                              f"{loot_words({item: most for item, _, most, _ in table})}."))
+    found += [("loot", f"{NAME} opened an old chest in a ruin: {loot_words({})}."),
+              ("found", f"{NAME} found an old manual in the ruin's chest.")]
     return list(dict.fromkeys(found))
 
 

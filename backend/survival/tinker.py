@@ -4,9 +4,11 @@ Knowledge gates the making (the spec): wiring needs the lesson that copper carri
 larger machine a lesson of its own (the clock, the latch, the adder). They are L4b journal lessons
 (journal.LESSONS, kind "making"), so the owner can teach them (Part A's teaching makes every lesson in
 the table teachable) and the journal shows them. Mimo gets them in two ways of its own:
-- An old manual, until L5's ruins carry them: mining copper ore at DEEP_COPPER or deeper before it
-  knows that copper carries a spark turns one up 1 time in MANUAL_ODDS (a roll on the world seed and
-  the cell): a notable "found" event ("Pip found an old manual in the copper seam."), and the lesson.
+- An old manual: L5's ruins carry them (backend.survival.ruins.find_manual: an old chest opened before
+  Mimo knows that copper carries a spark holds one 1 time in RUIN_MANUAL_ODDS: "Pip found an old manual
+  in the ruin's chest.", and the lesson), and mining copper ore at DEEP_COPPER or deeper before it knows
+  the spark turns one up 1 time in MANUAL_ODDS (a roll on the world seed and the cell): a notable
+  "found" event ("Pip found an old manual in the copper seam."), and the lesson.
 - Tinkering, the `tinker` purpose, "tinker": a curious experiment. With copper to hand and the lesson
   not known, Mimo makes a lever, a copper wire and a lamp (making.craft_plan), lays them in a row on
   open ground beside it, throws the lever and fiddles with them for TINKER_SECONDS, then takes them
