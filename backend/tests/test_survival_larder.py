@@ -2,7 +2,7 @@ import unittest
 
 from backend.survival import brain  # noqa: F401  (registers every purpose and goal)
 from backend.survival.foraging import MORE_FOOD, food_need
-from backend.survival.goals import GOALS, adopt_goal, complete
+from backend.survival.goals import GOALS, adopt_goal, advancing, complete
 from backend.survival.housework import chest_key
 from backend.survival.larder import chest_food, more_food
 from backend.survival.purposes import PURPOSES
@@ -44,6 +44,14 @@ class StockLarderTests(unittest.TestCase):
         self.assertEqual([step["kind"] for step in steps], ["craft", "place", "store"])
         self.assertEqual(steps[1:], [{"kind": "place", "target": cell, "block": "chest"},
                                      {"kind": "store", "target": cell, "item": "cooked_fish", "amount": 2}])
+
+    def test_putting_a_chest_in_works_toward_the_larder_as_it_always_did(self):
+        """Making wave 2, fix round 1 (the re-review's Minor 1): build_storage's check toward a goal said no for
+        every goal but the making ones, so it no longer worked toward "Put a chest at home"."""
+        world = larder({"planks": 8, "cooked_fish": 1, **{f"item_{n}": 1 for n in range(13)}})  # 15 stacks
+        s = world.situation()
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        self.assertIn("build_storage", advancing(s, GOALS["full_larder"]))
 
     def test_the_larder_is_full_with_a_days_food_in_the_chest(self):
         world = larder({"planks": 8, "cooked_fish": 4})

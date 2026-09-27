@@ -11,7 +11,9 @@ from backend.survival.lighting import home_blueprint
 from backend.survival.memory import places, structures
 from backend.survival.pens import home_done
 from backend.survival.purposes import PURPOSES
-from backend.survival.storage import chest_spot, storage_valid, to_clear, to_store, to_store_all, to_take
+from backend.survival.storage import (
+    chest_spot, no_chest_to_use, storage_valid, to_clear, to_store, to_store_all, to_take,
+)
 from backend.survival.structures import blueprint_of
 from backend.survival.trips import REASONS
 from backend.tests.test_survival_building import DAY
@@ -220,6 +222,12 @@ class AfterTheMoveTests(unittest.TestCase):
         s = world.situation()
         self.assertEqual(to_store(s, new_chest), [])  # home's own chest has no room...
         self.assertTrue(storage_valid(s))  # ...but the old home's has
+        self.assertFalse(no_chest_to_use(s))  # fix round 1 (the re-review's Minor 3): so nothing is dropped
+        old_key = f"{first_chest[0]},{first_chest[1]},{first_chest[2]}"
+        before = world.state["chests"].get(old_key)
+        world.state["chests"][old_key] = {f"thing_{n}": 32 for n in range(24)}
+        self.assertTrue(no_chest_to_use(world.situation()))  # both full: loose blocks may go
+        world.state["chests"][old_key] = before
         steps = PURPOSES["build_storage"].plan(s, world.context())
         old_home = (first["x"], first["y"], first["z"])
         self.assertIn({"kind": "walk", "target": list(old_home), "reach": 0.0, "whole": True}, steps)

@@ -6,7 +6,9 @@ from backend.survival import brain  # noqa: F401  (registers every purpose and g
 from backend.survival.creatures import hunting
 from backend.survival.creatures.harm import armor_wanted
 from backend.survival.curiosity import curiosity_state
-from backend.survival.goals import GOALS, adopt_goal, advances, complete, counted, is_open, progress_of, share_of
+from backend.survival.goals import (
+    GOALS, adopt_goal, advances, advancing, complete, counted, is_open, progress_of, share_of,
+)
 from backend.survival.life_goals import DAY_SECONDS, hides_wanted, land_seen
 from backend.survival.memory import know, mark_explored, places, remember, structures
 from backend.survival.trips import REASONS
@@ -91,6 +93,33 @@ class ToolsAndArmorTests(unittest.TestCase):
         adopt_goal(world.state, "armor_up", "utility", "", 0.0)
         self.assertTrue(armor_wanted(world.state))
         self.assertIn("iron_ore", wanted_ores(world.situation()))  # the 13 ingots iron armor takes
+
+    def test_with_armor_the_goal_its_leather_and_iron_come_out_of_the_chest_and_become_armor(self):
+        """Making wave 2, fix round 1 (the re-review's I1): a making goal put armor's leather and iron in the chest
+        to make room, and "Gather 5 leather" and the iron armor count what Mimo carries: nothing took them back
+        out, so armor came 75 to 126 game days late, or never. With armor the goal, build_storage takes them out
+        (and works toward it), then make_gear and craft_tools make the armor."""
+        from backend.tests.test_survival_homes import act  # here: it registers nothing, but reads the homes tests
+
+        world = built({"iron_pickaxe": 1, "iron_sword": 1, "coal": 16, "sticks": 8, "planks": 16, "cobblestone": 16})
+        chest = blueprint_of(structures(world.db)[0]).one("chest")
+        world.grid.put(*chest, "chest")
+        world.state["chests"] = {"{},{},{}".format(*chest): {"leather": 5, "iron_ore": 13}}
+        adopt_goal(world.state, "armor_up", "utility", "", 0.0)
+        s = world.situation()
+        self.assertEqual(shares(s, "armor_up"), [0.0, 0.0, 0.0, 0.0])
+        self.assertIn("build_storage", advancing(s, GOALS["armor_up"]))
+        self.assertEqual(act(world, PURPOSES["build_storage"].plan(s, world.context())), [])
+        self.assertEqual((world.state["inventory"].get("leather"), world.state["inventory"].get("iron_ore")), (5, 13))
+        self.assertEqual(shares(world.situation(), "armor_up")[0], 1.0)  # its 5 leather gathered
+        world.state["position"] = {"x": 9.0, "y": 1.0, "z": 9.0}  # out in the meadow, where a table can stand
+        for until in range(1000, 5000, 1000):  # the leather pieces, then the iron armor
+            s = world.situation()
+            purpose = next(name for name in ("make_gear", "craft_tools") if PURPOSES[name].valid(s))
+            self.assertEqual(act(world, PURPOSES[purpose].plan(s, world.context()), until=float(until)), [], purpose)
+            if complete(world.situation(), GOALS["armor_up"]):
+                break
+        self.assertTrue(complete(world.situation(), GOALS["armor_up"]))
 
     def test_with_diamond_tools_the_goal_mine_ore_goes_for_a_single_known_diamond(self):
         world = built({"iron_pickaxe": 1, "coal": 8})

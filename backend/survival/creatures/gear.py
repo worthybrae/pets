@@ -15,19 +15,40 @@ gear takes (`GEAR_MATERIALS`) is kept on hand only while the gear it is for is s
 makes would not fit in Mimo's arms (carrying.crafts_fit) or where no table can stand (inside its
 shelter). Day work in the work band: 55 plus a tenth of caution, 10 more when a creature hurt
 Mimo in the last game day.
+
+Making wave 2, fix round 1 (the re-review's I1): what the gear, the iron armor and the pickaxe ladder take is
+never lost in the chest (`gear_wanted`, storage.WANTED_ON_HAND). While a making goal makes room in Mimo's arms
+it puts away what L4a keeps on hand (making.kept_for_making), and nothing took armor's leather and iron, the
+arrows' flint and feathers or the ladder's gold back out: on the gate armor came 75 to 126 game days late, or
+never, with 36 to 63 iron ore in the chests. Now, whatever the goal:
+- armor's own keep is never room: the leather and hides its missing leather pieces take, and the iron its
+  missing iron armor takes, stay on Mimo, and what the chests hold of them comes back out (storage.taken_back).
+  Put away and taken back only once armor was the goal, armor still came 13 to 49 game days late on three of
+  the gate's six seeds: iron is scarce, and the armor goal was set aside for want of it while its iron sat
+  in the chest;
+- what the bow, the arrows and the gold pickaxe take goes in the chest to make room, and comes back out once
+  the chests and Mimo's arms hold enough to make one (the bow's string, the missing arrows' flint and feathers,
+  a gold pickaxe's gold, work.ladder_ores), so make_gear or craft_tools makes it at once.
+While armor is Mimo's goal, build_storage works toward it when it takes armor's leather, hides or iron back out
+(storage.TOWARD). Never more of an item than storage.KEEP holds on Mimo, so what comes out is not put straight
+back.
 """
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
+from backend.services.crafting import RECIPES, TOOL_RANK
+from backend.survival import storage
 from backend.survival.carrying import crafts_fit
-from backend.survival.creatures.harm import covered
+from backend.survival.creatures.harm import IRON_ARMOR, armor_iron, covered
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
 from backend.survival.toolmaking import Short, make, place_station, station_spots
+from backend.survival.work import ladder_ores, pickaxe_rank
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -133,3 +154,54 @@ register(Purpose(
     score=lambda s: 55.0 + s.trait("caution") / 10 + (10.0 if hurt_lately(s) else 0.0),
     plan=plan_gear,
     thoughts=("A little armor would help at night.", "With a bow I could keep them at a distance.")))
+
+
+# What comes back out of the chest (Making wave 2, fix round 1) -----------------------------------------------
+
+ARMOR_GOAL = "armor_up"  # backend.survival.life_goals
+ARMOR_ITEMS = ("leather", "rabbit_hide", "iron_ore", "iron_ingot")
+HIDES_PER_LEATHER = RECIPES["leather"]["ingredients"]["rabbit_hide"]
+GOLD_PICKAXE = RECIPES["gold_pickaxe"]["ingredients"]["gold_ingot"]
+
+
+def either(have: dict[str, int], first: str, second: str, need: int, per: int = 1) -> dict[str, int]:
+    """`need` of `first`, what `have` lacks of it made up with `second` (`per` of it for one)."""
+    one = min(have.get(first, 0), need)
+    return {first: one, second: min(have.get(second, 0), (need - one) * per)}
+
+
+def gear_wanted(s: Situation) -> dict[str, int]:
+    """storage.WANTED_ON_HAND: what Mimo wants on hand now for its armor, gear and next pickaxe, from what its
+    arms and chests hold together (see the module docstring), each no more than storage.KEEP holds."""
+    inventory, stored = s.inventory, storage.in_chests(s)
+    have = {item: inventory.get(item, 0) + stored.get(item, 0)
+            for item in ("leather", "rabbit_hide", "iron_ore", "iron_ingot", "gold_ore", "gold_ingot", "string",
+                         "flint", "feather")}
+    wanted: dict[str, int] = {}
+    pieces = [piece for piece in ARMOR_PIECES if not covered(inventory, piece)]
+    if pieces:
+        leather = sum(RECIPES[piece]["ingredients"]["leather"] for piece in pieces)
+        wanted.update(either(have, "leather", "rabbit_hide", leather, HIDES_PER_LEATHER))
+    iron = any(inventory.get(piece, 0) < 1 for piece in IRON_ARMOR)
+    if iron and pickaxe_rank(inventory) >= TOOL_RANK["iron_pickaxe"]:
+        wanted.update(either(have, "iron_ingot", "iron_ore", armor_iron(inventory)))
+    if ladder_ores(inventory) and have["gold_ore"] + have["gold_ingot"] >= GOLD_PICKAXE:
+        wanted.update(either(have, "gold_ingot", "gold_ore", GOLD_PICKAXE))
+    bow = inventory.get("bow", 0) > 0
+    flint = have["flint"] > 0 or inventory.get("arrow", 0) > 0
+    if not bow and flint and have["string"] >= RECIPES["bow"]["ingredients"]["string"]:
+        wanted["string"] = RECIPES["bow"]["ingredients"]["string"]
+        bow = True
+    arrows = math.ceil(max(0, ARROWS_WANTED - inventory.get("arrow", 0)) / RECIPES["arrow"]["output"]["arrow"])
+    if bow and arrows and have["flint"] > 0 and have["feather"] > 0:
+        wanted.update({"flint": min(have["flint"], arrows), "feather": min(have["feather"], arrows)})
+    return {item: min(count, storage.KEEP.get(item, count)) for item, count in wanted.items() if count > 0}
+
+
+def armor_taken(s: Situation) -> bool:
+    """storage.TOWARD: build_storage works toward armor while it takes armor's leather, hides or iron back out."""
+    return any(item in ARMOR_ITEMS for _, item, _ in storage.to_take(s))
+
+
+storage.WANTED_ON_HAND.append(gear_wanted)
+storage.TOWARD[ARMOR_GOAL] = armor_taken

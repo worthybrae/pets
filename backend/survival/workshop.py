@@ -190,19 +190,34 @@ def stations_at_home(s: Situation, item: str) -> float:
     copper in hand had no room left to make the lamp's torch. Making wave 2 (the re-review's Minor 1): the
     table stays carried, one of it. Stored too, a table was made again from four planks for every craft away
     from the workshop (bread, tools, the tinker bench) and put away at the next visit: 5 to 13 of them sat in
-    the chests by day 100. Room for making is made by `making.making_room` now."""
-    if item != "furnace":
+    the chests by day 100. Room for making is made by `making.making_room` now. Fix round 1 (the re-review's
+    Minor 6): only while no chest holds a furnace yet; one made again for a craft away from the workshop (iron
+    armor, a pickaxe) is left behind instead (`spare_furnace`): put away too, 2 to 4 of them sat in the chests
+    by day 150, and carried, it took a stack a tinker bench's chain needed."""
+    if item != "furnace" or not furnace_at_home(s):
         return 0.0
+    return 0.0 if storage.in_chests(s).get("furnace", 0) > 0 else -1.0
+
+
+def furnace_at_home(s: Situation) -> bool:
+    """The workshop is done with its own crafting table and furnace in."""
     workshop = current_workshop(s)
-    if workshop is None or workshop["status"] != "done":
-        return 0.0
-    return -1.0 if at_bench(s, blueprint_of(workshop)) is not s else 0.0
+    return workshop is not None and workshop["status"] == "done" and at_bench(s, blueprint_of(workshop)) is not s
+
+
+def spare_furnace(s: Situation) -> list[tuple[str, int]]:
+    """storage.JUNK_MORE (fix round 1, the re-review's Minor 6): a furnace Mimo carries once the workshop has its
+    own and a chest holds one already: no use to carry, nor to pile up in the chest (`stations_at_home`)."""
+    if s.count("furnace") < 1 or not furnace_at_home(s) or storage.in_chests(s).get("furnace", 0) < 1:
+        return []
+    return [("furnace", s.count("furnace"))]
 
 
 NEEDS.append(workshop_needs)
 LATER.append(workshop_later)
 MORE_BLOCKS.append(walls_left)
 storage.KEEPS_MORE.append(stations_at_home)
+storage.JUNK_MORE.append(spare_furnace)
 storage.KEEP.update({station: 1 for station in BENCH if station not in storage.KEEP})  # one of each is carried
 
 
@@ -371,8 +386,8 @@ register_goal(Goal(
      Milestone("Raise the workshop's walls and roof", raised, ("build_workshop", "gather_wood", "gather_stone")),
      Milestone("Put in a crafting table, a furnace, a kiln and a barrel", lambda s: fixtures_in(s, FITTED),
                ("build_workshop", "gather_materials", "gather_stone", "gather_wood", "build_storage")),
-     Milestone("Fit bars, a hatch, a seat and a sign", lambda s: fixtures_in(
-         s, ("iron_bars", "trapdoor", "stairs", "sign")), ("build_workshop", "mine_ore", "gather_wood", "build_storage"),
-               ("iron_bars",))),
+     Milestone("Fit bars, a hatch, a seat and a sign",
+               lambda s: fixtures_in(s, ("iron_bars", "trapdoor", "stairs", "sign")),
+               ("build_workshop", "mine_ore", "gather_wood", "build_storage"), ("iron_bars",))),
     score=lambda s: goal_score(s),
     thought="A workshop, with a kiln! Then I can make anything.", after=("first_shelter", "iron_tools")))

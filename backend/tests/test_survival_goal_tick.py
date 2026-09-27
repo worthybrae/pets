@@ -35,6 +35,9 @@ LOGS = Goal("birch", "Some birch logs", "Birch is pale.",
             score=lambda s: 30.0, thought="Birch.")
 FOREVER = Goal("forever", "Forever", "Again and again.", (Milestone("Look", lambda s: 1.0, ("explore",)),),
                score=lambda s: 30.0, thought="Again.", repeat=True)
+FLINTS = Goal("flints", "A flint again", "Again and again.",
+              (Milestone("Carry a flint", lambda s: float(s.count("flint") > 0), ("gather_flint",)),),
+              score=lambda s: 30.0, thought="Again.", repeat=True)
 
 
 @contextmanager
@@ -171,6 +174,17 @@ class TendTests(unittest.TestCase):
             self.tend(123.0)
             self.assertEqual([event[2] for event in self.events if event[1] == "goal"],
                              ["Pip reached a goal: some birch logs."])
+
+    def test_a_goal_that_repeats_completed_on_the_side_after_the_first_look_is_left_to_a_goal_of_its_own(self):
+        """Fix round 1 (the re-review's Minor 3): a goal that repeats is measured from when it was set, so only a
+        goal of its own reaches it; completed on the side after the first look, it is not reached."""
+        with only_goals(WOOD, FLINTS):
+            adopt_goal(self.state, "woodpile", "jev", "Wood first.", 0.0)
+            self.tend(1.0)  # its first look: the flint goal is not complete yet
+            self.state["inventory"]["flint"] = 1
+            brain = self.tend(62.0)
+            self.assertEqual([event for event in self.events if event[1] == "goal"], [])
+            self.assertEqual((known(self.s.db, "goal"), brain[SIDE]), ([], []))
 
     def test_at_dawn_the_plan_is_written_again_and_a_goal_choice_is_asked_for(self):
         with only_goals(WOOD):

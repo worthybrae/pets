@@ -11,7 +11,8 @@
   make_gear), and iron armor (L3's iron_cap and iron_tunic recipes). While it is the goal, iron
   armor is worth making though no creature has hurt Mimo yet (harm.ARMOR_WANTED), and while
   leather is short Mimo also hunts for hides though fed (hunting.HUNT_FOR), at most once a sixth
-  of a game day.
+  of a game day. Making wave 2, fix round 1: build_storage works toward it while it takes armor's leather,
+  hides or iron back out of the chest (backend.survival.creatures.gear).
 - safe_yard, "A safe yard": torches at the corners of home (mining coal for them, and digging for
   it when none is known), a door in its doorway, and a fence round the yard once a purpose named
   build_fence exists (none yet: L3 plans no yard fence).
@@ -371,11 +372,11 @@ harm.ARMOR_WANTED.append(armor_the_goal)
 register_goal(Goal(
     "armor_up", "Armor up",
     "Gloomlings hit hard at night: armor takes the edge off every blow.",
-    (Milestone("Gather 5 leather", leather_gathered, ("hunt", "explore")),
+    (Milestone("Gather 5 leather", leather_gathered, ("hunt", "explore", "build_storage")),
      Milestone("Make a leather cap", lambda s: whole(wears(s, "leather_cap", "iron_cap")), ("make_gear",)),
      Milestone("Make a leather tunic", lambda s: whole(wears(s, "leather_tunic", "iron_tunic")), ("make_gear",)),
      Milestone("Make iron armor", lambda s: (wears(s, "iron_cap") + wears(s, "iron_tunic")) / 2,
-               ("craft_tools", "mine_ore", "explore"), items=("iron_cap", "iron_tunic"))),
+               ("craft_tools", "mine_ore", "explore", "build_storage"), items=("iron_cap", "iron_tunic"))),
     score=lambda s: 50.0 + s.trait("caution") / 10 + (15.0 if hurt_lately(s) else 0.0),
     thought="Next time a gloomling swings at me, I'll be ready.", after=("first_shelter", "iron_tools")))
 

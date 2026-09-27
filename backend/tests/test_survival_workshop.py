@@ -13,7 +13,7 @@ from backend.survival.making import raw_needs
 from backend.survival.memory import create_memory_tables, finish_structure, set_home, structures
 from backend.survival.purposes import PURPOSES
 from backend.survival.signals import create_signal_table
-from backend.survival.storage import kept, to_store
+from backend.survival.storage import junk, kept, to_store
 from backend.survival.situation import Situation
 from backend.survival.structures import blueprint_of, start, todo
 from backend.survival.vitals import START_VITALS
@@ -195,6 +195,17 @@ class BuildTests(unittest.TestCase):
         self.assertNotIn("crafting_table", dict(to_store(s, (0, 0, 0))))
         yard.state["inventory"]["crafting_table"] = 2
         self.assertIn(("crafting_table", 1), to_store(yard.situation(), (0, 0, 0)))  # a second one goes in
+        # Fix round 1 (the re-review's Minor 6): one furnace in a chest is enough; one made again for a craft away
+        # from the workshop is left behind (2 to 4 of them sat in the chests by day 150), not carried for good.
+        yard.state["inventory"]["crafting_table"] = 1
+        chest = yard.home.one("chest")
+        yard.grid.put(*chest, "chest")
+        yard.state["chests"] = {"{},{},{}".format(*chest): {"planks": 4}}
+        self.assertEqual(kept(yard.situation(), "furnace"), 0)
+        self.assertNotIn("furnace", dict(junk(yard.situation())))
+        yard.state["chests"]["{},{},{}".format(*chest)]["furnace"] = 1
+        self.assertNotIn("furnace", dict(to_store(yard.situation(), chest)))
+        self.assertIn(("furnace", 1), junk(yard.situation()))
 
     def test_what_it_wants_brings_clay_for_the_kiln_and_blocks_for_its_walls(self):
         yard = Yard({"cobblestone": 5, "oak_log": 2})

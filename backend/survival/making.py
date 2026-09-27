@@ -65,7 +65,7 @@ from backend.services.worldgen import SEA_LEVEL, hash32, surface_material, swamp
 from backend.survival import building, storage, work
 from backend.survival.carrying import CARRY_STACKS, STACK, crafts_fit, full, room_for, stacks
 from backend.survival.foraging import STAND, reach_steps, whole_walk
-from backend.survival.goals import ADVANCES, active
+from backend.survival.goals import active
 from backend.survival.grid import Cell
 from backend.survival.home import home_cell
 from backend.survival.once import log_once
@@ -150,15 +150,8 @@ def needs(s: Situation) -> dict[str, int]:
 
 
 def in_chests(s: Situation) -> dict[str, int]:
-    """What the chests Mimo built and can get to hold, added up (storage.reachable_chests; read once per
-    Situation)."""
-    def look() -> dict[str, int]:
-        total: dict[str, int] = {}
-        for cell, _ in storage.reachable_chests(s):
-            for item, count in storage.chest_contents(s, cell).items():
-                total[item] = total.get(item, 0) + count
-        return total
-    return s.sensed("making chests", look)
+    """What the chests Mimo built and can get to hold, added up (storage.in_chests)."""
+    return storage.in_chests(s)
 
 
 def raw_needs(s: Situation) -> dict[str, int]:
@@ -297,9 +290,11 @@ def kept_for_making(s: Situation, item: str) -> float:
     Making wave 2: none of what L4a keeps for other goals (ROOM_KEPT: seeds, saplings, iron, hides...) that
     the needs do not take, while a making goal is Mimo's goal and its arms are getting full (`making_room`:
     on the gate's route runs 16 stacks of them and food left the lamp's torch chain no room, and copper
-    none at all)."""
+    none at all). Fix round 1 (the re-review's I1): but what Mimo's gear, armor and pickaxe want on hand now
+    (storage.WANTED_ON_HAND) stays, and comes back out of the chest when they want it (storage.taken_back): put
+    away for good, armor's leather and iron came 75 to 126 game days late, or never."""
     if item in ROOM_KEPT and making_room(s) and item not in ingredients(needs(s)):
-        return -float(storage.KEEP.get(item, 0))
+        return -float(max(0, storage.KEEP.get(item, 0) - storage.on_hand_wanted(s).get(item, 0)))
     if item in WOOD_AND_STONE and not full(s.inventory):
         return 0.0
     used, taken = allotted(s)
@@ -312,14 +307,13 @@ def from_chests(s: Situation) -> dict[str, int]:
     return dict(allotted(s)[1])
 
 
-def storage_advances(s: Situation, goal) -> bool:
-    """goals.ADVANCES (Making wave 2): build_storage, which each making goal's milestones name, works toward
+def storage_toward(s: Situation) -> bool:
+    """storage.TOWARD (Making wave 2): build_storage, which each making goal's milestones name, works toward
     it only while it would make room for its materials (`making_room`) or take out of a chest what its
     needs take (`from_chests`). On the gate's route runs Hazel's chest held 5 copper ore while "First
     circuits" was its goal 14 times: nothing that took it out counted toward the goal, so the goal was set
-    aside for "nothing to do for it now" within half a game day each time."""
-    if goal.name not in MAKING_GOALS:
-        return False
+    aside for "nothing to do for it now" within half a game day each time. Fix round 1 (the re-review's Minor
+    1): toward any other goal as before (storage.storage_advances), a full larder's chest among them."""
     wanted = from_chests(s)
     return making_room(s) or any(item in wanted for _, item, _ in storage.to_take(s))
 
@@ -352,7 +346,7 @@ def spare_parts(s: Situation) -> Situation:
 
 storage.KEEPS_MORE.append(kept_for_making)
 storage.TAKES_MORE.append(from_chests)
-ADVANCES["build_storage"] = storage_advances
+storage.TOWARD.update({name: storage_toward for name in MAKING_GOALS})
 building.SPARED.append(spared_for_making)
 storage.KEEP.update({item: 0 for item in MADE if item not in storage.KEEP})
 work.MORE_ORES.append(ores_for_making)

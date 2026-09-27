@@ -4,8 +4,8 @@ from unittest.mock import patch
 from backend.services.crafting import craft, smelt
 from backend.survival import brain  # noqa: F401  (registers every purpose)
 from backend.survival.making import (
-    COLOURS, FAR, FAR_CACHE, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, favourite_colour, gathered_wanted,
-    kept_for_making, making_room, needs, place_steps, raw_needs, sources,
+    COLOURS, FAR, FAR_CACHE, FAR_SCANS, FAR_SIGHT, NEEDS, SOURCE_SIGHT, craft_plan, far_candidates, favourite_colour,
+    gathered_wanted, kept_for_making, making_room, needs, place_steps, raw_needs, sources,
 )
 from backend.survival.building import spared, sparing
 from backend.survival.carrying import GIVES_WAY_TO_FOOD, LOW_VALUE, settle, stacks
@@ -322,6 +322,26 @@ class FarTests(unittest.TestCase):
             self.assertNotIn((60, 0, 1), [cell for cell, _ in again])
             self.assertEqual(heights, [])
 
+    def test_the_process_keeps_at_most_sixteen_far_looks_the_oldest_going_first(self):
+        """Fix round 1 (the re-review's Minor 3): FAR_CACHE is bounded (FAR_SCANS looks, first in, first out), so a
+        worker that lives through many homes and lives never grows it for good."""
+        FAR_CACHE.clear()
+        looked = []
+
+        def plants(seed, x, z, reach, kinds):
+            looked.append((x, z))
+            return [(x + 1, 0, z)]
+
+        with patch("backend.survival.making.natural_plants", plants):
+            for n in range(FAR_SCANS + 4):
+                far_candidates("1", (n, 0, 0), "sugar_cane")
+            self.assertEqual(len(FAR_CACHE), FAR_SCANS)
+            far_candidates("1", (FAR_SCANS + 3, 0, 0), "sugar_cane")  # the newest is still kept
+            self.assertEqual(len(looked), FAR_SCANS + 4)
+            far_candidates("1", (0, 0, 0), "sugar_cane")  # the oldest went: looked again
+            self.assertEqual(len(looked), FAR_SCANS + 5)
+        FAR_CACHE.clear()
+
     def test_a_home_with_clay_sixty_blocks_away_gets_its_workshops_kiln(self):
         from backend.survival.workshop import current_workshop, fixtures_left
         from backend.survival.structures import blueprint_of
@@ -465,8 +485,12 @@ class RoomTests(unittest.TestCase):
         self.assertTrue(making_room(s))
         self.assertEqual(needs(s), {"lever": 1, "copper_wire": 1, "lamp": 1})  # the tinker bench (C2)
         stored = dict(to_store(s, (2, 1, 2)))
-        self.assertEqual(stored, {"seeds": 8, "sapling": 4, "wheat": 6, "iron_ore": 16, "feather": 4, "flint": 4,
-                                  "gold_ore": 3})
+        # Fix round 1 (the re-review's I1): not the gold, which makes the gold pickaxe the iron one leads to
+        # (work.ladder_ores): what Mimo's gear and pickaxe can be made from stays. The arrows' flint and feathers go
+        # while no bow can be made (they come back out with its string, below), and the iron its armor no longer
+        # needs.
+        self.assertEqual(stored, {"seeds": 8, "sapling": 4, "wheat": 6, "iron_ore": 16, "feather": 4, "flint": 4})
+        self.assertEqual(kept(s, "gold_ore"), 3)
         self.assertTrue(PURPOSES["build_storage"].valid(s))
         # Fuel, wood, food and gear stay: the bench's torch burns coal on a stick, and the copper is smelted.
         for item in ("coal", "oak_log", "sticks"):
@@ -476,11 +500,16 @@ class RoomTests(unittest.TestCase):
         for item, amount in stored.items():
             home.state["inventory"][item] -= amount
         home.state["inventory"] = {item: count for item, count in home.state["inventory"].items() if count}
+        home.state["chests"]["2,1,2"].update(stored)
         s = home.situation()
-        self.assertEqual(stacks(s.inventory), 9)
+        self.assertEqual(stacks(s.inventory), 10)
         self.assertFalse(making_room(s))  # room enough: L4a's keep holds again, nothing more goes in
         self.assertEqual(sorted((item, amount) for _, item, amount in to_take(s)),
                          [("cobblestone", 1), ("copper_ore", 2)])  # the bench's copper and the lever's stone
+        home.state["inventory"]["string"] = 3  # a bow's string: the arrows' flint and feathers come back out
+        self.assertEqual(sorted((item, amount) for _, item, amount in to_take(home.situation()))[-2:],
+                         [("feather", 2), ("flint", 2)])  # two bundles of 4 arrows
+        del home.state["inventory"]["string"]
         home.state["inventory"].update(copper_ore=2, cobblestone=1)
         home.grid.put(0, 1, 0, "crafting_table")  # the workshop's own stations
         home.grid.put(0, 1, 2, "furnace")
@@ -507,7 +536,32 @@ class RoomTests(unittest.TestCase):
         self.assertNotIn("build_storage", advancing(s, goal))
         adopt_goal(home.state, "armor_up", "rules", "", 1.0)
         home.state["inventory"].update(copper_ore=0, cobblestone=0)
-        self.assertNotIn("build_storage", advancing(home.situation(), GOALS["armor_up"]))  # not a making goal
+        self.assertNotIn("build_storage", advancing(home.situation(), GOALS["armor_up"]))  # nothing of armor's
+
+    def test_armors_leather_and_iron_stay_and_what_the_chest_holds_of_them_comes_back_out(self):
+        """Fix round 1 (the re-review's I1): the room a making goal made put away armor's leather, hides and iron,
+        and nothing took them back: armor came 75 to 126 game days late on three of the gate's seeds and never on
+        a fourth, with 36 to 63 iron ore in the chests. While the armor lacks them they stay on Mimo whatever the
+        goal, and what the chest holds of them (put away before) comes back out; once it is made, they are room."""
+        arms = {"iron_pickaxe": 1, "iron_sword": 1, "cooked_beef": 1, "berries": 3, "seeds": 8, "sapling": 4,
+                "wheat": 6, "leather": 1, "rabbit_hide": 3, "iron_ore": 4, "coal": 8, "oak_log": 8, "sticks": 8,
+                "cobblestone": 16, "planks": 16, "torch": 4}  # 16 stacks, no armor yet
+        home = Home(dict(arms), chest={"leather": 2, "iron_ore": 7})
+        know(home.db, "workshop", "goal", 0.0)
+        adopt_goal(home.state, "first_circuits", "rules", "", 0.0)
+        s = home.situation()
+        self.assertTrue(making_room(s))
+        stored = dict(to_store(s, (2, 1, 2)))
+        self.assertLessEqual({"seeds": 8, "sapling": 4, "wheat": 6}.items(), stored.items())
+        self.assertFalse({"leather", "rabbit_hide", "iron_ore"} & set(stored))
+        self.assertLessEqual({("iron_ore", 7), ("leather", 2)}, {(item, amount) for _, item, amount in to_take(s)})
+        self.assertIn("build_storage", advancing(s, GOALS["armor_up"]))  # taking them out works toward armor
+        adopt_goal(home.state, "first_circuits", "rules", "", 2.0)
+        home.state["inventory"].update(iron_cap=1, iron_tunic=1)  # the armor made: its iron is room again
+        home.state["inventory"].pop("torch")
+        s = home.situation()
+        self.assertIn(("iron_ore", 4), to_store(s, (2, 1, 2)))
+        self.assertFalse({"iron_ore", "leather"} & {item for _, item, _ in to_take(s)})
 
     def test_full_arms_and_full_chests_never_drop_the_cobblestone_a_machine_takes(self):
         """On the gate's route runs Pip's computer lacked 54 cobblestone for its repeaters: with both chests full,

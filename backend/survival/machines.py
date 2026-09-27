@@ -41,7 +41,7 @@ night-light (a daylight sensor feeds an inverter, which drives a lamp: dark by d
 lamp gives light 15, like a lantern (backend.survival.light), so the night-light keeps home's door lit.
 Making wave 2: while one of its machines is started, a machine goal scores workshop.UNDER_WAY more
 (`under_way`), and taking its copper out of the chest, or making room for it, works toward it
-(build_storage: making.storage_advances).
+(build_storage: making.storage_toward).
 
 The flip step (registered here): throw a lever within reach (lever <-> lever_on) or press a button
 (button_on, which the engine lets back up a second later).

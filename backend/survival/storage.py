@@ -54,6 +54,7 @@ from backend.survival.building import current_shelter, structures_near, usable_s
 from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STACK, full, room_for, stacks
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival.foraging import FOOD_WANTED, whole_walk
+from backend.survival.goals import ADVANCES
 from backend.survival.housework import chest_key
 from backend.survival.once import log_once
 from backend.survival.home import by_home, home_structure
@@ -114,6 +115,63 @@ KEEPS_MORE: list = []
 # The Making final fix wave (I1): functions of the Situation giving {item: count} Mimo wants back out of
 # its chests now, besides food (backend.survival.making: what a project needs that a chest holds).
 TAKES_MORE: list = []
+# Making wave 2, fix round 1 (the re-review's I1): functions of the Situation giving {item: count} Mimo wants on
+# hand now for its own gear, armor and pickaxe (backend.survival.creatures.gear: `gear_wanted`). What its chests
+# hold of them comes back out (`more_taken`), and a making goal never puts them away to make room
+# (making.kept_for_making), so the room a making goal makes is given back when they are needed.
+WANTED_ON_HAND: list = []
+# Making wave 2, fix round 1 (the re-review's Minor 6): functions of the Situation giving more (item, amount) that are
+# no use to carry (`junk`): a furnace made again away from the workshop once a chest holds one.
+JUNK_MORE: list = []
+# And by goal name, whether build_storage works toward that goal now (goals.ADVANCES, `storage_advances`): the
+# making goals' check (backend.survival.making) and armor's (gear). Toward any other goal a milestone names
+# it for (a full larder's chest), always.
+TOWARD: dict = {}
+
+
+def in_chests(s: Situation) -> dict[str, int]:
+    """What the chests Mimo built and can get to hold, added up (`reachable_chests`; read once per Situation)."""
+    def look() -> dict[str, int]:
+        total: dict[str, int] = {}
+        for cell, _ in reachable_chests(s):
+            for item, count in chest_contents(s, cell).items():
+                total[item] = total.get(item, 0) + count
+        return total
+    return s.sensed("chests hold", look)
+
+
+def on_hand_wanted(s: Situation) -> dict[str, int]:
+    """What WANTED_ON_HAND want on hand, added up; one that crashes wants nothing (logged once). Read once per
+    Situation."""
+    def look() -> dict[str, int]:
+        total: dict[str, int] = {}
+        for wants in WANTED_ON_HAND:
+            try:
+                for item, count in wants(s).items():
+                    if count > 0:
+                        total[item] = total.get(item, 0) + int(count)
+            except Exception as error:
+                log_once(logger, "wanted on hand", error)
+        return total
+    return s.sensed("wanted on hand", look)
+
+
+def taken_back(s: Situation) -> dict[str, int]:
+    """TAKES_MORE (Making wave 2, fix round 1): what WANTED_ON_HAND want beyond what Mimo carries."""
+    return {item: count - s.count(item) for item, count in on_hand_wanted(s).items() if count > s.count(item)}
+
+
+TAKES_MORE.append(taken_back)
+
+
+def storage_advances(s: Situation, goal) -> bool:
+    """goals.ADVANCES: build_storage works toward a goal a milestone names it for when the goal's own check says
+    so (TOWARD), or always with none."""
+    check = TOWARD.get(goal.name)
+    return True if check is None else bool(check(s))
+
+
+ADVANCES["build_storage"] = storage_advances
 
 
 def more_kept(s: Situation, item: str) -> float:
@@ -556,6 +614,11 @@ def junk(s: Situation) -> list[tuple[str, int]]:
             found.append((flower, spare))
     found += spare_fences(s)
     found += spare_torches(s)
+    for extra in JUNK_MORE:  # Making wave 2, fix round 1: a second furnace (backend.survival.workshop)
+        try:
+            found += [(item, amount) for item, amount in extra(s) if amount > 0]
+        except Exception as error:
+            log_once(logger, "junk more", error)
     if stacks(s.inventory) >= CARRY_STACKS and no_chest_to_use(s):
         found += loose_blocks(s)
     return found

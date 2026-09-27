@@ -46,14 +46,14 @@ import logging
 from backend.survival.clock import NIGHT_PHASES, clock_at
 from backend.survival.goals import ADVANCES, PLAN_EXTRAS, Goal, Milestone, register_goal
 from backend.survival.machines import (
-    FIRST, MACHINE_GOALS, Machine, knows, machine_share, register_machine, under_way,
+    FIRST, MACHINE_GOALS, Machine, knows, machine_share, machines_built, register_machine, under_way,
 )
 from backend.survival.making import raw_needs
 from backend.survival.memory import structures
 from backend.survival.once import log_once
-from backend.survival.signals import FULL, READOUTS, STARTS, Circuit
+from backend.survival.signals import FULL, MATERIALS, READOUTS, STARTS, Circuit
 from backend.survival.steps import as_cell
-from backend.survival.structures import structure_at
+from backend.survival.structures import blueprint_of, structure_at
 from backend.survival.triggers import ensure_brain
 from backend.survival.work import in_reach, prospecting
 
@@ -107,7 +107,7 @@ register_machine(Machine("counter", "a counter", "adder", COUNTER, try_out=False
 register_machine(Machine("computer", "{name}'s computer", "adder", COMPUTER, reach=24))  # M1: Pip's computer
 MACHINE_GOALS[GOAL] = ("clock", "memory_cell", "counter", "computer")
 # What works toward building each of them. Making wave 2: taking their copper and stone out of the chest
-# (build_storage, when it would: making.storage_advances), and digging for their cobblestone, or on for copper
+# (build_storage, when it would: making.storage_toward), and digging for their cobblestone, or on for copper
 # it knows none of (gather_stone, when it would: `stone_advances`). The counter takes 69 cobblestone, the
 # computer 88, and 12 and 19 copper ore.
 BUILDING = ("build_machine", "mine_ore", "build_storage", "gather_stone")
@@ -210,13 +210,29 @@ def observe_computer(state: dict, step: dict, context, at: float) -> None:
         log_once(logger, "computer", error)
 
 
+def tried_out(s) -> bool:
+    """Mimo has thrown its computer's lever: it remembered the moment ("computer_told"), or (fix round 1, the
+    re-review's Minor 5) the try-out's flip is done (machines_tried) or the lever is on, so a moment that was never
+    recorded (observe_computer crashed, logged once) or a computer whose lever was on from the start (a demo
+    world's) cannot hold the goal back for good: nothing would flip it again."""
+    if s.brain.get("computer_told"):
+        return True
+    found = machines_built(s).get("computer")
+    if found is None:
+        return False
+    if found["id"] in ensure_brain(s.state).get("machines_tried", []):
+        return True
+    return any(kind == "lever" and s.grid.material(x, y, z) == MATERIALS["lever"][1]
+               for x, y, z, kind, _, _ in blueprint_of(found).style.get("circuit", []))
+
+
 def computer_share(s) -> float:
-    """The computer's milestone (Making wave 2): whole once Mimo has thrown its lever and remembered the moment
-    ("computer_told"), not merely once its last part is in. The try-out (build_machine) was the one step left
-    after the goal was reached, and a new goal's purposes crowd out a purpose that works toward none: its
-    lever might never be thrown, and the moment never come."""
+    """The computer's milestone (Making wave 2): whole once Mimo has thrown its lever (`tried_out`), not merely
+    once its last part is in. The try-out (build_machine) was the one step left after the goal was reached,
+    and a new goal's purposes crowd out a purpose that works toward none: its lever might never be thrown, and
+    the moment never come."""
     share = machine_share("computer")(s)
-    return min(share, TRIED_OUT) if share >= 1.0 and not s.brain.get("computer_told") else share
+    return min(share, TRIED_OUT) if share >= 1.0 and not tried_out(s) else share
 
 
 register_goal(Goal(

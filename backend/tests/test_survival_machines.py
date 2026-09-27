@@ -1,24 +1,26 @@
+import math
 import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
 from backend.services.crafting import craft
-from backend.survival.blueprints import Planned
-from backend.survival.building import site_center
+from backend.survival.blueprints import Blueprint, Planned
+from backend.survival.building import PLACES_PER_BATCH, site_center
 from backend.survival.computer import CLOCK, MEMORY
+from backend.survival.goals import GOALS
 from backend.survival.grid import Grid
 from backend.survival.machines import (
-    CLEAR, MACHINES, SITE_CACHE, SITES, WIDE_REACH, design, layout_design, machine_batch, machine_valid, makeable,
-    next_machine, untried, yard_column, yard_left,
+    CLEAR, FIRST, MACHINES, SITE_CACHE, SITES, WIDE_REACH, design, layout_design, machine_batch, machine_valid,
+    makeable, next_machine, untried, yard_column, yard_left,
 )
 from backend.survival.making import raw_needs
 from backend.survival.memory import know, remember, structures
 from backend.survival.purposes import PURPOSES
 from backend.survival.signals import machine_state, run_signals
 from backend.survival.situation import Situation
-from backend.survival.steps import finish_step, start_step
+from backend.survival.steps import REACH, finish_step, start_step
 from backend.survival.storage import kept
-from backend.survival.structures import blueprint_of, todo
+from backend.survival.structures import blueprint_of, start, todo
 from backend.survival.work import prospecting, wanted_ores
 from backend.tests.test_survival_signals import machine
 from backend.tests.test_survival_workshop import DAY, NIGHT, Yard, shares
@@ -418,6 +420,51 @@ class FootingTests(unittest.TestCase):
         self.assertTrue(walks)
         self.assertEqual(todo(yard.grid, blueprint), [])  # the floor is all in
         self.assertLess(len(todo(yard.grid, blueprint, ("part",))), len(blueprint.parts("part")))  # and parts go in
+
+
+    def test_the_floor_its_stands_reach_goes_in_first(self):
+        """Fix round 1 (the re-review's Minor 3): `filling` puts in first the floor blocks the stands Mimo can stand
+        on reach. In the design's order the first 12 went to cells no such stand reached, and the batch placed none."""
+        yard = wired({"dirt": 40}, goal="thinking_machine")
+        far = [(50 + n, 0, 30) for n in range(PLACES_PER_BATCH + 4)]
+        near = [(31, 0, 30), (32, 0, 30), (33, 0, 30)]
+        for cell in far + near:
+            yard.grid.put(*cell, "air")  # floor still to fill
+        cells = tuple(Planned(cell, "floor", "dirt") for cell in far + near)
+        blueprint = Blueprint("machine", "Pip's test", (30, 1, 30), cells, stands=((30, 1, 30), (40, 1, 30)),
+                              style={"machine": "test", "circuit": []})
+        yard.grid.put(40, 0, 30, "air")  # that stand hangs over a hole
+        yard.state["position"] = {"x": 30.0, "y": 1.0, "z": 30.0}
+        steps = machine_batch(yard.situation(), blueprint)
+        self.assertEqual([tuple(step["target"]) for step in steps if step["kind"] == "place"], near)
+
+    def test_the_try_out_walks_only_to_a_stand_with_ground_under_it(self):
+        """Fix round 1 (the re-review's Minor 3): the try-out's flips go through `footing` too."""
+        yard = wired()
+        yard.build("build_machine", batches=1)
+        found, blueprint = untried(yard.situation())
+        lever = next(tuple(part[:3]) for part in blueprint.style["circuit"] if part[3] == "lever")
+        yard.state["position"] = {"x": 12.0, "y": 1.0, "z": 30.0}  # away: it walks to a stand first
+        s = yard.situation()
+        reaching = sorted((stand for stand in blueprint.stands if math.dist(stand, lever) <= REACH and stand != lever),
+                          key=lambda stand: (math.dist(stand, s.here), stand))
+        yard.grid.put(reaching[0][0], reaching[0][1] - 1, reaching[0][2], "air")  # the nearest one hangs now
+        walks = [tuple(step["target"]) for step in yard.plan("build_machine") if step["kind"] == "walk"]
+        self.assertTrue(walks)
+        self.assertNotIn(reaching[0], walks)
+        self.assertTrue(all(yard.grid.solid((x, y - 1, z)) for x, y, z in walks))
+
+
+class FirstCircuitsTests(unittest.TestCase):
+    def test_with_one_of_its_machines_started_the_first_circuits_pull_harder(self):
+        """Fix round 1 (the re-review's Minor 3): the first circuits score workshop.UNDER_WAY (25) more while one of
+        their machines is started, as the thinking machine does."""
+        yard = wired()
+        before = GOALS[FIRST].score(yard.situation())
+        start(yard.db, yard.grid, design(yard.situation(), MACHINES["night_light"]), 0.0)
+        self.assertEqual(GOALS[FIRST].score(yard.situation()), before + 25.0)
+        self.assertEqual(GOALS["thinking_machine"].score(yard.situation()),
+                         GOALS["thinking_machine"].score(wired().situation()))  # not one of its machines
 
 
 class MachineValidTests(unittest.TestCase):

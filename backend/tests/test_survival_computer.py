@@ -5,7 +5,7 @@ from unittest.mock import patch
 from backend.survival import brain, signals
 from backend.survival.computer import (
     CLOCK, COMPUTER, COMPUTER_ROWS, COUNTER, COUNTER_ROWS, DAY_COLUMNS, MEMORY, REMEMBERS, TRIED_OUT, computer_start,
-    observe_computer, readout,
+    observe_computer, readout, stone_advances,
 )
 from backend.survival.goals import GOALS, advancing, day_plan
 from backend.survival.machines import CLEAR, MACHINES, design, next_machine
@@ -18,7 +18,7 @@ from backend.survival.signals import (
 )
 from backend.survival.work import ore_targets
 from backend.tests.test_survival_machines import furrowed, rough, wired
-from backend.tests.test_survival_signals import Bench, machine
+from backend.tests.test_survival_signals import Bench, machine, snake
 from backend.tests.test_survival_workshop import Yard, shares
 
 DAY = 3600.0
@@ -184,19 +184,18 @@ class RunTests(unittest.TestCase):
         lever = (origin[0] + 19, 1, origin[2] + 9)
         yard.grid.put(*lever, "lever_on")
         lamps = [(origin[0] + column, 1, origin[2] + 7) for column in DAY_COLUMNS]
-        shown, slowest, cells = [], 0.0, []
-        real = signals.run_machine
+        shown, slowest, steps = [], 0.0, []
+        real = signals.step
 
         def counted(*args, **kwargs):
-            used = real(*args, **kwargs)
-            cells[-1] += used
-            return used
+            steps[-1] += 1
+            return real(*args, **kwargs)
 
         for tick in range(int(MORNING / 60), int(17 * DAY / 60)):
             at = tick * 60.0
             began = time.perf_counter()
-            cells.append(0)
-            with patch("backend.survival.signals.run_machine", counted):
+            steps.append(0)
+            with patch("backend.survival.signals.step", counted):
                 run_signals(yard.state, yard.context(), at)
             slowest = max(slowest, time.perf_counter() - began)
             if at % DAY == NOON:
@@ -208,10 +207,38 @@ class RunTests(unittest.TestCase):
         # Fix round 1: no spurious ring at build (its sensor is no longer forced to night while it settles).
         self.assertEqual(sum(1 for event in yard.events if event[1] == "bell"), 16)
         # Making wave 2 (the final fix wave's re-review, Minor 7): "never 50 ms in a tick" failed under load on every
-        # tree alike. The tick's cost is counted in cells instead, within the budget, and the wall-clock bound
-        # stays, generous, for a regression of a wholly other size.
-        self.assertLessEqual(max(cells), MAX_CELLS)
+        # tree alike. What kept it fast is counted instead: a quiet computer takes no step (1 tick in 15 has any:
+        # dawn, dusk and a count; worked out step by step, every tick took 120), and the wall-clock bound stays,
+        # generous, for a regression of a wholly other size. Fix round 1 (the re-review's Minor 2): it counted
+        # cells, which a lone computer keeps far below the budget with or without it (the next test binds it).
+        self.assertLess(sum(1 for count in steps if count), len(steps) / 10)
         self.assertLess(slowest, 0.5)
+
+    def test_beside_busy_machines_a_tick_never_works_out_more_than_its_budget(self):
+        """Fix round 1 (the re-review's Minor 2): two clocks each feeding a long net of wire want thousands of cells
+        a tick; the tick works out at most MAX_CELLS, a different machine first each tick, and the computer still
+        gets its turns."""
+        yard = Yard()
+        machine(yard, COMPUTER, origin=(20, 1, 20), name="computer")
+        yard.grid.put(39, 1, 29, "lever_on")
+        for n in range(2):
+            machine(yard, parts=snake(60, 40 + 10 * n), name=f"snake{n}")
+        cells, worked = [], {}
+        real = signals.run_machine
+
+        def counted(db, grid, life, number, name, *args, **kwargs):
+            used = real(db, grid, life, number, name, *args, **kwargs)
+            cells[-1] += used
+            worked[name] = worked.get(name, 0) + used
+            return used
+
+        for tick in range(10, 70):
+            cells.append(0)
+            with patch("backend.survival.signals.run_machine", counted):
+                run_signals(yard.state, yard.context(), tick * 60.0)
+        self.assertLessEqual(max(cells), MAX_CELLS)
+        self.assertGreater(min(cells[1:]), MAX_CELLS / 2)  # the budget binds: every tick wanted more than it had
+        self.assertEqual(sorted(name for name, used in worked.items() if used), ["computer", "snake0", "snake1"])
 
     @staticmethod
     def noons_after(first, out=None, back=None):
@@ -335,6 +362,26 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(GOALS["thinking_machine"].score(yard.situation()), 82.0)
         self.assertEqual(GOALS["first_circuits"].score(yard.situation()), 50.0)  # not one of its machines
 
+    def test_the_chest_and_digging_stone_work_toward_its_machines_while_they_want_them(self):
+        """Fix round 1 (the re-review's Minor 3): each machine's milestone names build_storage and gather_stone
+        (BUILDING), and gather_stone works toward the thinking machine only while its machines want cobblestone or
+        it digs on for copper it knows none of (stone_advances); toward any other goal as before."""
+        milestones = {milestone.text: set(milestone.purposes) for milestone in GOALS["thinking_machine"].milestones}
+        for text in ("Build a clock", "Build a memory cell", "Build a counter", "Build a computer that counts its days"):
+            self.assertLessEqual({"build_machine", "mine_ore", "build_storage", "gather_stone"}, milestones[text], text)
+        yard = wired({"copper_ingot": 4, "coal": 4, "sticks": 4, "iron_pickaxe": 1}, goal="thinking_machine")
+        yard.state["inventory"].pop("cobblestone")
+        know(yard.db, "clock", "lesson", 0.0)
+        s = yard.situation()
+        self.assertEqual(raw_needs(s).get("cobblestone"), 9)  # the clock's three repeaters
+        self.assertTrue(stone_advances(s, GOALS["thinking_machine"]))
+        self.assertIn("gather_stone", advancing(s, GOALS["thinking_machine"]))
+        yard.state["inventory"]["cobblestone"] = 9
+        s = yard.situation()
+        self.assertFalse(stone_advances(s, GOALS["thinking_machine"]))  # its copper in hand: no digging on for it
+        self.assertNotIn("gather_stone", advancing(s, GOALS["thinking_machine"]))
+        self.assertTrue(stone_advances(s, GOALS["iron_tools"]))
+
     def test_mimo_builds_its_computer_part_by_part_then_throws_its_lever(self):
         yard = wired({"copper_ingot": 20, "cobblestone": 96, "coal": 20, "sticks": 20, "planks": 30, "glass": 3},
                      goal="thinking_machine")
@@ -350,11 +397,23 @@ class GoalTests(unittest.TestCase):
         (computer,) = [row for row in structures(yard.db, ("machine",)) if row["id"] not in built]
         lever = next(tuple(part[:3]) for part in computer["data"]["style"]["circuit"] if part[3] == "lever")
         self.assertEqual(yard.grid.material(*lever), "lever_on")  # tried out: its lamps are shown
-        # Making wave 2: the milestone is whole once the lever's throw is a moment Mimo remembers (the tick's
-        # observe_step; this yard carries steps out without it).
-        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], TRIED_OUT)
-        observe_computer(yard.state, {"kind": "flip", "target": list(lever)}, yard.context(), 2.0)
+        # Making wave 2: the milestone is whole once Mimo has thrown the lever, not once the last part is in. Fix
+        # round 1 (the re-review's Minor 5): the try-out done counts though the moment was never remembered (this
+        # yard carries steps out without the tick's observe_step, as a crash in it would leave it), and so does a
+        # lever that is on (a demo world's computer): nothing would ever throw it again.
         self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)
+        yard.state["brain"]["machines_tried"] = list(built)
+        yard.grid.put(*lever, "lever")
+        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], TRIED_OUT)  # built, not tried out
+        yard.state["brain"]["machines_tried"] = list(built) + [computer["id"]]  # tried out, thrown back off since
+        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)
+        yard.state["brain"]["machines_tried"] = list(built)
+        yard.grid.put(*lever, "lever_on")
+        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)
+        yard.grid.put(*lever, "lever")
+        observe_computer(yard.state, {"kind": "flip", "target": list(lever)}, yard.context(), 2.0)
+        self.assertEqual(shares(yard.situation(), "thinking_machine")[-1], 1.0)  # the moment remembered
+        yard.grid.put(*lever, "lever_on")
         # The clock and the counter spend most of each tick's budget; each machine goes first one tick in four.
         for at in range(600, 1260, 60):
             run_signals(yard.state, yard.context(), float(at))

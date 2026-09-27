@@ -291,6 +291,15 @@ class DropWhenStuckTests(unittest.TestCase):
         roomy = Home({**self.filler, "dirt": 40, "cobblestone": 20}, chest={})
         self.assertFalse(PURPOSES["drop_items"].valid(roomy.situation()))
 
+    def test_the_dirt_mimo_keeps_stays(self):
+        """Making wave 2, fix round 1 (the re-review's Minor 3): the dirt a started machine's yard is still to be
+        filled in with (machines.yard_dirt, a KEEPS_MORE) is never dropped with full arms and a full chest."""
+        yard = lambda s, item: 30.0 if item == "dirt" else 0.0  # noqa: E731
+        storage.KEEPS_MORE.append(yard)
+        self.addCleanup(storage.KEEPS_MORE.remove, yard)
+        home = Home({**self.filler, "dirt": 40, "cobblestone": 20}, chest=self.FULL_CHEST)
+        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "dirt", "amount": 10}])
+
     def test_with_no_dirt_cobblestone_goes_but_what_the_shelter_still_needs_stays(self):
         """Fix wave M5(f): cobblestone never drops below gather_stone's own goal (STONE_GOAL, 12),
         so drop_items and gather_stone stop alternating over the same stone."""

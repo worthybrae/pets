@@ -21,11 +21,13 @@ from pathlib import Path
 from backend.survival.brain import BRAIN
 from backend.survival.choosing import JEV_HOUR_CAP, Chooser, InlineExecutor, cap
 from backend.survival.escape import way_out
+from backend.survival.expedition import camp_time, phase_of
 from backend.survival.grid import world_grid
 from backend.survival.hatch import hatch
 from backend.survival.memory import cell_of, places
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
+from backend.survival.situation import from_db
 from backend.survival.steps import as_cell
 from backend.survival.tick import tick_life
 from backend.survival.triggers import HOUR
@@ -147,13 +149,17 @@ def sample(world: SurvivalWorld) -> tuple[bool, bool | None]:
     "outpost" place) counts as home for the night: Mimo digs in there and puts a roof over its head on
     purpose, and takes it off in the morning (camp.leave_camp). This check predates camps; the seed-3 Jev
     life first camped inside these two game days once a goal finished on the side was reached (its mood
-    and choices moved on from there), and its night in camp read as 1,620 s trapped."""
+    and choices moved on from there), and its night in camp read as 1,620 s trapped. Fix round 1 (the
+    re-review's Minor 4): only at camp time (expedition.camp_time: late in the day or at night) while an
+    expedition is out, so a camp Mimo could not leave in the morning still reads as trapped."""
     with world.connect() as db:
         state = read_state(db)
         seed = state["world_seed"]
         grid = world_grid(db, seed)
         homes = [cell_of(place) for place in places(db, ("home",))]
-        camps = [cell_of(place) for place in places(db, ("outpost",))]
+        s = from_db(db, state, state["last_tick_at"], 1.0)
+        camping = camp_time(s) and phase_of(s) in ("out", "homeward")
+        camps = [cell_of(place) for place in places(db, ("outpost",))] if camping else []
         here = way_out(grid, as_cell(state["position"]), seed, set(homes) | set(camps))
         home = way_out(grid, homes[0], seed) if homes else None
     return here, home
