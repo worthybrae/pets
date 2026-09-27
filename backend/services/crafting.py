@@ -54,6 +54,10 @@ RECIPES.update({
     "ladder": {"ingredients": {"sticks": 7}, "output": {"ladder": 3}},
     "fence": {"ingredients": {"planks": 4, "sticks": 2}, "output": {"fence": 3}},
 })
+# L5, the frontier: gold nuggets that far-off hostiles and ruins give, 4 to a gold ingot, anywhere.
+RECIPES.update({
+    "gold_nuggets": {"ingredients": {"gold_nugget": 4}, "output": {"gold_ingot": 1}},
+})
 # Making (T1): paper and books, dyes and coloured wool, rugs, bookshelves, a kiln, stairs, slabs, glass panes,
 # trapdoors, iron bars, flower pots, signs, barrels, composters and candles.
 RECIPES.update({

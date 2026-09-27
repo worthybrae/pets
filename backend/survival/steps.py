@@ -16,11 +16,12 @@ backend.survival.creatures.combat and L2's shoot in backend.survival.creatures.a
 leaves, tall grass or gravel may drop more (nature.CHANCE_DROPS): saplings, apples, seeds, flint.
 A mine step marked `rubble` (L3: a passage's widening cell, backend.survival.work.stair and
 escape.open_up) drops neither its block nor a chance drop: Mimo leaves it behind. Sleep on a bed
-is sleep in a bed.
+is sleep in a bed. L5: MINED may add to what a mine drops (backend.survival.loot).
 """
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Callable
@@ -30,7 +31,10 @@ from backend.services.crafting import BLOCKS, SMELTING, add_item, can_harvest, c
 from backend.survival import nature
 from backend.survival.carrying import fits
 from backend.survival.grid import Cell, Grid
+from backend.survival.once import log_once
 from backend.survival.pathing import MAX_NODES, route, timed_path
+
+logger = logging.getLogger(__name__)
 
 REACH = 4.0
 STATION_REACH = 6.0
@@ -59,6 +63,9 @@ FOOD_RISK = {"raw_chicken": (0.25, -4.0)}
 RISK_CHANNEL = 39
 # A far walk re-plans segment by segment; after this many extra segments it gives up.
 MAX_SEGMENTS = 12
+# L5: functions (state, cell, block) -> items a finished mine drops besides the block's own (backend.
+# survival.loot: an extra ore farther from home). One that crashes adds nothing (logged once).
+MINED: list = []
 
 
 FAILURE_CODES = ("no_path", "out_of_reach", "gone", "missing_item", "blocked", "bad_step")
@@ -303,6 +310,14 @@ def finish_mine(step: dict, state: dict, grid: Grid, at: float) -> None:
         add_item(state["inventory"], drop)
     for item in nature.chance_drops(seed_of(state), target, step["block"]):
         add_item(state["inventory"], item)
+    for more in MINED:
+        try:
+            extra = list(more(state, target, step["block"]))
+        except Exception as error:
+            log_once(logger, "mined", error)
+            continue
+        for item in extra:
+            add_item(state["inventory"], item)
     return None
 
 

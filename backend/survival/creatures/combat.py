@@ -16,11 +16,13 @@ seconds as "dead" with what it dropped (the viewer's puff), its home chunk count
 fewer, and its drops go straight into Mimo's arms, as far as the carry limit lets them (the
 engine settles the inventory after the step, backend.survival.carrying). A kill sets
 `state["hunted_at"]` and is a routine "hunt" event. Drops are rolled from the world seed and
-the creature, so they never depend on how often the tick ran.
+the creature, so they never depend on how often the tick ran. L5: EXTRA_DROPS add to them
+(backend.survival.loot: a hostile born farther from home drops more).
 """
 
 from __future__ import annotations
 
+import logging
 import math
 
 from backend.services.crafting import add_item
@@ -30,6 +32,7 @@ from backend.survival.creatures.kinds import Kind, kind_of
 from backend.survival.creatures.moves import roll, where
 from backend.survival.creatures.table import Herd, dead
 from backend.survival.grid import Cell, Grid
+from backend.survival.once import log_once
 from backend.survival.steps import StepFailed, StepKind, as_cell, as_point, label, register_step, seed_of
 
 ATTACK_REACH = 2.5
@@ -39,6 +42,11 @@ SWORDS = {"wooden_sword": 4.0, "stone_sword": 5.0, "iron_sword": 6.0, "gold_swor
           "diamond_sword": 8.0}  # damage, weakest first
 SWORD_SECONDS = 0.5
 DROP_CHANNEL = 70
+# L5: functions (seed, creature, kind) -> {item: count} a dead creature drops besides its kind's own
+# (backend.survival.loot: better drops farther from home). One that crashes adds nothing (logged once).
+EXTRA_DROPS: list = []
+
+logger = logging.getLogger(__name__)
 
 
 def weapon(inventory: dict) -> str | None:
@@ -66,6 +74,19 @@ def drops_of(seed: str, creature: dict, kind: Kind) -> dict[str, int]:
     return found
 
 
+def more_drops(seed: str, creature: dict, kind: Kind | None, found: dict[str, int]) -> dict[str, int]:
+    """`found` and what EXTRA_DROPS add to it (L5)."""
+    total = dict(found)
+    for extra in EXTRA_DROPS:
+        try:
+            for item, count in extra(seed, creature, kind).items():
+                if count > 0:
+                    total[item] = total.get(item, 0) + int(count)
+        except Exception as error:
+            log_once(logger, "extra drops", error)
+    return total
+
+
 def reached(path: list[dict] | None, at: float) -> list[dict] | None:
     """The part of a move that is done by `at`: its start and each cell reached by then."""
     if not path:
@@ -82,7 +103,7 @@ def strike(scene: Scene, creature: dict, damage: float, source: Cell) -> dict[st
     creature["health"] = max(0.0, creature["health"] - damage)
     state["hurt_at"] = scene.at
     if creature["health"] <= 0:
-        found = drops_of(scene.seed, creature, kind) if kind is not None else {}
+        found = more_drops(scene.seed, creature, kind, drops_of(scene.seed, creature, kind) if kind is not None else {})
         cell = where(creature, scene.at)
         creature["x"], creature["y"], creature["z"] = map(float, cell)
         state.update(pose="dead", dead_at=scene.at, drops=sorted(found), path=reached(state.get("path"), scene.at))

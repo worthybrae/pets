@@ -51,6 +51,9 @@ STATIONS = {"wooden_pickaxe": ("crafting_table",), "stone_pickaxe": ("crafting_t
             "diamond_pickaxe": ("crafting_table",), "diamond_sword": ("crafting_table",),
             "iron_cap": ("crafting_table", "furnace"), "iron_tunic": ("crafting_table", "furnace"), "lantern": ()}
 LANTERNS_WANTED = 4  # lanterns Mimo makes to carry home (light_up hangs them), from spare iron
+# L5: an item small pieces make too, by the recipe named here (4 gold nuggets make a gold ingot),
+# made that way when there is no ore to smelt for it (`pooled`).
+POOLED = {"gold_ingot": "gold_nuggets"}
 SMELTED = {output: ore for ore, output in SMELTING.items()}
 # Cells beside Mimo at its level, then the one above it.
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
@@ -145,6 +148,8 @@ def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int 
             steps.append({"kind": "craft", "recipe": recipe_name})
         elif item in SMELTED:
             ore = SMELTED[item]
+            if inventory.get(ore, 0) < 1 and pooled(inventory, item, steps):
+                continue
             if inventory.get(ore, 0) < 1:
                 raise Short(ore)
             if not inventory.get("coal", 0):
@@ -156,6 +161,21 @@ def make(inventory: dict, item: str, amount: int, steps: list[dict], depth: int 
             steps.append({"kind": "smelt", "item": ore})
         else:
             raise Short(item)
+
+
+def pooled(inventory: dict, item: str, steps: list[dict]) -> bool:
+    """L5: craft one `item` from its small pieces (POOLED) when Mimo carries enough of them; False when
+    it does not."""
+    name = POOLED.get(item)
+    recipe = RECIPES.get(name) if name else None
+    if recipe is None or any(have(inventory, part) < count for part, count in recipe["ingredients"].items()):
+        return False
+    for part, count in paid(inventory, recipe["ingredients"]).items():
+        inventory[part] -= count
+    for part, count in recipe["output"].items():
+        inventory[part] = inventory.get(part, 0) + count
+    steps.append({"kind": "craft", "recipe": name})
+    return True
 
 
 def free_cells(s: Situation) -> list[Cell]:
