@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AIR, blockId, LAYER_BY_ID, LAYER_CUTOUT } from '../engine/blocks'
-import { biomeAt, blockAt, regionOpenings, rocksInChunk, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
+import { biomeAt, blockAt, regionOpenings, regionRuin, rocksInChunk, SEA_LEVEL, terrainHeight } from '../engine/worldgen'
 import { WorldStore } from '../engine/worldStore'
 import {
   composeMap, fogColor, isMapKey, loadMapOpen, MAP_BLOCKS, MAP_RADIUS, mapMarks, mapOrigin, mapPatches, mapShownByDefault,
@@ -102,6 +102,25 @@ describe('the terrain seen from above', () => {
       if (top.y !== terrainHeight(x, z, SEED)) kinds.add(top.y > terrainHeight(x, z, SEED) ? 'above' : 'below')
     }
     expect(kinds).toEqual(new Set(['above', 'below']))
+  })
+
+  it('shows an old ruin\'s walls and chest, as they stand (L5)', () => {
+    const ruins: [number, number, number][] = []
+    for (let rx = 36; rx < 46 && ruins.length < 2; rx++) for (let rz = 40; rz < 46 && ruins.length < 2; rz++) {
+      const ruin = regionRuin(rx, rz, SEED)
+      if (ruin) ruins.push(ruin)
+    }
+    expect(ruins).toHaveLength(2)
+    const seen = new Set<number>()
+    for (const [rx, rz] of ruins) {
+      for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
+        const top = naturalTop(rx + dx, rz + dz, SEED)
+        expect({ x: rx + dx, z: rz + dz, id: top.id, y: top.y }).toEqual({ x: rx + dx, z: rz + dz, ...scanned(rx + dx, rz + dz) })
+        seen.add(top.id)
+      }
+    }
+    expect(seen.has(blockId('chest'))).toBe(true)
+    expect(seen.has(blockId('stone_bricks'))).toBe(true)
   })
 
   it('lets Mimo’s edits show: what it placed, what it dug and what it planted', () => {

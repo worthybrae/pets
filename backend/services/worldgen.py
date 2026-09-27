@@ -83,6 +83,14 @@ OUTCROPS = {"desert": "sandstone", "taiga": "andesite", "birch_forest": "diorite
 PILLAR_LAYERS = 3  # fix round 1: an outcrop's pillar rises 1 to this many layers over its ground (rock_column)
 ROCK_TOP = PILLAR_LAYERS  # the highest an outcrop's pillar stands over its ground (a boulder is lower)
 FEATURE_TOP = max(CANOPY_TOP, ROCK_TOP)  # the highest anything generated stands over a column's ground
+# L5, the frontier: a small ruin (stone-brick walls with mossy cobblestone, an old chest in the middle)
+# stands in some 96x96 regions, placed by the seed and the region alone, like the cave entrances.
+RUIN_REGION = 96  # blocks on a side; a region holds one ruin at most
+RUIN_ODDS = 2  # one region in this many tries for one
+RUIN_MARGIN = 12  # its middle lies at least this far inside its region, so it never leaves it
+RUIN_HALF = 3  # its walls stand on the edge of a square this far from its middle each way (7x7)
+RUIN_TOP = 3  # a wall column stands 0 (a gap) to this many blocks over its own ground; never above ROCK_TOP
+RUIN_SLOPE = 2  # the ground under it may lie this much above or below its middle's
 EMPTY_SPANS: Mapping[tuple[int, int], tuple[int, int]] = types.MappingProxyType({})
 
 
@@ -434,6 +442,58 @@ def rocks_in_chunk(cx: int, cz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[tup
     return ()
 
 
+@lru_cache(maxsize=4096)
+def region_ruin(rx: int, rz: int, seed: str = LEGACY_WORLD_SEED) -> tuple[int, int, int] | None:
+    """The ruin of a 96x96 region, if it has one: (x, z, ground height) of its middle column, where
+    its chest stands. One region in RUIN_ODDS tries a spot; the ruin stands there only when every
+    column of its 7x7 square is dry land within RUIN_SLOPE of the middle's height, with no swamp pool,
+    cave entrance, tree or rock on it. None near the legacy clearing."""
+    x0, z0 = rx * RUIN_REGION, rz * RUIN_REGION
+    if math.hypot(x0 + RUIN_REGION / 2, z0 + RUIN_REGION / 2) <= LEGACY_RADIUS + RUIN_REGION:
+        return None
+    roll = hash32(rx, 0, rz, seed, 92)
+    if roll % RUIN_ODDS != 0:
+        return None
+    span = RUIN_REGION - 2 * RUIN_MARGIN
+    cx, cz = x0 + RUIN_MARGIN + (roll >> 8) % span, z0 + RUIN_MARGIN + (roll >> 16) % span
+    ground = terrain_height(cx, cz, seed)
+    for x in range(cx - RUIN_HALF, cx + RUIN_HALF + 1):
+        for z in range(cz - RUIN_HALF, cz + RUIN_HALF + 1):
+            height = terrain_height(x, z, seed)
+            if (height <= SEA_LEVEL or abs(height - ground) > RUIN_SLOPE or swamp_pool(x, z, seed)
+                    or surface_opened(x, z, seed) or tree_base(x, z, seed) is not None
+                    or rock_column(x, z, seed) is not None):
+                return None
+    return cx, cz, ground
+
+
+def ruin_column(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
+    """What of a ruin stands on a column and the y of its top: ("chest", ground + 1) on its middle
+    column, ("wall", top) on a wall column of its 7x7 square that still stands 1 to 3 high on its own
+    ground (the corners always 3, the middle of one side always a doorway), else None."""
+    ruin = region_ruin(x // RUIN_REGION, z // RUIN_REGION, seed)
+    if ruin is None:
+        return None
+    rx, rz, ground = ruin
+    dx, dz = x - rx, z - rz
+    if (dx, dz) == (0, 0):
+        return "chest", ground + 1
+    if max(abs(dx), abs(dz)) != RUIN_HALF:
+        return None
+    door = hash32(rx, 1, rz, seed, 92) % 4
+    if (dx, dz) == ((RUIN_HALF, 0), (-RUIN_HALF, 0), (0, RUIN_HALF), (0, -RUIN_HALF))[door]:
+        return None
+    layers = RUIN_TOP if abs(dx) == abs(dz) else hash32(x, 4, z, seed, 93) % (RUIN_TOP + 1)
+    return ("wall", terrain_height(x, z, seed) + layers) if layers else None
+
+
+def ruin_block(x: int, y: int, z: int, seed: str, part: str) -> str:
+    """The block of a ruin's cell: its chest, or a wall's stone bricks, one in three mossy cobblestone."""
+    if part == "chest":
+        return "chest"
+    return "mossy_cobblestone" if hash32(x, y, z, seed, 94) % 3 == 0 else "stone_bricks"
+
+
 @lru_cache(maxsize=COLUMN_CACHE)
 def rock_column(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """The block of the boulder or outcrop standing on a column and the y of its top, or None. Each
@@ -662,7 +722,8 @@ def tall_plant(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int]
 def plant_stack(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> tuple[str, int] | None:
     """What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall
     grass, a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3."""
-    if math.hypot(x, z) <= HOME_RADIUS or surface_opened(x, z, seed) or rock_column(x, z, seed):
+    if math.hypot(x, z) <= HOME_RADIUS or surface_opened(x, z, seed) or rock_column(x, z, seed) \
+            or ruin_column(x, z, seed):  # L5: nothing grows in a ruin's walls or under its chest
         return None
     surface = surface_material(x, z, seed)
     if _decoration_column(x, z, seed):
@@ -702,7 +763,7 @@ def plant_at(x: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
 
 def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str | None:
     """Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk,
-    leaves, rock, plant."""
+    leaves, ruin (L5), rock, plant."""
     home = HOME_BLOCKS.get((x, y, z))
     if home:
         return home
@@ -710,6 +771,9 @@ def decoration_at(x: int, y: int, z: int, seed: str = LEGACY_WORLD_SEED) -> str 
     if tree:
         return tree
     height = terrain_height(x, z, seed)
+    ruin = ruin_column(x, z, seed) if y > height else None
+    if ruin is not None:
+        return ruin_block(x, y, z, seed, ruin[0]) if y <= ruin[1] else None
     rock = rock_column(x, z, seed) if y > height else None
     if rock is not None:
         return rock[0] if y <= rock[1] else None

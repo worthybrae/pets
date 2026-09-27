@@ -66,10 +66,20 @@ const MOUTH_TRIES = 6
 const OUTCROP_GROUND = 8
 const BOULDERS: Record<string, string> = { desert: 'sandstone', meadow: 'andesite', alpine: 'stone' }
 const OUTCROPS: Record<string, string> = { desert: 'sandstone', taiga: 'andesite', birch_forest: 'diorite', alpine: 'granite' }
+// L5, the frontier: a small ruin (stone-brick walls with mossy cobblestone, an old chest in the middle)
+// stands in some 96x96 regions (see backend/services/worldgen.py region_ruin).
+const RUIN_REGION = 96
+const RUIN_ODDS = 2
+const RUIN_MARGIN = 12
+const RUIN_HALF = 3
+const RUIN_TOP = 3
+const RUIN_SLOPE = 2
+const RUIN_DOORS: [number, number][] = [[RUIN_HALF, 0], [-RUIN_HALF, 0], [0, RUIN_HALF], [0, -RUIN_HALF]]
 type Openings = [string, ReadonlyMap<string, [number, number]>]
 type Rock = [number, number, string, number, string]
 const openingCache = new Map<string, Openings>()
 const rockCache = new Map<string, Rock[]>()
+const ruinCache = new Map<string, [number, number, number] | null>()
 const biomeCache = new Map<string, string>()
 const seedCache = new Map<string, [number, number]>()
 const heightCache = new Map<string, number>()
@@ -416,6 +426,55 @@ export function rockColumn(x: number, z: number, seed = DEFAULT_WORLD_SEED): [st
   return null
 }
 
+/** L5: the ruin of a 96x96 region, if it has one: [x, z, ground height] of its middle column, where its
+ * chest stands (see backend/services/worldgen.py region_ruin). */
+export function regionRuin(rx: number, rz: number, seed = DEFAULT_WORLD_SEED): [number, number, number] | null {
+  const key = `${seed}:${rx},${rz}`
+  let ruin = ruinCache.get(key)
+  if (ruin !== undefined) return ruin
+  ruin = findRuin(rx, rz, seed)
+  ruinCache.set(key, ruin)
+  if (ruinCache.size > 4096) ruinCache.delete(ruinCache.keys().next().value!)
+  return ruin
+}
+
+function findRuin(rx: number, rz: number, seed: string): [number, number, number] | null {
+  const x0 = rx * RUIN_REGION, z0 = rz * RUIN_REGION
+  if (Math.hypot(x0 + RUIN_REGION / 2, z0 + RUIN_REGION / 2) <= LEGACY_RADIUS + RUIN_REGION) return null
+  const roll = hash32(rx, 0, rz, seed, 92)
+  if (roll % RUIN_ODDS !== 0) return null
+  const span = RUIN_REGION - 2 * RUIN_MARGIN
+  const cx = x0 + RUIN_MARGIN + (roll >>> 8) % span, cz = z0 + RUIN_MARGIN + (roll >>> 16) % span
+  const ground = terrainHeight(cx, cz, seed)
+  for (let x = cx - RUIN_HALF; x <= cx + RUIN_HALF; x++) for (let z = cz - RUIN_HALF; z <= cz + RUIN_HALF; z++) {
+    const height = terrainHeight(x, z, seed)
+    if (height <= SEA_LEVEL || Math.abs(height - ground) > RUIN_SLOPE || swampPool(x, z, seed)
+      || surfaceOpened(x, z, seed) || treeBase(x, z, seed) !== null || rockColumn(x, z, seed) !== null) return null
+  }
+  return [cx, cz, ground]
+}
+
+/** L5: what of a ruin stands on a column and the y of its top: ['chest', ground + 1] on its middle
+ * column, ['wall', top] on a wall column of its 7x7 square that still stands, else null. */
+export function ruinColumn(x: number, z: number, seed = DEFAULT_WORLD_SEED): [string, number] | null {
+  const ruin = regionRuin(Math.floor(x / RUIN_REGION), Math.floor(z / RUIN_REGION), seed)
+  if (ruin === null) return null
+  const [rx, rz, ground] = ruin
+  const dx = x - rx, dz = z - rz
+  if (dx === 0 && dz === 0) return ['chest', ground + 1]
+  if (Math.max(Math.abs(dx), Math.abs(dz)) !== RUIN_HALF) return null
+  const [doorX, doorZ] = RUIN_DOORS[hash32(rx, 1, rz, seed, 92) % 4]
+  if (dx === doorX && dz === doorZ) return null
+  const layers = Math.abs(dx) === Math.abs(dz) ? RUIN_TOP : hash32(x, 4, z, seed, 93) % (RUIN_TOP + 1)
+  return layers ? ['wall', terrainHeight(x, z, seed) + layers] : null
+}
+
+/** L5: the block of a ruin's cell: its chest, or a wall's stone bricks, one in three mossy cobblestone. */
+function ruinBlock(x: number, y: number, z: number, seed: string, part: string): string {
+  if (part === 'chest') return 'chest'
+  return hash32(x, y, z, seed, 94) % 3 === 0 ? 'mossy_cobblestone' : 'stone_bricks'
+}
+
 /** Terrain, water, caves and ores, before trees and plants are added. `columnSpan`, when given (even
  * as null), is the column's cave-entrance span (see `opening`): a caller filling a whole column can
  * look it up once and pass it down, instead of `opening` refetching it for every y. */
@@ -615,7 +674,9 @@ function tallPlant(x: number, z: number, seed: string): [string, number] | null 
 /** What grows on top of the terrain at (x, z) and how many blocks high: a flower, wild food, tall grass,
  * a fern, a dead bush, a pumpkin or a melon stand one high, a cactus or sugar cane 1 to 3. */
 export function plantStack(x: number, z: number, seed = DEFAULT_WORLD_SEED): [string, number] | null {
-  if (Math.hypot(x, z) <= HOME_RADIUS || surfaceOpened(x, z, seed) || rockColumn(x, z, seed)) return null
+  if (Math.hypot(x, z) <= HOME_RADIUS || surfaceOpened(x, z, seed) || rockColumn(x, z, seed) || ruinColumn(x, z, seed)) {
+    return null  // L5: nothing grows in a ruin's walls or under its chest
+  }
   const surface = surfaceMaterial(x, z, seed)
   if (decorationColumn(x, z, seed)) {
     if (treeBase(x, z, seed) !== null) return null
@@ -646,13 +707,15 @@ export function plantAt(x: number, z: number, seed = DEFAULT_WORLD_SEED): string
   return plantStack(x, z, seed)?.[0] ?? null
 }
 
-/** Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk, leaves, rock, plant. */
+/** Blocks that grow or stand on the terrain, or on a cave floor. Precedence: home, trunk, leaves, ruin (L5), rock, plant. */
 function decorationAt(x: number, y: number, z: number, seed: string): string | null {
   const home = HOME_BLOCKS.get(`${x},${y},${z}`)
   if (home) return home
   const tree = treeBlock(x, y, z, seed)
   if (tree) return tree
   const height = terrainHeight(x, z, seed)
+  const ruin = y > height ? ruinColumn(x, z, seed) : null
+  if (ruin) return y <= ruin[1] ? ruinBlock(x, y, z, seed, ruin[0]) : null
   const rock = y > height ? rockColumn(x, z, seed) : null
   if (rock) return y <= rock[1] ? rock[0] : null
   if (y > height && y <= height + 3) {
@@ -695,7 +758,7 @@ export function generateColumn(cx: number, cz: number, seed = DEFAULT_WORLD_SEED
     }
   }
   const terrain = data.slice()
-  // Later stamps win, so stamp in rising precedence: plants, rocks, leaves, trunks, home.
+  // Later stamps win, so stamp in rising precedence: plants, rocks, ruins (L5), leaves, trunks, home.
   const stamp = (x: number, y: number, z: number, name: string) => {
     const lx = x - x0, lz = z - z0
     if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE || y < WORLD_MIN_Y || y > WORLD_MAX_Y) return
@@ -712,6 +775,13 @@ export function generateColumn(cx: number, cz: number, seed = DEFAULT_WORLD_SEED
     const rock = rockColumn(x0 + lx, z0 + lz, seed)
     if (!rock) continue
     for (let y = terrainHeight(x0 + lx, z0 + lz, seed) + 1; y <= rock[1]; y++) stamp(x0 + lx, y, z0 + lz, rock[0])
+  }
+  for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+    const ruin = ruinColumn(x0 + lx, z0 + lz, seed)
+    if (!ruin) continue
+    for (let y = terrainHeight(x0 + lx, z0 + lz, seed) + 1; y <= ruin[1]; y++) {
+      stamp(x0 + lx, y, z0 + lz, ruinBlock(x0 + lx, y, z0 + lz, seed, ruin[0]))
+    }
   }
   const trees = treesInChunk(cx, cz, seed)
   // Where canopies meet, the first tree's leaves win (as in treeBlock): stamp them last.

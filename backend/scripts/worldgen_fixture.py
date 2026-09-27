@@ -12,8 +12,8 @@ import random
 from pathlib import Path
 
 from backend.services.worldgen import (
-    LEGACY_WORLD_SEED, SEA_LEVEL, biome_at, block_at, cave_plant, plant_at, plant_stack, region_openings,
-    rocks_in_chunk, shore, surface_material, swamp_pool, terrain_height, tree_kind, trees_in_chunk,
+    LEGACY_WORLD_SEED, RUIN_HALF, SEA_LEVEL, biome_at, block_at, cave_plant, plant_at, plant_stack, region_openings,
+    region_ruin, rocks_in_chunk, shore, surface_material, swamp_pool, terrain_height, tree_kind, trees_in_chunk,
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "shared" / "worldgen-fixture.json"
@@ -183,6 +183,19 @@ def _rocks(seed: str, count: int, cxs: range = range(16, 120)) -> list[tuple[int
     return found
 
 
+def _ruins(seed: str, count: int, rxs: range = range(3, 40)) -> list[tuple[int, int, int]]:
+    """L5: the middle columns (x, z, ground) of `count` ruins."""
+    found = []
+    for rx in rxs:
+        for rz in range(-20, 20):
+            ruin = region_ruin(rx, rz, seed)
+            if ruin is not None:
+                found.append(ruin)
+                if len(found) == count:
+                    return found
+    return found
+
+
 def sample_cells() -> list[tuple[str, int, int, int]]:
     """Home clearing, tree canopies, plants, rare biomes and random cells for both seeds."""
     cells = {(LEGACY_WORLD_SEED, x, y, z) for x in range(-12, 13) for z in range(-12, 13) for y in range(-2, 8)}
@@ -209,6 +222,10 @@ def sample_cells() -> list[tuple[str, int, int, int]]:
         for rx, rz in _rocks(seed, 3) + _rocks(seed, 3, range(-120, -16)):
             cells |= {(seed, rx + dx, terrain_height(rx + dx, rz + dz, seed) + dy, rz + dz)
                       for dx in range(-3, 4) for dz in range(-3, 4) for dy in range(0, 5)}
+        for rx, rz, ground in _ruins(seed, 2) + _ruins(seed, 2, range(-40, -3)):
+            reach = RUIN_HALF + 1
+            cells |= {(seed, rx + dx, ground + dy, rz + dz)
+                      for dx in range(-reach, reach + 1) for dz in range(-reach, reach + 1) for dy in range(-1, 5)}
         for x, y, z in _deep(seed, 3):
             cells |= {(seed, x + dx, y + dy, z + dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)}
         for x, z in _features(seed, 3) + _features(seed, 3, FEATURE_XS_NEG):

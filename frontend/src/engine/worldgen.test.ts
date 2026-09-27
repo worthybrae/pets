@@ -3,7 +3,7 @@ import fixture from '../../../shared/worldgen-fixture.json'
 import { blockDef, blockId } from './blocks'
 import {
   blockAt, cavePlant, columnIndex, DEFAULT_WORLD_SEED, generateColumn, legacyHash, plantStack, swampPool, terrainHeight,
-  regionOpenings, rocksInChunk, treeKind, treesInChunk, wildFood, WORLD_MAX_Y, WORLD_MIN_Y,
+  regionOpenings, regionRuin, rocksInChunk, ruinColumn, treeKind, treesInChunk, wildFood, WORLD_MAX_Y, WORLD_MIN_Y,
 } from './worldgen'
 
 const WILD_SEED = '123456789123456789'
@@ -117,6 +117,31 @@ describe('worldgen', () => {
     }
     expect([...chunks.keys()].sort()).toEqual(['boulder', 'mouth', 'outcrop', 'sinkhole'])
     for (const [cx, cz] of chunks.values()) expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+  })
+
+  it('builds the frontier\'s ruins, their walls and their chests, inside columns exactly like blockAt', () => {
+    // L5: every chunk a ruin's 7x7 square touches, for two ruins east of the legacy clearing and one west.
+    const ruins: [number, number, number][] = []
+    for (const rxs of [[3, 40], [-40, -3]]) {
+      let found = 0
+      for (let rx = rxs[0]; rx < rxs[1] && found < (rxs[0] > 0 ? 2 : 1); rx++) {
+        for (let rz = -20; rz < 20 && found < (rxs[0] > 0 ? 2 : 1); rz++) {
+          const ruin = regionRuin(rx, rz, WILD_SEED)
+          if (ruin) { ruins.push(ruin); found++ }
+        }
+      }
+    }
+    expect(ruins).toHaveLength(3)
+    for (const [x, z, ground] of ruins) {
+      expect(blockAt(x, ground + 1, z, WILD_SEED)).toBe('chest')
+      expect(ruinColumn(x, z, WILD_SEED)).toEqual(['chest', ground + 1])
+      const chunks = new Set<string>()
+      for (const dx of [-3, 3]) for (const dz of [-3, 3]) chunks.add(`${Math.floor((x + dx) / 16)},${Math.floor((z + dz) / 16)}`)
+      for (const chunk of chunks) {
+        const [cx, cz] = chunk.split(',').map(Number)
+        expect(columnMismatches(cx, cz, WILD_SEED).slice(0, 10)).toEqual([])
+      }
+    }
   })
 
   it('generates wild food and cave mushrooms inside columns exactly like blockAt', () => {

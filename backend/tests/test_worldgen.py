@@ -168,7 +168,8 @@ class FixtureTests(unittest.TestCase):
                      "water", "sand", "stone", "bedrock", "grass", "berry_bush_ripe", "brown_mushroom", "red_mushroom",
                      "birch_log", "birch_leaves", "spruce_log", "spruce_leaves", "snow", "snow_block", "ice", "mud",
                      "cactus", "sugar_cane", "dead_bush", "fern", "pumpkin", "melon", "gravel", "lava", "gold_ore",
-                     "diamond_ore", "granite", "andesite", "diorite", "ashstone", "mossy_cobblestone", "clay"):
+                     "diamond_ore", "granite", "andesite", "diorite", "ashstone", "mossy_cobblestone", "clay",
+                     "stone_bricks", "chest"):  # L5: the frontier's ruins
             self.assertIn(name, materials)
 
     def test_fixture_covers_generated_trees_at_negative_x(self):
