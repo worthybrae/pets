@@ -87,6 +87,9 @@ WAYS = {"rabbit": "hop about", "chicken": "peck about", "sheep": "graze", "cow":
 HABITS = {
     "gloomling": "Gloomlings walk dark ground at night and the caves at any hour, and the sun burns them up.",
     "skitter": "Skitters live in the caves and dark places, and the sunlight makes them fade.",
+    # L5 (pre-flight, carry 6): the thornback (backend.survival.creatures.thornback), so the owner can teach it.
+    "thornback": "Thornbacks crawl the far wilds by day and by night; a sword glances off their shells, "
+                 "but arrows hurt them.",
 }
 # Words that mean the same in the owner's mouth, both ways.
 TEACH_SYNONYMS = (

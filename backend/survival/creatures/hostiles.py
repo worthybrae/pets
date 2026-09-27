@@ -81,7 +81,8 @@ register_kind(Kind("skitter", health=12.0, speed=0.4, size=0.6, hostile=True, da
 # sunlit ----------------------------------------------------------------------------------------
 
 def sunlit(creature: dict, kind: Kind, scene: Scene) -> bool:
-    return kind.hostile and not scene.night and sky_open(scene.grid, scene.seed, where(creature, scene.at))
+    return (kind.hostile and not kind.daylight and not scene.night  # L5: a thornback walks by day
+            and sky_open(scene.grid, scene.seed, where(creature, scene.at)))
 
 
 def vanish(creature: dict, scene: Scene) -> None:

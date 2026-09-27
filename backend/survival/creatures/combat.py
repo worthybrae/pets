@@ -5,7 +5,8 @@ damage, 0.5 s with a sword for 4 (wooden), 5 (stone) or 6 (iron); the best sword
 used. It works on any creature of any kind, so L2's fights use the same step. The step fails when
 the creature is gone or dead ("gone") or out of reach when the swing starts ("out_of_reach").
 It lands when the swing ends if the creature still lives and is within a block of that reach
-(the lunge); one that ran off in the meantime is missed, which is no failure.
+(the lunge); one that ran off in the meantime is missed, which is no failure. L5: a kind with a
+`shell` (the thornback) takes that share off the blow; an arrow (creatures.archery) gets through.
 
 A blow (`strike`) takes health, marks the creature hurt (the viewer flashes it, knocks it back
 and shows its health bar) and, for a kind that flees when hurt, sends it running from Mimo at
@@ -127,6 +128,9 @@ def finish_attack(step: dict, state: dict, grid: Grid, at: float, events: list) 
     if math.dist(as_cell(state["position"]), where(creature, at)) > ATTACK_REACH + LUNGE:
         return None  # it ran off before the blow landed
     damage, _ = blow(step.get("weapon"))
+    kind = kind_of(creature["kind"])
+    if kind is not None:
+        damage *= 1.0 - kind.shell  # L5: a thornback's shell takes the edge off a melee blow
     scene = Scene(grid, herd, seed_of(state), state, at, step.get("pace", 1.0), events=events)
     found = strike(scene, creature, damage, as_cell(state["position"]))
     if found is None:

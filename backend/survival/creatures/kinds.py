@@ -6,7 +6,8 @@ flees at double speed), how big it is (`size`, blocks tall, for the viewer), whe
 dies (`drops`: item -> (least, most), or item -> the chance of one), the biomes it spawns in, how
 many come together (`herd`), whether it lives in `water` (fish) and whether it runs off when hurt
 (`flee_when_hurt`). L1 registers the passive rabbit, chicken, sheep and cow, and fish; L2's
-hostile kinds register themselves the same way, with `hostile`, `damage` and `reach` set.
+hostile kinds register themselves the same way, with `hostile`, `damage` and `reach` set. L5's
+thornback adds a `shell` against melee blows and walks by `daylight`.
 """
 
 from __future__ import annotations
@@ -33,6 +34,8 @@ class Kind:
     cooldown: float = 1.0  # L2: seconds between two of its attacks
     burns: bool = False  # L2: burns and fades under the open sky by day
     height: int = 1  # L2: cells of room it needs to pass (a gloomling needs 2)
+    shell: float = 0.0  # L5: the share of a sword or fist blow its shell takes off (arrows get through)
+    daylight: bool = False  # L5: it walks by day too: the sun neither burns nor fades it
 
 
 KINDS: dict[str, Kind] = {}

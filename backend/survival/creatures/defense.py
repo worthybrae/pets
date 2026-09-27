@@ -31,7 +31,8 @@ a sword, or a bow with arrows.
   no sword, strikes with its sword in reach, and else steps up to the target and strikes. One
   blow or shot a round; the reflex fires again at once while the fight goes on. Below 35 health
   flee, being more urgent, takes over: Mimo fights, then flees.
-L5: far from home both lines rise (`CAUTION`, backend.survival.creatures.ringed).
+L5: far from home both lines rise (`CAUTION`, backend.survival.creatures.ringed), and a thornback
+(`BOW_ONLY`) is met with the bow alone, or run from.
 Both log their event once per encounter (Reflex.quiet), not every round. What a model picker is
 told about danger comes from here too (`threats_payload`).
 """
@@ -101,6 +102,9 @@ THREAT_RISE = 2
 # (backend.survival.creatures.ringed: 5 a danger level from the far wilds on). One that crashes adds
 # nothing (logged once).
 CAUTION: list = []
+# L5: kinds Mimo meets only with a bow (the thornback's shell turns a sword): it shoots them even in
+# sword reach, never swings at them, and runs from one near it when it has no bow and arrows.
+BOW_ONLY: set[str] = set()
 
 logger = logging.getLogger(__name__)
 
@@ -235,12 +239,17 @@ def flee_due(s: Situation) -> bool:
     found = threats(s)
     if s.vitals["health"] < flee_below(s):
         return flee_threat(s, found) is not None
-    if armed(s):
+    if armed(s) and not outmatched(s, found):
         return False
     if not fleeing(s):
         return bool(found) and s.distance(where(found[0], s.at)) <= FLEE_NEAR
     chaser = next((creature for creature in found if creature["state"].get("chasing")), None)
     return (chaser if chaser is not None else chasing_near(s, GIVE_UP)) is not None
+
+
+def outmatched(s: Situation, found: list[dict]) -> bool:
+    """L5: the nearest threat is one Mimo meets only with a bow (BOW_ONLY), and it has none ready."""
+    return bool(found) and found[0]["kind"] in BOW_ONLY and not bow_ready(s)
 
 
 def run_away(s: Situation, danger: Cell) -> dict:
@@ -304,6 +313,8 @@ def fight_target(s: Situation) -> dict | None:
         return None
     fighting = s.at - s.brain["reflex_ends"].get("fight", -math.inf) <= FIGHT_KEEP
     for creature in threats(s):
+        if creature["kind"] in BOW_ONLY and not bow_ready(s):
+            continue  # L5: a sword is no use against its shell
         there = where(creature, s.at)
         distance = s.distance(there)
         at_bay = distance <= ATTACK_REACH and bool(creature["state"].get("chasing"))
@@ -325,7 +336,8 @@ def plan_fight(s: Situation, context: ActionContext) -> list[dict]:
     distance = s.distance(there)
     blow = {"creature": target["id"], "target": list(there)}
     sword = weapon(s.inventory)
-    if bow_ready(s) and (distance >= SHOOT_FROM or sword is None) and distance <= SHOOT_RANGE:
+    if bow_ready(s) and (distance >= SHOOT_FROM or sword is None or target["kind"] in BOW_ONLY) \
+            and distance <= SHOOT_RANGE:
         return [{"kind": "shoot", **blow}]
     if sword is None:
         return []

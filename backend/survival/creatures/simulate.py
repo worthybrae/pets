@@ -60,6 +60,9 @@ TURNS_EACH = 3  # turns one hostile takes in one call at most (L2)
 LATE = 2.0  # server seconds (at the normal pace) a hostile's turn may lag the call's time at most
 DEAD_KEEP = 10.0  # server seconds a dead creature stays listed, for the viewer's puff
 UNKNOWN_WAIT = 60.0  # server seconds a creature of a kind no longer registered waits between turns
+# L5: functions of the Scene that may add creatures after the dark's hostiles (the thornback's spawner,
+# backend.survival.creatures.thornback), each returning what it added. One that crashes adds none.
+SPAWNERS: list = []
 
 
 def simulate(state: dict, context: ActionContext, at: float, fight_step: bool = False) -> None:
@@ -89,6 +92,11 @@ def simulate(state: dict, context: ActionContext, at: float, fight_step: bool = 
         if not hostile_near(grid, context.db, state):
             loaded += populate(scene, loaded, scale)
     loaded += spawn_hostiles(scene)
+    for spawner in SPAWNERS:  # L5: the thornback's
+        try:
+            loaded += spawner(scene)
+        except Exception as error:
+            log_once(logger, "creature spawner", error)
     for creature in loaded:
         if dead(creature) and at - creature["state"].get("dead_at", at) > DEAD_KEEP:
             grid.herd.remove(creature["id"])
