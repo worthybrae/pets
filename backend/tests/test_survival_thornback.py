@@ -106,9 +106,10 @@ class SpawnTests(unittest.TestCase):
                 for creature in found:
                     sampled += 1
                     distance = math.hypot(creature["x"] - 150.0, creature["z"])
-                    # a whole block of slack for the independent rounding of x and z (as the codebase's
-                    # own SPAWN_FAR + 1 upper-bound tolerance allows on the far side).
-                    self.assertGreaterEqual(distance, 19.0, (seed, tick, creature["x"], creature["z"], distance))
+                    # Fix round A (Task 3, M4): thornback.py rounds the spawn column with no check
+                    # afterwards, so a thornback could spawn as close as 19.4 blocks away. The fix
+                    # copies darkness.py's post-rounding check, so this now holds at a literal 20.0.
+                    self.assertGreaterEqual(distance, 20.0, (seed, tick, creature["x"], creature["z"], distance))
         self.assertGreater(sampled, 20)  # the sample actually exercised spawns, not just empty rolls
 
 

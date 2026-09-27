@@ -38,13 +38,14 @@ from backend.services.worldgen import RUIN_REGION, region_ruin
 from backend.survival import nature
 from backend.survival.carrying import CARRY_STACKS, room_for
 from backend.survival.foraging import STAND, whole_walk
-from backend.survival.goals import URGES
+from backend.survival.goals import add_urge
 from backend.survival.grid import Cell, Grid
 from backend.survival.housework import chest_key
 from backend.survival.journal import journal_ready, learn_lesson, taught
 from backend.survival.memory import remember, update_place
 from backend.survival.purposes import Purpose, late_day, late_penalty, register
 from backend.survival.rings import DEEPEST, ready_ring, ring_at, ring_name
+from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.storage import STORE_FROM
 from backend.survival.steps import (
@@ -64,7 +65,10 @@ LOOT_BATCHES = 3
 LOOT_ROOM = STORE_FROM - 1  # stacks Mimo fills with loot at most: below where putting things away is worth a trip
 # The order loot is taken in when there is not room for all of it: the rarest first.
 RAREST_FIRST = ("diamond", "amber", "gold_ingot", "gold_nugget", "iron_ingot", "bread", "coal", "arrow", "torch")
-# Pre-flight (carry 5): the far rings' riches may fill Mimo's arms (CARRY_STACKS); the rest stops at LOOT_ROOM.
+# Pre-flight (carry 5): the far rings' riches may fill Mimo's arms; the rest stops at LOOT_ROOM. Task 6
+# review, M3: capped one stack short of CARRY_STACKS, not at it -- riches filling the very last stack
+# left no room at all, so the next bit of food pushed out flint or leather instead of riding along free.
+RICHES_ROOM = CARRY_STACKS - 1
 RICHES = ("diamond", "amber", "gold_ingot", "gold_nugget")
 # What an old chest holds by the ring its ruin stands in: (item, least, most, chance).
 LOOT = {
@@ -221,7 +225,7 @@ def takeable(s: Situation, chest: Cell) -> dict[str, int]:
     rank = {item: index for index, item in enumerate(RAREST_FIRST)}
     carried, found = dict(s.inventory), {}
     for item in sorted(inside, key=lambda item: (rank.get(item, len(rank)), item)):
-        amount = min(inside[item], room_for(carried, item, CARRY_STACKS if item in RICHES else LOOT_ROOM))
+        amount = min(inside[item], room_for(carried, item, RICHES_ROOM if item in RICHES else LOOT_ROOM))
         if amount > 0:
             found[item] = amount
             carried[item] = carried.get(item, 0) + amount
@@ -234,12 +238,15 @@ def worth_a_visit(s: Situation, chest: Cell) -> bool:
 
 
 def ruin_targets(s: Situation) -> list[Cell]:
-    """Remembered ruins within LOOT_RANGE worth a visit, in a ring Mimo is ready for, nearest first."""
+    """Remembered ruins within LOOT_RANGE worth a visit, in a ring Mimo is ready for, nearest first.
+    Task 6 review, M2: a chest a step just failed to reach is left alone for a while too (the same
+    guard storage.reachable_chests already has), so it is not retried at once."""
     def look() -> list[Cell]:
         ready = ready_ring(s)
         found = [(place["x"], place["y"], place["z"]) for place in s.places if place["kind"] == RUIN]
         found = [chest for chest in found if s.distance(chest) <= LOOT_RANGE
-                 and ring_at(s.state, chest[0], chest[2]) <= ready and worth_a_visit(s, chest)]
+                 and ring_at(s.state, chest[0], chest[2]) <= ready and worth_a_visit(s, chest)
+                 and (s.distance(chest) <= REACH or not near_failure(s.state, chest))]
         return sorted(found, key=lambda chest: (s.distance(chest), chest))
     return s.sensed("ruin targets", look)
 
@@ -283,5 +290,8 @@ register(Purpose(
     score=lambda s: 58.0 + s.trait("bravery") / 10 - late_penalty(s), plan=plan_loot,
     thoughts=("An old ruin! I wonder what's in that chest.", "Somebody left something here long ago.")))
 
-URGES["loot_ruin"] = chest_in_sight
-OBSERVERS.extend((notice_ruins, note_opened, find_manual))
+add_urge("loot_ruin", chest_in_sight)
+# Task 6 review, M6: find_manual is not one of OBSERVERS (called before note_discoveries costs curiosity
+# for the step's "found"/"discovered" events) -- brain.observe_step calls it after note_discoveries,
+# the same place observe_tinker's copper manual is called, so a manual costs the same curiosity either way.
+OBSERVERS.extend((notice_ruins, note_opened))

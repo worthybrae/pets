@@ -2,8 +2,8 @@ import math
 import unittest
 
 from backend.services.worldgen import (
-    LEGACY_RADIUS, RUIN_HALF, RUIN_REGION, RUIN_SLOPE, SEA_LEVEL, block_at, plant_stack, region_ruin, rock_column,
-    ruin_column, surface_opened, terrain_height, tree_base,
+    LEGACY_RADIUS, LEGACY_WORLD_SEED, RUIN_HALF, RUIN_REGION, RUIN_SLOPE, SEA_LEVEL, block_at, plant_stack,
+    region_ruin, rock_column, ruin_column, surface_opened, terrain_height, tree_base,
 )
 
 SEED = "123456789123456789"
@@ -37,11 +37,24 @@ class RuinTests(unittest.TestCase):
         self.assertNotEqual(found, [region_ruin(rx, rz, "42") for rx in range(30, 50) for rz in range(-10, 10)])
 
     def test_none_stands_near_the_legacy_clearing(self):
-        reach = (LEGACY_RADIUS + RUIN_REGION) // RUIN_REGION
-        for rx in range(-reach, reach):
-            for rz in range(-reach, reach):
-                ruin = region_ruin(rx, rz, SEED)
-                self.assertTrue(ruin is None or math.hypot(ruin[0], ruin[1]) > LEGACY_RADIUS)
+        # Task 5 review, Important (test only): the old version of this test passed even with the
+        # guard removed -- on SEED, the regions nearest the origin never happened to roll a ruin, so
+        # "ruin is None or far enough" was true for the wrong reason. This checks every region whose
+        # centre lies within the guarded band (region_ruin's own bound: LEGACY_RADIUS + RUIN_REGION)
+        # is unconditionally None, over several seeds including the legacy world's own, so removing
+        # the guard (which places a ruin ~198 blocks out on the legacy seed) fails it.
+        reach = int((LEGACY_RADIUS + RUIN_REGION) // RUIN_REGION) + 1
+        seeds = (SEED, "1", "42", "7", "24680", "99999", LEGACY_WORLD_SEED)
+        checked = 0
+        for seed in seeds:
+            for rx in range(-reach, reach + 1):
+                for rz in range(-reach, reach + 1):
+                    x0, z0 = rx * RUIN_REGION, rz * RUIN_REGION
+                    if math.hypot(x0 + RUIN_REGION / 2, z0 + RUIN_REGION / 2) > LEGACY_RADIUS + RUIN_REGION:
+                        continue
+                    checked += 1
+                    self.assertIsNone(region_ruin(rx, rz, seed), (seed, rx, rz))
+        self.assertGreater(checked, 20)  # the band around the origin was actually exercised
 
     def test_it_stands_on_dry_even_ground_with_no_tree_rock_or_cave_mouth(self):
         for ruin in ruins(8) + ruins(4, range(-60, -3)):

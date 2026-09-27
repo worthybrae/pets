@@ -61,6 +61,7 @@ from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
 from backend.survival.computer import observe_computer
+from backend.survival.ruins import find_manual
 from backend.survival.tinker import observe_tinker
 from backend.survival.cozy import tend_comfort
 from backend.survival.curiosity import note_discoveries, tend_curiosity
@@ -275,6 +276,13 @@ def observe_step(state: dict, step: dict, context: ActionContext, at: float) -> 
         except Exception as error:
             log_once(logger, "step observer", error)
     note_discoveries(state, step, context, at, context.events[mark:])
+    # L5 fix round A (Task 6 review, M6): find_manual runs after note_discoveries, the same place
+    # observe_tinker's copper manual does, so a ruin's old manual costs curiosity no differently
+    # than a mined one (an event logged before note_discoveries costs it NEW_PLACE either way).
+    try:
+        find_manual(state, step, context, at)
+    except Exception as error:
+        log_once(logger, "step observer", error)
     look_after(state, step, context, at)
     observe_journal(state, step, context, at)
     observe_tinker(state, step, context, at)

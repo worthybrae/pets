@@ -182,11 +182,15 @@ def land_refuge(s: Situation) -> dict | None:
     or none is found nearby. L2 followup fix: sleep and rest never lie Mimo down afloat (plan_sleep,
     plan_rest, backend.survival.brain.waiting) -- a flee run never picks a target on water either
     (creatures.defense.run_away), but Mimo can still wander into it on its own, and asleep there it
-    is an easy catch."""
+    is an easy catch.
+    L5 fix round A (Task 8 review, Important): home_of finds the home Mimo built at any distance from
+    ring 2 on (purposes.FAR_HOMES), but a swim for land keeps L4a's own rule (kept for a flee,
+    creatures.defense.run_away, but missed here): the home counts only within BUILT_HOME_RANGE, else
+    the nearest natural shore, however far the built home lies."""
     if not afloat(s.grid, s.here):
         return None
     home = home_of(s)
-    if home is not None:
+    if home is not None and s.distance(cell_of(home)) <= BUILT_HOME_RANGE:
         return walk_to(cell_of(home))
     shores = shores_near(s.grid, s.seed, s.here, WATER_SIGHT)
     return walk_to(shores[0][0]) if shores else None

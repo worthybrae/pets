@@ -158,7 +158,7 @@ register_goal(Goal(
     "Past the near wilds old ruins stand with chests nobody opened, and what lives out there drops gold and amber.",
     (Milestone("Reach the far wilds", lambda s: whole(reached_far(s)), ("explore",)),
      Milestone("Open an old ruin's chest", lambda s: whole(opened_since(s)), ("loot_ruin", "explore")),
-     Milestone("Come home with the loot", lambda s: whole(home_with_loot(s)), ("go_home",))),
+     Milestone("Come home from an old ruin", lambda s: whole(home_with_loot(s)), ("go_home",))),
     score=pull, thought="Old ruins stand out in the far wilds. I'm armed and ready for them.",
     after=("first_shelter",), valid=frontier_valid, repeat=True))
 

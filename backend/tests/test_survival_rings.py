@@ -73,6 +73,18 @@ class RingTests(unittest.TestCase):
     def test_the_viewer_is_told_the_ring_where_mimo_stands(self):
         state, _, _ = tended(position=(200.0, 1.0, 0.0), home=(0, 1, 0))
         self.assertEqual(ring_view(state), {"level": 2, "name": "Far wilds", "center": {"x": 0, "z": 0}})
+
+    def test_tend_frontier_writes_far_at(self):
+        # Task 8 review, Minor 1 (tests): far_at, the last time Mimo stood past the near wilds (read
+        # by the frontier goal's "reach the far wilds" milestone).
+        state, context, _ = tended(position=(10.0, 1.0, 0.0), home=(0, 1, 0))
+        self.assertNotIn("far_at", state["frontier"])  # home ground: never stood past the near wilds
+        state["position"]["x"] = 150.0  # the far wilds
+        tend_frontier(state, context, 9.0)
+        self.assertEqual(state["frontier"]["far_at"], 9.0)
+        state["position"]["x"] = 10.0  # back on home ground
+        tend_frontier(state, context, 11.0)
+        self.assertEqual(state["frontier"]["far_at"], 9.0)  # unchanged: the last time it stood past it
         self.assertIsNone(ring_view({"position": {"x": 0.0, "y": 1.0, "z": 0.0}}))
 
 

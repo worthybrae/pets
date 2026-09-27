@@ -6,9 +6,9 @@ from unittest.mock import patch
 from backend.survival import scouting  # noqa: F401  (L4: the needs explore goes for)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.grid import Grid
-from backend.survival.memory import create_memory_tables, know, mark_explored, patch_of, remember
+from backend.survival.memory import BUILT, create_memory_tables, know, mark_explored, patch_of, remember
 from backend.survival.once import forget_logged
-from backend.survival.purposes import PURPOSES, Purpose, land_refuge, meal, offered, register
+from backend.survival.purposes import BUILT_HOME_RANGE, PURPOSES, Purpose, land_refuge, meal, offered, register
 from backend.survival.situation import Situation
 from backend.survival.vitals import START_VITALS
 
@@ -137,6 +137,18 @@ class SimplePurposeTests(unittest.TestCase):
             self.assertIsNone(land_refuge(homeless))  # nowhere dry found nearby either
         homed = situation(grid=afloat, places=[("home", (5, 1, 0))])
         self.assertEqual(land_refuge(homed), {"kind": "walk", "target": [5, 1, 0], "reach": 0.0})  # home first
+
+    def test_land_refuge_heads_for_a_near_shore_not_a_built_home_far_out(self):
+        # Task 8 review, Important: from ring 2 on, home_of finds the home Mimo built at any distance
+        # (purposes.FAR_HOMES), so a pet afloat far out used to walk all the way home instead of to a
+        # shore right beside it (breaking L4a's rule, kept for a flee but not for this swim).
+        afloat = flat(cells={(0, 0, 0): "water"})
+        far = situation(grid=afloat)
+        far_home_place = {"kind": "home", "note": BUILT, "x": 200, "y": 1, "z": 0}
+        self.assertGreater(math.dist((0, 0), (200, 0)), BUILT_HOME_RANGE)  # far past BUILT_HOME_RANGE
+        with patch("backend.survival.purposes.home_of", lambda s: far_home_place), \
+                patch("backend.survival.purposes.shores_near", lambda grid, seed, here, radius: [((3, 1, 0), (4, 1, 0))]):
+            self.assertEqual(land_refuge(far), {"kind": "walk", "target": [3, 1, 0], "reach": 0.0})
 
     def test_rest_lasts_until_a_trigger_for_at_most_ten_game_minutes(self):
         s = situation()

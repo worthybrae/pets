@@ -9,12 +9,13 @@ from backend.survival.memory import know, remember, set_home, update_place
 from backend.survival.pickers import context_payload
 from backend.survival.purposes import HOMEWARD, LATE_DAY, PURPOSES, home_of, homeward_from, late_day
 from backend.survival.reflexes import head_home_due
+from backend.survival.rings import ring_at
 from backend.survival.ruins import RUIN, notice_ruins, ruins_near
 from backend.survival.situation import Situation
 from backend.survival.trips import REASONS, beyond, offers, targets, wanted_now
 from backend.tests.test_survival_pickers import DAY
 from backend.survival.replies import Heard
-from backend.survival.requests import lapse_words, rules_request, to_do
+from backend.survival.requests import NONE, lapse_words, rules_request, to_do
 from backend.tests.test_survival_ruins import CHEST, GEARED, Pet
 
 HOME = (CHEST[0] - 150, 9, CHEST[2])  # the ruin stands in the far wilds, 150 blocks east of home
@@ -43,6 +44,28 @@ class GoalTests(unittest.TestCase):
         s = pet.situation()
         self.assertIsNone(wanted_now(s, REASONS["riches"]))
         self.assertNotIn("riches", [offer.reason for offer in offers(s)])
+
+    def test_a_geared_pet_on_low_health_keeps_the_goal_open(self):
+        # Task 8 review, Minor 1 (tests): frontier_valid weighs only gear (rings.gear_short_of), so
+        # health or food short of a ring's own line never closes the goal early -- the trip itself
+        # waits instead (rings.ready_ring, which riches_wanted reads).
+        pet = at_home(dict(GEARED))
+        pet.state["vitals"]["health"] = 50.0  # short of the far wilds' own 70, gear aside
+        self.assertTrue(is_open(pet.situation(), GOALS["frontier"]))
+
+    def test_the_last_milestone_says_it_honestly(self):
+        # Task 8 review, Minor 2: the milestone only counts a chest opened (home_with_loot: opened
+        # since and back on home ground), so its words say that, not "with the loot" in Mimo's arms.
+        self.assertEqual(GOALS["frontier"].milestones[-1].text, "Come home from an old ruin")
+
+    def test_a_ruin_in_the_near_wilds_never_advances_the_goal(self):
+        # Task 8 review, Minor 1 (tests): looting_far (goals.ADVANCES["loot_ruin"]) only counts a ruin
+        # past the near wilds; one closer never sends a pet working on another goal home for it.
+        home = (CHEST[0] - 100, 9, CHEST[2])  # 100 blocks from the chest: the near wilds (ring 1)
+        pet = Pet(offset=(10, 0), center=(home[0], home[2]))
+        remember(pet.db, RUIN, CHEST, 20.0, "near wilds")
+        self.assertEqual(ring_at(pet.state, CHEST[0], CHEST[2]), 1)
+        self.assertFalse(advances(pet.situation(), "loot_ruin", GOALS["frontier"]))
 
     def test_a_geared_pet_takes_the_goal_and_its_trip_heads_out(self):
         pet = at_home(dict(GEARED))
@@ -166,6 +189,16 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(to_do(GOALS["frontier"]), "go looking for riches farther out")
         self.assertEqual(lapse_words(GOALS["frontier"], False),
                          "I couldn't go looking for riches farther out in time. Ask me again?")
+
+    def test_a_move_verb_can_ask_for_the_ruins_too(self):
+        # Task 8 review, Minor 3: frontier was missing from requests.PLACE_GOALS, so a move verb
+        # ("visit", "head", "go") asking only for a place never named it, unlike "find" or "look for".
+        statuses = {name: "open" for name in GOALS}
+        for line in ("could you visit the ruins?", "please head to the ruins", "can you go to the frontier?"):
+            self.assertEqual(rules_request(Heard(line), statuses), "frontier", line)
+        # The 8.1 negatives keep reading as none.
+        for line in ("map out your day", "follow up"):
+            self.assertEqual(rules_request(Heard(line), statuses), NONE, line)
 
 
 class PayloadTests(unittest.TestCase):

@@ -46,7 +46,7 @@ from backend.survival.memory import SHELTER_KINDS, cell_of, nearest, remember
 from backend.survival.once import log_once
 from backend.survival.pathing import find_path
 from backend.survival.purposes import (
-    AT_HOME, GO_HOME_RANGE, HOME_RANGE, HOMEWARD, away, foods, home_of, land_refuge, meal, walk_to,
+    AT_HOME, GO_HOME_RANGE, HOME_RANGE, away, foods, home_of, land_refuge, meal, walk_to,
 )
 from backend.survival.purposes import homeward_from  # L5: far out, the window opens sooner
 from backend.survival.senses import near_failure

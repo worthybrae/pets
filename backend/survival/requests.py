@@ -138,7 +138,8 @@ GOAL_VERBS = SHAPE_VERBS | MOVE_VERBS | SEEK_VERBS
 VERB_WORDS = MAKE_VERBS | GOAL_VERBS | SEE_VERBS | frozenset({"come", "help", "like", "love", "want", "mind"})
 START = (MAKE_VERBS | GOAL_VERBS) - frozenset({"look", "put", "light", "take", "do", "grow", "prepare", "pack", "reach",
                                                "enter", "cross", "stock", "chart", "begin"})
-PLACE_GOALS = frozenset({"map_land", "new_land", "new_creature", "cave", "water", "far_hills", "expedition"})
+PLACE_GOALS = frozenset({"map_land", "new_land", "new_creature", "cave", "water", "far_hills", "expedition",
+                         "frontier"})  # Task 8 review, Minor 3: a move verb ("visit", "head", "go") reaches it too
 MAKE_ONLY = frozenset({"home", "house", "hut", "shelter", "bed", "castle", "stone", "bigger", "safe"})  # "go home"
 SKIPPED = frozenset({"and", "just", "please", "pls", "plz", "also", "maybe", "now", "then", "first", "really", "kindly",
                      "ever", "still", "to", "quickly", "soon", "today", "tonight", "tomorrow"})

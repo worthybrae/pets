@@ -72,6 +72,8 @@ def spawn_thornbacks(scene: Scene) -> list[dict]:
         angle = 2 * math.pi * roll(scene.seed, salt, attempt, ANGLE)
         reach = SPAWN_NEAR + (SPAWN_FAR - SPAWN_NEAR) * roll(scene.seed, salt, attempt, DISTANCE)
         cx, cz = round(x + math.cos(angle) * reach), round(z + math.sin(angle) * reach)
+        if math.hypot(cx - x, cz - z) < SPAWN_NEAR:
+            continue
         for cell in spots(scene.grid, scene.seed, cx, cz, y)[:1]:
             if sky_open(scene.grid, scene.seed, cell):
                 return [born(scene, THORNBACK, cell)]
