@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 from backend.services.crafting import RECIPES, TOOL_RANK
 from backend.survival import storage
 from backend.survival.carrying import crafts_fit
-from backend.survival.creatures.harm import IRON_ARMOR, armor_iron, covered
+from backend.survival.creatures.harm import IRON_ARMOR, armor_iron, covered, worn
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
@@ -182,7 +182,7 @@ def gear_wanted(s: Situation) -> dict[str, int]:
     if pieces:
         leather = sum(RECIPES[piece]["ingredients"]["leather"] for piece in pieces)
         wanted.update(either(have, "leather", "rabbit_hide", leather, HIDES_PER_LEATHER))
-    iron = any(inventory.get(piece, 0) < 1 for piece in IRON_ARMOR)
+    iron = any(not worn(inventory, piece) for piece in IRON_ARMOR)  # L5: an amber piece stands for its iron one
     if iron and pickaxe_rank(inventory) >= TOOL_RANK["iron_pickaxe"]:
         wanted.update(either(have, "iron_ingot", "iron_ore", armor_iron(inventory)))
     if ladder_ores(inventory) and have["gold_ore"] + have["gold_ingot"] >= GOLD_PICKAXE:

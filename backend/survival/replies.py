@@ -73,7 +73,8 @@ BUILD = frozenset({"build_shelter", "improve_home", "build_farm", "build_pen", "
                    "stock_pen"})
 REFLEX_WORDS = {"flee": "running from danger", "fight": "fighting off a creature", "head_home": "heading home",
                 "eat_now": "grabbing a bite", "warm_up": "warming up", "surface": "coming up for air",
-                "collapse": "too tired to stand", "avoid_drop": "watching my step"}
+                "collapse": "too tired to stand", "avoid_drop": "watching my step",
+                "turn_back": "turning back toward home"}  # L5 final fix wave: past where Mimo is ready to go
 GERUNDS = {"go": "going", "put": "putting", "dig": "digging", "drop": "dropping", "lie": "lying", "stop": "stopping"}
 # The verbs after an "it" that means Mimo, in its own voice (`voiced`): "it knows" -> "I know".
 IT_VERBS = {"knows": "know", "has": "have", "does": "do", "did": "did", "is": "am", "was": "was", "needs": "need",

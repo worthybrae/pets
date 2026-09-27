@@ -20,7 +20,9 @@ Worldgen stands a small ruin in some regions, with an old chest in its middle
   whose chest still stands and holds something (or was never opened), in a ring Mimo is ready for
   (rings.ready_ring: home ground and the near wilds always), the nearest first. It walks up, opens the
   chest, then takes what it has room for below LOOT_ROOM stacks, the rarest first (housework's take
-  step); the rest waits in the chest until Mimo has room again. A first version took all that fit in
+  step); the rest waits in the chest until Mimo has room again. Riches it makes room for (the L5 final fix
+  wave, I2: `room_for_riches` leaves stacks of blocks there first), and a chest that still holds riches is
+  worth going back to (backend.survival.frontier). A first version took all that fit in
   its 16 stacks: four new stacks early in a life pushed a pet near home past the point where putting
   things away and dropping loose blocks are worth doing, and it swung between digging stone, dropping
   and putting away (94 changes of purpose in its busiest hour, over the sims' 90; seed 5, the fake
@@ -36,7 +38,8 @@ from typing import TYPE_CHECKING
 
 from backend.services.worldgen import RUIN_REGION, region_ruin
 from backend.survival import nature
-from backend.survival.carrying import CARRY_STACKS, room_for
+from backend.survival import storage
+from backend.survival.carrying import CARRY_STACKS, LOW_VALUE, STACK, room_for
 from backend.survival.foraging import STAND, whole_walk
 from backend.survival.goals import add_urge
 from backend.survival.grid import Cell, Grid
@@ -47,11 +50,11 @@ from backend.survival.purposes import Purpose, late_day, late_penalty, register
 from backend.survival.rings import DEEPEST, ready_ring, ring_at, ring_name
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
-from backend.survival.storage import STORE_FROM
 from backend.survival.steps import (
     OBSERVERS, REACH, StepFailed, StepKind, as_cell, as_point, in_reach, label, register_step, seed_of,
 )
 from backend.survival.triggers import mark_trigger
+from backend.survival.trips import fenced
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -62,7 +65,7 @@ LOOT_RANGE = 64.0  # loot_ruin goes to remembered ruins this close
 URGE_REACH = 32.0  # an unopened chest this close is an urge
 OPEN_SECONDS = 0.6
 LOOT_BATCHES = 3
-LOOT_ROOM = STORE_FROM - 1  # stacks Mimo fills with loot at most: below where putting things away is worth a trip
+LOOT_ROOM = storage.STORE_FROM - 1  # stacks Mimo fills with loot at most: below where putting things away is worth a trip
 # The order loot is taken in when there is not room for all of it: the rarest first.
 RAREST_FIRST = ("diamond", "amber", "gold_ingot", "gold_nugget", "iron_ingot", "bread", "coal", "arrow", "torch")
 # Pre-flight (carry 5): the far rings' riches may fill Mimo's arms; the rest stops at LOOT_ROOM. Task 6
@@ -176,9 +179,17 @@ def find_manual(state: dict, step: dict, context: ActionContext, at: float) -> N
 
 
 def note_opened(state: dict, step: dict, context: ActionContext, at: float) -> None:
-    """After an open_chest step: the ruin's place is noted opened (steps.OBSERVERS)."""
-    if step["kind"] == "open_chest" and context.db is not None:
+    """After an open_chest step: the ruin's place is noted opened (steps.OBSERVERS). The L5 final fix wave (I2):
+    after a take of riches from an old chest, it is noted looted, which the frontier goal counts like an opening
+    (a riches trip goes back to a chest opened before that still holds riches)."""
+    if context.db is None:
+        return
+    if step["kind"] == "open_chest":
         update_place(context.db, RUIN, as_cell(step["target"]), {"opened": at})
+    elif step["kind"] == "take" and step.get("item") in RICHES and not step.get("away"):
+        cell = as_cell(step["target"])
+        if is_ruin_chest(seed_of(state), cell):
+            update_place(context.db, RUIN, cell, {"looted": at})
 
 
 # The open_chest step ---------------------------------------------------------------------------
@@ -218,13 +229,21 @@ def opened(s: Situation, chest: Cell) -> bool:
     return chest_key(chest) in s.state.get("chests", {})
 
 
-def takeable(s: Situation, chest: Cell) -> dict[str, int]:
-    """What Mimo takes out of an opened chest now: the rarest first, as much as it has room for below
-    LOOT_ROOM stacks (RICHES: as much as its arms hold), all of it together."""
-    inside = s.state.get("chests", {}).get(chest_key(chest), {})
+def inside_of(s: Situation, chest: Cell) -> dict[str, int]:
+    return s.state.get("chests", {}).get(chest_key(chest), {})
+
+
+def rarest_first(items) -> list[str]:
     rank = {item: index for index, item in enumerate(RAREST_FIRST)}
-    carried, found = dict(s.inventory), {}
-    for item in sorted(inside, key=lambda item: (rank.get(item, len(rank)), item)):
+    return sorted(items, key=lambda item: (rank.get(item, len(rank)), item))
+
+
+def takeable(s: Situation, chest: Cell, carried: dict[str, int] | None = None) -> dict[str, int]:
+    """What Mimo takes out of an opened chest now (with `carried` in its arms: what it carries): the rarest first,
+    as much as it has room for below LOOT_ROOM stacks (RICHES: RICHES_ROOM), all of it together."""
+    inside = inside_of(s, chest)
+    carried, found = dict(s.inventory if carried is None else carried), {}
+    for item in rarest_first(inside):
         amount = min(inside[item], room_for(carried, item, RICHES_ROOM if item in RICHES else LOOT_ROOM))
         if amount > 0:
             found[item] = amount
@@ -232,20 +251,69 @@ def takeable(s: Situation, chest: Cell) -> dict[str, int]:
     return found
 
 
+def holds_riches(s: Situation, chest: Cell) -> bool:
+    """An opened old chest that still holds riches (the L5 final fix wave, I2: a target again)."""
+    return opened(s, chest) and any(inside_of(s, chest).get(item, 0) > 0 for item in RICHES)
+
+
+def riches_left(s: Situation, chest: Cell, carried: dict[str, int]) -> int:
+    """How many of the chest's riches would stay in it with `carried` in Mimo's arms (RICHES_ROOM)."""
+    inside = inside_of(s, chest)
+    trial, left = dict(carried), 0
+    for item in rarest_first(item for item in inside if item in RICHES):
+        fit = min(inside[item], room_for(trial, item, RICHES_ROOM))
+        trial[item] = trial.get(item, 0) + fit
+        left += inside[item] - fit
+    return left
+
+
+def room_for_riches(s: Situation, chest: Cell) -> tuple[list[dict], dict[str, int]]:
+    """(drop steps, Mimo's arms after them): the stacks Mimo leaves at an old chest so the riches in it fit (the L5
+    final fix wave, I2), the same trade carrying.settle makes when a treasure drops into full arms: whole stacks
+    of carrying.LOW_VALUE blocks first (the least useful first, none below what Mimo keeps: storage.kept), then
+    what is no use to carry (storage.junk: a replaced tool, a replaced iron piece), then the blocks it keeps too.
+    None when the riches fit already, or when nothing it drops would let more of them fit. On the final review's
+    gate pets carried 15 or more stacks for 60 to 103 of their 150 days, and 42 % of the far chests' gold and
+    amber stayed in them."""
+    carried = dict(s.inventory)
+    before = riches_left(s, chest, carried)
+    if not before:
+        return [], carried
+    junk = [(item, max(0, s.count(item) - amount)) for item, amount in storage.junk(s) if item not in LOW_VALUE]
+    tiers = [(item, storage.kept(s, item)) for item in LOW_VALUE] + junk + [(item, 0) for item in LOW_VALUE]
+    dropped: dict[str, int] = {}
+    for item, keep in tiers:
+        while riches_left(s, chest, carried) and carried.get(item, 0) > 0:
+            part = carried[item] % STACK or STACK
+            if carried[item] - part < keep:
+                break
+            carried[item] -= part
+            dropped[item] = dropped.get(item, 0) + part
+            if not carried[item]:
+                del carried[item]
+    if riches_left(s, chest, carried) >= before:
+        return [], dict(s.inventory)
+    return [{"kind": "drop", "item": item, "amount": amount} for item, amount in dropped.items()], carried
+
+
 def worth_a_visit(s: Situation, chest: Cell) -> bool:
-    """The chest still stands, and was never opened or holds something Mimo can carry."""
-    return s.grid.material(*chest) == "chest" and (not opened(s, chest) or bool(takeable(s, chest)))
+    """The chest still stands, and was never opened or holds something Mimo can carry (the L5 final fix wave, I2:
+    or riches it can make room for)."""
+    if s.grid.material(*chest) != "chest":
+        return False
+    return not opened(s, chest) or bool(takeable(s, chest)) or bool(room_for_riches(s, chest)[0])
 
 
 def ruin_targets(s: Situation) -> list[Cell]:
-    """Remembered ruins within LOOT_RANGE worth a visit, in a ring Mimo is ready for, nearest first.
+    """Remembered ruins within LOOT_RANGE worth a visit, in a ring Mimo is ready for and inside the limit every
+    walk keeps to (trips.fenced; the L5 final fix wave, I4), nearest first.
     Task 6 review, M2: a chest a step just failed to reach is left alone for a while too (the same
     guard storage.reachable_chests already has), so it is not retried at once."""
     def look() -> list[Cell]:
         ready = ready_ring(s)
         found = [(place["x"], place["y"], place["z"]) for place in s.places if place["kind"] == RUIN]
         found = [chest for chest in found if s.distance(chest) <= LOOT_RANGE
-                 and ring_at(s.state, chest[0], chest[2]) <= ready and worth_a_visit(s, chest)
+                 and ring_at(s.state, chest[0], chest[2]) <= ready and not fenced(s, chest) and worth_a_visit(s, chest)
                  and (s.distance(chest) <= REACH or not near_failure(s.state, chest))]
         return sorted(found, key=lambda chest: (s.distance(chest), chest))
     return s.sensed("ruin targets", look)
@@ -272,14 +340,17 @@ def plan_loot(s: Situation, context: ActionContext) -> list[dict]:
     steps = [whole_walk(chest, STAND)] if s.distance(chest) > REACH else []
     if not opened(s, chest):
         return steps + [{"kind": "open_chest", "target": list(chest)}]
+    drops, carried = room_for_riches(s, chest)
     takes = [{"kind": "take", "target": list(chest), "item": item, "amount": count}
-             for item, count in takeable(s, chest).items()]
-    return steps + takes if takes else []
+             for item, count in takeable(s, chest, carried).items()]
+    return steps + drops + takes if takes else []
 
 
 def chest_in_sight(s: Situation) -> bool:
-    """An unopened ruin chest within URGE_REACH: Mimo wants to open it, whatever its goal."""
-    return any(not opened(s, chest) and s.distance(chest) <= URGE_REACH for chest in ruin_targets(s))
+    """An unopened ruin chest within URGE_REACH, or (the L5 final fix wave, I2) one still holding riches it can
+    carry: Mimo wants to open it or empty it, whatever its goal."""
+    return any((not opened(s, chest) or holds_riches(s, chest)) and s.distance(chest) <= URGE_REACH
+               for chest in ruin_targets(s))
 
 
 register(Purpose(

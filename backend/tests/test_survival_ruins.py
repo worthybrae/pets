@@ -10,13 +10,15 @@ from backend.survival import brain  # noqa: F401  (registers loot_ruin, the open
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.brain import observe_step
 from backend.survival.carrying import CARRY_STACKS, stacks
-from backend.survival.goals import meets_need
+from backend.survival.frontier import opened_since, unopened_ruins
+from backend.survival.goals import adopt_goal, meets_need
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables, places
 from backend.survival.purposes import PURPOSES
 from backend.survival.ruins import LOOT, LOOT_BATCHES, RUIN, ruin_loot, ruins_near, takeable
 from backend.survival.situation import Situation
 from backend.survival.steps import OBSERVERS, StepFailed, finish_step, start_step
+from backend.survival.trips import REASONS
 from backend.survival.vitals import START_VITALS
 from backend.survival import bonding, minding  # noqa: F401  (the inbox's and Mind's writers register)
 from backend.survival.curiosity import curiosity_state
@@ -220,6 +222,60 @@ class RuinTests(unittest.TestCase):
         self.assertTrue(PURPOSES["loot_ruin"].valid(pet.situation()))
 
 
+FULL = {**GEARED, "dirt": 10, "cobblestone": 20, "coal": 8, "sticks": 4, "seeds": 3, "wheat": 2, "flint": 1,
+        "string": 1, "feather": 1, "sapling": 1, "planks": 4}  # 15 stacks: RICHES_ROOM, no room for a new one
+
+
+class RichesTests(unittest.TestCase):
+    """The L5 final fix wave, I2: far riches come home. On the final review's gate 42 % of the gold and amber in far
+    chests was still there on day 150: at 15 stacks nothing more fit, loot_ruin ended right after opening the
+    chest, and nothing ever sent Mimo back for what was left."""
+
+    def far_pet(self, inside, inventory=FULL):
+        pet = Pet(offset=(2, 0), center=(CHEST[0] - 150, CHEST[2]), inventory=inventory)  # a far wilds ruin
+        pet.walked()
+        pet.state.setdefault("chests", {})[chest_key(CHEST)] = dict(inside)  # opened already
+        return pet
+
+    def test_at_fifteen_stacks_it_leaves_a_block_stack_behind_and_takes_the_gold(self):
+        pet = self.far_pet({"gold_nugget": 3})
+        self.assertEqual(stacks(pet.state["inventory"]), 15)
+        self.assertEqual(takeable(pet.situation(), CHEST), {})  # as it is, no room
+        self.assertTrue(PURPOSES["loot_ruin"].valid(pet.situation()))
+        steps = PURPOSES["loot_ruin"].plan(pet.situation(), pet.context)
+        self.assertEqual([(step["kind"], step["item"]) for step in steps], [("drop", "dirt"), ("take", "gold_nugget")])
+        for step in steps:
+            pet.run(step)
+        self.assertEqual((pet.state["inventory"].get("gold_nugget"), pet.state["inventory"].get("dirt")), (3, None))
+        self.assertEqual(pet.state["chests"][chest_key(CHEST)], {})
+
+    def test_with_nothing_it_may_leave_behind_the_riches_wait(self):
+        pet = self.far_pet({"gold_nugget": 3}, {**{f"item_{n}": 1 for n in range(11)}, **GEARED})  # 15 stacks
+        self.assertFalse(PURPOSES["loot_ruin"].valid(pet.situation()))
+
+    def test_a_chest_opened_but_not_emptied_of_riches_stays_a_target(self):
+        pet = self.far_pet({"gold_nugget": 3, "arrow": 6})
+        s = pet.situation()
+        self.assertIn(CHEST, unopened_ruins(s, 2))
+        self.assertEqual(REASONS["riches"].value(s, CHEST[0] + 3, CHEST[2]), (1.0, "an old ruin in the far wilds, danger 2"))
+        self.assertEqual([spot[:2] for spot in REASONS["riches"].spots(s)], [(CHEST[0], CHEST[2])])
+        self.assertEqual(REASONS["riches"].look(s, pet.context).words, "an old ruin in the far wilds, danger 2")
+        pet.state["chests"][chest_key(CHEST)] = {"arrow": 6}  # the riches are gone: arrows alone are no riches
+        self.assertNotIn(CHEST, unopened_ruins(pet.situation(), 2))
+
+    def test_taking_riches_from_an_old_chest_counts_as_opening_one_for_the_goal(self):
+        pet = self.far_pet({"gold_nugget": 3}, dict(GEARED))
+        adopt_goal(pet.state, "frontier", "utility", "", 50.0)  # set after the chest was opened
+        self.assertFalse(opened_since(pet.situation()))
+        pet.run({"kind": "take", "target": list(CHEST), "item": "gold_nugget", "amount": 3})
+        observe_step(pet.state, {"kind": "take", "target": list(CHEST), "item": "gold_nugget", "amount": 3},
+                     pet.context, 60.0)
+        self.assertEqual(places(pet.db, (RUIN,))[0]["data"], {"looted": 60.0})
+        self.assertTrue(opened_since(pet.situation()))
+        observe_step(pet.state, {"kind": "take", "target": list(CHEST), "item": "arrow", "amount": 3}, pet.context, 70.0)
+        self.assertEqual(places(pet.db, (RUIN,))[0]["data"], {"looted": 60.0})  # arrows are no riches
+
+
 class PreflightTests(unittest.TestCase):
     """Pre-flight on eda93d4: Making's old manual (carry 4), Bond's and Mind's moments (carry 6)."""
 
@@ -277,13 +333,15 @@ class PreflightTests(unittest.TestCase):
         pet = Pet(offset=(2, 0), inventory={block: 1 for block in blocks})  # 14 stacks: past LOOT_ROOM
         pet.walked()
         pet.state.setdefault("chests", {})[chest_key(CHEST)] = {"gold_nugget": 4, "amber": 1, "iron_ingot": 2, "bread": 2}
-        takes = PURPOSES["loot_ruin"].plan(pet.situation(), pet.context)
+        steps = PURPOSES["loot_ruin"].plan(pet.situation(), pet.context)
         # Task 6 review, M3: riches used to fill the very last stack (CARRY_STACKS, 16), leaving no
         # room at all, so the next bit of food pushed out flint or leather instead of being carried
-        # freely. The fix caps riches one stack short (CARRY_STACKS - 1), so only the amber (which
-        # fits in the 15th stack) is taken here, not the gold nuggets (which would have been the 16th).
-        self.assertEqual({step["item"]: step["amount"] for step in takes}, {"amber": 1})
-        for step in takes:
+        # freely. The fix caps riches one stack short (CARRY_STACKS - 1). The L5 final fix wave (I2): the
+        # gold nuggets, which would have been the 16th stack, no longer stay behind: the moss, the least
+        # useful block Mimo carries, is left there to make room for them.
+        self.assertEqual([(step["kind"], step["item"], step["amount"]) for step in steps],
+                         [("drop", "moss", 1), ("take", "amber", 1), ("take", "gold_nugget", 4)])
+        for step in steps:
             pet.run(step)
         self.assertLess(stacks(pet.state["inventory"]), CARRY_STACKS)  # a stack of room left for food
 

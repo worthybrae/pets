@@ -2,18 +2,21 @@ import math
 import unittest
 from unittest.mock import patch
 
+from backend.services.worldgen import terrain_height
 from backend.survival import brain  # noqa: F401  (registers the frontier goal, the riches trip and the hooks)
 from backend.survival.creatures.defense import plan_flee
 from backend.survival.goals import GOALS, REACHED, adopt_goal, advances, complete, counted, is_open, share_of
 from backend.survival.memory import know, remember, set_home, update_place
 from backend.survival.pickers import context_payload
 from backend.survival.purposes import HOMEWARD, LATE_DAY, PURPOSES, home_of, homeward_from, late_day
-from backend.survival.reflexes import head_home_due
+from backend.survival.frontier import unopened_ruins
+from backend.survival.reflexes import by_name, head_home_due, reflex_hook
 from backend.survival.rings import ring_at
 from backend.survival.ruins import RUIN, notice_ruins, ruins_near
 from backend.survival.situation import Situation
 from backend.survival.trips import REASONS, beyond, offers, targets, wanted_now
-from backend.tests.test_survival_pickers import DAY
+from backend.survival.triggers import ensure_brain
+from backend.tests.test_survival_pickers import DAY, NIGHT
 from backend.survival.replies import Heard
 from backend.survival.requests import NONE, lapse_words, rules_request, to_do
 from backend.tests.test_survival_ruins import CHEST, GEARED, Pet
@@ -176,6 +179,82 @@ class HomewardTests(unittest.TestCase):
                 patch("backend.survival.creatures.defense.threats", lambda situation: [threat]):
             steps = plan_flee(far.situation(), None)
         self.assertLess(math.dist(steps[0]["target"][::2], (x, z)), 20)
+
+
+def walk_to_column(x, z, purpose="gather_wood"):
+    return {"kind": "walk", "target": [x, 9, z], "reach": 1.0, "purpose": purpose}
+
+
+class FenceTests(unittest.TestCase):
+    """The L5 final fix wave, I4: one rule keeps a pet inside the limit its readiness sets (frontier.reach_limit:
+    240 blocks for a pet ready for the far wilds), whatever it is doing; a flight is the one exception. The fence
+    held only trips: on the final review's gate gathering wood, fishing and wandering took three pets that were
+    not ready for it into the frontier, and one camped a night there, 333 blocks from home."""
+
+    def hook(self, pet, queue=(), clock=DAY):
+        pet.state["action"], pet.state["queue"] = None, [dict(step) for step in queue]
+        pet.context.clock_at = lambda at: clock
+        return reflex_hook(pet.state, pet.context, 10.0)
+
+    def test_out_past_its_limit_an_unready_pet_walks_back_inside_first(self):
+        pet = at_home(dict(GEARED), offset=(300, 0))  # ready for the far wilds: its limit is 240 blocks
+        self.assertEqual(self.hook(pet, [walk_to_column(HOME[0] + 310, HOME[2])]), "turn_back")
+        walk = pet.state["queue"][0]
+        self.assertEqual((walk["kind"], walk["purpose"]), ("walk", "turn_back"))
+        self.assertLessEqual(math.dist(walk["target"][::2], HOME[::2]), 240 - 16 + 4)  # EDGE inside, give or take
+        self.assertGreaterEqual(math.dist(walk["target"][::2], HOME[::2]), 240 - 16 - 4)  # on the line home
+        self.assertTrue(by_name("turn_back").ends_purpose)
+
+    def test_a_walk_that_would_take_it_past_its_limit_is_refused(self):
+        pet = at_home(dict(GEARED), offset=(230, 0))
+        self.assertEqual(self.hook(pet, [walk_to_column(HOME[0] + 250, HOME[2])]), "fence")
+        self.assertEqual(pet.state["last_failure"]["code"], "blocked")
+        self.assertEqual(pet.state["queue"], [])
+        self.assertIsNone(self.hook(pet, [walk_to_column(HOME[0] + 238, HOME[2])]))  # inside: on it goes
+
+    def test_a_pet_ready_for_the_frontier_goes_on(self):
+        pet = at_home(dict(IRON), offset=(300, 0))  # its limit is 496 blocks
+        self.assertIsNone(self.hook(pet, [walk_to_column(HOME[0] + 320, HOME[2])]))
+
+    def test_a_flight_is_the_one_exception(self):
+        pet = at_home(dict(GEARED), offset=(300, 0))
+        ensure_brain(pet.state)["reflex"] = "flee"  # running from a creature: nothing less urgent cuts in
+        self.assertIsNone(self.hook(pet, [walk_to_column(HOME[0] + 320, HOME[2], "flee")]))
+
+    def test_dug_in_for_the_night_it_stays_in_its_camp(self):
+        pet = at_home(dict(GEARED), offset=(300, 0))
+        x, y, z = (round(pet.state["position"][axis]) for axis in "xyz")
+        for cell in ((x + 1, y, z), (x - 1, y, z), (x, y, z + 1), (x, y, z - 1), (x, y + 1, z), (x, y - 1, z)):
+            pet.grid.put(*cell, "dirt")
+        self.assertIsNone(self.hook(pet, [{"kind": "sleep"}], clock=NIGHT))
+
+    def test_a_camp_digs_in_inside_the_limit(self):
+        pet = at_home(dict(GEARED, cobblestone=4, campfire=1), offset=(300, 0))
+        pet.state["position"]["y"] = float(terrain_height(HOME[0] + 300, HOME[2], pet.state["world_seed"]) + 1)
+        brain = ensure_brain(pet.state)
+        brain["goal"] = {"name": "expedition", "since": 5.0}
+        brain["expedition"] = {"since": 5.0, "phase": "out", "home": list(HOME), "target": 200.0, "far": 300.0}
+        dusk = {**DAY, "seconds_into_day": LATE_DAY + 60.0}
+        pet.clock = dusk
+        camp = PURPOSES["camp"]
+        self.assertTrue(camp.valid(pet.situation()))
+        steps = camp.plan(pet.situation(), pet.context)
+        self.assertEqual(self.hook(pet, [{**step, "purpose": "camp"} for step in steps], clock=dusk), "turn_back")
+        back = pet.state["queue"][0]["target"]
+        pet.state.update(position=dict(zip("xyz", map(float, back))), action=None, queue=[])
+        brain["expedition"].pop("camp", None)
+        steps = camp.plan(pet.situation(), pet.context)
+        spot = next(step["target"] for step in steps if step["kind"] == "mine")
+        self.assertLessEqual(math.dist(spot[::2], HOME[::2]), 240)
+        self.assertIsNone(self.hook(pet, [{**step, "purpose": "camp"} for step in steps], clock=dusk))
+
+    def test_no_ruin_past_its_limit_is_a_target(self):
+        edge = (CHEST[0] - 248, 9, CHEST[2])  # home 248 blocks west of the ruin: the far wilds, past the limit
+        pet = Pet(offset=(-10, 0), center=(edge[0], edge[2]), inventory=dict(GEARED))
+        pet.walked()
+        self.assertEqual(ring_at(pet.state, CHEST[0], CHEST[2]), 2)
+        self.assertFalse(PURPOSES["loot_ruin"].valid(pet.situation()))
+        self.assertNotIn(CHEST, unopened_ruins(pet.situation(), 2))
 
 
 class RequestTests(unittest.TestCase):

@@ -15,6 +15,7 @@ a geared pet in the far wilds at night: at most 20 ms a slice, like L2's budget.
 
 import functools
 import logging
+import math
 import os
 import random
 import tempfile
@@ -34,17 +35,22 @@ from backend.survival.creatures.table import Herd
 from backend.survival.goals import REACHED, adopt_goal
 from backend.survival.hatch import hatch
 from backend.survival.blueprints import Style, find_site, shelter
+from backend.survival.frontier import DETOUR, LEAD_SLACK, far_lead, past_readiness, reach_limit
 from backend.survival.grid import world_grid
 from backend.survival.memory import finish_structure, know, set_home
 from backend.survival.once import forget_logged
+from backend.survival.pathing import WALK_SECONDS
+from backend.survival.purposes import HOMEWARD, homeward_from
 from backend.survival.registry import LifeRegistry
 from backend.survival.rings import BOW_INSTEAD, READY, ring_here
 from backend.survival.ruins import LOOT
-from backend.survival.situation import NIGHTFALL
+from backend.survival.situation import NIGHTFALL, Situation
 from backend.survival.structures import start
 from backend.survival.tick import MAX_STEP_SECONDS, tick_life
+from backend.survival.trips import REASONS, targets
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.tests.budget import best_mean
+from backend.tests.no_model import NoModel, no_model
 from backend.tests.test_survival_sim import Errors
 
 BORN = 1_000_000.0
@@ -59,6 +65,7 @@ STEP = 5.0 if SLOW else 15.0
 GEAR = {"stone_sword": 1, "leather_cap": 1, "leather_tunic": 1, "bow": 1, "arrow": 16, "bread": 6, "cooked_beef": 4}
 UNGEARED = {"stone_sword": 1, "bread": 6, "cooked_beef": 4}
 FAR_LOOT = {item for item, *_ in LOOT[2]} - {item for item, *_ in LOOT[1]}  # what only the far wilds' ruins hold
+CLOCK = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 
 
 def home_of_its_own(db, state: dict) -> None:
@@ -102,7 +109,8 @@ def run_trip(seed: int, geared: bool) -> dict:
                 if geared:
                     adopt_goal(state, "frontier", "utility", "Old ruins stand out in the far wilds.", BORN)
                 write_state(db, state)
-            chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(seed), scale=1.0)
+            model = NoModel()  # Task 9 review: a model called in a headless run fails the tests (run["model_calls"])
+            chooser = Chooser(env={}, http=model, executor=InlineExecutor(), rng=random.Random(seed), scale=1.0)
             t, deepest, at_nightfall, lowest, ungeared_riches = 0.0, 0, [], 100.0, 0
             while t < DAYS * DAY:
                 t += STEP
@@ -121,11 +129,60 @@ def run_trip(seed: int, geared: bool) -> dict:
                     at_nightfall.append(None if out else ring_here(state))
             events = world.events(100_000)
             return {"state": world.state(), "deepest": deepest, "at_nightfall": at_nightfall, "lowest": lowest,
-                    "ungeared_riches": ungeared_riches,
+                    "ungeared_riches": ungeared_riches, "model_calls": list(model.calls),
                     "texts": [event["text"] for event in events], "kinds": [event["kind"] for event in events],
                     "errors": [record.getMessage() for record in errors.records]}
     finally:
         logging.getLogger("backend").removeHandler(errors)
+
+
+class LeadAndFenceTests(unittest.TestCase):
+    """Task 9 review (carried to the L5 final fix wave): the runs above would not notice the far lead or the fence
+    gone (their trips stay near 220 blocks, where the base lead home suffices, and riches_value zeroes the land past
+    readiness by itself), so these check both on the runs' own world: seed 8's hatched life, geared as above, in
+    the cottage it built."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = tempfile.TemporaryDirectory()
+        registry = LifeRegistry(Path(cls.root.name) / "data", Path(cls.root.name) / "no-legacy.sqlite3")
+        cls.world = SurvivalWorld(registry.world_path(hatch(registry, random.Random(8), timestamp=BORN)))
+        with cls.world.transaction() as db:
+            state = read_state(db)
+            home_of_its_own(db, state)
+            state["inventory"].update(GEAR)
+            state["frontier"] = {"center": [state["position"]["x"], state["position"]["z"]]}
+            write_state(db, state)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.root.cleanup()
+
+    def out(self, db, blocks: float) -> Situation:
+        """The pet `blocks` east of home, by day."""
+        state = read_state(db)
+        x, z = state["frontier"]["center"]
+        state["position"] = {"x": float(round(x + blocks)), "y": float(terrain_height(round(x + blocks), round(z),
+                                                                                       state["world_seed"]) + 1),
+                             "z": float(z)}
+        return Situation(state, world_grid(db, state["world_seed"]), CLOCK, BORN + 100.0, db)
+
+    def test_far_out_the_walk_home_starts_sooner_by_the_walk_itself(self):
+        with self.world.connect() as db:
+            near, far = self.out(db, 100), self.out(db, 200)
+            self.assertEqual((far_lead(near), homeward_from(near)), (0.0, HOMEWARD))
+            self.assertAlmostEqual(far_lead(far), 200 * WALK_SECONDS * DETOUR + LEAD_SLACK, delta=1.0)
+            self.assertAlmostEqual(homeward_from(far), HOMEWARD - far_lead(far), delta=1e-6)
+
+    def test_no_wander_out_past_the_far_wilds_heads_past_readiness(self):
+        with self.world.connect() as db:
+            s = self.out(db, 250)  # ready for the far wilds, not the frontier: its limit is 240 blocks
+            self.assertEqual(reach_limit(s), 240.0)
+            aims = targets(s, REASONS["wander"])
+            self.assertTrue(aims)
+            x, z = s.state["frontier"]["center"]
+            self.assertLessEqual(max(math.hypot(aim.cell[0] - x, aim.cell[2] - z) for aim in aims), 240.0)
+            self.assertTrue(past_readiness(s, (round(x) + 280, 5, round(z))))
 
 
 class FrontierRunTests(unittest.TestCase):
@@ -134,6 +191,7 @@ class FrontierRunTests(unittest.TestCase):
             run = run_trip(seed, True)
             self.assertIsNone(run["state"]["died_at"], (seed, run["state"]["cause"]))
             self.assertEqual(run["errors"], [], seed)
+            self.assertEqual(run["model_calls"], [], seed)
             self.assertGreaterEqual(run["deepest"], 2, seed)
             opened = [text for text in run["texts"] if "opened an old chest in a ruin" in text]
             self.assertTrue(opened, seed)
@@ -147,6 +205,7 @@ class FrontierRunTests(unittest.TestCase):
             run = run_trip(seed, False)
             self.assertIsNone(run["state"]["died_at"], (seed, run["state"]["cause"]))
             self.assertEqual(run["errors"], [], seed)
+            self.assertEqual(run["model_calls"], [], seed)
             self.assertEqual(run["ungeared_riches"], 0, seed)
             if not SLOW:  # in its first game day it makes no armor: it never leaves the near wilds
                 self.assertLessEqual(run["deepest"], 1, seed)
@@ -180,7 +239,7 @@ class FrontierRunTests(unittest.TestCase):
                         cell = (cx, terrain_height(cx, z, state["world_seed"]) + 1, z)
                         Herd(db).add(kind, cell, KINDS[kind].health * 1.7, BORN, BORN,
                                      {"home": list(cell), "turn": 0, "ring": 2, "most": KINDS[kind].health * 1.7})
-                chooser = Chooser(env={}, executor=InlineExecutor(), rng=random.Random(3), scale=1.0)
+                chooser = Chooser(env={}, http=no_model(self), executor=InlineExecutor(), rng=random.Random(3), scale=1.0)
                 with patch("backend.survival.tick.simulate", timed):
                     for call in range(1, 6):
                         at = BORN + call * MAX_STEP_SECONDS

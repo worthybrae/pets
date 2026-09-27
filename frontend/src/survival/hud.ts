@@ -109,6 +109,7 @@ const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
   warm_up: 'Getting warm', head_home: 'Hurrying home before dark', collapse: 'Collapsed from exhaustion',
   flee: 'Running away!', fight: 'Fighting back!',
+  turn_back: 'Turning back toward home',  // L5 final fix wave: past where it is ready to go
 }
 
 function sentence(name: string): string {

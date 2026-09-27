@@ -334,7 +334,9 @@ register_goal(Goal(
 # armor_up --------------------------------------------------------------------------------------
 
 def wears(s: Situation, *pieces: str) -> bool:
-    return any(s.count(piece) > 0 for piece in pieces)
+    """Mimo carries one of `pieces`, or armor on its slot as good or better (harm.worn: the L5 final fix wave lets
+    an iron piece go once an amber piece replaces it, and the armor goal must not count it missing)."""
+    return any(harm.worn(s.inventory, piece) for piece in pieces)
 
 
 def leather_gathered(s: Situation) -> float:

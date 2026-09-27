@@ -22,7 +22,17 @@
   frontier's far edge, for a pet ready for it). A ruin in sight after a walk is the find; loot_ruin
   (backend.survival.ruins) follows up.
 - No trip of any reason heads into the frontier or deeper while Mimo is not ready for it, nor within
-  EDGE (16) blocks of it (trips.FENCES).
+  EDGE (16) blocks of it (trips.FENCES). The L5 final fix wave (I4): nor does any walk. The fence reflex (a
+  veto) refuses a walk that would take Mimo past that limit (`reach_limit`), farther from home than it
+  stands, so gathering wood, fishing or a camp's walk to its spot plans again or gives up; and out past
+  the limit, turn_back walks Mimo back EDGE inside it, on the line home, before anything else (a camp then
+  digs in inside). A flight or a fight is the one exception: both are more urgent, and turn_back takes Mimo
+  back once they end. A camp dug in for the night is left alone. On the final review's gate gathering wood,
+  fishing and wandering took three pets that were not ready for it into the frontier, and one camped there.
+- Riches come home (the L5 final fix wave, I2): at an old chest, stacks of blocks Mimo carries make room for
+  the riches in it (ruins.room_for_riches), and an opened chest that still holds riches is a target again,
+  for the goal and its trip; taking riches from one counts as opening one. On the final review's gate 42 %
+  of the far chests' gold and amber was still in them on day 150.
 - Heading home before dark: from the far wilds on, the head_home window opens earlier by the walk
   home (purposes.HOMEWARD_LEADS: 0.45 game seconds a block at the normal pace, plus a game minute), and
   "late in the day" with it (purposes.late_day), so go_home scores 70 and more and outdoor work 30 less
@@ -41,19 +51,23 @@ from __future__ import annotations
 
 import math
 
+from backend.survival.actions import as_started, fail
+from backend.survival.creatures.hostiles import enclosed
 from backend.survival.goals import ADVANCES, Goal, Milestone, register_goal
 from backend.survival.home import built_home, home_place
 from backend.survival.life_goals import whole
 from backend.survival.memory import places
 from backend.survival.pathing import WALK_SECONDS
-from backend.survival.purposes import FAR_HOMES, HOMEWARD_LEADS, homeward_from, late_day
+from backend.survival.purposes import FAR_HOMES, HOMEWARD_LEADS, homeward_from, late_day, walk_to
+from backend.survival.reflexes import Reflex, register as register_reflex
 from backend.survival.rings import (
     ANNOUNCED_FROM, DEEPEST, OPEN_RINGS, RINGS, center, distance_home, gear_short_of, ready_ring, ring_at, ring_here,
     ring_name,
 )
-from backend.survival.ruins import RUIN, RUIN_SIGHT, opened, ruin_targets, ruins_near
+from backend.survival.ruins import RUIN, RUIN_SIGHT, holds_riches, opened, ruin_targets, ruins_near
 from backend.survival.situation import Situation
-from backend.survival.trips import FENCES, Find, Reason, register_reason
+from backend.survival.steps import as_cell
+from backend.survival.trips import FENCES, Find, Reason, register_reason, stand_near
 
 FRONTIER_REACH = 480.0  # blocks from home a riches trip may go: the frontier's far edge
 RUIN_SPOTS = 80.0  # ruins this close to Mimo are spots of the riches trip (a whole walk reaches them)
@@ -87,15 +101,19 @@ def ring_limit(ring: int) -> float:
 
 
 def unopened_ruins(s: Situation, deepest: int) -> list[tuple[int, int, int]]:
-    """Ruins past the near wilds and no deeper than `deepest`, whose chest Mimo never opened and could see
-    from inside `ring_limit(deepest)` (and within FRONTIER_REACH of home)."""
+    """Ruins past the near wilds and no deeper than `deepest`, whose chest Mimo never opened (or, the L5 final fix
+    wave, I2: opened, but it still holds riches), inside `ring_limit(deepest)` (the L5 final fix wave, I4: no walk
+    goes past it; they used to count out to RUIN_NEAR past it, as far as Mimo could see from inside) and within
+    FRONTIER_REACH of home. On the final review's gate 42 % of the far chests' gold and amber was left in them:
+    once a chest was open, no riches trip went back to it."""
     def look() -> list[tuple[int, int, int]]:
         middle = center(s.state)
         if middle is None:
             return []
-        reach = min(FRONTIER_REACH, ring_limit(deepest) + RUIN_NEAR)
+        reach = min(FRONTIER_REACH, ring_limit(deepest))  # the L5 final fix wave, I4: no walk goes past it
         return [chest for chest in ruins_near(s.seed, middle[0], middle[1], reach)
-                if ANNOUNCED_FROM <= ring_at(s.state, chest[0], chest[2]) <= deepest and not opened(s, chest)]
+                if ANNOUNCED_FROM <= ring_at(s.state, chest[0], chest[2]) <= deepest
+                and (not opened(s, chest) or holds_riches(s, chest))]
     return s.sensed(f"unopened ruins {deepest}", look)
 
 
@@ -115,9 +133,11 @@ def reached_far(s: Situation) -> bool:
 
 
 def opened_since(s: Situation) -> bool:
-    """Mimo opened the chest of a ruin past the near wilds since riches became its goal."""
+    """Mimo opened the chest of a ruin past the near wilds since riches became its goal, or (the L5 final fix wave,
+    I2) took riches out of one opened before (ruins.note_opened notes it "looted")."""
     at = since(s)
-    return at is not None and any((place["data"] or {}).get("opened", -math.inf) >= at
+    return at is not None and any(max((place["data"] or {}).get("opened", -math.inf),
+                                      (place["data"] or {}).get("looted", -math.inf)) >= at
                                   and ring_at(s.state, place["x"], place["z"]) >= ANNOUNCED_FROM
                                   for place in ruin_places(s))
 
@@ -215,7 +235,8 @@ def riches_look(s: Situation, context) -> Find | None:
     ready = ready_ring(s)
     for chest in ruins_near(s.seed, x, z, RUIN_SIGHT):
         ring = ring_at(s.state, chest[0], chest[2])
-        if ANNOUNCED_FROM <= ring <= ready and not opened(s, chest) and s.grid.material(*chest) == "chest":
+        if (ANNOUNCED_FROM <= ring <= ready and (not opened(s, chest) or holds_riches(s, chest))
+                and s.grid.material(*chest) == "chest"):
             return Find(f"an old ruin in {danger_words(ring)}", True, new=False)
     return None
 
@@ -262,3 +283,74 @@ def past_readiness(s: Situation, cell) -> bool:
 
 
 FENCES.append(past_readiness)
+
+
+# One fence for every walk (the L5 final fix wave, I4) ------------------------------------------------------
+
+TURN_BACK_EVERY = 10.0  # game seconds (the cooldown is paced) before turn_back may take over again
+TURN_BACK_REACH = 2.0
+
+
+def from_centre(s: Situation, cell) -> float:
+    middle = center(s.state)
+    return math.inf if middle is None else math.hypot(cell[0] - middle[0], cell[2] - middle[1])
+
+
+def next_walk(s: Situation) -> dict | None:
+    """The walk running now, or the walk about to start (nothing running, first in the queue)."""
+    action = s.state.get("action")
+    if action is not None:
+        return action if action["kind"] == "walk" else None
+    queue = s.state.get("queue") or []
+    return queue[0] if queue and queue[0].get("kind") == "walk" else None
+
+
+def heading_out(s: Situation) -> bool:
+    """From inside its limit, a walk would take Mimo past it (`past_readiness`), farther from home than it stands:
+    gathering wood, fishing, a camp's walk to its spot, any walk but an escape's (and a flight's or a fight's,
+    which this reflex never cuts into: they are more urgent). Past the limit already, turn_back takes it back."""
+    walk = next_walk(s)
+    if walk is None or walk.get("keep") == "escape" or past_readiness(s, s.here):
+        return False
+    target = as_cell(walk["target"])
+    return past_readiness(s, target) and from_centre(s, target) > from_centre(s, s.here)
+
+
+def plan_fence(s: Situation, context) -> list[dict]:
+    """Refuse the walk: it fails, blocked, so the purpose plans again (the failed spot is left alone a while:
+    senses.near_failure) or, failing twice, gives up and scores lower for a while (brain.report)."""
+    action = s.state.get("action")
+    reason = "that is farther out than it is ready to go"
+    if action is not None:
+        fail(s.state, action, s.at, reason, "blocked")
+    else:
+        fail(s.state, as_started(s.state["queue"].pop(0), s.at), s.at, reason, "blocked")
+    return list(s.state["queue"])  # the plan's cleanup steps, which fail() kept
+
+
+def past_limit(s: Situation) -> bool:
+    """Mimo stands past its limit, not dug in for the night (a camp's first walk in the morning takes it back),
+    and no walk under way or next takes it back inside."""
+    if not past_readiness(s, s.here) or enclosed(s.grid, s.here):
+        return False
+    walk = next_walk(s)
+    return walk is None or past_readiness(s, as_cell(walk["target"]))
+
+
+def plan_turn_back(s: Situation, context) -> list[dict]:
+    """Walk back to EDGE inside the limit, on the line home (a dry cell there to stand on, when there is one)."""
+    middle = center(s.state)
+    x, y, z = s.here
+    share = max(0.0, reach_limit(s) - EDGE) / max(from_centre(s, s.here), 1.0)
+    column = (round(middle[0] + (x - middle[0]) * share), round(middle[1] + (z - middle[1]) * share))
+    cell = stand_near(s, *column) or (column[0], y, column[1])
+    return [walk_to(cell, TURN_BACK_REACH)]
+
+
+register_reflex(Reflex(
+    "fence", 45, trigger=heading_out, plan=plan_fence, thought="That's farther out than I'm ready for.",
+    event="{name} turned back at the edge of where it is ready to go.", cooldown=0.0, veto=True))
+register_reflex(Reflex(
+    "turn_back", 55, trigger=past_limit, plan=plan_turn_back, thought="Too far out for me. Back a little.",
+    event="{name} turned back toward home: it is not ready to go that far.", cooldown=TURN_BACK_EVERY,
+    ends_purpose=True, quiet=30.0, paced=True))

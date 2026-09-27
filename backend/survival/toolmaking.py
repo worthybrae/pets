@@ -14,7 +14,9 @@ otherwise, as crafting.smelt does). Stations are portable: Mimo places a table o
 open cell beside it (or above it), crafts or smelts, then mines the station back into its
 inventory, so it never has to remember where it left one. The mine-back steps are marked `keep`:
 they still run when a new purpose, a failure or a reflex drops the rest of the plan. A station
-already placed within reach is used as it is and left there. One pickaxe (with its sword) or one
+already placed within reach is used as it is and left there. Whatever an order's STATIONS name, a
+chain that smelts brings a furnace (and a table to make it at) when none stands near (the L5 final fix
+wave, I1: amber armor and the warding lantern smelt their iron too). One pickaxe (with its sword) or one
 sword per choice, and none while something the chain makes would not fit in Mimo's arms
 (carrying.crafts_fit).
 
@@ -32,7 +34,7 @@ from typing import TYPE_CHECKING
 from backend.services.blocks import hardness, is_replaceable, is_solid
 from backend.services.crafting import RECIPES, SMELTING, TOOL_RANK, can_harvest, fuel_of, have, paid, planks_recipe
 from backend.survival.carrying import crafts_fit
-from backend.survival.creatures.harm import IRON_ARMOR, armor_wanted
+from backend.survival.creatures.harm import IRON_ARMOR, armor_wanted, worn
 from backend.survival.grid import Cell
 from backend.survival.purposes import Purpose, register, underground
 from backend.survival.situation import Situation
@@ -110,14 +112,14 @@ def armor_orders(inventory: dict) -> list[tuple[str, ...]]:
     alone. The ingots are smelted at a furnace placed for it, like the iron pickaxe's."""
     if max((TOOL_RANK[tool] for tool in TOOL_RANK if inventory.get(tool, 0) > 0), default=0) < TOOL_RANK["iron_pickaxe"]:
         return []
-    missing = tuple(piece for piece in IRON_ARMOR if inventory.get(piece, 0) < 1)
+    missing = tuple(piece for piece in IRON_ARMOR if not worn(inventory, piece))  # L5: amber stands for iron
     return ([missing] if len(missing) > 1 else []) + [(piece,) for piece in missing]
 
 
 def lantern_orders(inventory: dict) -> list[tuple[str, ...]]:
     """A lantern from a carried iron ingot and a torch, once Mimo wears both iron pieces, while it
     carries fewer than LANTERNS_WANTED (L3)."""
-    done = all(inventory.get(piece, 0) > 0 for piece in IRON_ARMOR)
+    done = all(worn(inventory, piece) for piece in IRON_ARMOR)
     return [("lantern",)] if done and inventory.get("iron_ingot", 0) > 0 and inventory.get("lantern", 0) < LANTERNS_WANTED else []
 
 
@@ -235,15 +237,31 @@ def place_station(spots: list[tuple[Cell, bool]], block: str, steps: list[dict])
 
 
 def tool_steps(s: Situation, tools: tuple[str, ...]) -> list[dict] | None:
-    """The steps that make `tools` in order, or None when they cannot all be made now."""
-    inventory = dict(s.inventory)
+    """The steps that make `tools` in order, or None when they cannot all be made now. The L5 final fix wave
+    (I1): a chain that smelts brings its furnace, whatever STATIONS name for the order (and the table the
+    furnace is crafted at, when it has to be made): the amber pieces named only a table and the warding
+    lantern nothing, so a plan that smelted their iron from ore passed here and failed at its first smelt, and
+    craft_tools was chosen again at once (432 times over 75 game days for one pet on the final review's gate)."""
     x, _, z = s.here
     near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
+    stations = tuple(dict.fromkeys(station for tool in tools for station in STATIONS[tool]))
+    steps = stationed(s, tools, stations, near)
+    if (steps is not None and "furnace" not in stations and "furnace" not in near
+            and any(step["kind"] == "smelt" for step in steps)):
+        needs = ("furnace",) if s.count("furnace") > 0 else ("crafting_table", "furnace")
+        steps = stationed(s, tools, tuple(dict.fromkeys((*stations, *needs))), near)
+    return steps
+
+
+def stationed(s: Situation, tools: tuple[str, ...], stations: tuple[str, ...], near: set[str]) -> list[dict] | None:
+    """The steps that place `stations` (those not already placed near), make `tools` in order and mine the
+    stations back; None when they cannot all be made now."""
+    inventory = dict(s.inventory)
     spots = station_spots(s)
     steps: list[dict] = []
     placed: list[Cell] = []
     try:
-        for station in dict.fromkeys(station for tool in tools for station in STATIONS[tool]):
+        for station in stations:
             if station in near:
                 continue
             make(inventory, station, 1, steps)

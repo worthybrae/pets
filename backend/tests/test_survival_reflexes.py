@@ -57,9 +57,11 @@ def walk(x, y, z, purpose):
 
 class ReflexTests(unittest.TestCase):
     def test_m3_reflexes_run_in_priority_order_with_l2s_flee_and_fight_among_them(self):
-        self.assertEqual([(reflex.name, reflex.priority) for reflex in REFLEXES][:8],
+        # The L5 final fix wave (I4): L5's fence (a veto) and turn_back (backend.survival.frontier) sit after a
+        # flight and a fight, which they never cut into.
+        self.assertEqual([(reflex.name, reflex.priority) for reflex in REFLEXES],
                          [("surface", 10), ("avoid_drop", 20), ("flee", 30), ("eat_now", 40), ("fight", 40),
-                          ("warm_up", 50), ("head_home", 60), ("collapse", 70)])
+                          ("fence", 45), ("warm_up", 50), ("turn_back", 55), ("head_home", 60), ("collapse", 70)])
 
     def test_collapse_sets_the_plan_aside_and_gives_it_back(self):
         state = pet(vitals={**START_VITALS, "energy": 5.0})

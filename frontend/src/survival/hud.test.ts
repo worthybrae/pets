@@ -125,6 +125,7 @@ describe('actionText', () => {
 describe('purposeText', () => {
   it('names a reflex first, then the purpose, then whether Mimo is choosing', () => {
     expect(purposeText({ purpose: 'gather_wood', reflex: 'head_home', choosing: false })).toBe('Hurrying home before dark')
+    expect(purposeText({ purpose: 'gather_wood', reflex: 'turn_back', choosing: false })).toBe('Turning back toward home')
     expect(purposeText({ purpose: 'gather_wood', reflex: null, choosing: true })).toBe('Gathering wood')
     expect(purposeText({ purpose: 'build_shelter', reflex: null, choosing: false })).toBe('Building a shelter')
     expect(purposeText({ purpose: 'light_up', reflex: null, choosing: false })).toBe('Lighting torches')

@@ -58,6 +58,19 @@ def covered(inventory: dict, piece: str) -> bool:
     return any(inventory.get(other, 0) > 0 for other in ARMOR if SLOTS.get(other, other) == slot)
 
 
+def worn(inventory: dict, piece: str) -> bool:
+    """Mimo carries `piece`, or a piece on its slot that takes as much off a blow or more: an iron cap stands for
+    the leather one it replaced, and (the L5 final fix wave, I3) an amber cap for the iron one, which Mimo need
+    not carry once the amber cap is made, so nothing asks for it again."""
+    if inventory.get(piece, 0) > 0:
+        return True
+    if piece not in ARMOR:
+        return False
+    slot = SLOTS.get(piece, piece)
+    return any(inventory.get(other, 0) > 0 and SLOTS.get(other, other) == slot and ARMOR[other] >= ARMOR[piece]
+               for other in ARMOR)
+
+
 # L4: functions of Mimo's state that make iron armor worth its ingots before any creature hurt it
 # (armor as Mimo's goal, backend.survival.life_goals).
 ARMOR_WANTED: list = []
@@ -78,8 +91,8 @@ def armor_wanted(state: dict) -> bool:
 
 
 def armor_iron(inventory: dict) -> int:
-    """Iron ingots the iron armor Mimo still lacks takes (L3)."""
-    return sum(RECIPES[piece]["ingredients"]["iron_ingot"] for piece in IRON_ARMOR if inventory.get(piece, 0) < 1)
+    """Iron ingots the iron armor Mimo still lacks takes (L3; an amber piece stands for its iron one: `worn`)."""
+    return sum(RECIPES[piece]["ingredients"]["iron_ingot"] for piece in IRON_ARMOR if not worn(inventory, piece))
 
 
 def sheltered(db: sqlite3.Connection, cell: tuple[int, int, int]) -> bool:
