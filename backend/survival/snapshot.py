@@ -24,6 +24,7 @@ from backend.survival.machines import workshop_view
 from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.mind import life_memories, mind_fields
 from backend.survival.registry import LifeRegistry
+from backend.survival.rings import ring_view
 from backend.survival.trips import trip_view
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
 
@@ -191,6 +192,9 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         # reaches (harm.sheltered), so the HUD's danger line keeps quiet (False for an archive
         # from before M5, which has no structures).
         "sheltered": indoors,
+        # L5: the danger ring Mimo stands in and the rings' centre ({"level", "name", "center"}; null
+        # before the tick first tends the rings).
+        "ring": ring_view(state),
         **brain_view(state.get("brain")),
         # L4: how curious Mimo is, and how it feels ({"level", "feeling"}; null before it is tended).
         "curiosity": curiosity_view(state.get("brain"), at, scale),

@@ -33,6 +33,8 @@ plan at dawn, a goal reached or given up.
 First sightings (home, each ore material, water) are discoveries and ask for a new choice, and so
 is food or water found on new ground far from home on an explore trip (logged as an explore
 event, one a step; it asks for a choice at most once a game hour).
+L5: `notice_step` also keeps the danger rings' centre on home and notes the ring Mimo stands in
+(backend.survival.rings.tend_frontier).
 L4: after each walk of an explore trip Mimo looks around for what the trip is for
 (backend.survival.trips.look_after); a find that is what it came for ends the trip. Curiosity
 (backend.survival.curiosity) grows after each vitals step and falls with each discovery a
@@ -72,6 +74,7 @@ from backend.survival.memory import SHELTER_KINDS, forget, learn, remember, visi
 from backend.survival.once import log_once
 from backend.survival.purposes import PURPOSES, Purpose, is_valid, land_refuge
 from backend.survival.reflexes import by_name, end_reflex, reflex_hook
+from backend.survival.rings import tend_frontier
 from backend.survival.script import rest_plan
 from backend.survival.senses import ORES, afloat, ores_around
 from backend.survival.situation import Situation, in_tick
@@ -285,6 +288,7 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
     phase = phase_trigger(context.clock_at(since)["phase"], clock["phase"])
     if phase:
         mark_trigger(state, phase, at)
+    tend_frontier(state, context, at)  # L5: the danger rings' centre and the ring Mimo stands in
     tend_goal(state, context, at, phase)
     tend_curiosity(state, context, at)
     tend_expedition(state, context, at)
