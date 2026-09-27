@@ -40,6 +40,12 @@ Mimo keeps of them (`kept`: the clay a project needs).
 Making wave 2: when home's chest is full, what Mimo puts away goes in any other chest it built (an older
 home's, which `to_take` already takes from), walking into that home first (`to_store_all`); on the gate's
 route runs every home's chest was full by day 100 while the older one beside it had room.
+
+The storage follow-up: when home's own chest is neither placed nor coming (`home_chest_coming`: no planks
+and none carried to make one from), storage_valid used to return False before it looked at any other
+chest, so nothing -- food included -- could be stored or taken out, and storing_cells counted the missing
+chest as an empty one to store into. Now storage_valid, storing_cells and plan_storage all fall through to
+the chests Mimo has instead.
 """
 
 from __future__ import annotations
@@ -323,10 +329,23 @@ def stored_in(s: Situation, cells, cleared=(),
     return found[:limit]
 
 
+def home_chest_coming(s: Situation) -> bool:
+    """The storage follow-up: home's own chest is on the way -- placed already, carried, or Mimo can
+    craft one now. False, when it is neither placed nor makeable, falls storage_valid, storing_cells
+    and plan_storage through to the chests Mimo has instead of getting stuck on the one it does not
+    (no planks and none carried used to make storage_valid return False before it looked at any other
+    chest, so nothing -- food included -- could be stored or taken out)."""
+    cell = chest_spot(s)
+    if cell is None:
+        return False
+    return chest_placed(s, cell) or s.count("chest") > 0 or chest_crafting(s) is not None
+
+
 def storing_cells(s: Situation) -> list[tuple[int, int, int]]:
-    """Home's chest, then every other chest Mimo built that it can get to."""
+    """Home's chest, when it is coming, then every other chest Mimo built that it can get to."""
     home = chest_spot(s)
-    return [home] + [cell for cell, _ in reachable_chests(s) if cell != home]
+    homes = [home] if home_chest_coming(s) else []
+    return homes + [cell for cell, _ in reachable_chests(s) if cell != home]
 
 
 def to_store_all(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
@@ -455,7 +474,10 @@ def storage_valid(s: Situation) -> bool:
     moved the failure out of state["recent_actions"]'s window, not just a fixed cooldown.
     L4b final fix wave, follow-up: not while Mimo means to stay out (purposes.AWAY, an expedition),
     the same gate as go_home. Out 115 blocks with full arms, it walked home to put things away, then
-    dug its camp beside home, so the night out did not count and the dawn stall ended the trip."""
+    dug its camp beside home, so the night out did not count and the dawn stall ended the trip.
+    The storage follow-up: it returns early here only while home's own chest is coming
+    (`home_chest_coming`); with none coming (no planks, none carried) it falls through to the chests
+    Mimo has instead of returning False before it ever looks at them."""
     cell = chest_spot(s)
     if cell is None or s.night or away(s):
         return False
@@ -465,9 +487,8 @@ def storage_valid(s: Situation) -> bool:
         walking = not (s.distance(cell) <= REACH and s.here in blueprint.stands)
         if walking and (near_failure(s.state, blueprint.anchor) or beyond_one_walk(s, blueprint.anchor)):
             return False
-    if not chest_placed(s, cell):
-        can_have = s.count("chest") > 0 or chest_crafting(s) is not None
-        return can_have and stacks(s.inventory) >= STORE_FROM
+    if not chest_placed(s, cell) and home_chest_coming(s):
+        return stacks(s.inventory) >= STORE_FROM
     return (stacks(s.inventory) >= STORE_FROM and bool(to_store_all(s))) or bool(to_take(s))
 
 
@@ -492,22 +513,28 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
     holds some, so an older home's chest is never stranded once a bigger one takes over. The final
     fix wave, I2: that walk goes into the chest's own shelter (its stand, `chests_built`), within
     reach of the chest, as the walk home does; it used to head for the chest block itself, which no
-    route ever reaches."""
+    route ever reaches. The storage follow-up: while home's own chest is not coming
+    (`home_chest_coming`), the walk home and the chest itself are skipped, straight to the chests
+    Mimo has (`at` starts at None, so the first of them gets its own walk in)."""
     cell = chest_spot(s)
     if cell is None or s.brain["batches"] > 0:
         return []
-    structure = home_structure(s)
-    home = blueprint_of(structure).anchor
-    steps = [] if s.distance(cell) <= REACH and s.here in blueprint_of(structure).stands else [whole_walk(home)]
-    if not chest_placed(s, cell):
-        if s.count("chest") < 1:
-            crafting = chest_crafting(s)
-            if crafting is None:
-                return []
-            steps.extend(crafting)
-        steps.extend(clearing(s.grid, cell))
-        steps.append({"kind": "place", "target": list(cell), "block": "chest"})
-    stands, at = dict(chests_built(s)), cell
+    coming = home_chest_coming(s)
+    if coming:
+        structure = home_structure(s)
+        home = blueprint_of(structure).anchor
+        steps = [] if s.distance(cell) <= REACH and s.here in blueprint_of(structure).stands else [whole_walk(home)]
+        if not chest_placed(s, cell):
+            if s.count("chest") < 1:
+                crafting = chest_crafting(s)
+                if crafting is None:
+                    return []
+                steps.extend(crafting)
+            steps.extend(clearing(s.grid, cell))
+            steps.append({"kind": "place", "target": list(cell), "block": "chest"})
+    else:
+        steps = []
+    stands, at = dict(chests_built(s)), cell if coming else None
     clears = [(chest_cell, item, amount, "away") for chest_cell, item, amount in to_clear(s)]
     stores = [(chest_cell, item, amount, "store") for chest_cell, item, amount in to_store_all(s)]
     for chest_cell, item, amount, kind in sorted(clears + stores, key=lambda entry: (entry[0] != cell, entry[0])):

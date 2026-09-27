@@ -12,7 +12,8 @@ from backend.survival.memory import places, structures
 from backend.survival.pens import home_done
 from backend.survival.purposes import PURPOSES
 from backend.survival.storage import (
-    chest_spot, no_chest_to_use, storage_valid, to_clear, to_store, to_store_all, to_take,
+    chest_placed, chest_spot, home_chest_coming, no_chest_to_use, storage_valid, to_clear, to_store, to_store_all,
+    to_take,
 )
 from backend.survival.structures import blueprint_of
 from backend.survival.trips import REASONS
@@ -175,7 +176,7 @@ class AfterTheMoveTests(unittest.TestCase):
     old home, within reach of its chest, as it walks into home for its own chest, and a failed walk
     there holds that chest off (senses.near_failure) like the walk home."""
 
-    def moved(self):
+    def moved(self, place_chest=True):
         world, first, first_chest = HomeResolutionTests.two_shelters(self)
         for _ in range(15):
             steps = PURPOSES["build_shelter"].plan(world.situation(), world.context())
@@ -185,7 +186,8 @@ class AfterTheMoveTests(unittest.TestCase):
         self.assertTrue(moved_up(world.situation()))
         second = structures(world.db)[1]
         new_chest = blueprint_of(second).one("chest")
-        world.grid.put(*new_chest, "chest")  # the new home has its chest, empty; the old one holds fish
+        if place_chest:
+            world.grid.put(*new_chest, "chest")  # the new home has its chest, empty; the old one holds fish
         world.state["position"] = dict(zip("xyz", map(float, (second["x"], second["y"], second["z"]))))
         world.state["inventory"] = {}
         return world, first, first_chest, new_chest
@@ -234,6 +236,25 @@ class AfterTheMoveTests(unittest.TestCase):
         self.assertEqual(act(world, steps, until=240.0), [])
         self.assertEqual(world.state["chests"][f"{first_chest[0]},{first_chest[1]},{first_chest[2]}"].get("dirt"), 20)
         self.assertNotIn("dirt", world.state["inventory"])
+
+    def test_with_no_chest_or_way_to_make_one_the_new_home_falls_through_to_the_old(self):
+        """The storage follow-up (Minor 2): storage_valid used to return False before it looked at
+        any chest but home's own, once that chest was neither placed nor makeable (no planks, and
+        none carried) -- so nothing, food included, could be stored or taken out, and a plan would
+        have stored into a chest that was not there. It now falls through to the old home's, which
+        still holds fish."""
+        world, first, first_chest, new_chest = self.moved(place_chest=False)
+        s = world.situation()
+        self.assertEqual(chest_spot(s), new_chest)
+        self.assertFalse(chest_placed(s, new_chest))
+        self.assertFalse(home_chest_coming(s))
+        self.assertTrue(storage_valid(s))  # falls through to the old home's chest (3 cooked fish)
+        steps = PURPOSES["build_storage"].plan(s, world.context())
+        self.assertFalse(any(step.get("target") == list(new_chest) for step in steps))  # never the missing chest
+        old_home = (first["x"], first["y"], first["z"])
+        self.assertIn({"kind": "walk", "target": list(old_home), "reach": 0.0, "whole": True}, steps)
+        self.assertEqual(act(world, steps), [])
+        self.assertEqual(world.state["inventory"], {"cooked_fish": 2})  # a meal's worth taken out
 
     def test_with_every_chest_full_one_stack_of_dirt_seeds_and_wheat_is_kept_in_all_of_them(self):
         """Making wave 2: kept in each chest, on the gate's route Juniper's two full chests each held 32 dirt, 32 seeds

@@ -8,7 +8,9 @@ Where a machine goes (`design`):
 - "yard": the spot near the workshop (or home, without one) within its reach that costs the least to
   level (T3, below) plus its distance; Mimo stands on the walkway round it, or in the layout's gaps,
   to build;
-- "porch": the same, by home's door, within PORCH_REACH blocks;
+- "porch": the same, by home's door, within PORCH_REACH blocks, or twice that when nothing fits there
+  (the route2 follow-up: on seed 11 the night-light found nothing within 6 blocks of Juniper's door,
+  home, the pen and dug ground filling the ring, and First circuits stalled for good);
 - "door": the home's own door, with a pressure plate in front of it and one inside (the door itself is
   the output; it is the home's, never placed).
 T3: a yard need not be flat. Mimo levels it first: a column of it up to LEVEL blocks above the floor is
@@ -268,7 +270,9 @@ def design(s: Situation, machine: Machine) -> Blueprint | None:
             return door_design(s, machine)
         home = home_structure(s)
         if machine.where == "porch" and home is not None and blueprint_of(home).front is not None:
-            return layout_design(s.grid, machine, blueprint_of(home).front, PORCH_REACH, s.state["name"])
+            front = blueprint_of(home).front
+            return (layout_design(s.grid, machine, front, PORCH_REACH, s.state["name"])
+                    or layout_design(s.grid, machine, front, 2 * PORCH_REACH, s.state["name"]))
         workshop = current_workshop(s)
         center = workshop_front(workshop) if workshop is not None and workshop["status"] == "done" else site_center(s)
         if machine.reach > YARD_REACH:

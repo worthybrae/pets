@@ -9,9 +9,10 @@ from backend.survival.building import PLACES_PER_BATCH, site_center
 from backend.survival.computer import CLOCK, MEMORY
 from backend.survival.goals import GOALS
 from backend.survival.grid import Grid
+from backend.survival.home import home_structure
 from backend.survival.machines import (
-    CLEAR, FIRST, MACHINES, SITE_CACHE, SITES, WIDE_REACH, design, layout_design, machine_batch, machine_valid,
-    makeable, next_machine, untried, yard_column, yard_left,
+    CLEAR, FIRST, MACHINES, PORCH_REACH, SITE_CACHE, SITES, WIDE_REACH, design, layout_design, machine_batch,
+    machine_valid, makeable, next_machine, untried, yard_column, yard_left,
 )
 from backend.survival.making import raw_needs
 from backend.survival.memory import know, remember, structures
@@ -189,6 +190,32 @@ class DoorAndNightTests(unittest.TestCase):
         run_signals(yard.state, yard.context(), 2500.0)
         self.assertEqual(yard.grid.material(*lamp), "lamp_lit")
         self.assertEqual(shares(yard.situation(), "first_circuits")[2:], [1.0, 1.0, 1.0])
+
+
+def moated_porch(x, y, z):
+    """The route2 follow-up, Important 1: flat ground at home and its doorstep, a moat 4 to 7 blocks out
+    that leaves no room for the night-light's layout within PORCH_REACH (6), and flat ground again from
+    8 blocks on."""
+    if y == 0:
+        if -1 <= x <= 3 and -2 <= z <= 3:  # home's own footprint and the step in front of its door
+            return "grass"
+        return "water" if max(abs(x - 1), abs(z + 2)) <= 7 else "grass"
+    return "dirt" if y < 0 else "air"
+
+
+class PorchFallbackTests(unittest.TestCase):
+    def test_a_porch_with_no_site_within_6_blocks_finds_one_within_12(self):
+        """machines.py:271 gave the porch no fallback past PORCH_REACH, so on seed 11 the night-light's
+        site search found nothing (home, the pen and dug ground filled its 6-block ring) and First
+        circuits stalled for good, from day 38 to 150. A moat here leaves nothing within 6 blocks of the
+        door either; the fix looks again out to 12."""
+        yard = Yard(natural=moated_porch)
+        s = yard.situation()
+        front = blueprint_of(home_structure(s)).front
+        self.assertIsNone(layout_design(s.grid, MACHINES["night_light"], front, PORCH_REACH, s.state["name"]))
+        found = design(s, MACHINES["night_light"])
+        self.assertIsNotNone(found)
+        self.assertGreater(max(abs(found.anchor[0] - front[0]), abs(found.anchor[2] - front[2])), PORCH_REACH)
 
 
 class CopperTests(unittest.TestCase):

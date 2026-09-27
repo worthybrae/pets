@@ -5,7 +5,7 @@ from backend.services.crafting import craft
 from backend.survival import frontier_gear, storage  # noqa: F401  (L5: frontier_gear keeps 4 gloom dust on hand)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.carrying import valuable
-from backend.survival.creatures.gear import gear_orders
+from backend.survival.creatures.gear import gear_orders, gear_wanted
 from backend.survival.grid import Grid
 from backend.survival.memory import create_memory_tables
 from backend.survival.purposes import PURPOSES
@@ -125,6 +125,15 @@ class GearTests(unittest.TestCase):
         self.assertEqual(dict(storage.to_store(home.situation(), home.chest)), {"leather": 3, "rabbit_hide": 4})
         half = Home({"iron_cap": 1, "bow": 1, "arrow": 8, "leather": 3}, chest={})  # the tunic still wants leather
         self.assertEqual(dict(storage.to_store(half.situation(), half.chest)), {})
+
+
+class GearWantedTests(unittest.TestCase):
+    def test_the_keep_cap_holds_even_when_two_armor_pieces_want_more_hides_than_it_allows(self):
+        """Minor 1 (the route2 re-review): with no leather cap or tunic yet, the two pieces want 5
+        leather (3 and 2), all of it made up from hides at 4 to 1 -- 20 hides, where storage.KEEP holds
+        only 8. Uncapped, 12 would be taken out of the chest and stored right back each visit."""
+        s = situation({"rabbit_hide": 20})
+        self.assertEqual(gear_wanted(s), {"rabbit_hide": storage.KEEP["rabbit_hide"]})
 
 
 if __name__ == "__main__":
