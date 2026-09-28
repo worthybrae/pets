@@ -35,11 +35,12 @@ def summary(condition, seed, **changes):
 
 def untaught(seed, **changes):
     """An untaught life that is sick 40 game minutes and loses 110 health in its first month, 150 minutes in all,
-    and meets 5 wonders and asks 3 questions in its first 3 days."""
+    meets 5 wonders and asks 3 questions in its first 3 days, and works 8 lessons out alone by day 40."""
     found = summary("untaught", seed, sick_minutes=150, sick_by_day=[40] * 30 + [150] * 120,
                     lost_by_day=[110.0] * 30 + [300.0] * 120, near_death_days=[12],
                     wonders_met={name: 1.5 for name in ("a", "b", "c", "d", "e")},
-                    questions=[[1.5, "a"], [2.0, "b"], [3.5, "c"]], open_most=3)
+                    questions=[[1.5, "a"], [2.0, "b"], [3.5, "c"]], open_most=3,
+                    lessons={f"lesson{n}": {"day": 40.0, "source": "figured"} for n in range(8)})
     found.update(changes)
     return found
 
@@ -96,6 +97,15 @@ class CheckTests(unittest.TestCase):
         # 10': 4 wonders met by the end of the third game day, on every seed
         self.assertTrue(self.rows(wonders_met={name: 3.9 for name in "abcd"})["10'"])
         self.assertFalse(self.rows(wonders_met={name: 3.9 for name in "abc"})["10'"])
+
+    def test_nine_counts_seven_of_the_nine_lessons_a_pet_can_learn_alone(self):
+        def alone(count):
+            return {f"lesson{n}": {"day": 40.0, "source": "figured"} for n in range(count)}
+        self.assertTrue(self.rows(lessons=alone(7))["9"])
+        self.assertFalse(self.rows(lessons=alone(6))["9"])
+        # learned after day 60, or from the owner, does not count
+        late = {**alone(6), "lesson6": {"day": 61.0, "source": "figured"}}
+        self.assertFalse(self.rows(lessons=late)["9"])
 
     def test_ten_prime_reads_the_questions_as_they_were_posted_not_the_inbox_at_the_end(self):
         # Fix B: by day 150 the inbox has pruned the early questions (a life read (8 wonders, 0 asked) that had asked

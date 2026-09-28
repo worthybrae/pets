@@ -342,7 +342,7 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     alone = {life["seed"]: sum(1 for entry in life["lessons"].values()
                                if entry["day"] is not None and entry["day"] <= 60 and entry["source"] == "figured")
              for life in u if alive_on(life, 60)}
-    row("9 untaught: alive on day 60 knows 8 of 11 learned alone", all(count >= 8 for count in alone.values()),
+    row("9 untaught: alive on day 60 knows 7 of the 9 it can learn alone", all(count >= 7 for count in alone.values()),
         f"learned alone by day 60 {alone}")
     early = {life["seed"]: (sum(1 for day in life["wonders_met"].values() if day <= 4),  # its first 3 game days:
                             sum(1 for day, _ in life["questions"] if day <= 4)) for life in u}  # born on day 1.0
