@@ -8,7 +8,9 @@
   until it carries HERBS_CARRIED.
 - `nibble`, the instinct of a pet that does not know sunleaf (70): sick, with a sunleaf within NIBBLE_RANGE
   blocks, it walks over and eats it, once in NIBBLE_CHANCE sicknesses (a seeded roll when the sickness
-  begins: ailments.fall_sick). Eating one while sick is what teaches the lesson alone (backend.survival.knocks).
+  begins: ailments.fall_sick). It cures that sickness and teaches nothing: sunleaf comes only from the owner
+  (knocks.OWNER_ONLY, spec resolution 29), and until then Mimo calls it "a little yellow herb" (the eat step's
+  `seen_as`: "Pip ate a little yellow herb and felt better.").
 A gentle pet is never sick, so none of these is ever on offer to it.
 """
 
@@ -33,6 +35,7 @@ if TYPE_CHECKING:
 HERB_RANGE = 64.0
 NIBBLE_RANGE = 16.0
 HERBS_CARRIED = 2
+UNKNOWN_HERB = "a little yellow herb"  # sunleaf, to a pet that does not know it
 
 
 def herbs_near(s: Situation, radius: float) -> list[Cell]:
@@ -49,7 +52,8 @@ def herbs_near(s: Situation, radius: float) -> list[Cell]:
 
 def pick_and_eat(s: Situation, cell: Cell) -> list[dict]:
     walk = [whole_walk(cell, STAND)] if math.dist(s.here, cell) > STAND else []
-    return [*walk, {"kind": "pick", "target": list(cell)}, {"kind": "eat", "item": HERB}]
+    unknown = {} if knows(s, "sunleaf") else {"seen_as": UNKNOWN_HERB}  # the nibble's: Mimo cannot name it
+    return [*walk, {"kind": "pick", "target": list(cell)}, {"kind": "eat", "item": HERB, **unknown}]
 
 
 # take_herb -------------------------------------------------------------------------------------

@@ -163,10 +163,11 @@ def shunned(state: dict, group: str, at: float, scale: float) -> bool:
     return since is not None and (at - since) * scale < SHUN
 
 
-def avoided(state: dict, lessons, at: float, scale: float) -> tuple[str, ...]:
+def avoided(state: dict, lessons, at: float, scale: float, shun: bool = True) -> tuple[str, ...]:
     """The foods (items and the blocks they grow on) Mimo never picks or eats now: for a gentle pet the
     nightberries it knows from the start; for a wild one what it knows is poison (nightberries, red
-    mushrooms) and a group it shuns (the red berries after they made it sick)."""
+    mushrooms) and (`shun`) a group it shuns (the red berries after they made it sick). W1's final fix wave: a
+    shunned food is only left alone, never poison to throw away (situation.Situation.discards)."""
     if not is_wild(state):
         return NIGHTBERRIES
     found: list[str] = []
@@ -174,7 +175,7 @@ def avoided(state: dict, lessons, at: float, scale: float) -> tuple[str, ...]:
         found += NIGHTBERRIES
     if thing("red_mushroom") in lessons:
         found.append(RED_MUSHROOM)
-    if shunned(state, "red_berries", at, scale):
+    if shun and shunned(state, "red_berries", at, scale):
         found += (*RED_BERRIES, *BERRY_BUSHES)
     return tuple(dict.fromkeys(found))
 

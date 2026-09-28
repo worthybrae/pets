@@ -40,6 +40,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from dataclasses import dataclass
 
 from backend.survival.clock import clock_at, time_scale
 from backend.survival.creatures.kinds import KINDS
@@ -74,12 +75,23 @@ UNSURE = "Hmm, I'm not sure that's right. I'll believe it when I see it!"
 UNKNOWN = "I don't understand that yet. Maybe once I've seen more of the world!"
 # [confirmed(db, state, thing, now)]: run when Mimo sees a taught lesson true (Bond B2's bond).
 CONFIRMED: list = []
-# W1: [reword(db, s, heard) -> str | None]: the words to read in place of the owner's (a bare "yes" to Mimo's
-# open yes-or-no question reads as its yes-claim: backend.survival.questions); the first answer wins.
+# W1: [reword(db, s, heard) -> Reworded | None]: the words to read in place of the owner's (a bare "yes" to Mimo's
+# open yes-or-no question reads as its yes-claim: backend.survival.questions); the first answer wins. They are
+# asked once a chat job, by the HEARING hook ANSWER (W1's final fix wave: so every keeper reads the one binding
+# made when the line was heard). One that crashes is logged once and passed over.
 REWORDS: list = []
+ANSWER = "answer"  # talk.HEARING's hook for REWORDS, heard before "teach", which reads it
 # W1: [taught(db, state, thing, now)]: run when a lesson is taught (Mimo's questions it answers close). One that
 # crashes is logged once and passed over: the lesson is taught all the same.
 TAUGHT_HOOKS: list = []
+
+
+@dataclass(frozen=True)
+class Reworded:
+    """W1: what a REWORDS hook reads the owner's words as: the claim, and the inbox item of the question it
+    answers (the open yes-or-no question a bare yes or no binds to), or None."""
+    text: str
+    item: int | None = None
 
 
 class Told:
@@ -112,10 +124,26 @@ def without_name(text: str, name: str) -> str:
     return address.sub("", text)
 
 
+def hear_answer(db: sqlite3.Connection, s: Situation, heard: Heard) -> Reworded | None:
+    """talk.HEARING[ANSWER]: the first REWORDS answer, found once a chat job (W1: a bare yes or no bound to one of
+    Mimo's questions, and its claim). Each hook is guarded on its own, as TAUGHT_HOOKS are (W1's final fix wave):
+    one that crashes is logged once and passed over."""
+    for reword in REWORDS:
+        try:
+            found = reword(db, s, heard)
+        except Exception as error:
+            log_once(logger, "reword", error)
+            continue
+        if found:
+            return found
+    return None
+
+
 def hear_lessons(db: sqlite3.Connection, s: Situation, heard: Heard) -> Claims:
     """talk.HEARING["teach"]: what the owner's words could teach, worked out once a chat job. W1: a bare yes or no
-    to Mimo's open yes-or-no question reads as that question's claim (REWORDS)."""
-    text = next((found for found in (reword(db, s, heard) for reword in REWORDS) if found), heard.text)
+    to Mimo's open yes-or-no question reads as that question's claim (the ANSWER hook, heard just before)."""
+    found = heard.context.get(ANSWER)
+    text = found.text if isinstance(found, Reworded) else heard.text
     return claims(without_name(text, s.state.get("name") or ""))
 
 
@@ -188,6 +216,7 @@ def unsure(s: Situation, heard: Heard) -> str | Reply | None:
     return Reply("unsure", UNKNOWN, weight=0.5) if found.unknown else None
 
 
+HEARING[ANSWER] = hear_answer  # first: "teach" reads what it bound
 HEARING["teach"] = hear_lessons
 HEARING["teach_day"] = hear_day
 QUESTIONS.append(teach_question)

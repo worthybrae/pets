@@ -109,6 +109,17 @@ def cook_plan(s: Situation) -> list[dict] | None:
     return steps if crafts_fit(s.inventory, steps) else None
 
 
+def cooks_raw(s: Situation) -> bool:
+    """W1's final fix wave: Mimo can cook the raw food it carries now, at a fire near, one it puts down or one it
+    walks to (`cook_plan`), once a Situation. A wild pet taught cooking leaves raw food out of a meal only then
+    (backend.survival.meals): one that cannot cook it eats it raw, with its risk, as an untaught pet does."""
+    def look() -> bool:
+        if not any(s.inventory.get(item, 0) > 0 for item in RAW_FOODS):
+            return False
+        return any(step["kind"] in ("cook", "walk") for step in cook_plan(s) or [])  # a walk: to a fire, to cook
+    return s.sensed("cooks raw", look)
+
+
 def plan_cook(s: Situation, context: ActionContext) -> list[dict]:
     if s.brain["batches"] > 1:
         return []

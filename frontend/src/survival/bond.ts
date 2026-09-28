@@ -88,4 +88,11 @@ export const namePlace = (id: number, text: string) => postJson<{ item: InboxIte
 /** W1: the owner answers one of Mimo's questions with the chip at `choice`. */
 export const answerQuestion = (id: number, choice: number) =>
   postJson<{ item: InboxItem }>(`/api/mimo/inbox/${id}/answer`, { choice })
+/** W1's final fix wave: answer one of Mimo's questions with a chip, then list the inbox again, since one answer can
+ * close other questions too (a lesson taught closes every question it answers) and each must lose its chips. */
+export async function answerAndRelist(id: number, choice: number, answer = answerQuestion,
+  list = fetchInbox): Promise<InboxItem[]> {
+  await answer(id, choice)
+  return (await list()).items
+}
 export const noteVisit = () => postJson<{ bond: BondView }>('/api/mimo/visit')

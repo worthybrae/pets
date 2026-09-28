@@ -21,22 +21,25 @@ from backend.api.mimo import get_mimo
 from backend.services.live_mimo import MimoStore
 from backend.survival.ailments import open_wound
 from backend.survival.brain import notice_step, observe_step
+from backend.survival.clock import DAY_SECONDS
 from backend.survival.hatch import hatch
-from backend.survival.inbox import ITEMS_KEPT, inbox_items, item_of, post_item
+from backend.survival.inbox import ITEMS_KEPT, ITEMS_SHOWN, inbox_items, inbox_listing, item_of, post_item
 from backend.survival.memory import know
 from backend.survival.meals import sick_from, wild_meal
 from backend.survival.once import forget_logged
-from backend.survival.questions import answer_question, ask_wonders, open_items, opener, questions_view, words_of
+from backend.survival.questions import (
+    answer_question, ask_wonders, close, open_items, opener, questions_view, words_of,
+)
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import from_db
 from backend.survival.spoilage import went_bad
 from backend.survival.talk import owner_says
 from backend.survival.talker import Talker
-from backend.survival.teaching import TAUGHT_HOOKS
+from backend.survival.teaching import REWORDS, TAUGHT_HOOKS
 from backend.survival.triggers import ensure_brain
 from backend.survival.vitals import Surroundings
 from backend.survival.wild import thing, wild_state
-from backend.survival.wonders import COLD_NIGHT, FLOORS, WONDERS, hesitates, met, open_questions
+from backend.survival.wonders import COLD_NIGHT, FLOORS, WONDERS, hesitates, meet as meet_wonders, met, open_questions
 from backend.survival.world import LifeOver, SurvivalWorld, read_state, write_state
 from backend.tests.no_model import no_model
 from backend.tests.test_survival_brain import brainy, flat, pet
@@ -327,6 +330,145 @@ class QuestionTests(unittest.TestCase):
         with self.assertRaises(sqlite3.OperationalError):
             open_questions(db)
 
+    # W1's final fix wave --------------------------------------------------------------------------------
+
+    def fresh(self):
+        """A new wild life in place of this test's."""
+        self.tearDown()
+        self.setUp()
+
+    def asked(self, *wonders):
+        """Meet these wonders and ask each, one chore apart (oldest first)."""
+        self.meet(*wonders)
+        for step in range(len(wonders)):
+            self.chore(BORN + 10 + step * 300 / SCALE)
+
+    def closed(self):
+        """{wonder: how its newest question closed (None while open)}."""
+        with self.world.connect() as db:
+            return {row[0]: row[1] for row in db.execute(
+                "SELECT json_extract(data, '$.wonder'), json_extract(data, '$.closed') FROM mimo_inbox "
+                "WHERE kind='ask' ORDER BY id")}
+
+    def learned(self):
+        return {name for name in ("berries", "nightberries", "red_mushroom", "fire", "cooking") if self.knows(name)}
+
+    def test_one_bare_yes_or_no_answers_only_the_question_it_was_bound_to(self):
+        # 1: bound once, when the line is heard. Bound again after the teach keeper had closed its question, one
+        # "Yes" to the red berries also closed the red mushrooms as doubted.
+        cases = [(("red_mushroom", "red_berries"), "Yes", {"red_mushroom": None, "red_berries": "taught"}, {"berries"}),
+                 (("red_mushroom", "red_berries"), "No", {"red_mushroom": None, "red_berries": "doubted"}, set()),
+                 (("red_berries", "red_mushroom"), "Yes", {"red_berries": None, "red_mushroom": "doubted"}, set()),
+                 (("red_berries", "red_mushroom"), "No", {"red_berries": None, "red_mushroom": "taught"},
+                  {"red_mushroom"}),
+                 (("red_berries", "raw_meat"), "No", {"red_berries": None, "raw_meat": "taught"}, {"cooking"})]
+        for wonders, said, closed, learned in cases:
+            with self.subTest(wonders=wonders, said=said):
+                self.fresh()
+                self.asked(*wonders)
+                self.say(said, BORN + 100)
+                self.assertEqual((self.closed(), self.learned()), (closed, learned))
+
+    def test_a_lesson_closes_only_the_questions_whose_lessons_mimo_now_all_knows(self):
+        # 2: as the figured close; the chip closes the question it answered all the same.
+        self.asked("raw_meat", "cold_night")
+        self.say("Two logs and three sticks make a campfire.", BORN + 100)
+        self.assertEqual((self.learned(), self.closed()), ({"fire"}, {"raw_meat": None, "cold_night": None}))
+        self.say("Cooked meat and fish are safe to eat.", BORN + 110)
+        self.assertEqual(self.closed(), {"raw_meat": "taught", "cold_night": None})
+        for wonders, chip, left in ((("tummy", "wound"), "Eat sunleaf, the little yellow herb.", "wound"),
+                                    (("cold_night", "dark_creature"), "Build a shelter with a roof and a door.",
+                                     "dark_creature")):
+            with self.subTest(chip=chip):
+                self.fresh()
+                self.asked(*wonders)
+                first = next(question for question in self.questions() if chip in question["chips"])
+                answer_question(self.world, first["id"], first["chips"].index(chip), BORN + 100, SCALE)
+                self.assertEqual(self.closed(), {wonders[0]: "taught", left: None})
+
+    def test_an_open_question_stays_listed_in_the_inbox_however_much_follows(self):
+        # 4: the panel marks all it lists read, and a read question fell out of the newest ITEMS_SHOWN read items.
+        self.meet("hard_floor")
+        self.chore(BORN + 10)
+        [question] = self.questions()
+        with self.world.transaction() as db:
+            db.execute("UPDATE mimo_inbox SET read_at=?", (BORN + 11,))
+            for number in range(ITEMS_SHOWN + 1):
+                post_item(db, BORN + 20 + number, "report", f"Report {number}.")
+            db.execute("UPDATE mimo_inbox SET read_at=? WHERE read_at IS NULL", (BORN + 60,))
+        with self.world.connect() as db:
+            listed = [item["id"] for item in inbox_listing(db)]
+        self.assertEqual((listed[0], len(listed)), (question["id"], ITEMS_SHOWN + 1))
+
+    def test_a_stale_question_is_set_aside_when_a_newer_wonder_waits(self):
+        # 6, the controller's ruling: three questions only the owner can answer no longer block every later one.
+        self.asked("sunleaf", "tummy", "wound")
+        self.meet("hard_floor", at=BORN + 30)
+        self.assertFalse(self.chore(BORN + 10 + 900 / SCALE))  # none open a game day yet: the new one waits
+        self.assertTrue(self.chore(BORN + 11 + DAY_SECONDS / SCALE))
+        self.assertEqual(self.closed(), {"sunleaf": "set_aside", "tummy": None, "wound": None, "hard_floor": None})
+        found = self.world.state()["wild"]["wonders"]["sunleaf"]
+        self.assertEqual((found["asked_at"], found["closed"], found["asks"]), (None, "set_aside", 1))
+
+    def test_a_set_aside_wonder_is_asked_again_but_never_a_third_time(self):
+        self.asked("sunleaf", "tummy", "wound")
+        self.meet("hard_floor", at=BORN + 30)
+        day = DAY_SECONDS / SCALE
+        self.chore(BORN + 11 + day)  # the herb set aside, the floor asked
+        floor = next(question for question in self.questions() if "floor" in question["text"])
+        answer_question(self.world, floor["id"], floor["chips"].index("You'll get used to it."), BORN + 12 + day, SCALE)
+        self.assertTrue(self.chore(BORN + 12 + day + 300 / SCALE))  # room again: the herb is asked a second time
+        with self.world.connect() as db:
+            asked = [row[0] for row in db.execute(
+                "SELECT json_extract(data, '$.wonder') FROM mimo_inbox WHERE kind='ask' ORDER BY id")]
+        self.assertEqual(asked, ["sunleaf", "tummy", "wound", "hard_floor", "sunleaf"])
+        self.assertEqual(self.world.state()["wild"]["wonders"]["sunleaf"]["asks"], 2)
+        with self.world.transaction() as db:  # set aside once more
+            state = read_state(db)
+            item = next(item for item in open_items(db) if item["data"]["wonder"] == "sunleaf")
+            close(db, state, item, "set_aside", BORN + 13 + day)
+            state["wild"]["wonders"]["sunleaf"].update(asked_at=None, item=None)
+            write_state(db, state)
+        self.assertFalse(self.chore(BORN + 13 + day + 600 / SCALE))  # room, and waiting: never a third time
+
+    def test_a_set_aside_question_holds_no_taste_back(self):
+        # 6: nobody answered it, so Mimo risks a taste when it must (the spec, "Hesitating").
+        self.asked("red_berries", "tummy", "wound")
+        self.meet("hard_floor", at=BORN + 30)
+        day = DAY_SECONDS / SCALE
+        self.chore(BORN + 11 + day)  # the red berries set aside, the floor asked
+        floor = next(question for question in self.questions() if "floor" in question["text"])
+        answer_question(self.world, floor["id"], floor["chips"].index("You'll get used to it."), BORN + 12 + day, SCALE)
+        with self.world.connect() as db:  # two open: a wonder met and not asked would hold the taste back
+            state = read_state(db)
+            state["inventory"], state["vitals"]["hunger"] = {"berries": 4}, 40.0
+            s = from_db(db, state, BORN + 13 + day, SCALE)
+            self.assertEqual((open_questions(db), hesitates(s, "berries")), (2, False))
+            self.assertEqual(len(wild_meal(s)), 1)
+
+    def test_a_crashing_reword_is_logged_and_the_chat_still_teaches(self):
+        # 9: each REWORDS hook is guarded on its own, as TAUGHT_HOOKS are.
+        def crash(db, s, heard):
+            raise RuntimeError("a reword broke")
+
+        forget_logged()
+        REWORDS.insert(0, crash)
+        self.addCleanup(REWORDS.remove, crash)
+        self.asked("red_berries")
+        with self.assertLogs("backend.survival.teaching", "ERROR"):
+            self.say("Yes!", BORN + 100)
+        self.assertEqual((self.learned(), self.closed()), ({"berries"}, {"red_berries": "taught"}))
+        self.say("Six planks make a bed.", BORN + 110)
+        self.assertTrue(self.knows("bed"))
+
+    def test_dont_worry_never_answers_a_question(self):
+        # 16: "Don't worry, ..." opens with a no-word, and is no answer.
+        self.asked("red_berries")
+        self.say("Don't worry, I'll help you.", BORN + 100)
+        self.assertEqual((self.learned(), self.closed()), (set(), {"red_berries": None}))
+        for said in ("Don't worry", "dont worry about it", "Don’t worry!"):
+            self.assertIsNone(opener(said), said)
+
 
 class WonderTriggerTests(unittest.TestCase):
     """Each wonder is met by its own trigger, through the brain's hooks: wonders.meet after a vitals step
@@ -376,6 +518,32 @@ class WonderTriggerTests(unittest.TestCase):
                 gentle = pet()
                 observe_step(gentle, walk, brainy(near), 6.0)
                 self.assertEqual(wild_state(gentle)["wonders"], {})
+
+    def test_a_red_mushroom_is_asked_about_as_red_mushrooms(self):
+        # The final fix wave (14): "after eating red mushrooms", never "after eating red mushroom".
+        state = pet(difficulty="wild")
+        sick_from(state, "red_mushroom", 5.0)
+        found = self.notice(state, 6.0)
+        self.assertEqual(words_of("tummy", found["tummy"]["fill"]),
+                         "My tummy hurts after eating red mushrooms. What helps?")
+
+    def test_the_chests_are_looked_through_for_spoiled_food_only_until_it_is_met(self):
+        # The final fix wave (13): no chest is scanned on every vitals step once the "spoiled" wonder is met.
+        class Chest(dict):
+            looked = 0
+
+            def get(self, *args):
+                Chest.looked += 1
+                return super().get(*args)
+
+        state = pet(difficulty="wild", chests={"0,1,0": Chest(bread=2)})
+        meet_wonders(state, None, 1.0)
+        self.assertEqual(Chest.looked, 1)
+        state["chests"]["0,1,0"]["spoiled_food"] = 1
+        meet_wonders(state, None, 2.0)
+        self.assertEqual((list(wild_state(state)["wonders"]), Chest.looked), (["spoiled"], 2))
+        meet_wonders(state, None, 3.0)
+        self.assertEqual(Chest.looked, 2)
 
     def test_mimo_calls_nightberries_what_they_look_like(self):
         # Minor 6: the pet cannot tell the lookalike apart, so its own words never name it.
@@ -427,6 +595,17 @@ class ApiTests(unittest.TestCase):
         item = answer_inbox(question["id"], PlaceName(choice=question["chips"].index("Six planks make a bed.")))["item"]
         self.assertEqual(item["data"]["closed"], "taught")
         self.assertEqual(get_mimo()["inbox"]["questions"], [])
+
+    def test_an_internal_error_in_an_answer_is_a_500_never_no_such_question(self):
+        # The final fix wave (15): only NoSuchQuestion is a 404; a KeyError inside is a bug.
+        hatch_egg()
+        app = FastAPI()
+        app.include_router(bond.router)
+        client = TestClient(app, raise_server_exceptions=False)
+        with patch("backend.api.bond.answer_question", side_effect=KeyError("order")):
+            self.assertEqual(client.post("/mimo/inbox/1/answer", json={"choice": 0}).status_code, 500)
+        self.assertEqual(client.post("/mimo/inbox/999999/answer", json={"choice": 0}).status_code, 404)
+        self.assertEqual(client.post("/mimo/inbox/999999/answer", json={"text": "Echo Hollow"}).status_code, 404)
 
     def test_a_choice_that_is_not_a_whole_number_is_refused(self):
         # Minor 4: pydantic no longer reads true, 1.0 or "1" as the chip 1.

@@ -62,6 +62,13 @@ class Situation:
         return tuple(dict.fromkeys((*learned, *avoided(self.state, self.lessons, self.at, self.scale))))
 
     @cached_property
+    def discards(self) -> tuple[str, ...]:
+        """W1's final fix wave: the poisons Mimo throws away, out of its arms or a full chest: `poisons` but a food
+        it only leaves alone for a while (the red berries it shuns are safe, and kept)."""
+        learned = tuple(memory.known(self.db, "poisonous")) if self.db is not None else ()
+        return tuple(dict.fromkeys((*learned, *avoided(self.state, self.lessons, self.at, self.scale, shun=False))))
+
+    @cached_property
     def lessons(self) -> tuple[str, ...]:
         """L4b: the lessons Mimo learned (backend.survival.journal); what it knows unlocks work. W1: not the
         ones a gentle pet knew from the start (backend.survival.wild), which unlock nothing and never count."""

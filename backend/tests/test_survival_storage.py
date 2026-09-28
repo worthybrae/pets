@@ -13,6 +13,7 @@ from backend.survival.situation import Situation
 from backend.survival.steps import finish_step, start_step
 from backend.survival.structures import start
 from backend.survival.vitals import START_VITALS
+from backend.survival.wild import thing
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 NIGHT = {**DAY, "phase": "night", "seconds_into_day": 3000.0}
@@ -341,6 +342,19 @@ class ClearOutTests(unittest.TestCase):
         step = start_step(steps[0], home.state, home.grid, 0.0, 1.0)
         finish_step(step, home.state, home.grid, 1.0)
         self.assertEqual((home.state["chests"]["2,1,2"]["dirt"], home.state["inventory"]), (64, before))
+
+    def test_a_wild_pet_never_throws_out_the_berries_it_only_shuns(self):
+        # W1's final fix wave (11): the shun is "leave alone" for two game days, not "poison to throw away".
+        chest = {**self.CHEST, "berries": 4}
+        del chest["red_mushroom"]
+        home = Home({"iron_ore": 20, "coal": 20, "berries": 6, **{f"item_{n}": 1 for n in range(12)}}, chest=chest)
+        know(home.db, thing("berries"), "lesson", 0.0)
+        home.state.update(difficulty="wild", wild={"shun": {"red_berries": 0.0}})
+        s = home.situation()
+        self.assertIn("berries", s.poisons)  # neither picked nor eaten while shunned...
+        cleared = [item for _, item, _ in storage.to_clear(s)]
+        self.assertEqual(cleared, ["dirt", "dirt", "gravel", "seeds"])  # ...nor cleared out of a full chest...
+        self.assertNotIn("berries", [item for item, _ in storage.junk(s)])  # ...nor dropped
 
     def test_a_chest_with_room_or_nothing_to_put_away_is_left_as_it_is(self):
         home = Home({"iron_ore": 16, **{f"item_{n}": 1 for n in range(12)}}, chest=dict(self.CHEST))

@@ -6,6 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend.api import lives
 from backend.api.lives import Hatching, hatch_egg
 from backend.api.mimo import get_mimo
 from backend.services.live_mimo import MimoStore
@@ -15,6 +19,7 @@ from backend.survival.insights import insights
 from backend.survival.journal import journal_payload, journal_view, learned
 from backend.survival.memory import create_memory_tables, know
 from backend.survival.registry import LifeRegistry
+from backend.survival.replies import Heard, journal
 from backend.survival.situation import from_db
 from backend.survival.tick import tick_life
 from backend.survival.wild import (
@@ -148,6 +153,20 @@ class BornKnowingTests(unittest.TestCase):
             self.assertEqual(journal_payload(s)["lessons"], 1)
             self.assertFalse(any(insight.key.startswith("learned:") for insight in insights(db, state, 1, 1.0)))
 
+    def test_the_replies_journal_line_tells_a_survival_lesson_learned_but_never_one_known_from_birth(self):
+        # Carried item 1 (Task 1's review): replies.journal reads s.lessons, which holds wild:* lessons now.
+        asked, nothing = Heard("What did you learn today?"), "Nothing new yet. I'm still looking!"
+        with self.world.transaction() as db:  # a gentle pet knows every survival lesson from birth
+            self.assertEqual(journal(from_db(db, read_state(db), BORN + 2, 1.0), asked), nothing)
+        other = Lives()
+        self.addCleanup(other.directory.cleanup)
+        _, wild = other.hatch(difficulty=WILD)
+        with wild.transaction() as db:
+            know(db, thing("fire"), "lesson", BORN + 2)
+            self.assertEqual(journal(from_db(db, read_state(db), BORN + 3, 1.0), asked),
+                             "I learned something new: two logs and three sticks make a campfire, and a fire keeps you "
+                             "warm at night.")
+
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
@@ -173,6 +192,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(memorial["survival"]), 11)  # the memorial tallies where its lessons came from
         hatch_egg(Hatching(difficulty="gentle"))
         self.assertEqual(get_mimo()["difficulty"], GENTLE)
+
+    def test_the_api_refuses_a_difficulty_it_does_not_know(self):
+        # Carried item 1 (Task 1's review): a bad difficulty is a 422 (pydantic's Literal), and nothing hatches.
+        app = FastAPI()
+        app.include_router(lives.router)
+        client = TestClient(app)
+        self.assertEqual(client.post("/lives/hatch", json={"difficulty": "hard"}).status_code, 422)
+        self.assertIsNone(LifeRegistry().active_life())
+        self.assertEqual(client.post("/lives/hatch", json={"difficulty": "gentle"}).status_code, 200)
 
 
 if __name__ == "__main__":

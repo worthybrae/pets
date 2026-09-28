@@ -6,7 +6,7 @@ from unittest.mock import patch
 import backend.survival.brain  # noqa: F401  (every purpose registered)
 from backend.survival.ailments import sickness
 from backend.survival.carrying import eat_what_is_left
-from backend.survival.meals import wild_meal
+from backend.survival.meals import RAW_RISK, wild_meal
 from backend.survival.memory import know
 from backend.survival.purposes import PURPOSES, is_valid, meal_of
 from backend.survival.reflexes import by_name
@@ -96,6 +96,16 @@ class LookalikeTests(unittest.TestCase):
         self.assertNotIn("berry_bush_ripe", after.poisons)
 
 
+class NamingTests(unittest.TestCase):
+    def test_a_nightberry_eaten_as_a_red_berry_is_named_red_berries(self):
+        # Carried item 10: a pet that does not know nightberries names what it cannot tell apart as it sees it.
+        s = wild({"nightberries": 3}, 40.0)
+        [step] = wild_meal(s)
+        self.assertEqual(step, {"kind": "eat", "item": "nightberries", "seen_as": "red berries"})
+        running = start_step(step, s.state, s.grid, 0.0)
+        self.assertEqual(finish_step(running, s.state, s.grid, 1.6), ("sick", "Pip ate red berries and felt sick."))
+
+
 class EatingTests(unittest.TestCase):
     def test_a_poison_plant_takes_five_health_and_gives_a_tummy_ache(self):
         for item in ("nightberries", "red_mushroom"):
@@ -115,9 +125,18 @@ class EatingTests(unittest.TestCase):
             self.assertEqual(eat(s, "raw_chicken", risk=0.5)[0], "ate")
         self.assertIsNone(sickness(s.state))
 
-    def test_a_pet_that_knows_cooking_eats_raw_food_only_when_starving(self):
-        self.assertEqual(wild_meal(wild({"raw_beef": 2}, 40.0, "cooking")), [])
-        self.assertEqual(items(wild_meal(wild({"raw_beef": 2}, 10.0, "cooking"))), ["raw_beef", "raw_beef"])
+    def test_a_pet_taught_cooking_leaves_raw_food_for_the_fire_only_when_it_can_cook_now(self):
+        # The final fix wave (5): a true, partial answer (cooking without fire) never costs more than none
+        # (spec resolution 6): with no way to cook, the raw beef is eaten with its risk, as an untaught pet eats it.
+        steps = wild_meal(wild({"raw_beef": 2}, 40.0, "cooking"))
+        self.assertEqual((items(steps), steps[0]["risk"]), (["raw_beef", "raw_beef"], RAW_RISK["raw_beef"]))
+        fuel = wild({"raw_beef": 2, "oak_log": 2, "sticks": 3}, 40.0, "cooking", "fire")
+        self.assertEqual(wild_meal(fuel), [])  # it can make a campfire: it cooks
+        self.assertIn({"kind": "cook", "item": "raw_beef"}, PURPOSES["cook"].plan(fuel, None))
+        lit = wild({"raw_beef": 2}, 40.0, "cooking", "fire", grid=meadow({(1, 1, 0): "campfire"}))
+        self.assertEqual(wild_meal(lit), [])  # a campfire burns beside it
+        starving = wild({"raw_beef": 2}, 10.0, "cooking", "fire", grid=meadow({(1, 1, 0): "campfire"}))
+        self.assertEqual(items(wild_meal(starving)), ["raw_beef", "raw_beef"])
 
     def test_food_left_over_is_eaten_only_when_it_carries_no_risk_or_mimo_is_starving(self):
         state = {"name": "Pip", "vitals": {"hunger": 20.0}, **WILD}

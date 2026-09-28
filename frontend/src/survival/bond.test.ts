@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  VISIT_EVERY_MS, answeredLine, canName, heartMeter, inboxLabel, kindLabel, nameProblem, newestItem, promiseLine, unreadIds,
-  visitDue,
+  VISIT_EVERY_MS, answerAndRelist, answeredLine, canName, heartMeter, inboxLabel, kindLabel, nameProblem, newestItem,
+  promiseLine, unreadIds, visitDue,
 } from './bond'
 import type { InboxItem } from './bondTypes'
 
@@ -67,6 +67,21 @@ describe('the inbox', () => {
     // W1: one of Mimo's questions, closed: its answer is a chip's index, never a name
     expect(answeredLine({ ...ask, data: { ask: 'wonder', answer: 0, closed: 'taught' } })).toBe('You told me')
     expect(answeredLine({ ...ask, data: { ask: 'wonder', answer: null, closed: null } })).toBe('')
+  })
+})
+
+describe('answering a question with a chip', () => {
+  it('lists the inbox again, so a question the answer closed too loses its chips (W1 final fix wave)', async () => {
+    const tummy: InboxItem = { id: 5, at: 1, kind: 'ask', text: 'My tummy hurts.', read: true,
+      data: { ask: 'wonder', chips: ['Eat sunleaf, the little yellow herb.', 'Rest. It will pass.'], closed: null } }
+    const herb: InboxItem = { ...tummy, id: 6, text: "There's a little yellow herb here. What is it for?" }
+    const taught = (item: InboxItem): InboxItem => ({ ...item, data: { ...item.data, closed: 'taught' } })
+    const answered: [number, number][] = []
+    const items = await answerAndRelist(5, 0,
+      async (id, choice) => { answered.push([id, choice]); return { item: taught(tummy) } },
+      async () => ({ items: [taught(herb), taught(tummy)], unread: 0 }))
+    expect(answered).toEqual([[5, 0]])
+    expect(items.map((item) => [item.id, item.data.closed])).toEqual([[6, 'taught'], [5, 'taught']])
   })
 })
 

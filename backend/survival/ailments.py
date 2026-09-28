@@ -15,8 +15,10 @@ the largest damage of the killing step (vitals.CAUSE_ORDER). What the drain take
 `state["wild"]["lost"]`, the health a wild pet lost to its hazards (`lose`; the balance gate reads it).
 
 Eating one sunleaf ends any sickness at once: the eat step of a sunleaf (steps.EATING: `eat_herb`) logs
-"Pip ate sunleaf and felt better." (a "cured" event). What makes Mimo sick (food, a cold night) and what
-makes it eat sunleaf (the take_herb reflex, find_herb and nibble: backend.survival.herbs) live elsewhere.
+"Pip ate sunleaf and felt better." (a "cured" event), or "Pip ate a little yellow herb and felt better." when
+Mimo does not know sunleaf (the instinct's nibble: the step's `seen_as`, W1's final fix wave). What makes Mimo
+sick (food, a cold night) and what makes it eat sunleaf (the take_herb reflex, find_herb and nibble:
+backend.survival.herbs) live elsewhere.
 
 A wound (`state["ailments"]["wound"]` = {"since", "age", "festering", "dressed_age"}; `age` in game seconds;
 backend.survival.wounds opens one): while it is open no health regenerates. Undressed for FESTER_AFTER (10 game
@@ -31,7 +33,9 @@ CHILL_CHANCE, 15 or more, or any freezing that night, a chill for sure ("Pip cau
 the night went (backend.survival.knocks).
 
 A gentle pet never has an ailment: nothing in W1 makes one, and `ailing` gives nothing without one. A
-crash in any of this is logged once and counts as nothing (wild.AILMENTS' guard is the tick's `tend`).
+crash in any of this is logged once and counts as nothing: the tick reads `ailing` once a vitals step through
+`ailing_now` (W1's final fix wave: a malformed ailment is no ailment) and hands it to `tend`, and `tend` and
+`tend_night` guard themselves.
 """
 
 from __future__ import annotations
@@ -68,6 +72,7 @@ CHILL_SURE = 15 * GAME_MINUTE  # a chill for sure
 CHILL_CHANCE = 0.6
 CHILL_CHANNEL = 205
 FLOOR_SLEEP = 5 * GAME_MINUTE  # asleep on the floor of a sheltered spot this long: a night on the floor
+BED_SLEEP = 5 * GAME_MINUTE  # asleep in a bed this long: a night that rested it ("rested")
 # W1: functions (state, context, summary, at) run at a wild pet's dawn with how its night went: {"cold" (game
 # seconds under CHILL_BELOW), "froze", "chill" (it caught one), "blows" (hostile blows that night), "floor" (a
 # night asleep on the floor of a sheltered spot)} (backend.survival.knocks). One that crashes is logged once.
@@ -158,6 +163,15 @@ def ailing(state: dict) -> Ailing | None:
                   mood=(SICK_MOOD if ailment else 0.0) + (FESTER_MOOD if festering else 0.0))
 
 
+def ailing_now(state: dict) -> Ailing | None:
+    """`ailing` for the tick's vitals step: a malformed ailment counts as nothing (logged once)."""
+    try:
+        return ailing(state)
+    except Exception as error:
+        log_once(logger, "ailing", error)
+        return None
+
+
 def lose(state: dict, health: float) -> None:
     """Count `health` a wild pet lost to its hazards (a sickness's or a festering wound's drain, a poison plant) in
     `state["wild"]["lost"]`."""
@@ -195,12 +209,11 @@ def heard(hooks: list, *args) -> None:
             log_once(logger, "ailments hook", error)
 
 
-def tend(state: dict, context, seconds: float, activity: str, at: float) -> None:
-    """After a vitals step of `seconds` game seconds: what its drain took is counted, the sickness runs its time
-    (a chill twice as fast while Mimo rests or sleeps warm), and a wound festers, closes or heals. A crash is
-    logged once and changes nothing."""
+def tend(state: dict, context, seconds: float, activity: str, at: float, ill: Ailing | None) -> None:
+    """After a vitals step of `seconds` game seconds that ailed as `ill` (the tick's `ailing_now`, read once):
+    what its drain took is counted, the sickness runs its time (a chill twice as fast while Mimo rests or sleeps
+    warm), and a wound festers, closes or heals. A crash is logged once and changes nothing."""
     try:
-        ill = ailing(state)  # what the vitals step just took
         if ill is not None:
             lose(state, ill.drain * seconds)
         found = sickness(state)
@@ -264,7 +277,7 @@ def dawn(state: dict, context, at: float) -> None:
         night["floor_nights"] += 1
     blows = night.get("night_blows", 0)
     name = state["name"]
-    if night.get("bed_sleep", 0.0) >= FLOOR_SLEEP:  # what shows the bed lesson true (teaching.SEEN_BY)
+    if night.get("bed_sleep", 0.0) >= BED_SLEEP:  # what shows the bed lesson true (teaching.SEEN_BY)
         context.events.append((at, "rested", f"{name} slept soundly in its bed."))
     if not blows and at_built_home(state, context):  # what shows the light lesson true
         context.events.append((at, "safe_night", f"{name} spent a quiet night at home."))
@@ -291,11 +304,11 @@ def eat_herb(step: dict, state: dict, at: float) -> tuple[str, str] | None:
         return None
     state["inventory"] = take_items(state["inventory"], {HERB: 1})
     state["vitals"]["hunger"] = min(100.0, state["vitals"]["hunger"] + HERB_HUNGER)
-    name = state["name"]
+    name, what = state["name"], step.get("seen_as") or HERB  # "a little yellow herb" to a pet that does not know it
     if cure(state):
         state["last_thought"] = "That's better. I feel well again."
-        return "cured", f"{name} ate sunleaf and felt better."
-    return "ate", f"{name} ate sunleaf."
+        return "cured", f"{name} ate {what} and felt better."
+    return "ate", f"{name} ate {what}."
 
 
 EATING.append(eat_herb)

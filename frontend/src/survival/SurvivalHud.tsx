@@ -108,11 +108,12 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
         <section className={`${PANEL} px-4 py-3 sm:w-80`} aria-label={`${life.name}'s day`}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-lg font-semibold leading-tight">
-                {life.name}
-                {badge && <span className="ml-2 rounded-md bg-[#e8d9b8] px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[#7a5a24]"
+              {/* W1's final fix wave: the badge sits beside the name, never inside its truncated line */}
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 truncate text-lg font-semibold leading-tight">{life.name}</p>
+                {badge && <span className="shrink-0 rounded-md bg-[#e8d9b8] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7a5a24]"
                   title="A wild pet learns to survive from you, or the hard way">{badge}</span>}
-              </p>
+              </div>
               <p className="text-xs text-[#54726e]">{dayLabel(clock.day_number, clock.phase)} · {clockTime(clock.seconds_into_day)}</p>
             </div>
             <SkyDial secondsIntoDay={clock.seconds_into_day} />

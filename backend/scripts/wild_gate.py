@@ -53,7 +53,6 @@ TEACHES = ("Red berries are safe to eat.", "Nightberries are the dark purple one
            "Cooked meat and fish are safe to eat.", "Food keeps twice as long in a chest.",
            "Torches keep the dark creatures away.", "A shelter with a roof and a door keeps you safe at night.",
            "Six planks make a bed.")
-MACHINES = ("lamp_lever", "auto_door", "night_light", "clock", "memory_cell", "counter", "computer")
 
 
 class Errors(logging.Handler):

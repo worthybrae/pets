@@ -6,25 +6,34 @@ with data {"ask": "wonder", "wonder", "chips" (their words, in a seeded shuffle)
 place in the wonder's own list), "yes_no", "answer": null, "closed": null}, and the same words are Mimo's line
 in the chat (teaching.say), through inbox.asking (the owner's name when Mimo knows it) and replies.in_my_voice.
 An "asked" event is logged ("Pip asked you whether red berries are safe to eat."). At most OPEN_MOST (3)
-questions are open at once, a new one comes ASK_GAP (5 game minutes) after the last, each wonder is asked once
-a life, and a gentle pet never asks. A question whose lessons Mimo comes to know another way (alone, or taught
-without being asked) closes as "figured" at the next chore; one answered in the chat closes as "taught".
+questions are open at once, a new one comes ASK_GAP (5 game minutes) after the last, and a gentle pet never
+asks. A question whose lessons Mimo comes to know another way (alone, or taught without being asked) closes as
+"figured" at the next chore; one answered in the chat closes as "taught".
+Set aside (the controller's ruling in W1's final fix wave: stale questions only the owner can answer were
+starving every later one): while OPEN_MOST are open and a newer wonder waits, the oldest open question, once it
+has been open more than STALE (a game day), closes as "set_aside" ("I stopped waiting on this one." in the
+viewer) and its wonder goes back to met and not asked, so it may be asked again later; a wonder is asked at most
+ASKED_MOST (2) times a life, and a set-aside wonder holds no taste back (backend.survival.wonders).
 
 Answering, always rules and always through Mind's teaching (teaching.teach_lesson: "from you", a told memory,
 and "You were right" later):
 1. A chip (`answer_question`, what POST /api/mimo/inbox/{id}/answer does with {"choice": n}): its lessons are
    taught at once in one short transaction, the question closes as "taught", "doubted" (a false chip: nothing
    is learned, "Hmm, I'm not sure that's right. I'll be careful.") or "noted" (a chip that teaches nothing), and
-   Mimo answers in the chat. LookupError for no such question, ValueError for one closed already or a choice out
-   of range, LifeOver when Mimo died (404, 400, 409). Only the chip's index is stored.
+   Mimo answers in the chat. inbox.NoSuchQuestion (a LookupError) for no such question, ValueError for one closed
+   already or a choice out of range, LifeOver when Mimo died (404, 400, 409). Only the chip's index is stored.
 2. Yes or no in the chat: while a yes-or-no question is open, an owner line that names no lesson's subject and
    opens with a yes-word or a no-word is read as the newest open one's yes-claim or no-claim
    (teaching.REWORDS: `reworded`). The owner's own words are still stored and shown as they are. Fix round 1
    (the controller's ruling): "ok", "okay" and "fine" are no yes-words, and a line that opens with an idiom
-   ("no idea", "not sure", "never mind", IDIOMS) never binds.
-3. Anything else is read by lessons.claims as ever: a lesson taught closes every open question it answers
-   (teaching.TAUGHT_HOOKS), and a claim doubted closes as "doubted" the open questions about what it names (the
-   chat's "answer" question and its keeper, `keep_answer`).
+   ("no idea", "not sure", "never mind", "don't worry", IDIOMS) never binds. W1's final fix wave: the line is
+   bound once, when it is heard (teaching's HEARING hook ANSWER records the question and its claim), and the
+   chat's "answer" keeper (`keep_answer`) closes only that question, while it is still open: "doubted" when its
+   claim is doubted, "taught" once what it taught is known. Bound again after the teach keeper had closed it,
+   one "yes" used to answer the next open question too.
+3. Anything else is read by lessons.claims as ever: a lesson taught closes the open questions it answers whose
+   lessons Mimo now all knows (teaching.TAUGHT_HOOKS; W1's final fix wave: never one that needs another lesson
+   too), and a claim doubted closes as "doubted" the open questions about what it names (`keep_answer`).
 A wrong answer never teaches: Mimo goes on as if nobody answered (it hesitates, and tastes only when it must).
 """
 
@@ -35,9 +44,9 @@ import logging
 import sqlite3
 
 from backend.survival.bond_tables import open_question_rows
-from backend.survival.clock import clock_at
+from backend.survival.clock import DAY_SECONDS, clock_at
 from backend.survival.goals import lower
-from backend.survival.inbox import asking, item_of, post_item
+from backend.survival.inbox import NoSuchQuestion, asking, item_of, post_item
 from backend.survival.journal import LESSONS
 from backend.survival.lessons import claims, lesson_keys, tokens, warned
 from backend.survival.pickers import Option
@@ -45,21 +54,23 @@ from backend.survival.replies import clip, in_my_voice
 from backend.survival.talk import KEEPERS, QUESTIONS, Question
 from backend.survival.talker import CHORES
 from backend.survival.nature import roll
-from backend.survival.teaching import REWORDS, TAUGHT_HOOKS, say, teach_lesson
+from backend.survival.teaching import ANSWER, REWORDS, TAUGHT_HOOKS, Reworded, say, teach_lesson
 from backend.survival.wild import BY_NAME, PREFIX, is_wild, thing, wild_state
-from backend.survival.wonders import OPEN_MOST, WONDERS, open_questions
+from backend.survival.wonders import OPEN_MOST, SET_ASIDE, WONDERS, open_questions
 from backend.survival.world import LifeOver, SurvivalWorld, log_event, read_state, write_state
 
 logger = logging.getLogger(__name__)
 
 ASK_GAP = 300.0  # game seconds between two questions
+ASKED_MOST = 2  # times a wonder is asked in a life (the final fix wave's ruling: once, and once more if set aside)
+STALE = DAY_SECONDS  # game seconds a question is open before a newer wonder may set it aside
 SHUFFLE_CHANNEL = 220
 # The controller's ruling (fix round 1): "ok", "okay" and "fine" are acknowledgements, not answers ("Ok, I'm
 # back!"), and a line that opens with one of IDIOMS never binds ("No idea" answers nothing).
 YES = ("yes", "yeah", "yep", "yup", "sure", "of course", "safe")
 NO = ("no", "nope", "nah", "don't", "dont", "never", "careful", "poison")
 IDIOMS = ("no idea", "no clue", "no problem", "no worries", "not sure", "don't know", "dont know", "never mind",
-          "nevermind")
+          "nevermind", "don't worry", "dont worry")
 DOUBTED = "Hmm, I'm not sure that's right. I'll be careful."
 NOTED = "Okay. Thanks for telling me."
 
@@ -75,7 +86,7 @@ def open_items(db: sqlite3.Connection) -> list[dict]:
 
 
 def close(db: sqlite3.Connection, state: dict, item: dict, how: str, now: float, answer: int | None = None) -> None:
-    """Close a question: "taught", "doubted", "noted" or "figured"."""
+    """Close a question: "taught", "doubted", "noted", "figured" or SET_ASIDE."""
     data = {**item["data"], "closed": how}
     if answer is not None:
         data["answer"] = answer
@@ -86,7 +97,8 @@ def close(db: sqlite3.Connection, state: dict, item: dict, how: str, now: float,
 
 
 def close_answered(db: sqlite3.Connection, state: dict, lessons: set[str], how: str, now: float) -> bool:
-    """Close as `how` every open question some of these lessons answer. True when one closed."""
+    """Close as `how` every open question some of these lessons answer (a claim doubted: `keep_answer`). True when
+    one closed."""
     closed = False
     for item in open_items(db):
         wonder = WONDERS.get(item["data"].get("wonder"))
@@ -109,8 +121,33 @@ def words_of(wonder_id: str, fill: str) -> str:
     return wonder.words.format(where=fill, food=fill, creature=fill)
 
 
+def asks_of(found: dict) -> int:
+    """How many times a wonder was asked (a save from before the final fix wave counts an asked one once)."""
+    return found.get("asks", 0 if found.get("asked_at") is None else 1)
+
+
+def set_aside(db: sqlite3.Connection, state: dict, waiting: list[tuple], now: float, scale: float) -> str | None:
+    """The ruling of W1's final fix wave: with OPEN_MOST questions open and a wonder newer than the oldest one's
+    waiting, that oldest question, open more than STALE, closes as SET_ASIDE and its wonder goes back to met and
+    not asked. The wonder set aside, or None."""
+    items = open_items(db)  # newest first
+    if len(items) < OPEN_MOST:
+        return None
+    oldest = items[-1]
+    wonder_id = oldest["data"].get("wonder")
+    found = wild_state(state)["wonders"].get(wonder_id)
+    if found is None or (now - oldest["at"]) * scale <= STALE:
+        return None
+    if not any(met > found["met_at"] for _, met, _ in waiting):  # no newer wonder waits
+        return None
+    close(db, state, oldest, SET_ASIDE, now)
+    found.update(asked_at=None, item=None)
+    return wonder_id
+
+
 def ask_wonders(db: sqlite3.Connection, state: dict, now: float, scale: float) -> bool:
-    """A chore: close what Mimo figured out, then ask the oldest wonder it met, within the caps."""
+    """A chore: close what Mimo figured out, set a stale question aside for a newer wonder, then ask the wonder
+    that waits longest (one never asked before one set aside), within the caps."""
     if not is_wild(state):
         return False
     known = known_lessons(db)
@@ -122,21 +159,27 @@ def ask_wonders(db: sqlite3.Connection, state: dict, now: float, scale: float) -
             changed = True
     wild = wild_state(state)
     last = wild.get("asked_at")
-    if open_questions(db) >= OPEN_MOST or (last is not None and (now - last) * scale < ASK_GAP):
+    if last is not None and (now - last) * scale < ASK_GAP:
         return changed
-    waiting = sorted((found["met_at"], wonder_id) for wonder_id, found in wild["wonders"].items()
-                     if wonder_id in WONDERS and found.get("asked_at") is None
+    waiting = sorted((asks_of(found), found["met_at"], wonder_id) for wonder_id, found in wild["wonders"].items()
+                     if wonder_id in WONDERS and found.get("asked_at") is None and asks_of(found) < ASKED_MOST
                      and not set(WONDERS[wonder_id].lessons) <= known)
+    if waiting and open_questions(db) >= OPEN_MOST:
+        aside = set_aside(db, state, waiting, now, scale)
+        if aside is None:
+            return changed
+        changed = True
+        waiting = [entry for entry in waiting if entry[2] != aside]  # the newer wonder is asked, not this one again
     if not waiting:
         return changed
-    wonder_id = waiting[0][1]
+    wonder_id = waiting[0][2]
     wonder, found = WONDERS[wonder_id], wild["wonders"][wonder_id]
     words = in_my_voice(words_of(wonder_id, found.get("fill", "")), state["name"])
     order = shuffled(state, wonder_id, now)
     data = {"ask": "wonder", "wonder": wonder_id, "chips": [wonder.chips[index].words for index in order],
             "order": order, "yes_no": bool(wonder.yes), "answer": None, "closed": None}
     text = asking(db, words)
-    found.update(asked_at=now, item=post_item(db, now, "ask", text, data))
+    found.update(asked_at=now, item=post_item(db, now, "ask", text, data), closed=None, asks=asks_of(found) + 1)
     wild["asked_at"] = now
     say(db, state, text, now, scale)
     log_event(db, now, "asked", f"{state['name']} asked you {wonder.asked}.")
@@ -164,7 +207,7 @@ def answer_question(world: SurvivalWorld, item_id: int, choice: int, now: float,
         row = db.execute("SELECT * FROM mimo_inbox WHERE id=?", (item_id,)).fetchone()
         item = item_of(row) if row is not None else None
         if item is None or item["kind"] != "ask" or item["data"].get("ask") != "wonder":
-            raise LookupError("No such question from Mimo")
+            raise NoSuchQuestion("No such question from Mimo")
         if item["data"].get("closed"):
             raise ValueError("That question is answered already.")
         order = item["data"].get("order") or []
@@ -193,9 +236,16 @@ def answer_question(world: SurvivalWorld, item_id: int, choice: int, now: float,
 
 
 def taught(db: sqlite3.Connection, state: dict, lesson_thing: str, now: float) -> None:
-    """teaching.TAUGHT_HOOKS: a survival lesson taught closes every open question it answers."""
-    if lesson_thing.startswith(PREFIX):
-        close_answered(db, state, {lesson_thing[len(PREFIX):]}, "taught", now)
+    """teaching.TAUGHT_HOOKS: a survival lesson taught closes, as "taught", every open question it answers whose
+    lessons Mimo now all knows (W1's final fix wave: never one that needs another lesson too, as the figured
+    close in `ask_wonders`; a chip or a bare yes or no closes the question it answered itself)."""
+    if not lesson_thing.startswith(PREFIX):
+        return
+    name, known = lesson_thing[len(PREFIX):], known_lessons(db)
+    for item in open_items(db):
+        wonder = WONDERS.get(item["data"].get("wonder"))
+        if wonder is not None and name in wonder.lessons and set(wonder.lessons) <= known:
+            close(db, state, item, "taught", now)
 
 
 TAUGHT_HOOKS.append(taught)
@@ -236,10 +286,10 @@ def bound(db: sqlite3.Connection | None, text: str) -> tuple[dict, str] | None:
     return None
 
 
-def reworded(db: sqlite3.Connection, s, heard) -> str | None:
-    """teaching.REWORDS: a bare yes or no, read as the open yes-or-no question's claim."""
+def reworded(db: sqlite3.Connection, s, heard) -> Reworded | None:
+    """teaching.REWORDS: a bare yes or no, read as the open yes-or-no question's claim, with that question."""
     found = bound(db, heard.text) if is_wild(s.state) else None
-    return found[1] if found else None
+    return Reworded(found[1], found[0]["id"]) if found else None
 
 
 REWORDS.append(reworded)
@@ -262,16 +312,26 @@ def answer_asked(s, heard) -> Question | None:
 
 
 def keep_answer(db: sqlite3.Connection, state: dict, heard, question: Question, pick: str, now: float) -> str | None:
-    """The "answer" keeper: a claim doubted closes the open questions about what it names as "doubted", with Mimo's
-    careful line."""
-    found = bound(db, heard.text)
-    text = found[1] if found else heard.text
-    if not claims(text).doubtful:
+    """The "answer" keeper. A bare yes or no answers the question it was bound to when the line was heard
+    (teaching's HEARING hook ANSWER), never one bound again here, after the teach keeper may have closed it: that
+    question, while it is still open, closes as "doubted" with Mimo's careful line when its claim is doubted, or
+    as "taught" once a lesson the claim teaches is known. Any other claim doubted closes the open questions about
+    what it names as "doubted", with the careful line."""
+    found = heard.context.get(ANSWER)
+    if isinstance(found, Reworded) and found.item is not None:
+        item = next((item for item in open_items(db) if item["id"] == found.item), None)
+        if item is None:
+            return None
+        verdict = claims(found.text)
+        if verdict.doubtful:
+            close(db, state, item, "doubted", now)
+            return DOUBTED
+        if {thing(name) for name in known_lessons(db)} & set(verdict.taught):
+            close(db, state, item, "taught", now)
         return None
-    about = named_lessons(text)
-    if found is not None:
-        close(db, state, found[0], "doubted", now)
-        return DOUBTED
+    if not claims(heard.text).doubtful:
+        return None
+    about = named_lessons(heard.text)
     return DOUBTED if about and close_answered(db, state, about, "doubted", now) else None
 
 

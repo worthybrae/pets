@@ -38,7 +38,10 @@ UNREAD_LISTED), then the newest read ones, so opening the inbox can always clear
 W1 fix round 1: an open question of Mimo's (bond_tables.OPEN_QUESTION, at most wonders.OPEN_MOST) is never
 pruned, as a waiting naming ask is not: a wild pet posts about 90 items its first game day, and a question
 pruned unanswered would never be asked again. Words to the owner by name go on in lower case ("Sam, the floor
-is so hard to sleep on."), but for "I".
+is so hard to sleep on."), but for "I". W1's final fix wave: the inbox lists every open question with the unread
+items, read or not (the panel marks all it lists read, so a question read once dropped out of the newest
+ITEMS_SHOWN read ones after that many more items, its chips out of reach while the HUD's "? n" still counted
+it); no such ask or question is NoSuchQuestion, never any other LookupError (the API's 404).
 """
 
 from __future__ import annotations
@@ -83,6 +86,11 @@ WAITING_ASK = "kind = 'ask' AND json_extract(data, '$.ask') = 'name' AND json_ex
 PRUNABLE = f"kind != '{STORY}' AND NOT ({WAITING_ASK}) AND NOT ({OPEN_QUESTION})"
 
 
+class NoSuchQuestion(LookupError):
+    """No naming ask or question of Mimo's has that id (the answer endpoint's 404; W1's final fix wave: a KeyError
+    inside an answer is a bug, a 500, never "no such question")."""
+
+
 def post_item(db: sqlite3.Connection, at: float, kind: str, text: str, data: dict | None = None) -> int:
     """Put a message in the inbox; past ITEMS_KEPT (stories, naming asks still waiting and open questions
     aside) the oldest go, the read ones first (I7)."""
@@ -113,13 +121,13 @@ def inbox_items(db: sqlite3.Connection, limit: int = ITEMS_SHOWN, unread_only: b
 
 
 def inbox_listing(db: sqlite3.Connection) -> list[dict]:
-    """What the inbox panel lists (N1): every unread item, newest first (at most UNREAD_LISTED), then the
-    newest ITEMS_SHOWN read ones. A world from before the inbox has none."""
+    """What the inbox panel lists (N1): every unread item and (W1) every open question of Mimo's, newest first (at
+    most UNREAD_LISTED), then the newest ITEMS_SHOWN other read ones. A world from before the inbox has none."""
     try:
-        fresh = db.execute("SELECT * FROM mimo_inbox WHERE read_at IS NULL ORDER BY id DESC LIMIT ?",
-                           (UNREAD_LISTED,)).fetchall()
-        seen = db.execute("SELECT * FROM mimo_inbox WHERE read_at IS NOT NULL ORDER BY id DESC LIMIT ?",
-                          (ITEMS_SHOWN,)).fetchall()
+        fresh = db.execute(f"SELECT * FROM mimo_inbox WHERE read_at IS NULL OR ({OPEN_QUESTION}) ORDER BY id DESC "
+                           "LIMIT ?", (UNREAD_LISTED,)).fetchall()
+        seen = db.execute(f"SELECT * FROM mimo_inbox WHERE read_at IS NOT NULL AND NOT ({OPEN_QUESTION}) ORDER BY id "
+                          "DESC LIMIT ?", (ITEMS_SHOWN,)).fetchall()
     except sqlite3.OperationalError as error:
         if not missing_table(error):
             raise
@@ -269,7 +277,7 @@ CHORES.extend([ask_for_care, ask_to_name])  # after the mirrors, which are the T
 
 
 def name_place(world: SurvivalWorld, item_id: int, text: str, now: float, scale: float = 1.0) -> dict:
-    """The owner names the place a naming ask is about. Raises LookupError for no such ask,
+    """The owner names the place a naming ask is about. Raises NoSuchQuestion for no such ask,
     ValueError for a name that is not 1 to NAME_LIMIT letters, digits, spaces, ' or -, or an ask
     already answered, and LifeOver when Mimo died. Returns the item. Bond's final fix wave: a name far too
     long is refused before it is cleaned (m9); the fact reads "a lake south of home, called Echo Hollow"
@@ -286,7 +294,7 @@ def name_place(world: SurvivalWorld, item_id: int, text: str, now: float, scale:
         row = db.execute("SELECT * FROM mimo_inbox WHERE id=?", (item_id,)).fetchone()
         item = item_of(row) if row is not None else None
         if item is None or item["kind"] != "ask" or item["data"].get("ask") != "name":
-            raise LookupError("No such question from Mimo")
+            raise NoSuchQuestion("No such question from Mimo")
         if item["data"].get("answer"):
             raise ValueError("That place already has a name.")
         place = item["data"]["place"]

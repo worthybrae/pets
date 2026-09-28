@@ -19,6 +19,7 @@ export const SHIVER_SECONDS = 0.4
 const SOURCES: Record<string, string> = { from_you: 'from you', figured: 'worked it out', from_start: 'knew from the start' }
 const CLOSED: Record<string, string> = {
   taught: 'You told me', noted: 'You told me', doubted: 'Not sure about that one', figured: 'I figured it out',
+  set_aside: 'I stopped waiting on this one.',  // W1's final fix wave: a stale question a newer one replaced
 }
 
 /** "Tummy ache · 7 min", "Chill · 18 min", "Wound festering", together when there is more than one; null when well. */
@@ -45,7 +46,8 @@ export function canAnswer(item: InboxItem): boolean {
   return item.kind === 'ask' && item.data.ask === 'wonder' && !item.data.closed && (item.data.chips?.length ?? 0) > 0
 }
 
-/** How a closed question reads: "You told me", "Not sure about that one" or "I figured it out"; '' while open. */
+/** How a closed question reads: "You told me", "Not sure about that one", "I figured it out" or, set aside, "I stopped
+ * waiting on this one."; '' while open. */
 export function closedLine(item: InboxItem): string {
   return item.data.closed ? CLOSED[item.data.closed] ?? '' : ''
 }

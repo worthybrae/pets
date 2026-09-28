@@ -10,16 +10,20 @@ contents in `state["chests"]` (a key inside a chest's own dict would read as an 
 a game minute of the newest lot (its wear no more than a minute's) joins it; a fourth lot merges into the
 oldest. Eating, dropping, crafting and cooking take the most worn food first, and so do storing and taking,
 which carry their lots across (`observe_lots`, after each finished step: steps.OBSERVERS). The lots of an item
-always add up to its count: `settle_lots`, after each vitals step and each finished step, repairs any gap
-toward the count (new food is fresh, food gone takes the most worn first), so a path that moves food without
-a step (the owner's help, what a full pair of arms leaves behind) never leaves them out of step.
+always add up to its count: `settle_lots` repairs any gap toward the count (new food is fresh, food gone takes
+the most worn first), so a path that moves food without a step (the owner's help, what a full pair of arms
+leaves behind) never leaves them out of step: Mimo's own after each vitals step and each finished step, a chest's
+after a step that stored in it or took from it, and every chest's once a game minute, just before they age (W1's
+final fix wave: not every chest on every step).
 
 The tick ages Mimo's lots every vitals step and its chests' once a game minute (`age`). A lot that reaches
-wear 1 becomes that many `spoiled_food` ("Pip's raw beef went bad.", a "spoiled" event), in its arms or its
-chest; SPOILS then hears of it (backend.survival.knocks). Spoiled food fills 4 hunger and gives a tummy ache 6
-times in 10 (backend.survival.meals). A pet that knows `wild:keeping` throws it out, cooks raw food before it
-turns (cook scores 20 more while raw food it carries is past half its shelf life) and puts spare food in its
-chest; one that does not eats spoiled food when hungry with nothing else, and keeps its spare food on it.
+wear 1 becomes that many `spoiled_food` ("Pip's raw beef went bad.", a "spoiled" event; nightberries are "red
+berries" to a pet that does not know them), in its arms or its chest; SPOILS then hears of it
+(backend.survival.knocks). Spoiled food fills 4 hunger and gives a tummy ache 6 times in 10
+(backend.survival.meals). A pet that knows `wild:keeping` throws it out (into the composter at home, when one
+stands there), cooks raw food before it turns (cook scores 20 more while raw food it carries is past half its
+shelf life) and puts spare food in its chest; one that does not eats spoiled food when hungry with nothing
+else, and keeps its spare food on it.
 
 A gentle pet never has a lot: every function here leaves a gentle pet's state alone. A crash is logged once
 and changes nothing.
@@ -32,7 +36,7 @@ import logging
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.once import log_once
 from backend.survival.steps import OBSERVERS, label
-from backend.survival.wild import LOOKS_LIKE, is_wild
+from backend.survival.wild import LESSON, LOOKS_LIKE, is_wild, thing
 
 logger = logging.getLogger(__name__)
 
@@ -119,34 +123,38 @@ def settle(lots_of: dict, items: dict) -> bool:
     return changed
 
 
-def settle_lots(state: dict) -> None:
-    """Every lot of a wild pet in step with the food it carries and its chests hold."""
+def settle_chest(state: dict, key: str) -> None:
+    """The lots of the chest at `key` in step with what it holds; none for a chest that is gone or holds none."""
+    kept = state.setdefault("chest_lots", {})
+    items = state.get("chests", {}).get(key)
+    if items is None:
+        kept.pop(key, None)
+    elif any(item in PERISHABLE for item in items) or key in kept:
+        settle(chest_lots(state, key), items)
+        if not kept.get(key):
+            kept.pop(key, None)
+
+
+def settle_lots(state: dict, chests: bool = True) -> None:
+    """Every lot of a wild pet in step with the food it carries and (`chests`) its chests hold."""
     if not is_wild(state):
         return
     settle(arms_lots(state), state.get("inventory", {}))
-    chests = state.get("chests", {})
-    kept = state.setdefault("chest_lots", {})
-    for key in list(kept):
-        if key not in chests:
-            del kept[key]
-    for key, items in chests.items():
-        if any(item in PERISHABLE for item in items) or key in kept:
-            settle(chest_lots(state, key), items)
-            if not kept.get(key):
-                kept.pop(key, None)
+    if chests:
+        for key in {*state.get("chest_lots", {}), *state.get("chests", {})}:
+            settle_chest(state, key)
 
 
 def observe_lots(state: dict, step: dict, context, at: float) -> None:
-    """steps.OBSERVERS: a store or take step carries its food's lots across, the most worn first; then every
-    lot is settled. A crash is logged once."""
+    """steps.OBSERVERS: a store or take step carries its food's lots across, the most worn first; then Mimo's
+    lots and that chest's are settled (the other chests wait for their minute: `age`). A crash is logged once."""
     if not is_wild(state):
         return
     try:
-        item = step.get("item")
-        if (step["kind"] in ("store", "take") and item in PERISHABLE and isinstance(step.get("target"), dict)
-                and not step.get("away")):  # food taken out and left behind at once needs no lots
-            target = step["target"]
+        item, target, key = step.get("item"), step.get("target"), None
+        if step["kind"] in ("store", "take") and isinstance(target, dict):
             key = f"{target['x']},{target['y']},{target['z']}"
+        if key is not None and item in PERISHABLE and not step.get("away"):  # food left behind at once has no lots
             arms, chest = arms_lots(state), chest_lots(state, key)
             carried = state["inventory"].get(item, 0)
             if step["kind"] == "store":
@@ -162,7 +170,9 @@ def observe_lots(state: dict, step: dict, context, at: float) -> None:
                 for count, wear in taken:
                     lots = add(lots, count, wear, item)
                 sink[item] = lots
-        settle_lots(state)
+        settle_lots(state, chests=False)
+        if key is not None:
+            settle_chest(state, key)
     except Exception as error:
         log_once(logger, "lots", error)
 
@@ -196,12 +206,23 @@ def spoil(lots_of: dict, items: dict, rate: float, seconds: float) -> dict[str, 
     return spoiled
 
 
+def seen_as(context, item: str) -> str:
+    """What Mimo calls `item` (W1's final fix wave): what it looks like while Mimo cannot tell it apart (nightberries
+    are red berries until it knows `wild:nightberries`; a context with no memory reads as not knowing)."""
+    db = getattr(context, "db", None)
+    if item not in LOOKS_LIKE or (db is not None and db.execute(
+            "SELECT 1 FROM memory_knowledge WHERE subject=? AND fact=?", (thing(item), LESSON)).fetchone()):
+        return label(item)
+    return label(LOOKS_LIKE[item])
+
+
 def went_bad(state: dict, context, spoiled: dict[str, int], where: str, at: float) -> None:
     name = state["name"]
     for item, count in spoiled.items():
         state.setdefault("wild", {})["last_spoiled"] = item
-        context.events.append((at, "spoiled", f"{name}'s {label(item)} went bad."))
-        state["last_thought"] = f"Yuck, my {label(LOOKS_LIKE.get(item, item))} went bad."  # as Mimo sees it
+        words = seen_as(context, item)
+        context.events.append((at, "spoiled", f"{name}'s {words} went bad."))
+        state["last_thought"] = f"Yuck, my {words} went bad."  # as Mimo sees it
         for hears in SPOILS:
             try:
                 hears(state, context, item, count, where, at)
@@ -215,11 +236,12 @@ def age(state: dict, context, seconds: float, at: float) -> None:
     if not is_wild(state):
         return
     try:
-        settle_lots(state)
+        settle_lots(state, chests=False)
         went_bad(state, context, spoil(arms_lots(state), state["inventory"], 1.0, seconds), "arms", at)
         clock = state.setdefault("wild", {})
         waited = clock.get("chests_aged", 0.0) + seconds
         if waited >= CHEST_EVERY:
+            settle_lots(state)  # every chest's lots, once a game minute, before they age
             for key, lots_of in list(state.get("chest_lots", {}).items()):
                 chest = state.get("chests", {}).get(key)
                 if chest is not None:

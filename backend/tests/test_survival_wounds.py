@@ -34,7 +34,7 @@ def wild_pet(**changes):
 def after(state, seconds, step=30.0):
     context = SimpleNamespace(events=[], db=None)
     for _ in range(int(seconds / step)):
-        tend(state, context, step, "working", 0.0)
+        tend(state, context, step, "working", 0.0, ailing(state))
     return context.events
 
 

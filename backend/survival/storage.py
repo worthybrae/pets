@@ -386,7 +386,7 @@ def to_clear(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
         if stacks(chest) < CHEST_STACKS:
             continue
         for item in sorted(chest):
-            if item in RUBBLE or item in HOARDED or item in s.poisons:
+            if item in RUBBLE or item in HOARDED or item in s.discards:  # W1: never the berries it only shuns
                 amount = chest[item] - keep.get((cell, item), 0)
                 while amount > 0 and len(found) < CLEAR_STACKS:
                     part = amount % STACK or STACK
@@ -630,7 +630,7 @@ def spare_torches(s: Situation) -> list[tuple[str, int]]:
 def junk(s: Situation) -> list[tuple[str, int]]:
     """(item, amount) that is no use to carry: known poison, replaced tools and swords, flowers; and, full with
     no chest to use, loose blocks (loose_blocks)."""
-    found = [(item, s.inventory[item]) for item in s.poisons if s.inventory.get(item, 0) > 0]
+    found = [(item, s.inventory[item]) for item in s.discards if s.inventory.get(item, 0) > 0]  # W1: not shunned
     best = max((TOOL_RANK[tool] for tool in TOOL_RANK if s.count(tool)), default=0)
     found += [(tool, s.count(tool)) for tool, rank in TOOL_RANK.items() if s.count(tool) and rank < best]
     axes = [axe for axe in AXES if s.count(axe)]

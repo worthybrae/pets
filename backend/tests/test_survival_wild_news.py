@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every hook registered)
 from backend.survival import bonding, minding  # noqa: F401  (every writer registered)
@@ -14,10 +15,12 @@ from backend.survival.hatch import hatch
 from backend.survival.inbox import inbox_items
 from backend.survival.memory import BUILT, create_memory_tables, set_home
 from backend.survival.registry import LifeRegistry
+from backend.survival.steps import finish_step, start_step
 from backend.survival.talker import run_chores
 from backend.survival.teaching import confirms, teach_lesson
 from backend.survival.wild import thing
 from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
+from backend.tests.test_survival_cooking import meadow
 
 BORN = 1_000_000.0
 
@@ -82,6 +85,36 @@ class NewsTests(unittest.TestCase):
         self.assertFalse(confirms("gravel", "ate"))  # the other lessons keep their seeing kinds
 
 
+class GentleTests(unittest.TestCase):
+    def test_a_gentle_pet_that_falls_sick_posts_nothing_new(self):
+        # The final fix wave (3): a gentle pet still logs "sick" (raw chicken, a first red mushroom) as today's game
+        # does, and Mind keeps it as it always did; W1's danger news and its bookkeeping are a wild pet's only.
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            world = SurvivalWorld(registry.world_path(hatch(registry, random.Random(8), timestamp=BORN)))
+            run_chores(world, BORN, 1.0)  # the mirrors start at the newest event
+            with world.connect() as db:
+                before = [(item["kind"], item["text"]) for item in inbox_items(db)]
+            with world.transaction() as db:
+                state = read_state(db)
+                state["inventory"] = {"raw_chicken": 1}
+                grid = meadow()
+                with patch("backend.survival.nature.roll", return_value=0.0):  # raw chicken's gamble lost
+                    kind, text = finish_step(start_step({"kind": "eat", "item": "raw_chicken"}, state, grid, BORN + 5),
+                                             state, grid, BORN + 6)
+                log_event(db, BORN + 6, kind, text)
+                write_state(db, state)
+            run_chores(world, BORN + 60, 1.0)
+            with world.connect() as db:
+                after = [(item["kind"], item["text"]) for item in inbox_items(db)]
+                remembered = db.execute("SELECT COUNT(*) FROM mind_memories WHERE source='sick'").fetchone()[0]
+            state = world.state()
+        self.assertEqual((kind, state["difficulty"]), ("sick", "gentle"))
+        self.assertEqual(after, before)
+        self.assertNotIn("ailments_told", state.get("bond") or {})
+        self.assertEqual(remembered, 1)
+
+
 class DawnEventTests(unittest.TestCase):
     def test_a_night_in_a_bed_and_a_quiet_night_at_home_are_logged_at_dawn(self):
         db = sqlite3.connect(":memory:")
@@ -94,6 +127,17 @@ class DawnEventTests(unittest.TestCase):
             tend_night(state, context, 60.0, ("night", "night"), "sleeping_in_bed", True, 1.0)
         tend_night(state, context, 1.0, ("pre_dawn", "dawn"), "idle", True, 2.0)
         self.assertEqual([kind for _, kind, _ in context.events], ["rested", "safe_night"])
+
+    def test_a_rested_night_is_counted_by_its_own_constant(self):
+        # Carried item 7: the bed's counter had borrowed FLOOR_SLEEP, the floor's; it has BED_SLEEP of its own.
+        state = {"name": "Pip", "world_seed": "1", "position": {"x": 1.0, "y": 1.0, "z": 0.0}, "difficulty": "wild",
+                 "vitals": {"warmth": 80.0}}
+        context = SimpleNamespace(db=None, events=[])
+        with patch("backend.survival.ailments.FLOOR_SLEEP", 10 ** 9):
+            for _ in range(10):
+                tend_night(state, context, 60.0, ("night", "night"), "sleeping_in_bed", True, 1.0)
+            tend_night(state, context, 1.0, ("pre_dawn", "dawn"), "idle", True, 2.0)
+        self.assertEqual([kind for _, kind, _ in context.events], ["rested"])
 
 
 if __name__ == "__main__":

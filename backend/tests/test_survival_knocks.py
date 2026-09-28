@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every observer and hook registered)
-from backend.survival.knocks import KNOCKS, OWNER_ONLY, after_step, at_dawn, blown, knock, spoils, sure
+from backend.survival import knocks
+from backend.survival.knocks import KNOCKS, OWNER_ONLY, after_step, at_dawn, blown, knock, knows_lesson, spoils, sure
 from backend.survival.memory import create_memory_tables, know
 from backend.survival.vitals import START_VITALS
 from backend.survival.wild import survival_view, thing, wild_state
@@ -111,6 +112,16 @@ class WhereKnocksAreHeardTests(unittest.TestCase):
             blown(scene, 3.0, "gloomling")
         for name in ("fire", "shelter", "bed", "keeping", "light"):
             self.assertTrue(knows(context, name), name)
+
+    def test_a_red_mushroom_eaten_teaches_it_whatever_marks_the_step(self):
+        # Carried item 6: a wild pet's red mushroom always makes it sick (meals.POISONOUS), so the sure knock reads no
+        # mark; `knows_lesson` is the renamed `known`, which shadowed memory.known. The final fix wave (8): the
+        # LEARNED hook nothing registered is gone.
+        state, context = world()
+        self.assertFalse(knows_lesson(context.db, "red_mushroom"))
+        after_step(state, {"kind": "eat", "item": "red_mushroom"}, context, 1.0)
+        self.assertTrue(knows_lesson(context.db, "red_mushroom"))
+        self.assertFalse(hasattr(knocks, "LEARNED") or hasattr(knocks, "known"))
 
 
 if __name__ == "__main__":

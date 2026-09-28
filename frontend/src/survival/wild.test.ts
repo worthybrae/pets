@@ -45,6 +45,13 @@ describe('wild', () => {
     expect(closedLine(question({ ask: 'wonder' }))).toBe('')
   })
 
+  it('shows a question set aside as closed, with no chips (the final fix wave)', () => {
+    const aside = question({ ask: 'wonder', chips: ['Six planks make a bed.', "You'll get used to it."],
+      closed: 'set_aside' })
+    expect(closedLine(aside)).toBe('I stopped waiting on this one.')
+    expect(canAnswer(aside)).toBe(false)
+  })
+
   it('lists the survival lessons with their sources, the unknown ones as "?", and tallies them', () => {
     expect(survivalEntries(LESSONS).map((entry) => [entry.line, entry.source])).toEqual([
       ['Bright red berries are safe to eat.', 'from you'], ['Two logs and three sticks make a campfire.', 'worked it out'],

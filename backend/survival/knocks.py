@@ -29,9 +29,9 @@ way in.
 
 The knocks are heard where they happen: finished steps (steps.OBSERVERS: eating, smelting), blows
 (harm.BLOWS), dawn (ailments.DAWN) and spoiled food (spoilage.SPOILS). Learning the difference between the red
-berries lifts their shun at once. Only a wild pet has knocks; a gentle pet knows every lesson already.
-LEARNED hears of each lesson worked out (the questions Mimo asked close as "figured out":
-backend.survival.questions). A crash is logged once and teaches nothing.
+berries lifts their shun at once. Only a wild pet has knocks; a gentle pet knows every lesson already. The
+questions Mimo asked about a lesson it worked out close as "figured out" at the Talker's next chore
+(backend.survival.questions.ask_wonders). A crash is logged once and teaches nothing.
 """
 
 from __future__ import annotations
@@ -56,8 +56,6 @@ logger = logging.getLogger(__name__)
 
 KNOCK_CHANNEL = 206  # and one more for each lesson, in the table's order (206 to 216)
 OWNER_ONLY = ("sunleaf", "bandage")  # never learned alone: only the owner teaches them
-# W1: functions (db, state, name, at) run when Mimo works a survival lesson out alone. One that crashes is logged once.
-LEARNED: list = []
 
 
 @dataclass(frozen=True)
@@ -73,7 +71,8 @@ KNOCKS: dict[str, Knock] = {
 }
 
 
-def known(db: sqlite3.Connection, name: str) -> bool:
+def knows_lesson(db: sqlite3.Connection, name: str) -> bool:
+    """Mimo knows the survival lesson `name` (memory.known reads a fact's subjects; this one lesson's row)."""
     return db.execute("SELECT 1 FROM memory_knowledge WHERE subject=? AND fact=?", (thing(name), FACT)).fetchone() is not None
 
 
@@ -96,17 +95,12 @@ def figure(state: dict, db: sqlite3.Connection, events: list, at: float, name: s
     state["last_thought"] = f"I worked it out: {lesson.figured}!"
     if name == "nightberries":
         wild_state(state)["shun"].pop("red_berries", None)  # it knows the difference now
-    for learned in LEARNED:
-        try:
-            learned(db, state, name, at)
-        except Exception as error:
-            log_once(logger, "learned alone", error)
     return True
 
 
 def knock(state: dict, db: sqlite3.Connection | None, events: list, at: float, name: str) -> bool:
     """A knock for the lesson `name`: rolled for at its growing chance. True when it taught the lesson."""
-    if not is_wild(state) or db is None or name not in KNOCKS or known(db, name):
+    if not is_wild(state) or db is None or name not in KNOCKS or knows_lesson(db, name):
         return False
     rule = KNOCKS[name]
     counts = wild_state(state)["knocks"]
@@ -145,11 +139,11 @@ def after_step(state: dict, step: dict, context, at: float) -> None:
             guarded(lambda: sure(state, db, events, at, "berries"))
         elif item == "nightberries":
             guarded(lambda: knock(state, db, events, at, "nightberries"))
-        elif item == RED_MUSHROOM and step.get("sick"):
+        elif item == RED_MUSHROOM:  # always a sickness (meals.POISONOUS)
             guarded(lambda: sure(state, db, events, at, "red_mushroom"))
         elif item == SPOILED and step.get("sick"):
             guarded(lambda: knock(state, db, events, at, "keeping"))
-        elif step.get("raw") and step.get("sick") and db is not None and known(db, "fire"):
+        elif step.get("raw") and step.get("sick") and db is not None and knows_lesson(db, "fire"):
             guarded(lambda: knock(state, db, events, at, "cooking"))
     elif step["kind"] == "smelt":
         guarded(lambda: sure(state, db, events, at, "fire"))

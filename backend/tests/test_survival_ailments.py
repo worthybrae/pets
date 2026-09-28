@@ -5,14 +5,18 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every purpose and reflex registered)
-from backend.survival.ailments import AILMENTS, ailing, ailments_view, fall_sick, sickness, tend
+from backend.survival import ailments
+from backend.survival.ailments import AILMENTS, HERB_HUNGER, ailing, ailments_view, fall_sick, sickness, tend
 from backend.survival.hatch import hatch
 from backend.survival.memory import know
+from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES, is_valid
 from backend.survival.reflexes import by_name
 from backend.survival.registry import LifeRegistry
+from backend.survival.replies import in_my_voice
 from backend.survival.snapshot import survival_view
 from backend.survival.steps import finish_step, start_step
 from backend.survival.tick import death_words, tick_life
@@ -36,9 +40,10 @@ def run(state, seconds, activity="working", step=10.0):
     """Vitals and the sickness's time for `seconds` game seconds, in steps like the tick's."""
     events = []
     for _ in range(int(seconds / step)):
+        ill = ailing(state)
         state["vitals"], cause = step_vitals(state["vitals"], step, night=False, activity=activity, surroundings=QUIET,
-                                             ailing=ailing(state))
-        tend(state, SimpleNamespace(events=events, db=None), step, activity, 0.0)
+                                             ailing=ill)
+        tend(state, SimpleNamespace(events=events, db=None), step, activity, 0.0, ill)
         if cause:
             return cause
     return None
@@ -130,7 +135,8 @@ class SunleafTests(unittest.TestCase):
         self.assertTrue(is_valid(PURPOSES["nibble"], s))
         self.assertFalse(is_valid(PURPOSES["find_herb"], s))
         self.assertEqual(PURPOSES["nibble"].plan(s, None)[-2:],
-                         [{"kind": "pick", "target": [10, 1, 0]}, {"kind": "eat", "item": "sunleaf"}])
+                         [{"kind": "pick", "target": [10, 1, 0]},
+                          {"kind": "eat", "item": "sunleaf", "seen_as": "a little yellow herb"}])
         know(s.db, thing("sunleaf"), "lesson", 0.0)
         taught = situation({}, grid)
         taught.state.update(difficulty="wild", ailments=s.state["ailments"])
@@ -138,6 +144,21 @@ class SunleafTests(unittest.TestCase):
         self.assertTrue(is_valid(PURPOSES["find_herb"], taught))
         self.assertFalse(is_valid(PURPOSES["nibble"], taught))
         self.assertEqual(PURPOSES["find_herb"].score(taught), 75.0)
+
+    def test_an_untaught_nibble_names_a_little_yellow_herb_and_fills_two_hunger(self):
+        # The final fix wave (7): Mimo cannot name an herb it does not know, in the log nor in its memory's words;
+        # carried item 3: a sunleaf fills HERB_HUNGER.
+        grid = meadow({(1, 1, 0): "sunleaf"})
+        s = situation({}, grid, 50.0)
+        s.state["difficulty"] = "wild"
+        fall_sick(s.state, "tummy", 0.0)
+        s.state["ailments"]["sick"]["nibble"] = True
+        eat = PURPOSES["nibble"].plan(s, None)[-1]
+        s.state["inventory"]["sunleaf"] = 1  # picked
+        kind, text = finish_step(start_step(eat, s.state, grid, 0.0), s.state, grid, 1.6)
+        self.assertEqual((kind, text), ("cured", "Pip ate a little yellow herb and felt better."))
+        self.assertEqual(in_my_voice(text, "Pip"), "I ate a little yellow herb and felt better.")
+        self.assertEqual(s.state["vitals"]["hunger"], 50.0 + HERB_HUNGER)
 
     def test_a_pet_that_knows_sunleaf_carries_two(self):
         grid = meadow({(3, 1, 0): "sunleaf", (5, 1, 0): "sunleaf", (7, 1, 0): "sunleaf"})
@@ -152,6 +173,46 @@ class SunleafTests(unittest.TestCase):
 
 
 class StreamTests(unittest.TestCase):
+    def test_a_malformed_ailment_counts_as_nothing_in_the_tick_and_is_logged_once(self):
+        # The final fix wave (10): the tick reads `ailing` guarded, so a broken save never stops the world.
+        forget_logged()
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            life = hatch(registry, random.Random(8), timestamp=BORN, difficulty="wild")
+            world = SurvivalWorld(registry.world_path(life))
+            with world.transaction() as db:
+                state = read_state(db)
+                state["ailments"] = {"sick": None, "wound": {"since": BORN}}  # no age, no festering
+                write_state(db, state)
+            with self.assertLogs("backend.survival.ailments", "ERROR") as logged:
+                state = tick_life(registry, BORN + 120, scale=1.0)
+        self.assertEqual(state["last_tick_at"], BORN + 120)
+        self.assertEqual(len([line for line in logged.output if "ailing crashed" in line]), 1)
+
+    def test_the_tick_reads_what_ails_mimo_once_a_vitals_step(self):
+        # Carried item 3: `ailing` was read twice a vitals step, by the tick and again by `tend`.
+        counted = {"ailing": 0, "tend": 0}
+
+        def counting(name, real):
+            def wrapper(*args):
+                counted[name] += 1
+                return real(*args)
+            return wrapper
+
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            life = hatch(registry, random.Random(8), timestamp=BORN, difficulty="wild")
+            world = SurvivalWorld(registry.world_path(life))
+            with world.transaction() as db:
+                state = read_state(db)
+                fall_sick(state, "tummy", BORN)
+                write_state(db, state)
+            with patch("backend.survival.ailments.ailing", counting("ailing", ailments.ailing)), \
+                    patch("backend.survival.ailments.tend", counting("tend", ailments.tend)):
+                tick_life(registry, BORN + 120, scale=1.0)
+        self.assertGreater(counted["tend"], 0)
+        self.assertEqual(counted["ailing"], counted["tend"])
+
     def test_api_mimo_shows_the_sickness_and_the_tick_runs_it(self):
         with tempfile.TemporaryDirectory() as root:
             registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")

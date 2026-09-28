@@ -4,6 +4,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every purpose registered)
@@ -13,10 +14,10 @@ from backend.survival.clock import DAY_SECONDS
 from backend.survival.cooking import cook_score
 from backend.survival.hatch import hatch
 from backend.survival.meals import wild_meal
-from backend.survival.memory import know
+from backend.survival.memory import know, set_home
 from backend.survival.purposes import PURPOSES
 from backend.survival.registry import LifeRegistry
-from backend.survival.spoilage import age, observe_lots, settle_lots, take
+from backend.survival.spoilage import age, observe_lots, settle_lots, take, went_bad
 from backend.survival.steps import finish_step, start_step
 from backend.survival.storage import spare_food
 from backend.survival.tick import tick_life
@@ -68,6 +69,26 @@ class AgingTests(unittest.TestCase):
         for _ in range(int(1.5 * DAY_SECONDS / 60)):
             age(state, where, 60.0, 2.0)
         self.assertEqual(state["chests"]["0,1,0"], {"spoiled_food": 1})
+
+    def test_the_chests_lots_settle_once_a_game_minute_not_on_every_step(self):
+        # Carried item 4 (Task 7's ruling): Mimo's own lots settle every step, its chests' with their aging.
+        state, where = pet({"raw_beef": 1}, chests={"0,1,0": {"raw_beef": 2}}), context()
+        observe_lots(state, {"kind": "walk", "path": []}, where, 0.0)
+        age(state, where, 30.0, 0.5)
+        self.assertEqual((state["lots"]["raw_beef"][0][0], state.get("chest_lots", {})), (1, {}))
+        age(state, where, 30.0, 1.0)
+        self.assertEqual(sum(count for count, _ in state["chest_lots"]["0,1,0"]["raw_beef"]), 2)
+
+    def test_mimo_names_nightberries_that_went_bad_as_it_sees_them(self):
+        # Carried item 10: "red berries" while it does not know nightberries, their name once it does.
+        s = situation({}, None, 100.0)
+        s.state["difficulty"] = "wild"
+        where = SimpleNamespace(db=s.db, events=[])
+        went_bad(s.state, where, {"nightberries": 2}, "arms", 1.0)
+        know(s.db, thing("nightberries"), "lesson", 1.5)
+        went_bad(s.state, where, {"nightberries": 1}, "chest", 2.0)
+        self.assertEqual([text for _, kind, text in where.events if kind == "spoiled"],
+                         ["Pip's red berries went bad.", "Pip's nightberries went bad."])
 
     def test_a_gentle_pet_has_no_lots(self):
         state = pet({"raw_beef": 2}, difficulty="gentle")
@@ -131,8 +152,20 @@ class KeepingTests(unittest.TestCase):
         self.assertEqual(spare_food(s), [("bread", 3)])  # three loaves are a game day's worth
         self.assertEqual(spare_food(self.wild({"bread": 6}, 90.0)), [])  # untaught: it keeps it all on it
 
-    def wild(self, inventory, hunger, *lessons):
-        s = situation(inventory, None, hunger)
+    def test_keeping_puts_spoiled_food_in_the_composter_at_home(self):
+        # Carried item 4 (Task 7's ruling; the spec, Hazards 3): at home with a composter standing, it walks over
+        # and puts the spoiled food in; away from home, or with none, it drops it where it is.
+        s = self.wild({"spoiled_food": 2}, 90.0, "keeping", grid=meadow({(6, 1, 0): "composter"}))
+        set_home(s.db, (0, 1, 0), 0.0)
+        walk, drop = PURPOSES["throw_out"].plan(s, None)
+        self.assertEqual((walk["kind"], walk["target"]), ("walk", [6, 1, 0]))
+        self.assertEqual(drop, {"kind": "drop", "item": "spoiled_food", "amount": 2})
+        away = self.wild({"spoiled_food": 2}, 90.0, "keeping", grid=meadow({(6, 1, 0): "composter"}))
+        set_home(away.db, (60, 1, 0), 0.0)
+        self.assertEqual(PURPOSES["throw_out"].plan(away, None), [drop])
+
+    def wild(self, inventory, hunger, *lessons, grid=None):
+        s = situation(inventory, grid, hunger)
         s.state["difficulty"] = "wild"
         for name in lessons:
             know(s.db, thing(name), "lesson", 0.0)

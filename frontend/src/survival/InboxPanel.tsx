@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { answerQuestion, answeredLine, canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, unreadIds } from './bond'
+import { answerAndRelist, answeredLine, canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, unreadIds } from './bond'
 import { canAnswer } from './wild'
 import type { InboxItem } from './bondTypes'
 import { useEscape } from './escape'
@@ -22,6 +22,8 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
   const [items, setItems] = useState<InboxItem[] | null>(null)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [error, setError] = useState('')
+  // W1: an answer chip is on its way; the chips wait for it (carried item 8 of the W1 reviews)
+  const [answering, setAnswering] = useState(false)
   useEscape(onClose)
 
   useEffect(() => {
@@ -57,15 +59,19 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
     }
   }
 
-  // W1: a chip of one of Mimo's questions
+  // W1: a chip of one of Mimo's questions. The final fix wave: the inbox is listed again after it, since one answer
+  // can close other questions too, and the chips wait while an answer is on its way.
   const choose = async (item: InboxItem, choice: number) => {
+    if (answering) return
+    setAnswering(true)
     try {
-      const { item: answered } = await answerQuestion(item.id, choice)
-      setItems((current) => current?.map((known) => known.id === answered.id ? answered : known) ?? null)
+      setItems(await answerAndRelist(item.id, choice))
       setError('')
       await onChanged()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'That answer did not go through. Try again.')
+    } finally {
+      setAnswering(false)
     }
   }
 
@@ -88,10 +94,10 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
               <p className="mt-1 leading-5">{item.text}</p>
               {answeredLine(item) && <p className="mt-1 text-xs text-[#54726e]">{answeredLine(item)}</p>}
               {canAnswer(item) && (
-                <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Answers">
+                <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Answers" aria-busy={answering}>
                   {(item.data.chips ?? []).map((chip, choice) => (
-                    <button key={chip} type="button" onClick={() => { void choose(item, choice) }}
-                      className="rounded-xl border border-[#bfd5cd] bg-white px-3 py-1.5 text-left text-sm text-[#315e58] hover:bg-[#e1eee7]">{chip}</button>
+                    <button key={chip} type="button" disabled={answering} onClick={() => { void choose(item, choice) }}
+                      className="rounded-xl border border-[#bfd5cd] bg-white px-3 py-1.5 text-left text-sm text-[#315e58] hover:bg-[#e1eee7] disabled:opacity-50">{chip}</button>
                   ))}
                 </div>
               )}

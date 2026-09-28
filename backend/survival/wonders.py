@@ -4,8 +4,8 @@ A wonder (WONDERS) has an id, Mimo's words (a template filled from what it met: 
 `{creature}`), the lessons that answer it, two or three answer chips (each teaching lessons, or "false", or
 nothing), for a yes-or-no wonder its yes-claim and no-claim (sentences for the chat), the words of the
 "asked" event and what a liar says of it (its false chip, or else a false claim for the chat). The tick marks
-a wonder as met in `state["wild"]["wonders"]` ({id: {"met_at", "asked_at", "item", "closed", "fill"}}) and never
-posts anything itself: the Talker's chore asks (backend.survival.questions).
+a wonder as met in `state["wild"]["wonders"]` ({id: {"met_at", "asked_at", "item", "closed", "fill", "asks"}}) and
+never posts anything itself: the Talker's chore asks (backend.survival.questions).
 
 Met when (`meet`, after each vitals step; `sighted`, after each walk: steps.OBSERVERS):
 - red_berries, red_mushroom, sunleaf: a ripe berry or nightberry bush, a red mushroom, a sunleaf within
@@ -17,7 +17,8 @@ Met when (`meet`, after each vitals step; `sighted`, after each walk: steps.OBSE
 
 Hesitating (meals.HOLDS: `hesitates`): an untried food whose wonder was asked waits HESITATE (8 game minutes)
 before Mimo risks a taste; one met and not yet asked waits too, unless OPEN_MOST questions are open already
-and it could not be posted. A gentle pet meets no wonder.
+and it could not be posted, or its question was set aside (SET_ASIDE, W1's final fix wave: nobody answered, so
+Mimo risks a taste when it must). A gentle pet meets no wonder.
 
 W1 fix round 1: Mimo's words name what it met as it sees it (wild.LOOKS_LIKE: nightberries are red berries to
 it, "My red berries went bad!", and a sickness from them is from "those berries": backend.survival.meals), and
@@ -45,6 +46,7 @@ logger = logging.getLogger(__name__)
 SIGHT = 8.0
 HESITATE = 480.0  # game seconds a question makes Mimo wait before it risks what it asked about
 OPEN_MOST = 3
+SET_ASIDE = "set_aside"  # how a stale question closes (backend.survival.questions), its wonder met and not asked
 COLD_NIGHT = 120.0  # game seconds under warmth 35 in one night
 FLOORS = 3  # nights asleep on the floor
 
@@ -192,8 +194,9 @@ def meet(state: dict, context, at: float) -> None:
             met(state, "cold_night", at)
         if "hard_floor" not in found and night["floor_nights"] >= FLOORS:
             met(state, "hard_floor", at)
-        spoiled = state["inventory"].get(SPOILED, 0) > 0 or any(chest.get(SPOILED) for chest in state.get("chests", {}).values())
-        if "spoiled" not in found and spoiled:
+        # W1's final fix wave: the chests are looked through only while the wonder is still to meet.
+        if "spoiled" not in found and (state["inventory"].get(SPOILED, 0) > 0
+                                       or any(chest.get(SPOILED) for chest in state.get("chests", {}).values())):
             item = night.get("last_spoiled") or "food"
             met(state, "spoiled", at, label(LOOKS_LIKE.get(item, item)))  # as Mimo sees it: "My red berries went bad!"
         chased = (state.get("brain") or {}).get("reflex") in ("flee", "fight") or state.get("hurt_at") is not None
@@ -211,13 +214,16 @@ def open_questions(db: sqlite3.Connection | None) -> int:
 
 def hesitates(s, item: str) -> bool:
     """meals.HOLDS: Mimo waits before it tastes `item`: the wonder about it was asked less than HESITATE game
-    seconds ago, or it was met and will be asked (fewer than OPEN_MOST questions are open)."""
+    seconds ago, or it was met and will be asked (fewer than OPEN_MOST questions are open, and it was never set
+    aside)."""
     for wonder_id, found in wonders_of(s.state).items():
         if wonder_id not in WONDERS or item not in WONDERS[wonder_id].items:
             continue
         asked = found.get("asked_at")
         if asked is not None:
             return (s.at - asked) * s.scale < HESITATE
+        if found.get("closed") == SET_ASIDE:
+            return False  # nobody answered it: Mimo tastes when it must
         return open_questions(s.db) < OPEN_MOST
     return False
 

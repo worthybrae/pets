@@ -12,7 +12,9 @@ from backend.api.mimo import active_world
 from backend.survival.bond_view import note_visit
 from backend.survival.clock import time_scale
 from backend.survival.diary import DIARY_SHOWN, diary_entries
-from backend.survival.inbox import MARKED_AT_MOST, inbox_listing, mark_ids, mark_one, mark_read, name_place, unread
+from backend.survival.inbox import (
+    MARKED_AT_MOST, NoSuchQuestion, inbox_listing, mark_ids, mark_one, mark_read, name_place, unread,
+)
 from backend.survival.questions import answer_question
 from backend.survival.talk import ChatLimited, owner_says
 from backend.survival.world import LifeOver
@@ -90,7 +92,8 @@ def read_inbox(request: ReadUpTo):
 
 @router.post("/mimo/inbox/{item_id}/answer")
 def answer_inbox(item_id: int, request: PlaceName):
-    """Name the place a naming question is about, or (W1) pick an answer chip for one of Mimo's questions."""
+    """Name the place a naming question is about, or (W1) pick an answer chip for one of Mimo's questions. Only no
+    such question is a 404 (W1's final fix wave: any other LookupError, a KeyError inside, is a 500)."""
     if (request.text is None) == (request.choice is None):
         raise HTTPException(status_code=400, detail="Give one of text or choice")
     _, world = active_world(open_registry())
@@ -98,7 +101,7 @@ def answer_inbox(item_id: int, request: PlaceName):
         if request.choice is not None:
             return {"item": answer_question(world, item_id, request.choice, time.time(), time_scale())}
         return {"item": name_place(world, item_id, request.text, time.time(), time_scale())}
-    except LookupError as error:
+    except NoSuchQuestion as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except LifeOver as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

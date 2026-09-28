@@ -57,7 +57,7 @@ export interface InboxItem {
   data: { ask?: string; words?: string; answer?: string | number | null; care?: string; day?: number | string; last?: number;
     writer?: string; lead?: number; lead_last?: number; done?: boolean; present?: boolean
     /** W1: one of Mimo's questions: the wonder it is about, its answer chips, and how it closed ("taught",
-     * "doubted", "noted" or "figured"; null while open), its answer being the chip's index. */
+     * "doubted", "noted", "figured" or "set_aside"; null while open), its answer being the chip's index. */
     wonder?: string; chips?: string[]; closed?: string | null; yes_no?: boolean }
   read: boolean
 }
