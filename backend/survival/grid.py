@@ -8,11 +8,14 @@ that something Mimo built claims (backend.survival.structures) load the same way
 so planners that dig or till can leave them alone (`claimed`). A grid over a world database also
 carries the world's creatures (`herd`, backend.survival.creatures.table.Herd), so steps and
 planners reach them the way they reach blocks; a grid built from `natural` alone has none.
-W2: the cells a fire burns in and their neighbours (`hot`, set by backend.survival.storms) are no way through,
-like lava. In winter (`frozen`, from state["sky"]: `overlay`) a natural water cell at SEA_LEVEL that was never
-edited reads as ice, the surface of a lake, a river or a swamp pool: solid, standable, walkable, and never
-mined (steps.start_mine), so no block is written; cave lakes lie lower and stay water. A cell in `open_cells`
-(where Mimo stood or swam when the freeze came) stays water. For every other cell it costs one integer compare.
+W2: the cells a fire burns in and their neighbours (`hot`, set by backend.survival.storms) are no way through for a
+route (pathing.moves keeps out of them, like lava), yet they hold no one up: a fall or a landing goes on through
+them (`passable` leaves them out; fix round 4). In winter (`frozen`, from state["sky"]: `overlay`) a natural water
+cell at SEA_LEVEL that was never edited reads as ice, the surface of a lake, a river or a swamp pool: solid,
+standable, walkable, and never mined (steps.start_mine), so no block is written; cave lakes lie lower and stay
+water. A cell in `open_cells` (where Mimo stood or swam when the freeze came) stays water. For every other cell it
+costs one integer compare. `edited` asks whether a cell was ever put, loading its chunk first, as `material` and
+`claimed` do: a read of `edits` alone misses the chunks nothing has read yet.
 """
 
 from __future__ import annotations
@@ -136,10 +139,17 @@ class Grid:
     def water(self, cell: Cell) -> bool:
         return self.material(*cell) == "water"
 
+    def edited(self, cell: Cell) -> bool:
+        """Something was put in the cell, saved or this tick. Its chunk's edits are loaded first (W2 fix round 4),
+        so a cell in a chunk nothing has read yet is not taken for a natural one."""
+        self._load(cell[0], cell[2])
+        return cell in self.edits
+
     def passable(self, cell: Cell) -> bool:
-        """Mimo's body fits in the cell: nothing solid, and no water or lava (W2: nor fire, nor beside it)."""
+        """Mimo's body fits in the cell: nothing solid, and no water or lava. A fire and the cells beside it
+        (`hot`) fit it too: a fall goes on through them, and only a route keeps out (pathing.moves)."""
         material = self.material(*cell)
-        return material not in FLUIDS and not is_solid(material) and not (self.hot and cell in self.hot)
+        return material not in FLUIDS and not is_solid(material)
 
     def supported(self, cell: Cell) -> bool:
         """Something holds Mimo up in this cell: the cell below is solid or water. L3: a fence below

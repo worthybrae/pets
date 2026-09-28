@@ -53,7 +53,7 @@ from __future__ import annotations
 import logging
 import math
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from backend.services.worldgen import WORLD_MIN_Y
@@ -113,6 +113,10 @@ class ActionContext:
     walk (see the module docstring); the tick sets it to 1 for each fight step and 0 otherwise.
     `observe` hears about every step that finished well. `db` is the world's connection inside
     the tick's transaction, for minds that keep memory; tests without a database leave it None.
+    `memo` (W2 fix round 4) keeps what the sky's effects work out once a transaction instead of
+    once a step: the home Mimo built and the heat's cells (backend.survival.storms; building
+    clears the memo when Mimo moves into a shelter it built) and the campfires near Mimo
+    (backend.survival.rain).
     """
 
     grid: Grid
@@ -125,6 +129,7 @@ class ActionContext:
     action_scale: float = 1.0
     interrupt: Interrupt | None = None
     small_searches_left: int = 0
+    memo: dict = field(default_factory=dict)
 
 
 def take_search(context: ActionContext) -> bool:

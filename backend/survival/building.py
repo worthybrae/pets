@@ -375,6 +375,9 @@ def finish_if_built(state: dict, context, number: int, at: float) -> None:
     name = state["name"]
     if structure["kind"] == "shelter":
         set_home(context.db, blueprint.anchor, at)
+        memo = getattr(context, "memo", None)
+        if memo is not None:
+            memo.clear()  # W2: the sky reads the new home at its next step (ActionContext.memo)
         text = f"{name} finished building {structure['name']} and moved in."
         state["last_thought"] = "I built this myself. Home sweet home."
     else:

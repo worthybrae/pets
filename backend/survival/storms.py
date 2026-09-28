@@ -13,17 +13,24 @@ Mimo, at most one a step, so a catch-up never strikes more often (`storm`, a sky
 A strike on a tree's top leaf or log (a natural one) sets it burning: a `fire` block (light 13, not solid;
 "Lightning set a tree on fire near Pip.", a "fire" event). Every SPREAD_EVERY game seconds each burning cell may
 spread to one neighbouring natural log or leaf (SPREAD_CHANCE, a third of that in rain); a fire burns at most
-FIRE_CELLS cells in all (`burned`, by fire) and at most FIRES burn at once. Each cell burns out BURN_SECONDS after it caught, leaving air
-(renewal then lets the leaves no log holds decay, as after chopping). Fire never enters a cell Mimo built or
-edited, a claimed cell, or anything within FIRE_CLEAR blocks of home. Mimo in or beside a burning cell takes
-FIRE_DAMAGE health a game second (a death by it reads "was caught in a fire"); the flee_fire reflex takes it
-away, the tick takes short steps while a fire is that close (`fire_near`), and paths keep out of burning cells
-and their neighbours like lava (Grid.hot). Burned trees are ordinary block edits, synced like chopping.
+FIRE_CELLS cells in all (`burned`, by fire) and at most FIRES burn at once. Each cell burns out BURN_SECONDS after
+it caught, leaving air (renewal then lets the leaves no log holds decay, as after chopping). Fire never enters a
+cell Mimo built or edited, a claimed cell, anything within FIRE_CLEAR blocks of home, or the legacy clearing
+(`may_burn`: a rim tree's canopy reaches into it). Mimo in or beside a burning cell takes FIRE_DAMAGE health a
+game second (a death by it reads "was caught in a fire"); the flee_fire reflex takes it away, the tick takes
+short steps while a fire is that close (`fire_near`), and routes keep out of burning cells and their neighbours
+like lava (Grid.hot, read by pathing.moves; a fall still goes through them). Burned trees are ordinary block
+edits, synced like chopping.
+
+Cost (the spec's criterion 10, per transaction, fix round 4): the home Mimo built is read once a transaction
+(`home_now`, kept in the tick's ActionContext.memo), the strike's cheap roll on Mimo comes before the 17 x 17
+height check, and the heat's cells (`heat`) are worked out again only when the burning cells change.
 
 The state lives in state["sky"]: `strike_at` (the last strike's time), `strikes` (the latest KEPT, {x, y, z,
-at}), `fires` ({x, y, z, fire, caught, until}, at most FIRES x FIRE_CELLS), `burned` ({fire: cells it caught}),
-`fire_at` (the last spread) and `storming`. STRIKES hears of every strike (backend.survival.sky_wild: knocks and wonders); one that crashes is
-logged once.
+at}), `fires` ({x, y, z, fire, caught, until}: `caught` the time the cell caught, at most FIRES x FIRE_CELLS),
+`fire_id` (the last fire's number), `burned` ({fire: cells it caught}), `fire_at` (the last spread round),
+`burned_at` (the fire's last look at Mimo) and `storming`. STRIKES hears of every strike
+(backend.survival.sky_wild: knocks and wonders); one that crashes is logged once.
 """
 
 from __future__ import annotations
@@ -68,6 +75,7 @@ SAMPLE_CHANNEL, STRUCK_CHANNEL, SPREAD_CHANNEL, BURN_CHANNEL, PICK_CHANNEL = 232
 # W2: functions (state, context, cell, struck, at) run after each strike: `struck` when it hit Mimo. One that
 # crashes is logged once and passed over.
 STRIKES: list = []
+HOME, HOT = "storms: built home", "storms: hot"  # their keys in the tick's ActionContext.memo
 
 
 def built_home(db: sqlite3.Connection | None) -> tuple[float, float] | None:
@@ -79,6 +87,18 @@ def built_home(db: sqlite3.Connection | None) -> tuple[float, float] | None:
     except sqlite3.OperationalError:
         return None
     return None if home is None else (home["x"], home["z"])
+
+
+def home_now(context) -> tuple[float, float] | None:
+    """`built_home`, read once a transaction: the tick's context keeps it (ActionContext.memo), and building
+    clears that when Mimo moves into a shelter it built, so the next step reads the new home. A context with no
+    memo (a test's) reads it each time."""
+    memo = getattr(context, "memo", None)
+    if memo is None:
+        return built_home(context.db)
+    if HOME not in memo:
+        memo[HOME] = built_home(context.db)
+    return memo[HOME]
 
 
 def near(point: tuple[float, float] | None, x: float, z: float, reach: float) -> bool:
@@ -130,8 +150,8 @@ def strike(state: dict, context, at: float, home) -> None:
     salt = int((at - state["born_at"]) * context.clock_at(at)["time_scale"])
     struck = False
     if (math.hypot(here[0], here[2]) > LEGACY_RADIUS and not near(home, here[0], here[2], HOME_CLEAR)
-            and sky_open(grid, seed, here) and highest(grid, seed, here)
-            and roll(seed, here, STRUCK_CHANNEL, salt) < STRUCK_CHANCE):
+            and roll(seed, here, STRUCK_CHANNEL, salt) < STRUCK_CHANCE  # the cheap roll before the height check
+            and sky_open(grid, seed, here) and highest(grid, seed, here)):
         cell, struck = here, True
     else:
         columns = []
@@ -161,9 +181,12 @@ def strike(state: dict, context, at: float, home) -> None:
 
 
 def may_burn(grid: Grid, cell: Cell, home) -> bool:
-    """A natural log or leaf fire may enter: never edited, nothing Mimo built claims it, not near home."""
-    return (cell not in grid.edits and grid.material(*cell) in BURNS and not grid.claimed(cell)
-            and not near(home, cell[0], cell[2], FIRE_CLEAR))
+    """A natural log or leaf fire may enter: never edited, nothing Mimo built claims it, not near home and not in
+    the legacy clearing. Fix round 4: the edit is asked through Grid.edited, which loads the cell's chunk first; a
+    read of grid.edits alone, on a grid that loads its chunks as they are read (world_grid), missed the edit in a
+    chunk nothing had read yet, and a sapling renewal grew or a log Mimo placed burned."""
+    return (grid.material(*cell) in BURNS and not grid.edited(cell) and not grid.claimed(cell)
+            and math.hypot(cell[0], cell[2]) > LEGACY_RADIUS and not near(home, cell[0], cell[2], FIRE_CLEAR))
 
 
 def fires_of(state: dict) -> list[dict]:
@@ -234,11 +257,16 @@ def hot_cells(state: dict) -> set[Cell]:
     return cells
 
 
+def fires_within(state: dict, reach: int) -> list[dict]:
+    """The burning cells within `reach` blocks of Mimo's cell (on every axis)."""
+    x, y, z = pet_cell(state)
+    return [entry for entry in (state.get("sky") or {}).get("fires", ())
+            if abs(entry["x"] - x) <= reach and abs(entry["z"] - z) <= reach and abs(entry["y"] - y) <= reach]
+
+
 def fire_near(state: dict, reach: int = 3) -> bool:
     """A burning cell within `reach` blocks of Mimo's cell (on every axis)."""
-    x, y, z = pet_cell(state)
-    return any(max(abs(entry["x"] - x), abs(entry["y"] - y), abs(entry["z"] - z)) <= reach
-               for entry in (state.get("sky") or {}).get("fires", ()))
+    return bool(fires_within(state, reach))
 
 
 def burn_pet(state: dict, context, at: float) -> None:
@@ -246,11 +274,10 @@ def burn_pet(state: dict, context, at: float) -> None:
     sky_state = sky.sky_state(state)
     last = sky_state.get("burned_at")
     sky_state["burned_at"] = at
-    if last is None or not fire_near(state, 1):
+    beside = fires_within(state, 1) if last is not None else []
+    if not beside:
         return
-    x, y, z = pet_cell(state)
-    caught = min(entry["caught"] for entry in sky_state["fires"]
-                 if max(abs(entry["x"] - x), abs(entry["y"] - y), abs(entry["z"] - z)) <= 1)
+    caught = min(entry["caught"] for entry in beside)
     seconds = (at - max(last, caught)) * context.clock_at(at)["time_scale"]
     if seconds > 0:
         hurt(state, FIRE_DAMAGE * seconds, FIRE, at, context)
@@ -271,7 +298,7 @@ def storm(state: dict, context, at: float) -> None:
         sky_state.pop("burned_at", None)
         context.grid.hot = set()
         return
-    home = built_home(context.db)
+    home = home_now(context)
     if storming:
         scale = context.clock_at(at)["time_scale"]
         last = sky_state.get("strike_at")
@@ -280,7 +307,20 @@ def storm(state: dict, context, at: float) -> None:
             strike(state, context, at, home)
     spread(state, context, at, home)
     burn_pet(state, context, at)
-    context.grid.hot = hot_cells(state)
+    heat(state, context)
+
+
+def heat(state: dict, context) -> None:
+    """Grid.hot from the burning cells, worked out again only when they changed since the last step (the tick's
+    ActionContext.memo keeps the cells it was worked out from: a big fire's heat is 7 cells a burning one)."""
+    fires = sky.sky_state(state)["fires"]
+    memo = getattr(context, "memo", None)
+    kept = None if memo is None else memo.get(HOT)
+    if kept is None or kept[0] != fires or context.grid.hot is not kept[1]:
+        kept = (list(fires), hot_cells(state))
+        if memo is not None:
+            memo[HOT] = kept
+    context.grid.hot = kept[1]
 
 
 sky.EFFECTS.append(storm)

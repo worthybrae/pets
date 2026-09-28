@@ -4,7 +4,8 @@ Mimo moves to one of its 4 horizontal neighbors at a time: on the same level, on
 when the cell above its head is free, or off a ledge down at most 3 cells; and (L3) straight up
 or down a ladder. Nothing steps onto a fence (Grid.supported). Swimming happens
 on the water surface (the cell below Mimo is water) and costs 3 times as much as walking.
-A route never enters a cell that is itself water, so Mimo never plans to put its head under.
+A route never enters a cell that is itself water, so Mimo never plans to put its head under, nor (W2) a
+burning cell or one beside it (Grid.hot).
 A search expands at most 20,000 cells and stays within 96 blocks of the start on each
 horizontal axis. Farther targets are reached in segments toward waypoints.
 """
@@ -32,31 +33,34 @@ HORIZONTAL = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
 def moves(grid: Grid, cell: Cell) -> Iterator[Cell]:
-    """Cells Mimo can reach from `cell` in one move."""
+    """Cells Mimo can reach from `cell` in one move. W2: never into or through a burning cell or one beside it
+    (`grid.hot`, like lava; fix round 4: here, not in Grid.passable, so a fall or a landing still goes through)."""
+    hot = getattr(grid, "hot", None)
+    passable = grid.passable if not hot else (lambda at: at not in hot and grid.passable(at))
     x, y, z = cell
     headroom: bool | None = None
     for dx, dz in HORIZONTAL:
         level = (x + dx, y, z + dz)
-        if grid.passable(level):
+        if passable(level):
             if grid.supported(level):
                 yield level
                 continue
             for drop in range(1, MAX_DROP + 1):
                 lower = (level[0], y - drop, level[2])
-                if not grid.passable(lower):
+                if not passable(lower):
                     break
                 if grid.supported(lower):
                     yield lower
                     break
             continue
         if headroom is None:
-            headroom = grid.passable((x, y + 1, z))
+            headroom = passable((x, y + 1, z))
         up = (level[0], y + 1, level[2])
-        if headroom and grid.standable(up):
+        if headroom and passable(up) and grid.supported(up):
             yield up
-    if grid.material(x, y, z) == LADDER and grid.material(x, y + 1, z) == LADDER:
+    if grid.material(x, y, z) == LADDER and grid.material(x, y + 1, z) == LADDER and not (hot and (x, y + 1, z) in hot):
         yield x, y + 1, z  # L3: climb the ladder
-    if grid.material(x, y - 1, z) == LADDER:
+    if grid.material(x, y - 1, z) == LADDER and not (hot and (x, y - 1, z) in hot):
         yield x, y - 1, z  # and down it
 
 

@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DOUSE_REACH = 64.0
+DOUSE_MARGIN = 16.0  # blocks Mimo may walk from where the campfires were looked up before they are looked up again
+CAMPFIRES = "rain: campfires"  # their key in the tick's ActionContext.memo
 RELIGHT_SECONDS = 1.0
 ROOF_REACH = 4
 DOUSED_BLOCK = "campfire_out"
@@ -57,20 +59,42 @@ def roofed_first(s: Situation, spots: list[tuple[Cell, bool]]) -> list[tuple[Cel
     return sorted(spots, key=lambda spot: not roofed(s.grid, spot[0]))
 
 
+def campfire_rows(db, x: int, z: int, reach: float) -> set[Cell]:
+    """The campfires in the world's blocks within `reach` blocks of (x, z): one query."""
+    box = math.ceil(reach)
+    rows = db.execute("SELECT x, y, z FROM mimo_blocks WHERE material='campfire' AND x BETWEEN ? AND ? "
+                      "AND z BETWEEN ? AND ?", (x - box, x + box, z - box, z + box)).fetchall()
+    return {(row[0], row[1], row[2]) for row in rows if math.hypot(row[0] - x, row[2] - z) <= reach}
+
+
 def campfires_near(context, x: int, z: int) -> list[Cell]:
-    """The campfires placed within DOUSE_REACH blocks: one query of the world's blocks (loading every chunk that
-    far into the grid would cost the tick each step), or the grid's own edits without a database."""
-    if getattr(context, "db", None) is None:
-        return [cell for cell, _ in context.grid.placed_cells(x, z, DOUSE_REACH, ("campfire",))]
-    reach = math.ceil(DOUSE_REACH)
-    rows = context.db.execute("SELECT x, y, z FROM mimo_blocks WHERE material='campfire' AND x BETWEEN ? AND ? "
-                              "AND z BETWEEN ? AND ?", (x - reach, x + reach, z - reach, z + reach)).fetchall()
-    return [(row[0], row[1], row[2]) for row in rows if math.hypot(row[0] - x, row[2] - z) <= DOUSE_REACH]
+    """The campfires placed within DOUSE_REACH blocks, in cell order. Without a database, the grid's own edits.
+    With one, a query of the world's blocks (loading every chunk that far into the grid would cost the tick each
+    step), made once a transaction (fix round 4: it was once a step, a fire's short steps sixty times) and kept in
+    the tick's ActionContext.memo: it reaches DOUSE_MARGIN blocks farther, is made again once Mimo has walked
+    farther than that from where it was made, and gains every campfire put since. Every one is put through the
+    grid (cook's, a camp's, warm_up's, a relit one), in Mimo's actions just before the sky's step, so it is among
+    the grid's changes here, before renewal takes them."""
+    grid = context.grid
+    db = getattr(context, "db", None)
+    if db is None:
+        return [cell for cell, _ in grid.placed_cells(x, z, DOUSE_REACH, ("campfire",))]
+    memo = getattr(context, "memo", None)
+    kept = None if memo is None else memo.get(CAMPFIRES)
+    if kept is None or math.hypot(x - kept[0], z - kept[1]) > DOUSE_MARGIN:
+        kept = (x, z, campfire_rows(db, x, z, DOUSE_REACH + DOUSE_MARGIN))
+        if memo is not None:
+            memo[CAMPFIRES] = kept
+    kept[2].update(cell for cell, _, after in grid.changes if after == "campfire")
+    return sorted(cell for cell in kept[2] if math.hypot(cell[0] - x, cell[2] - z) <= DOUSE_REACH)
 
 
 def douse(state: dict, context, at: float) -> None:
     """sky.EFFECTS: while it rains, the campfires near Mimo under the open sky go out."""
     if not sky.raining(state):
+        memo = getattr(context, "memo", None)
+        if memo is not None:
+            memo.pop(CAMPFIRES, None)  # the next spell of rain looks them up afresh
         return
     grid, position = context.grid, state["position"]
     seed = state.get("world_seed", "0")

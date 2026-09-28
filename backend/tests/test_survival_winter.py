@@ -13,13 +13,13 @@ from backend.survival.clock import DAY_SECONDS, clock_at
 from backend.survival.creatures.acts import Scene
 from backend.survival.creatures.spawning import LAND_CAP, WINTER_LAND_CAP, populate
 from backend.survival.creatures.table import Herd, create_creature_tables
-from backend.survival.grid import Grid
+from backend.survival.grid import CHUNK, Grid
 from backend.survival.pathing import route
 from backend.survival.renewal import create_growth_table, renew, schedule, scheduled
 from backend.survival.sky import next_season_at
 from backend.survival.spoilage import age
 from backend.survival.steps import StepFailed, start_step
-from backend.survival.winter import freeze
+from backend.survival.winter import freeze, surface_water
 
 BORN = 1_000_000.0
 SCALE = 60.0
@@ -30,9 +30,10 @@ def day_start(day: int) -> float:
     return BORN + (day - 1) * DAY_SECONDS / SCALE
 
 
-def lake(x0=10, x1=40):
+def lake(x0=10, x1=40, saved=None):
     """A lake from x0 to x1 (water at SEA_LEVEL and one below, sand under), grass at SEA_LEVEL elsewhere, and a
-    cave lake at y -3 everywhere under the land."""
+    cave lake at y -3 everywhere under the land. With `saved` ({cell: material}), those edits are the world's,
+    loaded one chunk at a time as world_grid loads them."""
     def natural(x, y, z):
         if x0 <= x <= x1:
             return "water" if SEA_LEVEL - 1 <= y <= SEA_LEVEL else "sand" if y < SEA_LEVEL - 1 else "air"
@@ -40,7 +41,8 @@ def lake(x0=10, x1=40):
             return "water"
         return "grass" if y == SEA_LEVEL else "dirt" if y < SEA_LEVEL else "air"
 
-    grid = Grid(natural)
+    grid = Grid(natural, None if saved is None else lambda cx, cz: {
+        cell: material for cell, material in saved.items() if (cell[0] // CHUNK, cell[2] // CHUNK) == (cx, cz)})
     db = sqlite3.connect(":memory:")
     create_creature_tables(db)
     grid.herd = Herd(db)
@@ -107,6 +109,19 @@ class IceTests(unittest.TestCase):
         shallow.herd.add("fish", (25, SEA_LEVEL, 0), 2.0, BORN, BORN, {"home": [25, SEA_LEVEL, 0]})
         freeze(pet(0), context(shallow), day_start(WINTER_DAY))
         self.assertEqual(shallow.herd.near(25, 0, 2), [])
+
+    def test_an_edited_water_cell_in_a_chunk_nothing_has_read_yet_is_no_lakes_surface(self):
+        """W2 fix round 4: a world's grid (world_grid) loads its edits one chunk at a time, and surface_water asked
+        grid.edits alone: a fish in an edited water cell of a chunk nothing had read was taken for one under the
+        new ice and sent a cell down (or, with nothing under it, removed)."""
+        poured = (25, SEA_LEVEL, 0)  # water Mimo put back, in the chunk east of the one it stands in
+        self.assertFalse(surface_water(lake(saved={poured: "water"}), poured))
+        grid = lake(saved={poured: "water"})
+        grid.herd.add("fish", poured, 2.0, BORN, BORN, {"home": list(poured)})
+        freeze(pet(0), context(grid), day_start(WINTER_DAY))
+        self.assertEqual([round(fish["y"]) for fish in grid.herd.near(25, 0, 2)], [SEA_LEVEL])  # it stays
+        self.assertEqual(grid.material(*poured), "water")
+        self.assertTrue(surface_water(lake(saved={}), poured))  # a natural one freezes
 
     def test_a_path_crosses_a_frozen_lake_and_the_overlay_costs_the_search_little(self):
         frozen, open_water = lake(), lake()

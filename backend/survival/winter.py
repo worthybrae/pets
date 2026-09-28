@@ -25,8 +25,9 @@ from backend.survival.grid import Cell, Grid
 
 
 def surface_water(grid: Grid, cell: Cell) -> bool:
-    """A natural water cell at SEA_LEVEL never edited: what freezes."""
-    return cell[1] == SEA_LEVEL and cell not in grid.edits and grid.natural_material(*cell) == "water"
+    """A natural water cell at SEA_LEVEL never edited: what freezes. W2 fix round 4: the edit is asked through
+    Grid.edited, which loads the cell's chunk first (a fish's chunk may be one nothing in the tick has read yet)."""
+    return cell[1] == SEA_LEVEL and grid.natural_material(*cell) == "water" and not grid.edited(cell)
 
 
 def kept_open(grid: Grid, state: dict) -> list[list[int]]:

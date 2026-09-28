@@ -172,6 +172,12 @@ class StateTests(unittest.TestCase):
         sky = sky_state({})
         self.assertEqual((sky["weather"], sky["snow"], sky["frozen"], sky["fires"]), ("clear", 0.0, False, []))
         self.assertEqual(DAY_SECONDS / SEGMENT, 6)
+        # W2 fix round 4: once every field is there it is one compare, and the defaults are never shared
+        other = sky_state({"sky": {"weather": "storm", "fires": [{"x": 1}]}})
+        self.assertEqual((other["weather"], other["fires"], other["strikes"]), ("storm", [{"x": 1}], []))
+        sky["strikes"].append({"x": 2})
+        self.assertEqual((sky_state({})["strikes"], other["strikes"]), ([], []))
+        self.assertIs(sky_state({"sky": sky}), sky)
 
 
 if __name__ == "__main__":

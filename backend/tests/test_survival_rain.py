@@ -3,14 +3,19 @@
 import sqlite3
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from backend.services.block_table import create_block_tables, write_block
 from backend.services.blocks import BLOCK_IDS, BLOCK_LIST, hardness, is_solid
 from backend.services.crafting import BLOCKS
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Planned
+from backend.survival.grid import world_grid
 from backend.survival.memory import create_memory_tables, know
 from backend.survival.purposes import PURPOSES
-from backend.survival.rain import DOUSED, douse, relight_steps, roofed, roofed_first
+from backend.survival.rain import (
+    CAMPFIRES, DOUSED, DOUSED_BLOCK, campfire_rows, campfires_near, douse, relight_steps, roofed, roofed_first,
+)
 from backend.survival.situation import Situation
 from backend.survival.steps import StepFailed, finish_step, start_step
 from backend.survival.structures import missing
@@ -75,6 +80,51 @@ class DouseTests(unittest.TestCase):
         far = meadow({(80, 1, 0): "campfire"})
         self.douse(far, pet())
         self.assertEqual(far.material(80, 1, 0), "campfire")
+
+
+class CampfireQueryTests(unittest.TestCase):
+    """rain.campfires_near's database path (the tick's): one query of the world's blocks a transaction, kept in the
+    tick's ActionContext.memo (W2 fix round 4)."""
+
+    def setUp(self):
+        self.db = sqlite3.connect(":memory:")
+        self.db.row_factory = sqlite3.Row
+        create_block_tables(self.db)
+        for cell, material in (((2, 1, 0), "campfire"), ((60, 1, 0), "campfire"), ((72, 1, 0), "campfire"),
+                               ((100, 1, 0), "campfire"), ((3, 1, 0), DOUSED_BLOCK), ((0, 1, 5), "furnace")):
+            write_block(self.db, *cell, material)
+        flat = patch("backend.survival.grid.block_at", lambda x, y, z, seed: "grass" if y == 0 else "air")
+        flat.start()
+        self.addCleanup(flat.stop)
+        self.grid = world_grid(self.db, "1")  # a meadow whose blocks are the world's, loaded as the tick's are
+        self.context = ActionContext(grid=self.grid, clock_at=lambda at: DAY, planner=lambda *args: [], events=[],
+                                     db=self.db)
+
+    def test_the_campfires_within_reach_come_from_one_query_a_transaction(self):
+        with patch("backend.survival.rain.campfire_rows", wraps=campfire_rows) as queries:
+            self.assertEqual(campfires_near(self.context, 0, 0), [(2, 1, 0), (60, 1, 0)])  # 72 and 100 are too far
+            self.assertEqual(campfires_near(self.context, 10, 0), [(2, 1, 0), (60, 1, 0), (72, 1, 0)])
+            self.assertEqual(queries.call_count, 1)  # 10 blocks on: the query reached DOUSE_MARGIN farther
+            self.grid.put(4, 1, 0, "campfire")  # one Mimo puts down in the transaction
+            self.assertEqual(campfires_near(self.context, 10, 0), [(2, 1, 0), (4, 1, 0), (60, 1, 0), (72, 1, 0)])
+            self.grid.take_changes()  # renewal takes the step's changes: the campfire stays known
+            self.assertEqual(campfires_near(self.context, 10, 0), [(2, 1, 0), (4, 1, 0), (60, 1, 0), (72, 1, 0)])
+            self.assertEqual(queries.call_count, 1)
+            self.assertEqual(campfires_near(self.context, 40, 0), [(2, 1, 0), (4, 1, 0), (60, 1, 0), (72, 1, 0),
+                                                                   (100, 1, 0)])
+            self.assertEqual(queries.call_count, 2)  # 40 blocks on: asked again round the new spot
+        self.assertEqual(campfires_near(SimpleNamespace(grid=self.grid, db=self.db), 0, 0),
+                         [(2, 1, 0), (4, 1, 0), (60, 1, 0)])  # a context with no memo asks each time
+
+    def test_the_rain_puts_out_the_campfires_it_found_there_and_forgets_them_when_it_stops(self):
+        state = pet()
+        douse(state, self.context, 5.0)
+        self.assertEqual([self.grid.material(x, 1, 0) for x in (2, 60, 72)], [DOUSED_BLOCK, DOUSED_BLOCK, "campfire"])
+        self.assertEqual([row[0] for row in self.db.execute("SELECT material FROM mimo_blocks WHERE x=2")],
+                         [DOUSED_BLOCK])
+        self.assertIn(CAMPFIRES, self.context.memo)
+        douse(pet("clear"), self.context, 6.0)
+        self.assertNotIn(CAMPFIRES, self.context.memo)
 
 
 class RelightTests(unittest.TestCase):

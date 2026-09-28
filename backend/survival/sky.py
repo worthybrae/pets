@@ -30,6 +30,7 @@ strikes, fires, told ({what: day} of the season's news). A GET never writes it (
 from __future__ import annotations
 
 import logging
+from copy import copy
 from typing import Callable
 
 from backend.survival.clock import DAY_SECONDS, PHASES, clock_at
@@ -64,13 +65,20 @@ SNOW_MELT = 20 * 60.0  # game seconds a full cover takes to melt in spring
 EFFECTS: list[Callable] = []
 
 
+DEFAULTS = (("season", "spring"), ("season_day", 0), ("day", None), ("weather", "clear"), ("weather_until", None),
+            ("snow", 0.0), ("frozen", False), ("open_cells", []), ("strikes", []), ("fires", []), ("told", {}))
+FIELDS = frozenset(key for key, _ in DEFAULTS)
+
+
 def sky_state(state: dict) -> dict:
-    """state["sky"], with every field (a world from before W2 has none until its first tick)."""
+    """state["sky"], with every field (a world from before W2 has none until its first tick). Once they are all
+    there it is one set compare: the sky's effects ask for it several times a step (W2 fix round 4)."""
     found = state.setdefault("sky", {})
-    for key, default in (("season", "spring"), ("season_day", 0), ("day", None), ("weather", "clear"),
-                         ("weather_until", None), ("snow", 0.0), ("frozen", False), ("open_cells", []),
-                         ("strikes", []), ("fires", []), ("told", {})):
-        found.setdefault(key, default)
+    if found.keys() >= FIELDS:
+        return found
+    for key, default in DEFAULTS:
+        if key not in found:
+            found[key] = copy(default)
     return found
 
 
