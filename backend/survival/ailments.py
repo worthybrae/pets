@@ -242,6 +242,8 @@ def tend_night(state: dict, context, seconds: float, phases: tuple[str, str], ac
                 night["froze"] = True
             if activity == "sleeping" and sheltered:
                 night["floor_sleep"] = night.get("floor_sleep", 0.0) + seconds
+            if activity == "sleeping_in_bed":
+                night["bed_sleep"] = night.get("bed_sleep", 0.0) + seconds
         if before in NIGHT_PHASES and after not in NIGHT_PHASES:
             dawn(state, context, at)
     except Exception as error:
@@ -260,9 +262,27 @@ def dawn(state: dict, context, at: float) -> None:
     floor = night.get("floor_sleep", 0.0) >= FLOOR_SLEEP
     if floor:
         night["floor_nights"] += 1
-    summary = {"cold": cold, "froze": froze, "chill": chill, "blows": night.get("night_blows", 0), "floor": floor}
-    night.update(night_cold=0.0, froze=False, floor_sleep=0.0, night_blows=0)
+    blows = night.get("night_blows", 0)
+    name = state["name"]
+    if night.get("bed_sleep", 0.0) >= FLOOR_SLEEP:  # what shows the bed lesson true (teaching.SEEN_BY)
+        context.events.append((at, "rested", f"{name} slept soundly in its bed."))
+    if not blows and at_built_home(state, context):  # what shows the light lesson true
+        context.events.append((at, "safe_night", f"{name} spent a quiet night at home."))
+    summary = {"cold": cold, "froze": froze, "chill": chill, "blows": blows, "floor": floor}
+    night.update(night_cold=0.0, froze=False, floor_sleep=0.0, bed_sleep=0.0, night_blows=0)
     heard(DAWN, state, context, summary, at)
+
+
+def at_built_home(state: dict, context) -> bool:
+    """Mimo is within 8 blocks of the home it built."""
+    if getattr(context, "db", None) is None:
+        return False
+    from backend.survival.memory import BUILT, places  # local: memory is the tick's, read once a dawn
+    home = next((place for place in places(context.db, ("home",)) if place["note"] == BUILT), None)
+    if home is None:
+        return False
+    position = state["position"]
+    return math.hypot(position["x"] - home["x"], position["z"] - home["z"]) <= 8.0
 
 
 def eat_herb(step: dict, state: dict, at: float) -> tuple[str, str] | None:

@@ -18,6 +18,8 @@ from backend.survival.talker import Talker, run_chores
 from backend.survival.triggers import mark_trigger
 from backend.survival.world import SurvivalWorld, log_event, read_state, write_state
 from backend.tests.test_survival_talker import FakeJev
+from backend.survival.questions import answer_question, ask_wonders, questions_view
+from backend.survival.wonders import met
 
 BORN = 1_000_000.0
 LUNA = {"MIMO_MODEL_API_KEY": "k"}
@@ -100,6 +102,50 @@ class LunaNeverHearsTheOwnerTests(unittest.TestCase):
         for words in (*(text for text, _ in told), *facts, *TAUGHT, *seen, "you taught", "you told me",
                       "purple kites", "bakery", "you were right"):
             self.assertNotIn(words.rstrip(".!").lower(), sent.lower())
+
+
+class AnswersNeverReachLunaTests(unittest.TestCase):
+    """W1: the owner's answers to Mimo's questions, a chip and a free-text line, stay out of every Luna payload."""
+
+    def setUp(self):
+        forget_logged()
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        self.registry = LifeRegistry(root / "data", root / "no-legacy.sqlite3")
+        self.life = hatch(self.registry, random.Random(8), timestamp=BORN, difficulty="wild")
+        self.world = SurvivalWorld(self.registry.world_path(self.life))
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_a_chip_and_a_free_text_answer_never_reach_luna(self):
+        with self.world.transaction() as db:
+            state = read_state(db)
+            met(state, "hard_floor", BORN + 1)
+            met(state, "red_mushroom", BORN + 2)
+            ask_wonders(db, state, BORN + 3, 1.0)
+            ask_wonders(db, state, BORN + 400, 1.0)
+            write_state(db, state)
+            floor, mushroom = questions_view(db)
+        answer_question(self.world, floor["id"], floor["chips"].index("Six planks make a bed."), BORN + 500, 1.0)
+        said = "No! My aunt Rosalind says red mushrooms are poison"
+        owner_says(self.world, said, BORN + 510, 1.0)
+        talker = Talker(env={}, http=FakeJev(), scale=1.0)
+        talker.poll(self.registry, BORN + 511)
+        talker.close()
+        with self.world.transaction() as db:
+            log_event(db, BORN + 2300, "sleep", f"{self.life['name']} fell asleep.")
+            state = read_state(db)
+            mark_trigger(state, "hello", BORN + 2310)
+            write_state(db, state)
+        run_chores(self.world, BORN + 2301, 1.0)
+        ask = prepare(SurvivalWorld(self.world.path, read_only=True), BORN + 2311, 1.0, LUNA)
+        with self.world.connect() as db:
+            story = list(story_memories(db, 1, limit=50))
+        sent = json.dumps([ask.payload, [memory.text for memory in story]]).lower()
+        for words in ("six planks make a bed", "rosalind", said.lower(), "you taught", "you told"):
+            self.assertNotIn(words, sent)  # Mimo's own "asked" event holds no owner words, and may be there
+        self.assertEqual(mushroom["yes_no"], True)
 
 
 if __name__ == "__main__":

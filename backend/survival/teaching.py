@@ -200,6 +200,13 @@ def say(db: sqlite3.Connection, state: dict, text: str, now: float, scale: float
 # cow says nothing of its recipe.
 SIGHTING = frozenset({"found", "threat"})
 HUNTING = frozenset({"hunt", "fight"})
+# W1: the events that show a survival lesson true, and the words they must say: the berries eaten, meat cooked,
+# a campfire made, a sickness cured or a wound dressed with sunleaf, a wound bandaged, the shelter built and
+# moved into, a night in a bed, a quiet night at home (backend.survival.ailments' dawn).
+SEEN_BY = {"wild:berries": (("ate",), ("berry",)), "wild:cooking": (("cook",), ()),
+           "wild:fire": (("craft",), ("campfire",)), "wild:sunleaf": (("cured", "dressed"), ("sunleaf",)),
+           "wild:bandage": (("dressed",), ("bandage",)), "wild:shelter": (("built",), ("moved",)),
+           "wild:bed": (("rested",), ()), "wild:light": (("safe_night",), ())}
 
 
 def l4b_drops_lesson(thing: str) -> bool:
@@ -214,6 +221,10 @@ def l4b_drops_lesson(thing: str) -> bool:
 
 
 def confirms(thing: str, kind: str) -> bool:
+    if thing.startswith("wild:"):  # W1: a survival lesson, by its own events only
+        return kind in SEEN_BY.get(thing, ((), ()))[0]
+    if kind not in SEEING:
+        return False
     if thing.endswith(":drops") or (":" not in thing and l4b_drops_lesson(thing)):
         return kind in HUNTING
     if thing.startswith("recipe:"):
@@ -230,7 +241,8 @@ def see_it_true(db: sqlite3.Connection, state: dict, event: dict, now: float, sc
                       "(SELECT subject FROM memory_knowledge WHERE fact=?)", (TAUGHT, event["at"], SEEN)).fetchall()
     for (thing,) in rows:
         lesson = LESSONS.get(thing)
-        if lesson is None or not confirms(thing, event["kind"]) or not set(tokens(named(lesson))) <= said:
+        words = SEEN_BY[thing][1] if thing in SEEN_BY else tuple(tokens(named(lesson))) if lesson else ()
+        if lesson is None or not confirms(thing, event["kind"]) or not set(words) <= said:
             continue
         know(db, thing, SEEN, event["at"])
         words = f"You were right: {lower(lesson.fact).rstrip('.')}. I saw it myself!"
@@ -241,5 +253,5 @@ def see_it_true(db: sqlite3.Connection, state: dict, event: dict, now: float, sc
             confirmed(db, state, thing, now)
 
 
-for _kind in SEEING:
+for _kind in (*SEEING, *sorted({kind for kinds, _ in SEEN_BY.values() for kind in kinds} - set(SEEING))):
     followed(_kind, see_it_true)

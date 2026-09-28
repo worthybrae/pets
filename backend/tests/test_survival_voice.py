@@ -46,7 +46,8 @@ NAME = "Clover"
 # the bigger home, the chest the food goes in, and what
 # an event says in brackets (a goal's or a purpose's reason) or quotes (Mimo's own thought).
 THING_ITS = ("made it home", "made it through", "in its walls", "(it kept failing)", "(it cannot be done now)",
-             "(nothing to do for it now)", '"It is time to go."', "a site for it", "food in it")
+             "(nothing to do for it now)", '"It is time to go."', "a site for it", "food in it",
+             "worked it out")  # W1: what Mimo worked out itself
 IT = re.compile(r"\b(?:it|its|itself)\b")
 PET = re.compile(rf"\b{NAME}\b")
 # A third-person verb where Mimo speaks as "I": "I is", "I am stuck ... and starts digging out".
@@ -122,6 +123,17 @@ def templates() -> list[tuple[str, str]]:
                               f"{loot_words({item: most for item, _, most, _ in table})}."))
     found += [("loot", f"{NAME} opened an old chest in a ruin: {loot_words({})}."),
               ("found", f"{NAME} found an old manual in the ruin's chest.")]
+    # W1: a wild pet's sicknesses, wounds, food gone bad, nights, what it worked out and what it asked.
+    from backend.survival.wild import SURVIVAL
+    from backend.survival.wonders import WONDERS
+    found += [("cured", f"{NAME} ate sunleaf and felt better."), ("wound", f"A skitter cut {NAME}."),
+              ("festering", f"{NAME}'s wound is festering."), ("dressed", f"{NAME} wrapped its wound in a bandage."),
+              ("dressed", f"{NAME} pressed sunleaf on its wound."), ("spoiled", f"{NAME}'s raw beef went bad."),
+              ("chill", f"{NAME} caught a chill in the night."), ("sick", f"{NAME} ate nightberries and felt sick."),
+              ("sick", f"{NAME} ate raw chicken and felt sick."), ("sick", f"{NAME} ate spoiled food and felt sick."),
+              ("rested", f"{NAME} slept soundly in its bed."), ("safe_night", f"{NAME} spent a quiet night at home.")]
+    found += [("figured", f"{NAME} worked out that {lesson.figured}.") for lesson in SURVIVAL]
+    found += [("asked", f"{NAME} asked you {wonder.asked}.") for wonder in WONDERS.values()]
     return list(dict.fromkeys(found))
 
 
