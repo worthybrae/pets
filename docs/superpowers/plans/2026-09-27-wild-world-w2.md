@@ -31,51 +31,80 @@
 
 W2 adds to these, for this plan:
 
-- **W1 comes first.** This plan applies after all fourteen tasks of W1's plan. Its tasks edit W1's modules (`wild.py`, `knocks.py`'s table only through `KNOCKS.update`, `spoilage.age`, `cooking.cook_plan`, `reflexes.plan_warm_up`, `wild_gate.py`) and W1's tests (`test_survival_wild.py`, `test_survival_lessons.py`, `test_worldgen_wild.py`, `test_survival_knocks.py`, `test_survival_reflexes.py`, `test_survival_wild_run.py`), each anchored on a line W1's plan writes (resolution 1).
+- **W1 comes first.** This plan applies on W1's final HEAD, `7cedc75` (its fourteen tasks, its fix waves and its Fix B). Its tasks edit W1's modules (`wild.py`, `knocks.py`'s table only through `KNOCKS.update`, `spoilage.age`, `cooking.cook_plan`, `reflexes.plan_warm_up`, `wild_gate.py`) and W1's tests (`test_survival_wild.py`, `test_survival_lessons.py`, `test_worldgen_wild.py`, `test_survival_knocks.py`, `test_survival_reflexes.py`, `test_survival_wild_run.py`), each anchored on a line W1's plan writes (resolution 1).
 - **Seasons and weather are world state, never terrain.** Worldgen does not change and the fixture is not regenerated. The snow cover and the ice are overlays: `state["sky"]` read by `Grid.material` (the ice) and by two viewer uniforms (the snow and the ice); no block is ever written for them. Fire and burned trees are ordinary block edits through `Grid.put`, synced like chopping. The three new blocks go at the end of `shared/blocks.json`, after W1's `sunleaf`: `campfire_out`, `fire`, `hearth`. New items that are not blocks: `wool_cloak`, `smoked_meat`.
 - **No model call, anywhere.** The sky, the weather, strikes, fires, the ice, the winter goal and its purposes, knocks and wonders are rules. No new Jev or Luna call exists; the new purposes are offered in the Chooser's existing calls like every other. Every new hook is crash-guarded and logged once: `sky.EFFECTS` (each effect on its own), `steps.WALK_PACE`, `rain.DOUSED`, `storms.STRIKES`, `larder.TARGETS`, `goals.HELD_OFF`, `cooking.SPARED`, `trips.HOLD_BACK`. A crash counts as nothing.
 - **Bounded.** Per step, the sky adds one weather lookup (recomputed only when the 10-game-minute segment changes), at most one strike (6 column tops, and a 17 × 17 height check only when Mimo stands under the open sky), at most 6 spread rounds over at most 48 burning cells, and one query for the campfires within 64 blocks while it rains. `Grid.material` pays one integer compare for every cell off `SEA_LEVEL`. Targets: the sky hook at most 2 ms mean and 8 ms p99 a transaction in a storm by a forest; a route across a frozen lake no slower than the same search with the overlay off plus 10 %.
 - **Old worlds and archives.** `state["sky"]` reads with a default everywhere (`sky.sky_state`, `sky.season_now`, `sky.weather_now`). The year's offset is set only in a living pet's tick (`settle_sky`, beside W1's `settle`); `advance_world` still never writes a dead world. A gentle pet granted W1's lessons is granted W2's on its next tick the same way (`wild.GRANTED` 2).
-- Values from the spec (W2): a year of 40 game days, four seasons of `SEASON_DAYS` = 10; the season day `(day_number - 1 + offset) mod 40`, a newborn's offset 0 and an old world's set on its first W2 tick so that day is spring day 1; outdoor warmth by day and by night (spring 100 and 30, summer 100 and 45, autumn 85 and 20, winter 45 and -10), the mountains 60 colder by day and 50 by night, snowfall 10 more outdoors, a shelter +45, a wool cloak +20, a fire, furnace or hearth within 4 blocks 100; winter crops, saplings, berry and nightberry bushes, sunleaf and forest-floor mushrooms stopped until the first spring dawn, farmland kept, cave mushrooms regrowing, one herd at most in a new chunk, the land cap 12 (not 24), no herd back in a hunted-out chunk until spring, surface lakes, rivers and swamp pools frozen walkable, no fishing through ice, cave lakes open, no fish recovering, spoilage a third as fast; autumn day 3's "The nights are getting colder." (a thought, a notable event and the `colder` wonder), each season's first dawn a routine `season` event and spring's first a notable one; the weather a pure function of the seed, the season and the 10-game-minute segment, each segment keeping the last one's weather with chance 0.5, the look back stopping after 6, a kept weather the new season lacks rolling fresh; the season tables (spring 0.55, 0.30, 0.08, 0.07 clear, rain, storm, fog; summer 0.65, 0.15, 0.15, 0.05; autumn 0.45, 0.25, 0.05, 0.25; winter 0.45 clear, 0.15 fog, 0.40 snow); rain: walks under the open sky 1.15 times as long, a campfire under the open sky out (`campfire_out`, no light, no warmth; `relight` with 1 stick), crops at the watered rate, fire spreading a third as often; snow: walks 1.3 times as long, 10 colder outdoors, the cover rising 0.1 a game minute and melting over 20 game minutes after the first spring dawn; fog: open ground by day dark for spawning (sky light 6), no sun burn or fade, the hostile cap 2 higher, torches and lanterns keeping their light, the viewer's fog at 0.35; a strike every 60 game seconds in a storm within 64 blocks of Mimo, 6 columns sampled within 48 and the highest struck (a tree's top counting), never within 16 blocks of the home Mimo built or in the legacy clearing; Mimo under the open sky and highest within 8 blocks struck with chance 0.05 (25 damage, armor no help, cause `"lightning"`); a strike on a tree's top leaf or log a `fire` block (glow, light 13, not solid); every 10 game seconds each burning cell spreading to one neighbouring natural log or leaf with chance 0.35 (a third in rain), at most 24 cells a fire and 2 fires at once, each cell burning out 20 to 40 game seconds after it caught; never into a cell Mimo built or edited, a claimed cell or within 8 blocks of home; 2 health a game second in or beside a burning cell (cause `"fire"`); paths keeping out of burning cells and their neighbours; the ice from the first winter dawn to the first spring dawn on natural, never-edited water at `SEA_LEVEL`, too thick to mine, the cells Mimo stood or swam in kept open until the next dawn, fish in a frozen cell moving down or fading; seven lessons (the spec's table), their knocks and sure knocks, six wonders, the owner lines and two doubted ones; `wool_cloak` (5 wool at a table, its own slot, +20); `hearth` (8 cobblestone and a campfire at a table; glow and light 13, warm like a furnace, cooks and smokes like a campfire, never out in rain; `build_hearth` 60, by day, at home, while the winter goal wants one); `smoked_meat` (the `smoke` step, 20 s at a campfire or hearth, 1 raw meat and 1 stick; 20 hunger; never spoils); "Ready for winter" (`winter_ready`, repeating, autumn day 1 until winter day 1, a built home, `wild:winter`, 70 plus a tenth of caution; milestones by lesson: `WINTER_FOOD` = 360 hunger points good on winter day 5 at chest rates, a cloak, a hearth in home, 8 smoked meat; stock_larder serving it); the events, Mind moments, inbox news and danger and death words of "Moments, news and voice"; the viewer's sky, particles (1,500 streaks, 800 flakes, half on a phone), bolt and 0.15 s flash to 3 times, fire, snow cover (`uSnow`, eased over 10 s) and ice (`uFrozen`, eased over a game minute), and the HUD's season badge and weather.
+- Values from the spec (W2): a year of 40 game days, four seasons of `SEASON_DAYS` = 10; the season day `(day_number - 1 + offset) mod 40`, a newborn's offset 0 and an old world's set on its first W2 tick so that day is spring day 1; outdoor warmth by day and by night (spring 100 and 30, summer 100 and 45, autumn 85 and 20, winter 45 and -10), the mountains 60 colder by day and 50 by night, snowfall 10 more outdoors, a shelter +45, a wool cloak +20, a fire, furnace or hearth within 4 blocks 100; winter crops, saplings, berry and nightberry bushes, sunleaf and forest-floor mushrooms stopped until the first spring dawn, farmland kept, cave mushrooms regrowing, one herd at most in a new chunk, the land cap 12 (not 24), no herd back in a hunted-out chunk until spring, surface lakes, rivers and swamp pools frozen walkable, no fishing through ice, cave lakes open, no fish recovering, spoilage a third as fast; autumn day 3's "The nights are getting colder." (a thought, a notable event and the `colder` wonder), each season's first dawn a routine `season` event and spring's first a notable one; the weather a pure function of the seed, the season and the 10-game-minute segment, each segment keeping the last one's weather with chance 0.5, the look back stopping after 6, a kept weather the new season lacks rolling fresh; the season tables (spring 0.55, 0.30, 0.08, 0.07 clear, rain, storm, fog; summer 0.65, 0.15, 0.15, 0.05; autumn 0.45, 0.25, 0.05, 0.25; winter 0.45 clear, 0.15 fog, 0.40 snow); rain: walks under the open sky, Mimo's and every creature's, 1.15 times as long (the controller's ruling on the W2 dry run, 2), a campfire under the open sky out (`campfire_out`, no light, no warmth; `relight` with 1 stick), crops at the watered rate, fire spreading a third as often; snow: walks, Mimo's and every creature's, 1.3 times as long, 10 colder outdoors, the cover rising 0.1 a game minute and melting over 20 game minutes after the first spring dawn; fog: open ground by day dark for spawning (sky light 6), no sun burn or fade, the hostile cap as it is (`FOG_ROOM` 0: the spec's 2 until the ruling, 1; resolution 21), torches and lanterns keeping their light, the viewer's fog at 0.35; a strike every 60 game seconds in a storm within 64 blocks of Mimo, 6 columns sampled within 48 and the highest struck (a tree's top counting), never within 16 blocks of the home Mimo built or in the legacy clearing; Mimo under the open sky and highest within 8 blocks struck with chance 0.05 (25 damage, armor no help, cause `"lightning"`); a strike on a tree's top leaf or log a `fire` block (glow, light 13, not solid); every 10 game seconds each burning cell spreading to one neighbouring natural log or leaf with chance 0.35 (a third in rain), at most 24 cells a fire and 2 fires at once, each cell burning out 20 to 40 game seconds after it caught; never into a cell Mimo built or edited, a claimed cell or within 8 blocks of home; 2 health a game second in or beside a burning cell (cause `"fire"`); paths keeping out of burning cells and their neighbours; the ice from the first winter dawn to the first spring dawn on natural, never-edited water at `SEA_LEVEL`, too thick to mine, the cells Mimo stood or swam in kept open until the next dawn, fish in a frozen cell moving down or fading; seven lessons (the spec's table), their knocks and sure knocks, six wonders, the owner lines and two doubted ones; `wool_cloak` (5 wool at a table, its own slot, +20); `hearth` (8 cobblestone and a campfire at a table; glow and light 13, warm like a furnace, cooks and smokes like a campfire, never out in rain; `build_hearth` 60, by day, at home, while the winter goal wants one); `smoked_meat` (the `smoke` step, 20 s at a campfire or hearth, 1 raw meat and 1 stick; 20 hunger; never spoils); "Ready for winter" (`winter_ready`, repeating, autumn day 1 until winter day 1, a built home, `wild:winter`, 70 plus a tenth of caution; milestones by lesson: `WINTER_FOOD` = 360 hunger points good on winter day 1 at chest rates (the spec's winter day 5 until its resolution 30), a cloak, a hearth in home, 8 smoked meat; stock_larder serving it); the events, Mind moments, inbox news and danger and death words of "Moments, news and voice"; the viewer's sky, particles (1,500 streaks, 800 flakes, half on a phone), bolt and 0.15 s flash to 3 times, fire, snow cover (`uSnow`, eased over 10 s) and ice (`uFrozen`, eased over a game minute), and the HUD's season badge and weather.
 
 ## Commands
 
-- Backend tests, from the repo root: `python3 -m unittest discover -s backend/tests` (`Ran 1926 tests` `OK (skipped=6)` after W1's plan; `Ran 2013 tests` `OK (skipped=6)` after Task 13)
+- Backend tests, from the repo root: `python3 -m unittest discover -s backend/tests` (`Ran 1967 tests` `OK (skipped=6)` at W1's final HEAD `7cedc75`; `Ran 2060 tests` `OK (skipped=6)` after Task 17)
 - One backend test file: `python3 -m unittest discover -s backend/tests -p "test_survival_sky.py" -v`
 - The slow headless runs: `MIMO_SLOW_TESTS=1 python3 -m unittest discover -s backend/tests -p "test_survival_sim.py"`, the same with `-p "test_survival_days.py"`, `-p "test_survival_expedition_run.py"`, `-p "test_survival_making_route.py"`, `-p "test_survival_frontier_run.py"`, `-p "test_survival_away.py"` and `-p "test_survival_wild_run.py"`
-- The gate (from Task 13): `python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 4 --out DIR`, then `--days 30 --conditions liar --parallel 4 --out DIR` and `--days 65 --conditions upgrade --parallel 4 --out DIR`, then `python3 -m backend.scripts.wild_gate --check W2 DIR` (and `--check W1 DIR`: the W1 gate must still pass)
-- Frontend tests: `cd frontend && npm test` (`Tests  373 passed (373)` after W1's plan; `Tests  388 passed (388)` after Task 12)
+- The gate (from Task 17): `python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 4 --out DIR`, then `--days 30 --conditions liar --parallel 4 --out DIR` and `--days 65 --conditions upgrade --parallel 4 --out DIR`, then `python3 -m backend.scripts.wild_gate --check W2 DIR` (and `--check W1 DIR`: the W1 gate must still pass)
+- Frontend tests: `cd frontend && npm test` (`Tests  375 passed (375)` at W1's final HEAD; `Tests  390 passed (390)` after Task 12)
 - One frontend test file: `cd frontend && npx vitest run src/survival/weather.test.ts`
 - Frontend build (type check + bundle): `cd frontend && npm run build`
 - Lint touched files: `cd frontend && npx eslint src/survival src/engine` (prints nothing when clean)
 
 Each task says how many tests it adds. If the starting totals differ (W1 landed with fixes of its own, or another fix wave landed first), expect the same increases on top of them.
 
-Transcription: every edit is a fenced block, either a whole new file ("Create `path`:") or a "replace: … with: …" pair in a named file ("In `path`, replace:", then "and replace:" for more pairs in the same file). Old texts are kept short and unique in their file at the moment they are applied, so each task still applies when a neighbouring line changes. The dry run applied each task with the controller's apply script (`.superpowers/sdd/2026-09-26-making/apply_plan.py`) to a `git archive` copy of `e021753` with W1's plan applied first, and ran the task's checks after each one; see resolution 1 and "Dry-run measurements".
+Transcription: every edit is a fenced block, either a whole new file ("Create `path`:") or a "replace: … with: …" pair in a named file ("In `path`, replace:", then "and replace:" for more pairs in the same file). Old texts are kept short and unique in their file at the moment they are applied, so each task still applies when a neighbouring line changes. The dry run applied each task with the controller's apply script (`.superpowers/sdd/2026-09-26-making/apply_plan.py`) to a `git archive` copy of `e021753` with W1's plan applied first (the final run: of the branch's `7cedc75`, W1 landed), and ran the task's checks after each one; see resolution 1 and "Dry-run measurements".
 
 ## Plan-level resolutions
 
 The spec leaves "the plan decides how" in several places. These are the details; every task follows them and the controller ledgers them.
 
-1. **Base, order and dry run.** W2 is written on `e021753` with W1's whole plan applied as amended (`ed0f0e5`: sunleaf and bandages only from the owner, the smaller knock table, gate criteria 6′, 7′ and 10′; fourteen tasks, the fixture regenerated after its Task 4): every file and line of W1's this plan touches is as that plan writes it, and W1's execution on the branch, under way while this plan was written, follows the same plan. The plan was first written on W1's plan as it stood before the amendment (`af8a49b`); when the amendment landed, the scratch branch was rebased onto it and three anchors moved, all in files both plans touch: `test_survival_knocks.py`'s table test (W2 still only leaves its seven names out of W1's comparison), `test_survival_wild_run.py`'s imports (W1's now bring `CONDITIONS`, `SEEDS` and `check_w1`), and `wild_gate.CONDITIONS`, which stays W1's four (the amended `check_w1` unpacks them) while W2's `upgrade` condition is `wild_gate.UPGRADE`. `knocks.py` is extended only through `KNOCKS.update` in a module of W2's own, and W1's gate criteria are left as W1 writes them (one line of `check_w1`, the gentle count of lessons, counts all of `SURVIVAL`). The order keeps each task testable on its own: the seasons (Task 1) come before the weather that reads them (Task 2); the three new blocks come with rain (Task 3), the first task that writes one; lightning and fire (Task 4) and the ice and winter (Task 5) before the lessons (Task 6), so the lessons' tests can speak of what the world does; the winter goal (Task 7) before the cloak, hearth and smoking (Task 8), whose milestones it names and skips until they exist (`goals.counted`); knocks, wonders and taking cover (Task 9) once every hook they hear exists; the viewer (Tasks 11, 12) once the payload has everything; the gate script (Task 13) last. Dry run: each task applied with the apply script to a `git archive` copy of that base, the task's new and changed tests run on the code before it (they fail) and the whole backend suite after it (every task), the viewer's tests, build and eslint after Tasks 3, 11 and 12; then the six slow sims and the wild run, the W2 gate, the W1 gate on W2's code and Making's route (see "Dry-run measurements").
+1. **Base, order and dry run.** W2 is written on `e021753` with W1's whole plan applied as amended (`ed0f0e5`: sunleaf and bandages only from the owner, the smaller knock table, gate criteria 6′, 7′ and 10′; fourteen tasks, the fixture regenerated after its Task 4): every file and line of W1's this plan touches is as that plan writes it, and W1's execution on the branch, under way while this plan was written, follows the same plan. The tuning lives of resolutions 21 to 24 ran on the branch as it stood when the controller's ruling on the first dry run came, `8702848` (W1's Tasks 1 to 8 and W1's fix round A, where a wild pet judges leftover food by its own rules and `lit_camp` puts down a carried campfire only once it knows fire), with W1's Tasks 9 to 14 applied from its plan and this plan's drains then (resolution 21); the final gate, Making's route and the slow sims in "Dry-run measurements" ran on W1's final HEAD with this plan's eighteen tasks. The plan is written on W1's final HEAD, `7cedc75`: W1's fourteen tasks, its final fix waves and its Fix B (the drains 40, 40 and 60 game seconds a health, the knock chances a step higher, W1R, the questions recorded as they are asked, criterion 9 restated; spec resolutions 31 and 32). The scratch branch was rebased onto it: four anchors moved (`spoilage.py`'s docstring and its arms' aging, `test_survival_knocks.py`'s table at the new chances, `test_survival_wild_run.py`'s imports, the viewer's `hud.ts` causes), `knocks.known` is `knocks.knows_lesson` now, the gate script was merged into W1's final one (its `new_record`, `record_questions`, `CHECKS` and W1R stay, W2's `check_w2` joins `CHECKS`), and this plan's own drains task was dropped, W1's numbers standing (resolution 21): all eighteen tasks apply there as written, and the dry run below ran there. The plan was first written on W1's plan as it stood before the amendment (`af8a49b`); when the amendment landed, the scratch branch was rebased onto it and three anchors moved, all in files both plans touch: `test_survival_knocks.py`'s table test (W2 still only leaves its seven names out of W1's comparison), `test_survival_wild_run.py`'s imports (W1's now bring `CONDITIONS`, `SEEDS` and `check_w1`), and `wild_gate.CONDITIONS`, which stays W1's four (the amended `check_w1` unpacks them) while W2's `upgrade` condition is `wild_gate.UPGRADE`. `knocks.py` is extended only through `KNOCKS.update` in a module of W2's own, and W1's gate criteria are left as W1 writes them (one line of `check_w1`, the gentle count of lessons, counts all of `SURVIVAL`). The order keeps each task testable on its own: the seasons (Task 1) come before the weather that reads them (Task 2); the three new blocks come with rain (Task 3), the first task that writes one; lightning and fire (Task 4) and the ice and winter (Task 5) before the lessons (Task 6), so the lessons' tests can speak of what the world does; the winter goal (Task 7) before the cloak, hearth and smoking (Task 8), whose milestones it names and skips until they exist (`goals.counted`); knocks, wonders and taking cover (Task 9) once every hook they hear exists; the viewer (Tasks 11, 12) once the payload has everything; L3's trap fix (Task 13, resolution 20) and the three fixes the W2 gate found (Tasks 14 to 16, resolutions 22 to 24) before the gate script (Task 17) that measures them. Dry run: each task applied with the apply script to a `git archive` copy of that base, the task's new and changed tests run on the code before it (they fail) and the whole backend suite after it (every task), the viewer's tests, build and eslint after Tasks 3, 11 and 12; then the six slow sims and the wild run, the W2 gate, the W1 gate on W2's code and Making's route (see "Dry-run measurements").
 2. **One sky, then effects** (Task 1). `sky.py` imports only the clock, `nature.roll` and `once`, so any module may read the season or the weather. `advance(state, context, at)` runs in the tick at the start of each step, after Mimo's actions reach it and before renewal and the creatures (so they read the step's weather), and before the vitals step: first `tend_season` and `tend_weather`, then each of `EFFECTS` guarded on its own. `settle_sky` runs beside W1's `settle`, at the transaction's `last_tick_at`: a newborn's first tick is on day 1, so the one rule gives a newborn offset 0 and an old world the offset that makes its upgrade day spring day 1. A dead world is never written, since `advance_world` returns before either runs.
 3. **Season events** (Task 1). The log's notability is by kind (`world.ROUTINE_EVENTS`), so the spec's routine turn of a season and its notable spring are two kinds: `season` ("Summer has come.", "Autumn has come.", "Winter has come.") is routine and `spring` ("Spring! Things are growing again.") notable; autumn day 3's warning is the notable `colder` ("The nights are getting colder."), logged once when the step crosses dusk. A turn is logged at the first step of its day, never on the tick that sets an old world's year.
 4. **Warmth** (Tasks 1, 2, 8). `vitals.target_warmth(night, biome, sheltered, near_fire, season, snowing, cloak)`: the season's day or night value, the mountains' 60 or 50 off, snowfall's 10 off only when not sheltered ("outdoors"), then +45 for shelter and +20 for a cloak; a fire, furnace or hearth within 4 blocks is 100. Spring's values are today's, so every sim that stays in spring sees today's warmth to the last bit. The tick's `surroundings_at` takes the state for the season, the snow and the cloak; a wild pet wears its cloak only once it knows `wild:cloak` (`wild.cloaked`, one query only while it carries one).
-5. **Weather** (Task 2). `weather_at(seed, offset, segment)`: a segment keeps the one before it when its keep roll (channel 231, on the segment) is under 0.5; the look back walks to the first segment that does not keep, stopping at the sixth, which rolls fresh on its season's table (channel 230); walking forward again, a kept weather the segment's season lacks rolls fresh. Measured over 10,000 segments of each season, every share is within 0.01 of the table, and a spell averages 3.2 segments (32 game minutes). The tick stores the weather when the segment changes, with `weather_until` (the first of the next 12 segments with another weather). A walk that starts under the open sky (`light.sky_open` at its start cell) takes 1.15 or 1.3 times as long (`steps.WALK_PACE`): one check a walk, not a cell. A crop stage that starts while it rains takes the watered time (`renewal.stage_seconds(..., rain)`, from `weather_of` at the stage's start: pure, so a catch-up and a test agree). Fog makes the open ground's sky light 6 for spawning only (`darkness.FOG_SKY`), keeps `hostiles.sunlit` from burning or fading them, and adds 2 to the cap through L5's `darkness.MORE_ROOM`.
+5. **Weather** (Task 2). `weather_at(seed, offset, segment)`: a segment keeps the one before it when its keep roll (channel 231, on the segment) is under 0.5; the look back walks to the first segment that does not keep, stopping at the sixth, which rolls fresh on its season's table (channel 230); walking forward again, a kept weather the segment's season lacks rolls fresh. Measured over 10,000 segments of each season, every share is within 0.01 of the table, and a spell averages 3.2 segments (32 game minutes). The tick stores the weather when the segment changes, with `weather_until` (the first of the next 12 segments with another weather). A walk that starts under the open sky (`light.sky_open` at its start cell) takes 1.15 or 1.3 times as long (`steps.WALK_PACE`): one check a walk, not a cell. So does a creature's walk, flight or chase that starts under the open sky (`creatures.acts.SLOWS`, `weather.creature_pace`: one check a move, and none out of rain and snow), by the controller's ruling on the W2 dry run (2): slowed alone, an unarmed pet fleeing a gloomling and a skitter at 60 times took 37 blows in the rain, against L2's limit of 6. A crop stage that starts while it rains takes the watered time (`renewal.stage_seconds(..., rain)`, from `weather_of` at the stage's start: pure, so a catch-up and a test agree). Fog makes the open ground's sky light 6 for spawning only (`darkness.FOG_SKY`), keeps `hostiles.sunlit` from burning or fading them, and adds `weather.FOG_ROOM` to the cap through L5's `darkness.MORE_ROOM`: 0 since the controller's ruling on the W2 dry run (1), where the spec had 2 (resolution 21).
 6. **Rain and campfires** (Task 3). While it rains (a storm too), each step puts out every campfire within 64 blocks of Mimo that stands under the open sky: one query of `mimo_blocks` for campfires in the square (loading every chunk that far into the grid measured 8 ms on the tick's p99). `campfire_out` drops a campfire when mined, gives no light or warmth, and stands in for the campfire a shelter's design puts beside its door (`structures.STANDS_IN`), so furnishing never tries to put a second one in its cell. The `relight` step (1 s, a stick) lights one again; cook relights one within reach before putting another down, never one out in the rain. `wild:rain` (known from the start by a gentle pet) sorts a fire's station spots roofed first (a solid block, not leaves, within 4 above: `rain.roofed_first`) for cook's campfire and the warm_up reflex's.
 7. **Lightning** (Task 4). A strike's six columns are sampled round Mimo within 48 blocks (angle and the square root of a roll, so they spread evenly over the disc; channel 232); each column's top is its highest cell that is not air, a tree's top leaf included; columns within 16 blocks of the home Mimo built or in the legacy clearing are passed over, and with none left nothing falls. "Mimo's column is the highest within 8 blocks" reads: no other column within 8 blocks has a block as high as the one Mimo stands on (so on flat ground, beside a tree or indoors it never is); then a roll under 0.05 (channel 233) strikes Mimo instead, never within 16 blocks of home or in the clearing either. A strike or fire takes health as a blow does (`hurt_by` "lightning" or "fire"), so the tick's `caught` check after `sky.advance` records the death; `tick.CAUSE_WORDS` reads "was struck by lightning" and "was caught in a fire". The last 5 strikes are kept for the viewer.
 8. **Fire** (Task 4). A fire burns at most 24 cells in all, counted by fire (`sky["burned"]`), and at most 2 burn at once: "a fire holds at most 24 cells" read as all it ever holds, so a fire crawling through a forest one cell at a time still ends (at the spec's 0.35, a burning cell's two to four rolls give about one new cell each, and without this bound a dry forest would keep one alight). A burning cell spreads to one of its six face neighbours that is a natural (never-edited) log or leaf, not claimed and not within 8 blocks of home (channel 236 picks which); each cell burns 20 to 40 game seconds (channel 235) and leaves air, and renewal lets the leaves no log holds decay as after chopping. The heat is 2 health a game second for the time Mimo stood in or beside a burning cell since the last look (or since the cell caught). While a burning cell is within 3 blocks the tick takes the short fight steps (as near a hostile), and `flee_fire` (25, before flee) runs from the nearest burning cell within 2 blocks with defense's `run_away`. Paths keep out of burning cells and their face neighbours (`Grid.hot`, set by the storm effect each step).
 9. **Ice** (Task 5). `Grid.material` reads "ice" for a cell at `SEA_LEVEL` whose natural block is water and that has no edit, while `grid.frozen`; `open_cells` stay water. Every natural surface water cell has open sky over it by worldgen's own shape (lakes and pools have nothing natural above them), so "open sky above it" needs no scan. `world_grid(db, seed, sky)` dresses every grid from the state (the tick's and the chooser's `from_db`), and the freeze effect keeps the tick's grid current. `start_mine` refuses the overlay's ice ("the ice is too thick"), a taiga's own natural ice still mines. At the freeze the water cells Mimo stands or swims in stay open until the next dawn, and each fish in a surface cell within the creature hook's 48 blocks swims a cell down or, with no water under it, is removed; fish farther off are never simulated there.
 10. **Winter's growth, herds, fish and food** (Task 5). A renewal entry due in winter that grows something (`renewal.WINTER_WAITS`: a crop's next stage, a sapling's tree, a berry or nightberry bush ripening, a forest-floor mushroom or sunleaf coming back, farmland reverting) is rescheduled to the first spring dawn; leaf decay goes on. Cave mushrooms never came back before (a picked one's replacement grew on its chunk's forest floor): now a mushroom picked below the land's natural surface comes back on its own spot a game day later, in any season, on solid ground and never in a claimed cell, so the caves are winter food as the spec says (a small change for gentle pets too, and the only one outside winter). In winter a new chunk rolls one herd at most, the land cap near Mimo is 12 and no hunted-out chunk regains its herd; `nature.recover_fish(..., grows=False)` lets the days pass with no fish added; spoilage runs a third as fast (`spoilage.WINTER_RATE`).
 11. **The seven lessons** (Task 6). They follow W1's eleven in `wild.SURVIVAL`, each with the subjects the owner's words name (winter; wool cloak, cloak; hearth; smoked meat; rain; storm, thunderstorm, lightning; fog). One opposite pair is new, harmless or safe against dangerous or danger, and the storm and fog facts stand for "dangerous" (`sides`), so "Lightning is harmless." and "Fog is safe." are doubted while no true line is. `wild.GRANTED` is 2 and `settle` grants a gentle pet whose `granted` is below it every lesson again (a known one stays as it was), quietly.
-12. **"Ready for winter"** (Task 7). The rules keep the current goal (`goals.STICK`, 100) and the rules picker is the gates' picker, so a goal that is only offered in autumn would never win a goal choice from a pet busy with its making: while it is open the season pulls it `WINTER_PULL` = 100 (a `goals.PULLS` entry, "winter comes in 6 days"), so it wins the first autumn dawn's goal choice, and nothing holds Mimo to it (`holds` stays None). It is open from autumn day 1 to its last dawn, not on winter day 1 itself (a goal still open then would read as ready when winter has come). A milestone whose lesson Mimo does not know reads whole; the cloak's, the hearth's and smoking's are skipped until Task 8 registers their purposes and recipes. The food milestone counts `winter_food`: the chests' food Mimo would eat (not an old ruin's), each lot of a wild pet's counted only when its wear by winter day 5, at half the arms' rate in a chest and a third of that in winter, stays under 1. stock_larder follows the goal through `larder.TARGETS` (the target, the measure, and `WINTER_EXTRA` = 120 more food on hand while it gathers). Bond's requests learn the goal's words (`requests.REQUEST_WORDS`, `TO_DO`) and "for" joins `TITLE_STOP`, so "store it for later" is no request for it. In winter a pet that knows winter keeps near the home it built (`winter_prep.keeps_near`): the expedition and the riches goal are held off (`winter_prep.FAR_GOALS` through a new guarded hook, `goals.HELD_OFF`, read by `goals.is_open`, so one under way is given up at its next check and Mimo comes home), and no trip heads for a target farther than `WINTER_REACH` = 96 blocks from home or in the mountains (`trips.FENCES`, L5's fence list). The spec says nothing of where a pet goes in winter, but its numbers decide it: a winter day in the mountains is 45 less 60 and a winter night out -10, so a pet that roams freezes whatever it wears. Measured on the first W2 gate run's gentle lives, before this rule: every freezing minute of their first winters came 150 to 240 blocks out on an expedition, a riches trip or the far hills, criterion 2 failed on four of six seeds (12 to 35 freezing minutes in a winter), and two pets fell under 20 health dug in for a winter night on the heights with no fire. A wild pet that does not know winter roams as ever. And in winter the chest is where the food is (the bushes and crops wait for spring, the herds thin, the lakes freeze): build_storage taking food out while Mimo carries less than `storage.TAKE_BELOW` scores as food work does, from `storage.WINTER_TAKE` = 40 (forage's base is 35), for any pet, since the rule is about where food is, not a lesson; on the third gate run a gentle pet with 740 hunger points of food in its chests foraged bare winter land 58 blocks from home and starved 24 game minutes.
-13. **The cloak, the hearth and smoked meat** (Task 8). The cloak is in `harm.SLOTS` as "cloak" and never in `ARMOR`, and worn, it takes no carry stack (`carrying.WORN`): kept on Mimo for good like its armor, it would fill one of the 16 stacks, and Making's route stalls on full arms (on the second gate run, gentle seed 5 carried 16 stacks with its cloak from day 66 on, could dig no cobblestone for its computer and never finished it); while Mimo wants one, 5 wool stay on hand (`storage.KEEPS_MORE`) and come back out of the chests that hold them (`storage.TAKES_MORE`). make_cloak (55 plus a tenth of caution, by day) and build_hearth make their item at a table placed and mined back (creature gear's `gear_steps`), so like make_gear neither makes one inside the shelter, where no table stands. The hearth goes in the home's room cell with walls on two sides nearest home's cell (a front corner: clear of the way in, the bed and the chest), a cell the home claims already. `crafting.FIRES` and `steps.WORKSTATIONS` gain the hearth; cook never puts down a carried hearth (its carried fires stay the campfire and the furnace). smoke_meat (65, by day) smokes the raw beef, mutton, chicken or rabbit Mimo carries, a stick each (made from its planks or logs when it has none), at a fire within reach, relit, or a campfire it puts down and picks up, or else walks to a lit campfire or hearth within cook's `FIRE_TRAVEL` (32), while the winter goal wants smoked meat (`winter_gear.smoke_wanted`): up to the 8 it holds, and for a wild pet as much more as its chests' winter food falls short; and a wild pet that is not hungry (hunger `SPARE_ABOVE` = 50 or more) and could smoke its meat now leaves it uncooked (`cooking.SPARED`, a new guarded hook), so meat it cannot smoke is still cooked before it spoils. A wild pet's cooked meat spoils before winter day 5 unless it is stored in autumn's last six days, and smoked meat never does: on the fourth gate run taught pets smoked one to four times a life, and on four of six seeds the chests held under `WINTER_FOOD` on most winters' first day (0 to 222); a probe of seed 3's autumn found it carrying twelve raw meats with no stick, and later with sticks but no fire within reach. Smoked meat is familiar food (`wild.FAMILIAR`) and no `PERISHABLE`.
+12. **"Ready for winter"** (Task 7). The rules keep the current goal (`goals.STICK`, 100) and the rules picker is the gates' picker, so a goal that is only offered in autumn would never win a goal choice from a pet busy with its making: while it is open the season pulls it `WINTER_PULL` = 100 (a `goals.PULLS` entry, "winter comes in 6 days"), so it wins the first autumn dawn's goal choice, and nothing holds Mimo to it (`holds` stays None). It is open from autumn day 1 to its last dawn, not on winter day 1 itself (a goal still open then would read as ready when winter has come). A milestone whose lesson Mimo does not know reads whole; the cloak's, the hearth's and smoking's are skipped until Task 8 registers their purposes and recipes. The food milestone counts `winter_food`: the chests' food Mimo would eat (not an old ruin's), each lot of a wild pet's counted only when its wear by winter day 1, at half the arms' rate in a chest, stays under 1 (`winter_food(s, good_until)`: `GOOD_UNTIL` = 0 for the goal and the gate, resolutions 17 and 24; Task 7 writes 4, winter day 5, and Task 16 moves it). stock_larder follows the goal through `larder.TARGETS` (the target, the measure, and `WINTER_EXTRA` = 120 more food on hand while it gathers). Bond's requests learn the goal's words (`requests.REQUEST_WORDS`, `TO_DO`) and "for" joins `TITLE_STOP`, so "store it for later" is no request for it. In winter a pet that knows winter keeps near the home it built (`winter_prep.keeps_near`): the expedition and the riches goal are held off (`winter_prep.FAR_GOALS` through a new guarded hook, `goals.HELD_OFF`, read by `goals.is_open`, so one under way is given up at its next check and Mimo comes home), and no trip heads for a target farther than `WINTER_REACH` = 96 blocks from home or in the mountains (`trips.FENCES`, L5's fence list). The spec says nothing of where a pet goes in winter, but its numbers decide it: a winter day in the mountains is 45 less 60 and a winter night out -10, so a pet that roams freezes whatever it wears. Measured on the first W2 gate run's gentle lives, before this rule: every freezing minute of their first winters came 150 to 240 blocks out on an expedition, a riches trip or the far hills, criterion 2 failed on four of six seeds (12 to 35 freezing minutes in a winter), and two pets fell under 20 health dug in for a winter night on the heights with no fire. A wild pet that does not know winter roams as ever. And in winter the chest is where the food is (the bushes and crops wait for spring, the herds thin, the lakes freeze): build_storage taking food out while Mimo carries less than `storage.TAKE_BELOW` scores as food work does, from `storage.WINTER_TAKE` = 40 (forage's base is 35), for any pet, since the rule is about where food is, not a lesson (in every season, while hungry, since Task 15, resolution 23); on the third gate run a gentle pet with 740 hunger points of food in its chests foraged bare winter land 58 blocks from home and starved 24 game minutes.
+13. **The cloak, the hearth and smoked meat** (Task 8). The cloak is in `harm.SLOTS` as "cloak" and never in `ARMOR`, and worn, it takes no carry stack (`carrying.WORN`): kept on Mimo for good like its armor, it would fill one of the 16 stacks, and Making's route stalls on full arms (on the second gate run, gentle seed 5 carried 16 stacks with its cloak from day 66 on, could dig no cobblestone for its computer and never finished it); while Mimo wants one, 5 wool stay on hand (`storage.KEEPS_MORE`) and come back out of the chests that hold them (`storage.TAKES_MORE`). make_cloak (55 plus a tenth of caution, by day) and build_hearth make their item at a table placed and mined back (creature gear's `gear_steps`), so like make_gear neither makes one inside the shelter, where no table stands. The hearth goes in the home's room cell with walls on two sides nearest home's cell (a front corner: clear of the way in, the bed and the chest), a cell the home claims already. `crafting.FIRES` and `steps.WORKSTATIONS` gain the hearth; cook never puts down a carried hearth (its carried fires stay the campfire and the furnace). smoke_meat (65, by day) smokes the raw beef, mutton, chicken or rabbit Mimo carries, a stick each (made from its planks or logs when it has none), at a fire within reach, relit, or a campfire it puts down and picks up, or else walks to a lit campfire or hearth within cook's `FIRE_TRAVEL` (32), all through autumn whatever Mimo's goal (the controller's ruling on the W2 dry run, 5), while winter wants smoked meat (`winter_gear.smoke_wanted`): up to the 8 it holds, and for a wild pet as much more as its chests' winter food falls short; and a wild pet that is not hungry (hunger `SPARE_ABOVE` = 50 or more) and could smoke its meat now leaves it uncooked (`cooking.SPARED`, a new guarded hook), so meat it cannot smoke is still cooked before it spoils. A wild pet's cooked meat spoils in a chest in 8 game days, so only what is stored in autumn's last days is still good on winter day 1, and smoked meat never spoils: on the fourth gate run taught pets smoked one to four times a life, and on four of six seeds the chests held under `WINTER_FOOD` on most winters' first day (0 to 222); a probe of seed 3's autumn found it carrying twelve raw meats with no stick, and later with sticks but no fire within reach. Smoked meat is familiar food (`wild.FAMILIAR`) and no `PERISHABLE`.
 14. **Knocks, wonders and taking cover** (Task 9). W2's knocks roll on W1's rule, channel 206 plus the lesson's place in `SURVIVAL` (217 to 223; W1's chips' shuffle's 220 rolls on a question's index and never on Mimo's cell). The winter knock counts a winter day once (hunger under 30); a pet alive at the first spring dawn after a winter it lived through knows winter. W1's sure fire knock by a fire it did not make is wired here: a burning cell within 8 blocks. The wonders are asked like W1's, each with a false chip for the liar (the fog's yes-claim is doubted, its no-claim teaches). take_cover (58, before head_home) sends a pet that knows the storm (or the fog) home once a spell of that weather, when it is out under the open sky farther than 16 blocks (24 in fog) from the home it built; not on an expedition, and not while going home or asleep. Without a built home it does nothing: "down off high ground" alone is left to the strikes' own rule, which never hits a pet off the heights. In fog a pet that knows it starts no trips (`trips.HOLD_BACK`); an expedition already out goes on.
 15. **Moments and news** (Task 10). Mind keeps `struck` 8 (-2), `fire` 5 (0), `season` 4 (+1), `spring` 6 (+1) and `colder` 4 (0). The inbox tells a strike and a fire as danger, each at most once a game day (summer storms set many trees alight), and winter's and spring's first days as news. `season`, `storm`, `fire_out` and `smoke` are routine. `/api/mimo`'s `sky` also carries the burning cells (`fires`), for the viewer's embers.
 16. **The viewer** (Tasks 11, 12). `seasons.ts` (the badge, a colder day sky in winter, easing) and `weather.ts` (the tints, the HUD's mark and word, particle counts, the fog's reach, the flash, where rain and snow fall, the bolt, embers and smoke) are pure; `WeatherEffects` draws five instanced meshes (rain, snow, the bolt's bars, embers, smoke) in one frame loop. The mesher's one new attribute, `open`, is 1 on a top face with no opaque block above it in its column (the snow settles there) and 2 on every face of water (the ice freezes the ones at or above `SEA_LEVEL`); the terrain materials read `uSnow` and `uFrozen`, set each frame by `ColumnRenderer.setWeather` from values the canvas eases toward the server's (the snow over 10 s, the ice over a game minute at the clock's pace). The storm's mark is "ϟ", not the lightning emoji. The static flame tile and its embers stand for the spec's animated flame texture.
-17. **The gate script** (Task 13). The scripted owner says W2's seven lines on day 2 at the same pace as W1's on day 1. A life's winters are counted by its own seasons (an upgraded world's first winter is its first). `winter_food` is read at the first tick of each winter day 1. The `upgrade` condition runs criterion 9's world: a gentle life ticked 20 days with `sky.advance` and `settle_sky` patched out (the code before W2 had no sky; the rain's pure `weather_of` still waters its crops, the one leak), its sky dropped, then 45 more days as W2. Criterion 10 runs the two budget tests (`test_survival_storms`' storm by a forest and `test_survival_winter`'s frozen lake), each taken as the best of up to three runs so a busy machine does not fail it. Criterion 8's nearest strike is measured at the strike, through a `storms.STRIKES` hook (`wild_gate.strike_seen`): measured after the tick, a bigger home finished in the same tick as a strike 16.28 blocks from the old one read 14.21. `check_w1`'s gentle criterion counts every lesson of `SURVIVAL`, and W1's `CONDITIONS` stay its four: the upgrade condition is `wild_gate.UPGRADE`.
-18. **Existing tests W2 changes** (the tasks that change them). The L2 flee test at 60 times (`test_survival_defense`'s `among_two_hostiles`) runs under clear skies: seed 3's first night rains, a walk in the rain takes 15 % longer, and the unarmed pet took 37 blows fleeing the skitter instead of at most 6; the test measures the flight, not the weather. The blocks' order tests (W1's plants, L5's lantern, the viewer's) move by three. The reflex order gains flee_fire and take_cover. W1's knock table test leaves W2's names out. W1's wild run expects every lesson known by day 3 once the scripted owner speaks on day 2. The leftovers test gives its pet a cloak, since a pet that wants one keeps its wool. Two slow sims move (Task 9, where fog starts holding trips back and storms send a pet home): `test_survival_sim.py`'s six-day lives leave a day at least half fog out of their new-ground floor (`FOG_DAY` = 0.5; seed 21's day 5 is fog from dawn to dusk and its pet walked 11 new patches, the floor being 40), and `test_survival_frontier_run.py` runs under clear skies (seed 11's geared pet, sent home out of the weather five times, set its riches goal aside and did not reach it in 4 days); both record the measure and the reason in the test's comment, for the controller's ruling.
-19. **Balance** (the dry run). The spec's W2 values are kept; four gate runs came before the final one, and each change they led to is in resolution 12 or 13 (staying near home in winter, chest food in winter; the worn cloak, smoking a wild pet's winter food), measured in "Dry-run measurements". Three thresholds of the existing tests moved, each recorded in its test's comment for the controller's ruling (resolution 18): L2's flee test at 60 times runs under clear skies (37 blows in the rain against at most 6); `test_survival_sim.py`'s six-day lives leave out a day at least half fog (seed 21's day 5, fog from dawn to dusk: 11 new patches against the floor of 40; the floor stays); `test_survival_frontier_run.py` runs under clear skies (seed 11's riches goal set aside after five walks home out of the weather). Every other slow sim held unchanged. On the final code the W2 gate still fails four criteria and W1's gate two, each measured and left to the controller, not loosened: criterion 1 (a taught pet killed by a skitter on day 52), 2 (a gentle pet trapped 14 game minutes in its own staircase in a winter swamp, L3's escape slow to see it), 3 (taught pets' chests: the food good on winter day 5 under W1's spoilage), 7 and W1's 8 (every untaught pet died, four by day 25: with the weather read as clear, seeds 11 and 21 lived past day 30; with only fog read as clear, seed 11 did and seed 21 lived to day 10.9 instead of 7.3, so fog's daytime hostiles and the wounds only the owner can dress are the main cause), W1's 1 (the same skitter). The knobs the spec leaves open, in the order the evidence points: fog's hostiles (`FOG_ROOM` 2 to 0, then fog's daytime spawning light), then the share of fog in the tables, then W1's own drains (its chill is at its limit, W1's resolution 20); for criterion 3, counting a wild pet's winter food as good on winter day 1 rather than day 5, or smoking offered through the whole autumn.
+17. **The gate script** (Task 17). The scripted owner says W2's seven lines on day 2 at the same pace as W1's on day 1. A life's winters are counted by its own seasons (an upgraded world's first winter is its first). `winter_food` is read at the first tick of each winter day 1, counting the food still good that day (`good_until=0`): the controller's ruling on the W2 dry run (5) made criterion 3 a measure of preparedness, and since its ruling on the gate the goal's own measure is the same (resolution 24; spec resolution 30). The `upgrade` condition runs criterion 9's world: a gentle life ticked 20 days with `sky.advance` and `settle_sky` patched out (the code before W2 had no sky; the rain's pure `weather_of` still waters its crops, the one leak), its sky dropped, then 45 more days as W2. Criterion 10 runs the two budget tests (`test_survival_storms`' storm by a forest and `test_survival_winter`'s frozen lake), each taken as the best of up to three runs so a busy machine does not fail it. Criterion 8's nearest strike is measured at the strike, through a `storms.STRIKES` hook (`wild_gate.strike_seen`): measured after the tick, a bigger home finished in the same tick as a strike 16.28 blocks from the old one read 14.21. `check_w1`'s gentle criterion counts every lesson of `SURVIVAL`, and W1's `CONDITIONS` stay its four: the upgrade condition is `wild_gate.UPGRADE`. Each winter also counts its cold minutes (warmth under W1's `CHILL_BELOW`, 35) and its hungry minutes (hunger under `HUNGRY_WINTER`, 30). Criterion 6, restated by the controller's ruling on the W2 interim report (resolution 21), sums the cold minutes of the winters each pet lived through: a winter counts when the life ticked in it, so a pet dead before a winter counts in none.
+18. **Existing tests W2 changes** (the tasks that change them). The L2 flee tests (`test_survival_defense`'s `among_two_hostiles`, at 60 times and caught up a minute at a time, and their budget) run in the rain, with L2's limits: rain slows the chasers as it slows Mimo (resolution 5); without that, the unarmed pet took 37 blows fleeing the skitter at 60 times, against at most 6. The blocks' order tests (W1's plants, L5's lantern, the viewer's) move by three. The reflex order gains flee_fire and take_cover. W1's knock table test leaves W2's names out. W1's wild run expects every lesson known by day 3 once the scripted owner speaks on day 2. The leftovers test gives its pet a cloak, since a pet that wants one keeps its wool. Two slow sims move (Task 9, where fog starts holding trips back and storms send a pet home): `test_survival_sim.py`'s six-day lives leave a day at least half fog out of their new-ground floor (`FOG_DAY` = 0.5; seed 21's day 5 is fog from dawn to dusk and its pet walked 11 new patches, the floor being 40), and `test_survival_frontier_run.py` runs under clear skies (seed 11's geared pet, sent home out of the weather five times, set its riches goal aside and did not reach it in 4 days); both record the measure and the reason in the test's comment, and the controller's ruling on the W2 dry run (3 and 4) accepted both.
+19. **Balance** (the dry run). The spec's W2 values are kept but for the fog's room (2 to 0) and the winter goal's food measure (winter day 1): resolutions 21 and 24, by the controller's rulings. Before the rulings, four gate runs came before the first pass's final one, each change in resolution 12 or 13 (staying near home in winter, chest food in winter; the worn cloak, smoking a wild pet's winter food). After them, the fog and W1's drains were tuned in the ruling's order and criterion 6 restated (resolution 21), and the gate on that code found the bugs resolutions 22 to 24 fix (two taught deaths, the winter larder). Two slow sims moved on the first pass, each recorded in its test's comment and accepted by the ruling (resolution 18); every other slow sim held unchanged. On the final code W1's gate fails criterion 8 and W2's gate criteria 2, 3, 6 and 7, each measured and left to the controller, not loosened: the untaught pets die more on W1's final numbers than on the numbers resolution 21 tuned them with.
+20. **A trap is seen at any hour** (Task 13; the controller's ruling on the W2 dry run, 6). L3's escape checks for a trap when two walks find no path, and tried again at most once per `ESCAPE_RETRY` = 60 *server* seconds, a game day at `MIMO_TIME_SCALE` 60. On the W2 gate a gentle pet (seed 21) dug its staircase into a frozen swamp's bed at dusk, failed two walks home, found its last escape too recent, slept the night in the pit and dug out only after dawn: 14 game minutes starving in its first winter. `ESCAPE_RETRY` is 60 game seconds now (`(at - escaped_at) * scale`), the same at 1x. A pet that falls asleep without two failed walks is not checked for a trap: a camp dug in for the night (L4b) is a hole by design. The test is the pit at night at 60 times, the last escape 20 server seconds before.
+21. **Fog tuned, then W1's drains; criterion 6's winter knobs** (Tasks 2 and 17; the controller's rulings on the W2 dry run, 1, and on its interim report, 1 and 2; spec resolution 30). On the first dry run every untaught pet died of sickness (days 7.3 to 128.2, four by day 25) and W1's gate broke on W2's code (criterion 8). The ruling's order was followed, each step measured on untaught lives of the gate's seeds with the knob set in a scratch script (150 days, or 30 where named; the lives of seeds 8 and 42 were cut short once the step had failed), rain already slowing every walker (resolution 5); a death is its day, and a pet alive at the run's end is "alive":
+- `FOG_ROOM` 2 to 0 (150 days): seed 11 died on day 7.57, 21 on 8.27, 42 on 12.38, 3 on 80.55; 5 and 8 alive on day 150. Four deaths: W1's criterion 8 (at most 3) fails. Seed 42's life is from the code with every change but the eased drains, where 11, 21 and 3 died on the same days again.
+- Then fog's daytime spawn light, `FOG_SKY` 6 to 8 (above `light.DARK`, so fog by day spawns nothing on open ground): 5 on day 5.12, 21 on 11.1, 42 on 12.38, 3 on 23.0; 11 alive on day 30.
+- Then fog's shares halved (spring 0.03, summer 0.02, autumn 0.12, winter 0.08; clear taking the rest): 3 on day 7.68, 5 on 9.15, 11 on 10.2, 21 on 11.1.
+- Then a festering wound 1 health per 60 game seconds (W1's 40): 3 on day 7.9, 5 on 10.13, 21 on 11.22, 11 on 11.25.
+Probes of those deaths found no W2 hazard in them: each was a night blow's wound festering (only the owner teaches bandages and sunleaf) with a raw meal's tummy ache or a dawn chill. Eight seeds beyond the gate's six (1, 2, 4, 6, 7, 9, 10, 12), 30 days untaught: W1's own code (no W2) lost 6 of 8 (days 2.7, 6.2, 6.28, 8.2, 8.27, 11.38), W2's code with the three fog steps 3 of 8 (2.57, 6.23, 11.25); W1's gate seeds had lost one by day 30. So W1's drains are what dooms a newborn, and fog's daytime spawning and shares, measured to make no difference, stay as the spec has them: they are what the fog lesson is for. The drains came last, all three eased together: a tummy ache 1 health per 30 game seconds (W1's plan: 20), a chill 1 per 40 (30), a festering wound 1 per 60 (40), in a task of this plan then. With `FOG_ROOM` 0 and those drains, the 14 seeds' untaught lives over 30 days lost 2 (seed 4 on day 3.2, seed 9 on day 25.27); the gate's six all lived. The final gate is in "Dry-run measurements". `FOG_ROOM` stays a named knob (`weather.FOG_ROOM`, through `darkness.MORE_ROOM`) at 0. W1 took the drain easing over (the ruling on the interim report, 1): its Fix B, landed at `7cedc75`, set a tummy ache and a chill to 1 health per 40 game seconds and a festering wound to 1 per 60, put its knock chances a step higher and added the robustness check W1R, so this plan's drains task is dropped and W1's numbers stand. Every life in "Dry-run measurements" ran with this plan's drains (30, 40 and 60) on the W1 of `8702848` and its plan; the W2 pre-flight measures them again on W1's final numbers.
+**Criterion 6, restated** (the controller's rulings on the W2 interim report, 2, and on its step 3; spec resolution 30). As first written (the untaught pets' mean winter health mean 15 below the taught one's, a pet dead before a winter counting as 0) it measured early deaths, not winters. Measured over the pets alive at the start of each winter, the untaught pets' winters on the code before resolutions 22 to 24 (the eased drains, the W1 of `8702848`) average 96.4 over 21 winters lived and the taught pets' 99.4 over 21: a pet that taught itself shelter and fire (12 to 14 lessons alone by day 60) sleeps by the campfire at its shelter's door, and lives through winter; that is the game being fair. Of the ruling's three winter measures, summed over the winters each pet lived through (the six untaught lives and the six taught ones on that code, run again with the gate counting them; every life the same to the last figure):
+
+| Measure (game minutes, 21 winters each) | Untaught | Taught | Untaught / taught |
+|------|------|------|------|
+| Cold: warmth under `CHILL_BELOW` (35) | 49 | 12 | 4.1 |
+| Hungry: hunger under 30 | 375 | 370 | 1.0 |
+| Sick | 32 | 26 | 1.2 |
+
+Criterion 6 now reads the cold minutes: untaught at least twice taught's, and more than none (`check_w2`, from each winter's `cold`). The winter knobs the ruling named, each measured on the six untaught lives and each taken out again (the plan keeps neither):
+
+| Knob | Untaught deaths | Winter mean (winters lived) |
+|------|-----------------|-----------------------------|
+| None (that code) | 1, on day 66.27 | 96.4 (21) |
+| (1) winter night -15 (sheltered 30, under `CHILL_BELOW`); only a fire inside warms a shelter in winter, not the campfire at its door | 6, days 33.1, 33.37, 34.08, 36.18, 36.2, 37.23 | 60.7 (6) |
+| (1) and build_hearth also in winter once the hearth is known | the same 6 on the same days | 60.7 (6) |
+| (1) on snowy nights only (the winter night -10, falling snow taking its 10 off a shelter too: sheltered 25), 80 days | 5 by day 40 (33.1, 33.37, 34.83, 38.05, 40.1), the sixth on 80.18 | 69.9 (7) |
+| (2) `wild:hearth` owner-only, on the snowy-night (1), 80 days | 4 in the first winter (33.1, 33.37, 34.83, 38.05), a fifth on 80.38 | 75.3 (8) |
+
+A probe of seed 5 under (1): a sure chill every night at home (37.5 health a bout at the eased drain, with no healing while sick), a gloomling's cut festering, and freezing by day on the far hills, since an untaught pet roams in winter until a hungry winter day teaches it the season; it worked out the hearth on day 32, but build_hearth served only the autumn goal. (2) alone changes nothing: with no knob no untaught pet worked out the hearth, whose knock needs a chilled night at home. Every knob that made winter a knowledge test did it by killing newborns through W1's chill.
+22. **A camp's fire under a roof** (Task 14; the controller's ruling on the W2 gate, criterion 1). On the W2 gate taught seed 21 died of the cold at dawn on day 110: out on an expedition at dusk on autumn day 9 it met a thunderstorm and a thornback (a cut that festered), dug in for the night, and the rain put out its camp's campfire as it dug in (resolution 6); it froze from 109.7 and carried no cloak. L4b's camp puts its campfire on the ground beside the hole, under the open sky, and `rain.roofed_first` sorts only cook's and warm_up's fire spots. For a pet that knows the rain (a gentle pet does), `camp.fire_cover` puts a building block over the fire's cell before the fire (the roof first, so a step's rain never finds the fire bare): a block it can spare from the hole's own roof, a second of its stack, or the last when the block the hole gives will roof the hole. The morning's `leave_camp` takes only the hole's roof back; the fire's stays, as the fire does. L4b's three camp tests with a gentle pet gain the step.
+23. **The chest before food work** (Task 15; the ruling on the W2 gate, criterion 1). On the W2 gate taught seed 11 starved on day 125.9 (spring day 5) with 16 full stacks of things it keeps (armor, a sword, a gold pickaxe, 14 coal, diamonds, copper wire, logs, a crafting table, a campfire, saplings, tallow), while its chests held 4 smoked meat, 3 cooked rabbit and 18 wheat: for two days it fished and hunted and ate what did not fit raw, one at a time (`carrying.eat_what_is_left`); `to_take` gives nothing with no room, and food work outscored putting things away (65 at 16 stacks). Run on W1's own code (`cf65a64`) the same taught life lived to day 150 (health mean 99.9): the stall is no W1 bug the gate can show, and the W2 plan fixes it for every pet. `storage.food_first`: a pet short of food carried with food in a chest it can reach, in winter (resolution 12) or while it is hungry (hunger under `HUNGRY_BELOW`, 30: the tick's "getting hungry"), or a hungry one whose arms are full and whose putting away frees a stack (`stored_arms`), scores build_storage from food work's own formula at `WINTER_TAKE` (40, above forage's 35, fish's 25 to 35 and hunt's 25 to 35), and plan_storage takes the food out in the same batch in the room the things put away leave (`to_take(s, arms)`). Both limits came from the first measure of this rule, on every seed: from any shortfall of food carried in any season, gentle pets emptied their chests through autumn (the chests' winter food fell from 6 of 6 winters to 4, 3 and 4), and a gentle pet with full arms that could put away only part of a stack chose the chest all day and starved on day 47. The controller's ruling on the gate agreed that a gentle pet starving beside a chest of food was the same bug.
+24. **The autumn larder keeps** (Task 16; the ruling on the W2 gate, criterion 3). On the W2 gate the taught pets' chests held `WINTER_FOOD` of food still good on winter day 1 in 1, 0 and 1 of 6 winters, while 85 to 126 of their foods spoiled a life. Probes of taught seeds 3 and 5's autumns: seed 5 never took the goal up (expeditions and the far hills won its goal choices), and seed 3 took it, set it aside for "nothing to do for it now" a day later, went on an expedition, took it again and set it aside for "no progress for a day", while its raw meat, bread and mushrooms spoiled; smoking failed once for "no room to carry the smoked meat". Now: the goal's food is judged by what is still good on winter day 1 (`GOOD_UNTIL` 0), as the gate judges it; while the goal fills a wild pet's chests, `storage.spare_food` keeps on hand the food that spoils soonest and puts away the food that keeps (`SPARE_KEEPING`, `winter_prep.keeping_first`: by `spoilage.PERISHABLE`, smoked meat and wheat never spoiling); and a wild pet's goal holds it (`Goal.holds`, `winter_prep.holds_autumn`) through autumn while its chests hold less than `WINTER_FOOD`, so a goal choice keeps it and idling never sets it aside ("no progress for a day" still does, as for an expedition), and pulls it `WILD_PULL` (300) more than the season's pull: a probe of taught seed 5 on autumn day 3 found "look into a cave" scoring 300 as its current goal (a curious pet's discovery goal and the goal's hold) against the winter goal's 198, so it never took the goal up. On the first measure of Tasks 14 to 16 without the pull and resolution 23's limits, the taught pets' chests were stocked in 1, 2 and 3 of 6 winters; on the final gate, in 4, 3 and 2 (criterion 3 still fails: see "Dry-run measurements"). Smoking stays offered all autumn and keeps the meat it would smoke from cook (resolution 13). A gentle pet's food never spoils and its goal never holds: nothing changes for it.
 
 ## File Structure
 
@@ -92,12 +121,12 @@ The spec leaves "the plan decides how" in several places. These are the details;
 | `backend/survival/sky_reflexes.py` | Create | flee_fire, take_cover, fog holding trips back |
 | `backend/survival/sky_news.py` | Create | Mind's moments, the inbox's danger and news |
 | `backend/survival/{tick,vitals,grid,situation,steps,renewal,nature,spoilage,light,snapshot}.py` | Modify | The sky in the tick, warmth by season, the ice overlay and `hot` cells, `WALK_PACE`, winter's growth and fish, the hearth's light and warmth, the payload |
-| `backend/survival/creatures/{darkness,hostiles,spawning}.py` | Modify | Fog's spawning, sun and cap; winter's herds |
-| `backend/survival/{wild,lessons,larder,goals,storage,carrying,requests,cooking,reflexes,trips,brain,bonding,world}.py`, `backend/services/crafting.py` | Modify | The seven lessons, the parser's opposites, the larder's targets, `HELD_OFF`, chest food in winter, the worn cloak, the goal's words, relighting, roofed fires and `SPARED`, `HOLD_BACK`, imports, routine events, recipes and fires |
+| `backend/survival/creatures/{darkness,hostiles,spawning,acts}.py` | Modify | Fog's spawning, sun and cap; winter's herds; rain and snow slowing every creature (`acts.SLOWS`) |
+| `backend/survival/{wild,lessons,larder,goals,storage,carrying,requests,cooking,reflexes,trips,brain,bonding,world,escape,camp}.py`, `backend/services/crafting.py` | Modify | The seven lessons, the parser's opposites, the larder's targets, `HELD_OFF`, chest food in winter, the worn cloak, the goal's words, relighting, roofed fires and `SPARED`, `HOLD_BACK`, imports, routine events, recipes and fires, L3's escape retry in game seconds, the camp's fire under a roof, food first and the keeping larder |
 | `shared/blocks.json`, `frontend/src/engine/atlas.ts` | Modify | `campfire_out`, `fire`, `hearth` and their tiles |
 | `backend/scripts/wild_gate.py` | Modify | The owner's day 2, the winters, the upgrade condition, `--check W2` |
 | `backend/tests/test_survival_{sky,weather,rain,storms,winter,sky_teaching,winter_goal,winter_gear,sky_wild,sky_news,sky_gate}.py` | Create | One test file per new module or area |
-| `backend/tests/test_survival_{defense,frontier_gear,reflexes,wild,lessons,meat,knocks,wild_run,voice,sim,frontier_run}.py`, `backend/tests/test_worldgen_wild.py` | Modify | What W2 changes in them (resolution 18) |
+| `backend/tests/test_survival_{defense,frontier_gear,reflexes,wild,lessons,meat,knocks,wild_run,voice,sim,frontier_run,escape,camp,storage}.py`, `backend/tests/test_worldgen_wild.py` | Modify | What W2 changes in them (resolution 18) |
 | `frontend/src/survival/{seasons,weather}.ts` (+ tests), `frontend/src/survival/WeatherEffects.tsx` | Create | The season badge and easing; tints, the HUD's weather, particles, the bolt, flash, embers and smoke |
 | `frontend/src/survival/{types,hud,animation,DayNight,SurvivalHud,SurvivalWorld,WorldCanvas,SurvivalPet,petGear,creatures}.ts(x)`, `frontend/src/engine/{mesher,columnRenderer,workerProtocol,BlockWorld}.ts(x)` (+ their tests) | Modify | The sky in the stream, words, the sky's color and fog, the HUD line, the effects, the cloak, the `open` attribute and the snow and ice uniforms |
 | `README.md` | Modify | Weather and seasons |
@@ -116,10 +145,14 @@ The spec leaves "the plan decides how" in several places. These are the details;
 10. Moments, news and voice
 11. Viewer: the sky, the season and the weather on the HUD
 12. Viewer: rain, snow, lightning, fire, the snow cover and the ice
-13. The gate script's W2
-14. Manual check on the demo and the README
+13. The trapped pet digs out at any hour
+14. A camp's fire under a roof in the rain
+15. The chest before food work
+16. The autumn larder keeps
+17. The gate script's W2
+18. Manual check on the demo and the README
 
-Tasks 1–10 and 13 are the backend (Task 3 also the blocks' tiles), 11 and 12 the viewer. Task 2 needs Task 1; Task 3 needs Task 2; Task 4 needs Tasks 2 and 3 (the blocks); Task 5 needs Task 2; Task 6 needs nothing of W2's; Task 7 needs Tasks 1 and 6; Task 8 needs Tasks 3 and 7; Task 9 needs Tasks 3 to 8; Task 10 needs Tasks 1 to 4; Task 11 needs the payload of Tasks 1 to 3; Task 12 needs Tasks 4, 5 and 8's payload and 11; Task 13 needs all of them.
+Tasks 1–10 and 13 to 17 are the backend (Task 3 also the blocks' tiles), 11 and 12 the viewer. Task 2 needs Task 1; Task 3 needs Task 2; Task 4 needs Tasks 2 and 3 (the blocks); Task 5 needs Task 2; Task 6 needs nothing of W2's; Task 7 needs Tasks 1 and 6; Task 8 needs Tasks 3 and 7; Task 9 needs Tasks 3 to 8; Task 10 needs Tasks 1 to 4; Task 11 needs the payload of Tasks 1 to 3; Task 12 needs Tasks 4, 5 and 8's payload and 11; Task 13 needs nothing of W2's (it is L3's); Task 14 needs Task 3 (the rain); Task 15 needs Task 7 (it widens its winter rule); Task 16 needs Tasks 7 and 8; Task 17 needs all of them.
 
 ---
 
@@ -665,7 +698,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_sky.py"`
 Expected: `Ran 8 tests` `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1934 tests` … `OK (skipped=6)` (8 new).
+Expected: `Ran 1975 tests` … `OK (skipped=6)` (8 new).
 
 - [ ] **Step 5: Commit**
 
@@ -680,11 +713,11 @@ git commit -m "feat(W2): a year of four seasons that sets how warm it is outdoor
 
 **Files:**
 - Create: `backend/survival/weather.py`, `backend/tests/test_survival_weather.py`
-- Modify: `backend/survival/sky.py` (`weather_at` and the tick's weather), `backend/survival/steps.py` (`WALK_PACE`, `walk_pace`, `start_walk`), `backend/survival/renewal.py` (`stage_seconds(..., rain)`, `rained`), `backend/survival/creatures/darkness.py` (`FOG_SKY`), `backend/survival/creatures/hostiles.py` (`sunlit`), `backend/survival/tick.py` (imports `weather`; `Surroundings.snowing`), `backend/tests/test_survival_defense.py` (clear skies for the flee test: resolution 18)
+- Modify: `backend/survival/sky.py` (`weather_at` and the tick's weather), `backend/survival/steps.py` (`WALK_PACE`, `walk_pace`, `start_walk`), `backend/survival/renewal.py` (`stage_seconds(..., rain)`, `rained`), `backend/survival/creatures/darkness.py` (`FOG_SKY`), `backend/survival/creatures/acts.py` (`SLOWS`, `slowed`: a creature's walk and flight), `backend/survival/creatures/hostiles.py` (`sunlit`, the chase slowed), `backend/survival/tick.py` (imports `weather`; `Surroundings.snowing`), `backend/tests/test_survival_defense.py` (the flee tests in the rain: resolution 18)
 
 **Interfaces:**
 - Consumes: Task 1's `sky.advance`, `season_at`; `nature.roll`; `light.sky_open`; L5's `darkness.MORE_ROOM`.
-- Produces: `sky.SEGMENT` (600), `TABLE`, `RAINY`, `weather_at(seed, offset, segment) -> str` (pure), `segment_of(state, at, scale)`, `weather_of(state, at, scale)`, `weather_now(state)`, `raining(state)`, `foggy(state)`; `state["sky"]`'s `weather`, `weather_until`, `snow`; `steps.WALK_PACE` (callables `(state, grid, cell) -> float`, guarded) and `steps.walk_pace(state, grid, cell)`; `weather.RAIN_PACE` (1.15), `SNOW_PACE` (1.3), `FOG_ROOM` (2); `renewal.stage_seconds(grid, crop, rain=False)`, `renewal.rained(state, at, scale)`; `darkness.FOG_SKY` (6).
+- Produces: `sky.SEGMENT` (600), `TABLE`, `RAINY`, `weather_at(seed, offset, segment) -> str` (pure), `segment_of(state, at, scale)`, `weather_of(state, at, scale)`, `weather_now(state)`, `raining(state)`, `foggy(state)`; `state["sky"]`'s `weather`, `weather_until`, `snow`; `steps.WALK_PACE` (callables `(state, grid, cell) -> float`, guarded) and `steps.walk_pace(state, grid, cell)`; `weather.RAIN_PACE` (1.15), `SNOW_PACE` (1.3), `FOG_ROOM` (2); `renewal.stage_seconds(grid, crop, rain=False)`, `renewal.rained(state, at, scale)`; `darkness.FOG_SKY`; `creatures.acts.SLOWS` (callables `(scene, creature) -> float`, guarded) and `acts.slowed(scene, creature)`, `weather.creature_pace`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -698,11 +731,11 @@ In `backend/tests/test_survival_defense.py`, replace:
 with:
 
 ```python
-            # W2: under clear skies. Seed 3's first night rains, and rain slows a walk under the open sky (a run
-            # from the skitter took 37 blows at 60x in the rain): this measures the flight, not the weather.
+            # W2 (the controller's ruling on the W2 dry run, 2): in the rain, which slows a walk under the open sky,
+            # Mimo's and its chasers' alike. Slowed alone, the unarmed pet took 37 blows fleeing the skitter at 60x.
             with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
                     patch("backend.survival.creatures.hostiles.hurt_pet", counted), \
-                    patch("backend.survival.sky.weather_at", lambda seed, offset, segment: "clear"):
+                    patch("backend.survival.sky.weather_at", lambda seed, offset, segment: "rain"):
 ```
 
 Create `backend/tests/test_survival_weather.py`:
@@ -716,7 +749,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.survival import weather  # noqa: F401  (registers the walk pace and the fog's room)
+from backend.survival.weather import FOG_ROOM
 from backend.survival.clock import DAY_SECONDS, clock_at
+from backend.survival.creatures.acts import slowed
 from backend.survival.creatures.darkness import HOSTILE_CAP, cap, spawn_hostiles
 from backend.survival.creatures.hostiles import sunlit
 from backend.survival.creatures.kinds import KINDS
@@ -824,6 +859,16 @@ class RainAndSnowTests(unittest.TestCase):
         self.assertAlmostEqual(self.walk_seconds("fog"), clear, places=3)
         self.assertAlmostEqual(self.walk_seconds("rain", roof=True), clear, places=3)
 
+    def test_rain_and_snow_slow_a_creature_under_the_open_sky_as_they_slow_mimo(self):
+        with patch("backend.survival.light.terrain_height", lambda x, z, seed: 0):
+            grid, state = land({(x, 4, 0): "stone" for x in range(8, 13)}), pet()
+            out = grid.herd.add("gloomling", (3, 1, 0), 20.0, 0.0, 0.0, {})
+            roofed = grid.herd.add("gloomling", (10, 1, 0), 20.0, 0.0, 0.0, {})
+            for weather_now, pace in (("clear", 1.0), ("rain", 1.15), ("storm", 1.15), ("snow", 1.3), ("fog", 1.0)):
+                state["sky"] = {"weather": weather_now}
+                self.assertAlmostEqual(slowed(scene(grid, state), out), pace)
+                self.assertEqual(slowed(scene(grid, state), roofed), 1.0)
+
     def test_a_crop_stage_that_starts_in_the_rain_grows_at_the_watered_rate(self):
         grid = meadow({(0, 0, 0): "farmland", (0, 1, 0): "wheat_0"})
         self.assertEqual(stage_seconds(grid, (0, 1, 0)), CROP_STAGE_DRY)
@@ -848,7 +893,7 @@ class FogTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_in_fog_the_dark_creatures_come_out_by_day_the_sun_spares_them_and_two_more_may_be_about(self):
+    def test_in_fog_the_dark_creatures_come_out_by_day_and_the_sun_spares_them(self):
         clear, foggy = pet(), {**pet(), "sky": {"weather": "fog"}}
         self.assertEqual(spawn_hostiles(scene(land(), clear, clock=DAY)), [])
         born = spawn_hostiles(scene(land(), foggy, clock=DAY))
@@ -856,7 +901,7 @@ class FogTests(unittest.TestCase):
         gloomling = {**born[0], "state": dict(born[0]["state"])}
         self.assertFalse(sunlit(gloomling, KINDS["gloomling"], scene(land(), foggy, clock=DAY)))
         self.assertTrue(sunlit(gloomling, KINDS["gloomling"], scene(land(), clear, clock=DAY)))
-        self.assertEqual(cap(scene(land(), foggy, clock=DAY)) - cap(scene(land(), clear, clock=DAY)), 2)
+        self.assertEqual(cap(scene(land(), foggy, clock=DAY)) - cap(scene(land(), clear, clock=DAY)), FOG_ROOM)  # 0
         self.assertEqual(cap(scene(land(), clear, clock=DAY)), HOSTILE_CAP)
 
     def test_a_torch_still_keeps_the_fog_clear(self):
@@ -883,6 +928,107 @@ Expected: `FAILED (errors=3)`: `ImportError: cannot import name 'weather' from '
 
 - [ ] **Step 3: The weather, walking in it, the crops and the fog**
 
+In `backend/survival/creatures/acts.py`, replace:
+
+```python
+some steps (hostiles from a warding lantern's reach).
+```
+
+with:
+
+```python
+some steps (hostiles from a warding lantern's reach). W2: SLOWS make a walk, a flight or a chase take longer
+(`slowed`: rain and snow under the open sky, backend.survival.weather, as they slow Mimo's walks).
+```
+
+and replace:
+
+```python
+from __future__ import annotations
+
+import math
+```
+
+with:
+
+```python
+from __future__ import annotations
+
+import logging
+import math
+```
+
+and replace:
+
+```python
+
+FLEE_BLOCKS = 8
+SCARE_REACH = 6.0
+```
+
+with:
+
+```python
+from backend.survival.once import log_once
+
+logger = logging.getLogger(__name__)
+
+FLEE_BLOCKS = 8
+SCARE_REACH = 6.0
+# W2: functions (scene, creature) -> how many times as long the creature's next move on foot takes (rain and snow
+# under the open sky: backend.survival.weather). One that crashes slows nothing (logged once).
+SLOWS: list = []
+```
+
+and replace:
+
+```python
+
+# flee ------------------------------------------------------------------------------------------
+```
+
+with:
+
+```python
+
+def slowed(scene, creature: dict) -> float:
+    """How many times as long a walk, a flight or a chase by `creature` takes now (W2: SLOWS)."""
+    pace = 1.0
+    for slows in SLOWS:
+        try:
+            pace *= float(slows(scene, creature))
+        except Exception as error:
+            log_once(logger, "creature pace", error)
+    return pace
+
+
+# flee ------------------------------------------------------------------------------------------
+```
+
+and replace:
+
+```python
+    ends = move(creature, cells, scene.at, kind.speed / 2 / scene.pace, "fleeing")
+```
+
+with:
+
+```python
+    ends = move(creature, cells, scene.at, kind.speed / 2 * slowed(scene, creature) / scene.pace, "fleeing")
+```
+
+and replace:
+
+```python
+    ends = move(creature, cells, scene.at, kind.speed / scene.pace, "walking")
+```
+
+with:
+
+```python
+    ends = move(creature, cells, scene.at, kind.speed * slowed(scene, creature) / scene.pace, "walking")
+```
+
 In `backend/survival/creatures/darkness.py`, replace:
 
 ```python
@@ -894,7 +1040,7 @@ with:
 ```python
 one born farther from home tougher), and the cap may grow (MORE_ROOM: ringed adds one a danger level).
 W2: in fog the open ground by day counts as dark for spawning (its sky light as FOG_SKY), and the cap grows by
-2 (backend.survival.weather).
+backend.survival.weather's FOG_ROOM (0 since the controller's ruling on the W2 dry run).
 ```
 
 and replace:
@@ -952,6 +1098,20 @@ with:
 and replace:
 
 ```python
+    IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, barred, flat_distance, pause, register_action,
+    wander,
+```
+
+with:
+
+```python
+    IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, barred, flat_distance, pause, register_action,
+    slowed, wander,
+```
+
+and replace:
+
+```python
 from backend.survival.light import sky_open
 ```
 
@@ -973,6 +1133,18 @@ with:
 ```python
     return (kind.hostile and not kind.daylight and not scene.night  # L5: a thornback walks by day
             and not foggy(scene.state)  # W2: fog hides the sun
+```
+
+and replace:
+
+```python
+        creature["next_at"] = move(creature, cells, scene.at, kind.speed / scene.pace, "chasing")
+```
+
+with:
+
+```python
+        creature["next_at"] = move(creature, cells, scene.at, kind.speed * slowed(scene, creature) / scene.pace, "chasing")
 ```
 
 In `backend/survival/renewal.py`, replace:
@@ -1321,27 +1493,31 @@ Create `backend/survival/weather.py`:
 """W2: what the weather does ("Weather" of the Wild World spec). The weather itself is backend.survival.sky's.
 
 - Rain (and a thunderstorm, which is rain with lightning): a walk that starts under the open sky takes
-  RAIN_PACE times as long (steps.WALK_PACE), and a crop stage that starts while it rains grows at the watered
+  RAIN_PACE times as long (steps.WALK_PACE), and so does a creature's walk, flight or chase from a cell under the
+  open sky (creatures.acts.SLOWS: the controller's ruling on the W2 dry run; slowed alone, an unarmed pet fleeing
+  a gloomling and a skitter at 60 times took 37 blows in the rain against at most 6), and a crop stage that starts while it rains grows at the watered
   rate (backend.survival.renewal). What rain does to a campfire and to a fire in the trees is
   backend.survival.storms'.
-- Snow (winter only): a walk under the open sky takes SNOW_PACE times as long, it is 10 colder outdoors
+- Snow (winter only): a walk under the open sky, Mimo's or a creature's, takes SNOW_PACE times as long, it is 10 colder outdoors
   (vitals.SNOW_CHILL, through the tick's Surroundings) and the snow cover builds (sky.tend_weather).
 - Fog: the hostiles treat the open ground by day as dark (creatures.darkness.FOG_SKY), the sun does not burn or
-  fade them (creatures.hostiles.sunlit), and their cap rises by FOG_ROOM (darkness.MORE_ROOM). Torches and
-  lanterns keep their light.
+  fade them (creatures.hostiles.sunlit), and their cap rises by FOG_ROOM (darkness.MORE_ROOM): 0, tuned down from
+  the spec's 2 by the controller's ruling on the W2 dry run (1; the plan's resolution 21). Torches and lanterns
+  keep their light.
 Everything reads the weather the tick stored at the step's start (sky.weather_now).
 """
 
 from __future__ import annotations
 
 from backend.survival import sky, steps
-from backend.survival.creatures import darkness
+from backend.survival.creatures import acts, darkness
+from backend.survival.creatures.moves import where
 from backend.survival.grid import Cell, Grid
 from backend.survival.light import sky_open
 
 RAIN_PACE = 1.15
 SNOW_PACE = 1.3
-FOG_ROOM = 2
+FOG_ROOM = 0  # was 2: the ruling on the W2 dry run (1)
 
 
 def walk_pace(state: dict, grid: Grid, here: Cell) -> float:
@@ -1353,12 +1529,21 @@ def walk_pace(state: dict, grid: Grid, here: Cell) -> float:
     return pace
 
 
+def creature_pace(scene, creature: dict) -> float:
+    """creatures.acts.SLOWS: rain and snow slow a creature's move that starts under the open sky, as they slow
+    Mimo's walk."""
+    if sky.weather_now(scene.state) not in (*sky.RAINY, "snow"):
+        return 1.0
+    return walk_pace(scene.state, scene.grid, where(creature, scene.at))
+
+
 def fog_room(scene) -> int:
-    """darkness.MORE_ROOM: two more hostiles may be about in fog."""
+    """darkness.MORE_ROOM: FOG_ROOM more hostiles may be about in fog."""
     return FOG_ROOM if sky.foggy(scene.state) else 0
 
 
 steps.WALK_PACE.append(walk_pace)
+acts.SLOWS.append(creature_pace)
 darkness.MORE_ROOM.append(fog_room)
 ```
 
@@ -1368,13 +1553,13 @@ Run: `python3 -m unittest backend.tests.test_survival_weather backend.tests.test
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1944 tests` … `OK (skipped=6)` (10 new).
+Expected: `Ran 1986 tests` … `OK (skipped=6)` (11 new).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/survival/creatures/darkness.py backend/survival/creatures/hostiles.py backend/survival/renewal.py backend/survival/sky.py backend/survival/steps.py backend/survival/tick.py backend/survival/weather.py backend/tests/test_survival_defense.py backend/tests/test_survival_weather.py
-git commit -m "feat(W2): the weather, a pure function of the seed, the season and the segment: rain and snow slow walks, rain waters the crops, fog lets the dark creatures out" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add backend/survival/creatures/acts.py backend/survival/creatures/darkness.py backend/survival/creatures/hostiles.py backend/survival/renewal.py backend/survival/sky.py backend/survival/steps.py backend/survival/tick.py backend/survival/weather.py backend/tests/test_survival_defense.py backend/tests/test_survival_weather.py
+git commit -m "feat(W2): the weather, a pure function of the seed, the season and the segment: rain and snow slow every walker, rain waters the crops, fog lets the dark creatures out" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1867,10 +2052,10 @@ Run: `python3 -m unittest backend.tests.test_survival_rain backend.tests.test_wo
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1951 tests` … `OK (skipped=6)` (7 new).
+Expected: `Ran 1993 tests` … `OK (skipped=6)` (7 new).
 
 Run: `cd frontend && npm test && npm run build && npx eslint src/survival src/engine`
-Expected: `Tests  373 passed (373)`, the build succeeds, eslint prints nothing.
+Expected: `Tests  375 passed (375)`, the build succeeds, eslint prints nothing.
 
 - [ ] **Step 5: Commit**
 
@@ -2698,7 +2883,7 @@ Run: `python3 -m unittest backend.tests.test_survival_storms backend.tests.test_
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1961 tests` … `OK (skipped=6)` (10 new).
+Expected: `Ran 2003 tests` … `OK (skipped=6)` (10 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3496,7 +3681,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_winter.py"
 Expected: `Ran 10 tests` `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1971 tests` … `OK (skipped=6)` (10 new).
+Expected: `Ran 2013 tests` … `OK (skipped=6)` (10 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3769,7 +3954,7 @@ Run: `python3 -m unittest backend.tests.test_survival_sky_teaching backend.tests
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1975 tests` … `OK (skipped=6)` (4 new).
+Expected: `Ran 2017 tests` … `OK (skipped=6)` (4 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3788,7 +3973,7 @@ git commit -m "feat(W2): seven survival lessons of the sky and the winter, each 
 
 **Interfaces:**
 - Consumes: Task 1's seasons; Task 6's `wild:winter` and lessons; `goals.register_goal`, `goals.PULLS`, `goals.counted`; `home.built_home`, `home.home_cell`; L5's `trips.FENCES`; `worldgen.biome_at`; W1's `spoilage` lots and rates; `larder.more_food`, `stock_valid`.
-- Produces: the goal `winter_ready` (repeating; offered from autumn day 1 to its last dawn to a pet with a built home that knows `wild:winter`; 70 plus a tenth of caution; milestones food, cloak, hearth, smoked meat), `winter_prep.WINTER_FOOD` (360), `winter_food(s)`, `days_to_winter(s)`, `winter_pull` (`WINTER_PULL` 100 through `goals.PULLS`), `held(s, item)`, `hearth_home(s)`, `WINTER_REACH` (96), `keeps_near(s)`, `far_goal(s, goal)` (in `goals.HELD_OFF`), `winter_fence(s, cell)` (in `trips.FENCES`); `larder.TARGETS` (callables `(s, goal) -> (target, measure, extra) | None`, guarded) and `larder.target_of(s)`; `goals.HELD_OFF` (callables `(s, goal) -> bool`, guarded) and `goals.held_off(s, goal)`; `storage.WINTER_TAKE` (40).
+- Produces: the goal `winter_ready` (repeating; offered from autumn day 1 to its last dawn to a pet with a built home that knows `wild:winter`; 70 plus a tenth of caution; milestones food, cloak, hearth, smoked meat), `winter_prep.WINTER_FOOD` (360), `winter_food(s, good_until=GOOD_UNTIL)`, `days_to_winter(s)`, `winter_pull` (`WINTER_PULL` 100 through `goals.PULLS`), `held(s, item)`, `hearth_home(s)`, `WINTER_REACH` (96), `keeps_near(s)`, `far_goal(s, goal)` (in `goals.HELD_OFF`), `winter_fence(s, cell)` (in `trips.FENCES`); `larder.TARGETS` (callables `(s, goal) -> (target, measure, extra) | None`, guarded) and `larder.target_of(s)`; `goals.HELD_OFF` (callables `(s, goal) -> bool`, guarded) and `goals.held_off(s, goal)`; `storage.WINTER_TAKE` (40).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3892,6 +4077,9 @@ class FoodTests(unittest.TestCase):
         # 6 x 0.5 + 4 x 0.5 / 3 = 3.67 game days of its 4 by winter day 5: only a lot under 0.08 worn keeps.
         world.state["chest_lots"] = {chest_key(cell): {"cooked_beef": [[1, 0.0], [3, 0.5]], "bread": [[2, 0.1]]}}
         self.assertEqual(winter_food(on_day(world, 25, 0.0)), 35 + 2 * 25)
+        # good on winter day 1 (the W2 gate's measure): 6 x 0.5 = 3 game days of 4, so a lot under 0.25 worn
+        self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=0), 35 + 2 * 25)
+        self.assertEqual(winter_food(on_day(world, 29, 0.0), good_until=0), 4 * 35 + 2 * 25)
 
 
 class LarderTests(unittest.TestCase):
@@ -4298,10 +4486,11 @@ def days_to_winter(s: Situation) -> float:
     return max(0.0, WINTER_START - season_day(s) - s.clock["seconds_into_day"] / DAY_SECONDS)
 
 
-def winter_food(s: Situation) -> float:
-    """Hunger points of the food in Mimo's chests (not an old ruin's) it would eat and that will still be good on
-    winter day 5: for a wild pet, the lots whose wear by then (half as fast in a chest, and a third of that in
-    winter) stays under 1; a gentle pet's food never spoils."""
+def winter_food(s: Situation, good_until: int = GOOD_UNTIL) -> float:
+    """Hunger points of the food in Mimo's chests (not an old ruin's) it would eat and that will still be good
+    `good_until` winter days in (GOOD_UNTIL: on winter day 5, the goal's measure; 0: on winter day 1, the W2 gate's,
+    the controller's ruling on the W2 dry run): for a wild pet, the lots whose wear by then (half as fast in a
+    chest, and a third of that in winter) stays under 1; a gentle pet's food never spoils."""
     from backend.survival.ruins import ruin_chest_key  # here: brain imports the larder before the ruins
     wild, autumn = is_wild(s.state), days_to_winter(s)
     lots = s.state.get("chest_lots", {})
@@ -4312,7 +4501,7 @@ def winter_food(s: Situation) -> float:
         for item in foods(chest, s.poisons):
             count = chest[item]
             if wild and item in PERISHABLE:
-                later = (autumn * CHEST_RATE + GOOD_UNTIL * CHEST_RATE * WINTER_RATE) / PERISHABLE[item]
+                later = (autumn * CHEST_RATE + good_until * CHEST_RATE * WINTER_RATE) / PERISHABLE[item]
                 count = min(count, sum(number for number, wear in lots.get(key, {}).get(item, []) if wear + later < 1.0))
             total += FOOD[item] * count
     return total
@@ -4406,7 +4595,7 @@ Run: `python3 -m unittest discover -s backend/tests -p "test_survival_winter_goa
 Expected: `Ran 8 tests` `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1983 tests` … `OK (skipped=6)` (8 new).
+Expected: `Ran 2025 tests` … `OK (skipped=6)` (8 new).
 
 - [ ] **Step 5: Commit**
 
@@ -4426,7 +4615,7 @@ git commit -m "feat(W2): in autumn a pet that knows winter gets ready for it and
 
 **Interfaces:**
 - Consumes: Task 3's `hearth` block; Task 7's goal, `held`, `hearth_home`; creature gear's `gear_steps`; `harm.SLOTS`; `storage.KEEPS_MORE`, `storage.TAKES_MORE`; `purposes.register_purpose`; `homes`.
-- Produces: items `wool_cloak` (slot `"cloak"`, +20 warmth) and `smoked_meat` (20 hunger, never spoils); the recipes; the purposes `make_cloak` (55 + caution/10), `build_hearth` (60), `smoke_meat` (65); the `smoke` step (`start_smoke`, `finish_smoke`, 20 s); `winter_gear.hearth_spot(s)`, `keep_wool`, `wool_back`; `wild.cloaked(state, db)`; `carrying.WORN`; `winter_gear.smoke_wanted(s)`, `spare_meat` (in `cooking.SPARED`: callables `(s) -> raw foods cook leaves alone`, guarded), `SPARE_ABOVE` (50).
+- Produces: items `wool_cloak` (slot `"cloak"`, +20 warmth) and `smoked_meat` (20 hunger, never spoils); the recipes; the purposes `make_cloak` (55 + caution/10), `build_hearth` (60), `smoke_meat` (65, all autumn whatever the goal); the `smoke` step (`start_smoke`, `finish_smoke`, 20 s); `winter_gear.hearth_spot(s)`, `keep_wool`, `wool_back`; `wild.cloaked(state, db)`; `carrying.WORN`; `winter_gear.smoke_wanted(s)`, `spare_meat` (in `cooking.SPARED`: callables `(s) -> raw foods cook leaves alone`, guarded), `SPARE_ABOVE` (50).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4537,11 +4726,11 @@ class SmokeTests(unittest.TestCase):
             start_step({"kind": "smoke", "item": "raw_beef"}, {**state, "inventory": {"raw_beef": 1, "sticks": 1}},
                        meadow(), 0.0)
 
-    def test_smoke_meat_smokes_while_the_winter_goal_wants_more(self):
+    def test_smoke_meat_smokes_all_autumn_whatever_the_goal_while_winter_wants_more(self):
         world = outside(built({"raw_mutton": 3, "sticks": 6, "oak_log": 2}))
-        s = on_day(world, 22)
-        self.assertFalse(PURPOSES["smoke_meat"].valid(s))
-        adopt_goal(world.state, GOAL, "utility", "", 0.0)
+        self.assertFalse(PURPOSES["smoke_meat"].valid(on_day(world, 15)))  # summer
+        self.assertFalse(PURPOSES["smoke_meat"].valid(on_day(world, 31)))  # winter has come
+        adopt_goal(world.state, "iron_tools", "utility", "", 0.0)  # the ruling on the W2 dry run: any goal will do
         s = on_day(world, 22)
         self.assertTrue(PURPOSES["smoke_meat"].valid(s))
         steps = PURPOSES["smoke_meat"].plan(s, None)
@@ -4919,8 +5108,8 @@ Create `backend/survival/winter_gear.py`:
   already.
 - Smoked meat: the `smoke` step (SMOKE_SECONDS at a campfire or hearth) turns 1 raw meat and 1 stick into 1 smoked
   meat, which fills 20 hunger and never spoils (it is no PERISHABLE food). smoke_meat (work band, SMOKE_SCORE, by
-  day) smokes the raw meat Mimo carries while the winter goal wants more smoked meat (winter_prep.SMOKED_WANTED),
-  lighting a campfire as cook does.
+  day) smokes the raw meat Mimo carries all through autumn, whatever its goal (the controller's ruling on the W2
+  dry run), while winter wants more smoked meat (`smoke_wanted`), lighting a campfire as cook does.
 Each is unlocked by its lesson (`wild:cloak`, `wild:hearth`, `wild:smoking`); a gentle pet knows them all.
 """
 
@@ -4950,7 +5139,7 @@ from backend.survival.steps import (
 from backend.survival.structures import blueprint_of
 from backend.survival.toolmaking import Short, make, station_spots
 from backend.survival.wild import is_wild, unlocked
-from backend.survival.winter_prep import GOAL, SMOKED_WANTED, WINTER_FOOD, hearth_home, held, winter_food
+from backend.survival.winter_prep import GOAL, SMOKED_WANTED, WINTER_FOOD, hearth_home, held, preparing, winter_food
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -5106,7 +5295,7 @@ def smoke_wanted(s: Situation) -> int:
     winter food falls short (its cooked meat spoils before winter day 5 unless stored in the last days of autumn,
     and smoked meat never does: on the gate's fourth run taught pets smoked once or twice a life and four of six
     chests held under WINTER_FOOD on a winter's first day)."""
-    if not (winter_goal(s) and unlocked(s, "smoking")):
+    if not (preparing(s) and unlocked(s, "smoking")):  # all autumn, whatever the goal (the W2 dry run's ruling)
         return 0
     wanted = SMOKED_WANTED - held(s, "smoked_meat")
     if is_wild(s.state):
@@ -5198,7 +5387,7 @@ Run: `python3 -m unittest backend.tests.test_survival_winter_gear backend.tests.
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 1994 tests` … `OK (skipped=6)` (11 new).
+Expected: `Ran 2036 tests` … `OK (skipped=6)` (11 new).
 
 - [ ] **Step 5: Commit**
 
@@ -5235,7 +5424,8 @@ CLOCK = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_num
 # W2: the runs are under clear skies. A storm or fog sends a pet that knows them home and fog starts no trip
 # (backend.survival.sky_reflexes), and in slow mode seed 11's geared pet, sent home out of the weather five times,
 # set its riches goal aside on day 2 with nothing to do for it and did not reach it in 4 days (it did on W1's code).
-# These runs measure the frontier's risk and reward; the weather's are the W2 gate's.
+# These runs measure the frontier's risk and reward; the weather's are the W2 gate's (the controller's ruling on the
+# W2 dry run, 3, accepts this pin).
 CLEAR = patch("backend.survival.sky.weather_at", lambda seed, offset, segment: "clear")
 ```
 
@@ -5311,7 +5501,8 @@ with:
 # W2: a pet that knows fog starts no trip in it ("Stay close to home in the fog.", backend.survival.sky_reflexes),
 # so a day at least FOG_DAY of whose weather segments are fog is no measure of settling back into resting and is
 # left out: seed 21's day 5 is fog from dawn to dusk, and its pet walked 11 new patches that day (149 the day
-# before, 40 the floor). Every run still has a day to count; the floor stays 40.
+# before, 40 the floor). Every run still has a day to count; the floor stays 40. Accepted by the controller's ruling
+# on the W2 dry run (4): a pet that knows fog grounds its trips by design.
 FOG_DAY = 0.5
 ```
 
@@ -5543,13 +5734,13 @@ if __name__ == "__main__":
 In `backend/tests/test_survival_wild_run.py`, replace:
 
 ```python
-from backend.scripts.wild_gate import CONDITIONS, SEEDS, check_w1, live
+from backend.survival.registry import LifeRegistry
 ```
 
 with:
 
 ```python
-from backend.scripts.wild_gate import CONDITIONS, SEEDS, check_w1, live
+from backend.survival.registry import LifeRegistry
 from backend.survival.wild import SURVIVAL
 ```
 
@@ -5571,7 +5762,7 @@ with:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `python3 -m unittest backend.tests.test_survival_sky_wild backend.tests.test_survival_knocks backend.tests.test_survival_reflexes backend.tests.test_survival_wild_run`
-Expected: `FAILED (failures=1, errors=1, skipped=1)`: `ModuleNotFoundError: No module named 'backend.survival.sky_wild'`, and the reflexes' order has no `('take_cover', 58)`
+Expected: `FAILED (failures=1, errors=1, skipped=2)`: `ModuleNotFoundError: No module named 'backend.survival.sky_wild'`, and the reflexes' order has no `('take_cover', 58)`
 
 - [ ] **Step 3: Knocks, wonders and cover**
 
@@ -5741,7 +5932,7 @@ import math
 from backend.survival import rain, sky, storms
 from backend.survival.ailments import DAWN, at_built_home
 from backend.survival.creatures.harm import BLOWS
-from backend.survival.knocks import KNOCKS, Knock, guarded, knock, known, sure
+from backend.survival.knocks import KNOCKS, Knock, guarded, knock, knows_lesson, sure
 from backend.survival.spoilage import SPOILS
 from backend.survival.vitals import FREEZING_BELOW
 from backend.survival.wild import is_wild, wild_state
@@ -5813,7 +6004,7 @@ def meet_sky(state: dict, context, at: float) -> None:
         if vitals["hunger"] < HUNGRY_BELOW and night.get("hungry_day") != day:
             night["hungry_day"] = day
             guarded(lambda: knock(state, db, events, at, "winter"))
-            if db is not None and known(db, "fire"):
+            if db is not None and knows_lesson(db, "fire"):
                 guarded(lambda: knock(state, db, events, at, "smoking"))
     elif night.pop("wintered", False) and season == "spring":
         guarded(lambda: sure(state, db, events, at, "winter"))  # it lived through a winter
@@ -5847,13 +6038,13 @@ def struck(state: dict, context, cell, hit: bool, at: float) -> None:
 def at_dawn(state: dict, context, summary: dict, at: float) -> None:
     """ailments.DAWN: a chilled or freezing night at home in winter, knowing fire."""
     if (sky.winter(state) and (summary["chill"] or summary["froze"]) and context.db is not None
-            and known(context.db, "fire") and at_built_home(state, context)):
+            and knows_lesson(context.db, "fire") and at_built_home(state, context)):
         guarded(lambda: knock(state, context.db, context.events, at, "hearth"))
 
 
 def spoils(state: dict, context, item: str, count: int, where: str, at: float) -> None:
     """spoilage.SPOILS: food went bad, knowing fire."""
-    if context.db is not None and known(context.db, "fire"):
+    if context.db is not None and knows_lesson(context.db, "fire"):
         guarded(lambda: knock(state, context.db, context.events, at, "smoking"))
 
 
@@ -5932,7 +6123,7 @@ Run: `MIMO_SLOW_TESTS=1 python3 -m unittest discover -s backend/tests -p "test_s
 Expected: `OK` each (without this task's change to them, the first fails on seed 21's day of fog, `{(3, False): [236, 162], (21, True): [149, 11]}`, and the second on seed 11's riches goal)
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 2005 tests` … `OK (skipped=6)` (11 new).
+Expected: `Ran 2047 tests` … `OK (skipped=6)` (11 new).
 
 - [ ] **Step 5: Commit**
 
@@ -6206,7 +6397,7 @@ Run: `python3 -m unittest backend.tests.test_survival_sky_news backend.tests.tes
 Expected: `OK`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 2009 tests` … `OK (skipped=6)` (4 new).
+Expected: `Ran 2051 tests` … `OK (skipped=6)` (4 new).
 
 - [ ] **Step 5: Commit**
 
@@ -6549,13 +6740,13 @@ with:
 In `frontend/src/survival/hud.ts`, replace:
 
 ```typescript
-  sickness: 'sickness',  // W1
+  starvation: 'starvation', cold: 'the cold', drowning: 'drowning', fall: 'a fall', creature: 'a creature',
 ```
 
 with:
 
 ```typescript
-  sickness: 'sickness',  // W1
+  starvation: 'starvation', cold: 'the cold', drowning: 'drowning', fall: 'a fall', creature: 'a creature',
   lightning: 'lightning', fire: 'a fire',  // W2
 ```
 
@@ -6804,7 +6995,7 @@ export function flashAt(strikes: readonly Strike[] | null | undefined, now: numb
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd frontend && npm test && npm run build && npx eslint src/survival src/engine`
-Expected: `Tests  382 passed (382)`, the build succeeds, eslint prints nothing.
+Expected: `Tests  384 passed (384)`, the build succeeds, eslint prints nothing.
 
 - [ ] **Step 5: Commit**
 
@@ -7851,7 +8042,7 @@ export function burnedOut(before: readonly Point[], now: readonly Point[]): Poin
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd frontend && npm test && npm run build && npx eslint src/survival src/engine`
-Expected: `Tests  388 passed (388)`, the build succeeds, eslint prints nothing.
+Expected: `Tests  390 passed (390)`, the build succeeds, eslint prints nothing.
 
 - [ ] **Step 5: Commit**
 
@@ -7862,16 +8053,781 @@ git commit -m "feat(W2): the viewer draws rain, snow, lightning, fire and smoke,
 
 ---
 
-### Task 13: The gate script's W2
+### Task 13: The trapped pet digs out at any hour
+
+L3's escape checks for a trap when two walks find no path, and tries again at most once per `ESCAPE_RETRY` seconds. Those were server seconds: a game day at `MIMO_TIME_SCALE` 60. On the W2 gate a gentle pet (seed 21) dug its staircase into a frozen swamp's bed at dusk, failed two walks home, slept the night in the pit and dug out only after dawn, starving 14 game minutes of its first winter (resolution 20).
 
 **Files:**
-- Modify: `backend/scripts/wild_gate.py` (the owner's day 2, the winters, the `upgrade` condition, `check_w2`, `--check W2`)
+- Modify: `backend/survival/escape.py` (`ESCAPE_RETRY` in game seconds)
+- Test: `backend/tests/test_survival_escape.py`
+
+**Interfaces:**
+- Consumes: L3's `escape.plan_escape`, `walks_failed_twice`, the context's clock (`time_scale`).
+- Produces: `escape.ESCAPE_RETRY` (60 game seconds; the same at 1x).
+
+- [ ] **Step 1: Write the failing test**
+
+In `backend/tests/test_survival_escape.py`, replace:
+
+```python
+DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
+```
+
+with:
+
+```python
+DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
+NIGHT_60 = {"phase": "night", "seconds_into_day": 2700.0, "time_scale": 60.0, "day_number": 40}
+```
+
+and replace:
+
+```python
+
+    def test_a_pet_that_is_not_trapped_reports_the_failure(self):
+```
+
+with:
+
+```python
+
+    def test_at_night_at_sixty_times_a_pet_in_its_own_staircase_digs_out_before_dawn(self):
+        """W2 (the controller's ruling on the W2 dry run, 6): the escape tried again only ESCAPE_RETRY *server*
+        seconds after the last, which at MIMO_TIME_SCALE 60 is a game day. On the W2 gate a gentle pet (seed 21)
+        dug its staircase into a frozen swamp's bed at dusk, failed two walks home, slept the night in the pit
+        with nothing to eat and dug out only after dawn. The wait is ESCAPE_RETRY game seconds now, the same at 1x."""
+        db = sqlite3.connect(":memory:")
+        create_memory_tables(db)
+        state = stuck()
+        state["brain"]["escaped_at"] = 2.0 - 20.0  # an escape tried 20 server seconds ago: 20 game minutes at 60x
+        ctx = ActionContext(grid=pit(), clock_at=lambda at: NIGHT_60, planner=brain_plan, events=[], db=db)
+        steps = brain_plan(state, ctx, 2.0)
+        self.assertEqual({step.get("purpose") for step in steps}, {"escape"})
+        self.assertEqual(ctx.events[-1][1], "trapped")
+        soon = stuck()
+        soon["brain"]["escaped_at"] = 1.5  # half a server second ago: 30 game seconds at 60x, under ESCAPE_RETRY
+        ctx = ActionContext(grid=pit(), clock_at=lambda at: NIGHT_60, planner=brain_plan, events=[], db=db)
+        self.assertFalse(any(step.get("purpose") == "escape" for step in brain_plan(soon, ctx, 2.0)))
+
+    def test_a_pet_that_is_not_trapped_reports_the_failure(self):
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_escape.py"`
+Expected: `FAILED (failures=1)`: the pet in the pit at night makes no escape (`AssertionError: Items in the first set but not the second: None`, `Items in the second set but not the first: 'escape'`): its last escape, 20 server seconds ago, still counts as under `ESCAPE_RETRY`
+
+- [ ] **Step 3: The retry in game seconds**
+
+In `backend/survival/escape.py`, replace:
+
+```python
+first staircase that brings Mimo above the natural surface within 24 stairs, at most once per 60
+real seconds. There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
+```
+
+with:
+
+```python
+first staircase that brings Mimo above the natural surface within 24 stairs, at most once per
+ESCAPE_RETRY game seconds (W2, the controller's ruling on the W2 dry run: it was 60 server seconds, a
+game day at MIMO_TIME_SCALE 60, so a pet in its own staircase at dusk slept the night in it and dug out
+after dawn; at 1x nothing changes). There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
+```
+
+and replace:
+
+```python
+ESCAPE_RETRY = 60.0
+```
+
+with:
+
+```python
+ESCAPE_RETRY = 60.0  # game seconds between two escapes (W2: they were server seconds)
+```
+
+and replace:
+
+```python
+    if not walks_failed_twice(state, at, context.clock_at(at)["time_scale"]):
+        return []
+    if brain["escaped_at"] is not None and at - brain["escaped_at"] < ESCAPE_RETRY:
+```
+
+with:
+
+```python
+    scale = context.clock_at(at)["time_scale"]
+    if not walks_failed_twice(state, at, scale):
+        return []
+    if brain["escaped_at"] is not None and (at - brain["escaped_at"]) * scale < ESCAPE_RETRY:
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_escape.py"`
+Expected: `OK`
+
+Run: `python3 -m unittest discover -s backend/tests`
+Expected: `Ran 2052 tests` … `OK (skipped=6)` (1 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/survival/escape.py backend/tests/test_survival_escape.py
+git commit -m "fix(W2): a pet trapped in its own staircase digs out at any hour, at any time scale" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 14: A camp's fire under a roof in the rain
+
+On the W2 gate a taught pet (seed 21) camped out on an expedition in a thunderstorm; the rain put out its camp's campfire as it dug in, and it froze by morning (resolution 22). For a pet that knows the rain, the camp puts a block over the campfire's cell first and the fire under it, as `rain.roofed_first` already puts cook's and warm_up's fires under a roof.
+
+**Files:**
+- Modify: `backend/survival/camp.py` (`fire_cover`, `lit_camp`)
+- Test: `backend/tests/test_survival_camp.py` (the camp's steps gain the fire's roof; the rain leaves a roofed camp fire lit)
+
+**Interfaces:**
+- Consumes: L4b's `camp.lit_camp`, `ground_spots`, `dug_block`; `blueprints.BUILDING`; W1's `wild.unlocked`; Task 3's `rain.douse`.
+- Produces: `camp.fire_cover(s, inventory, spot, fire) -> str | None` (a building block to spare, or None).
+
+- [ ] **Step 1: Write the failing test**
+
+In `backend/tests/test_survival_camp.py`, replace:
+
+```python
+        steps = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
+        self.assertEqual(steps, [{"kind": "place", "target": [102, 1, 1], "block": "campfire"},
+```
+
+with:
+
+```python
+        steps = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
+        # W2: a pet that knows the rain (a gentle one does) roofs its camp's fire first (W2 plan, resolution 22).
+        self.assertEqual(steps, [{"kind": "place", "target": [102, 2, 1], "block": "dirt"},
+                                 {"kind": "place", "target": [102, 1, 1], "block": "campfire"},
+```
+
+and replace:
+
+```python
+        self.assertEqual(leave_camp(self.pet.situation(MORNING), dig), [{"kind": "mine", "target": [101, 1, 1]}, *dig])
+```
+
+with:
+
+```python
+        self.assertEqual(leave_camp(self.pet.situation(MORNING), dig), [{"kind": "mine", "target": [101, 1, 1]}, *dig])
+
+    def test_w2_a_pet_that_knows_the_rain_roofs_its_camps_fire_so_the_rain_leaves_it_lit(self):
+        """W2 plan, resolution 22: on the W2 gate a taught pet's camp fire went out in a thunderstorm as it dug in on
+        the heights, and it froze by morning. A pet that knows the rain puts a block over its camp's fire first."""
+        from types import SimpleNamespace
+        from backend.survival.rain import douse
+        from backend.tests.test_survival_wild_gates import wild
+
+        def rained_on(lessons):
+            pet = Expedition()
+            with patch("backend.survival.expedition.terrain_height", FLAT):
+                pet.set_out()
+            pet.go(101, 1)
+            s = wild(pet.situation(DUSK), "shelter", "light", "fire", *lessons)
+            pet.world.carry_out(PURPOSES["camp"].plan(s, pet.context(DUSK)))
+            state = {**pet.state, "sky": {"weather": "rain"}}
+            douse(state, SimpleNamespace(grid=pet.world.grid, events=[], db=None), 1.0)
+            return pet.world.grid.material(102, 1, 1), pet.world.grid.material(102, 2, 1)
+        self.assertEqual(rained_on(()), ("campfire_out", "air"))  # no roof: the rain puts it out
+        self.assertEqual(rained_on(("rain",)), ("campfire", "dirt"))
+```
+
+and replace:
+
+```python
+        self.assertEqual(steps, [{"kind": "place", "target": [100, 1, 1], "block": "campfire"},
+```
+
+with:
+
+```python
+        self.assertEqual(steps, [{"kind": "place", "target": [100, 2, 1], "block": "dirt"},  # W2: the fire's roof
+                                 {"kind": "place", "target": [100, 1, 1], "block": "campfire"},
+```
+
+and replace:
+
+```python
+        self.pet.world.carry_out(first[:1])  # only the campfire went down before the batch was cut short
+```
+
+with:
+
+```python
+        self.pet.world.carry_out(first[:2])  # only the campfire (and, W2, its roof) went down before the batch was cut short
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_camp.py"`
+Expected: `FAILED (failures=4)`: the rain puts the camp's fire out (`AssertionError: Tuples differ: ('campfire_out', 'air') != ('campfire', 'dirt')`), and L4b's three camp tests with a gentle pet find no roof step before the fire (`Lists differ`)
+
+- [ ] **Step 3: The fire's roof**
+
+In `backend/survival/camp.py`, replace:
+
+```python
+
+def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
+```
+
+with:
+
+```python
+
+def fire_cover(s: Situation, inventory: dict, spot: Cell, fire: Cell) -> str | None:
+    """W2: for a pet that knows the rain (`wild:rain`), a building block to roof its camp's campfire at `fire` with,
+    as rain.roofed_first puts cook's and warm_up's fires under a roof: one it can spare from the hole's own roof (a
+    second of the stack, or the last when the block it digs out will roof the hole), and a free cell over the fire.
+    On the W2 gate a taught pet camped out in a thunderstorm on autumn's last night; the rain put its camp's fire out
+    as it dug in, and it froze by morning (W2 plan, resolution 22)."""
+    if not unlocked(s, "rain"):
+        return None
+    block = next((block for block in BUILDING if inventory.get(block, 0) > 0), None)
+    x, y, z = spot
+    fx, fy, fz = fire
+    if block is None or not is_replaceable(s.grid.material(fx, fy + 1, fz)):
+        return None
+    return block if inventory[block] >= 2 or dug_block(s.grid.material(x, y - 1, z)) is not None else None
+
+
+def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
+```
+
+and replace:
+
+```python
+            steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
+```
+
+with:
+
+```python
+            fire = lights.pop(0)
+            cover = fire_cover(s, inventory, spot, fire)
+            if cover is not None:  # W2: the roof goes on first, so the rain never finds the fire uncovered
+                steps.append({"kind": "place", "target": [fire[0], fire[1] + 1, fire[2]], "block": cover})
+                inventory[cover] -= 1
+                if not inventory[cover]:
+                    del inventory[cover]
+            steps.append({"kind": "place", "target": list(fire), "block": "campfire"})
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_camp.py"`
+Expected: `OK`
+
+Run: `python3 -m unittest discover -s backend/tests`
+Expected: `Ran 2053 tests` … `OK (skipped=6)` (1 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/survival/camp.py backend/tests/test_survival_camp.py
+git commit -m "fix(W2): a pet that knows the rain roofs its camp's fire, so a storm on the heights no longer puts it out" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 15: The chest before food work
+
+On the W2 gate a taught pet (seed 11) starved on spring day 5 with 16 full stacks while its chests held smoked meat, cooked rabbit and wheat: it fished and hunted for two days, ate its catches raw one at a time, and never went to its chests, since food work outscored putting things away (resolution 23). A pet short of food carried takes food out of a chest it can reach from food work's own score in winter (resolution 12) or once it is hungry (hunger under 30), and a hungry pet whose arms are full puts things away first when that frees a stack, taking food out in the same batch in the room that leaves.
+
+**Files:**
+- Modify: `backend/survival/storage.py` (`HUNGRY_BELOW`, `food_first`, `stored_arms`, `storage_score`, `to_take(s, arms)`, `plan_storage`)
+- Test: `backend/tests/test_survival_storage.py`, `backend/tests/test_survival_winter_goal.py` (the chest before foraging in any season)
+
+**Interfaces:**
+- Consumes: `storage.to_take`, `to_store_all`, `carried_food`, `WINTER_TAKE`; `foraging.hunger_score`; `purposes.EAT_BELOW`; `carrying.full`.
+- Produces: `storage.food_first(s) -> bool`, `stored_arms(s, stores) -> dict`, `HUNGRY_BELOW` (30); `to_take(s, arms=None)`.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `backend/tests/test_survival_storage.py`, replace:
+
+```python
+        self.assertEqual(steps[:2], [{"kind": "mine", "target": [2, 1, 2]},
+                                     {"kind": "place", "target": [2, 1, 2], "block": "chest"}])
+
+```
+
+with:
+
+```python
+        self.assertEqual(steps[:2], [{"kind": "mine", "target": [2, 1, 2]},
+                                     {"kind": "place", "target": [2, 1, 2], "block": "chest"}])
+
+    def test_w2_a_hungry_pet_with_full_arms_puts_things_away_and_takes_food_before_food_work(self):
+        """W2 plan, resolution 23: on the W2 gate a taught pet with 16 full stacks fished and hunted for two days, ate
+        its catches raw one at a time, never went to its chests of food, and starved."""
+        from backend.survival.carrying import full
+        from backend.survival.foraging import hunger_score
+        home = Home({**LOOSE, "coal": 14, "string": 3}, chest={"bread": 4, "cooked_beef": 6})
+        home.state["vitals"]["hunger"] = 20.0
+        s = home.situation()
+        self.assertTrue(full(s.inventory))
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        self.assertGreater(PURPOSES["build_storage"].score(s), hunger_score(s, 35.0))  # forage's base; hunt's is 30
+        steps = home.plan("build_storage")
+        self.assertIn("store", [step["kind"] for step in steps])
+        self.assertEqual(steps[-1]["kind"], "take")  # food out, in the room the things put away left
+        self.assertIn(steps[-1]["item"], ("bread", "cooked_beef"))
+        home.state["vitals"]["hunger"] = 90.0  # not hungry: food work was never the question
+        self.assertLessEqual(PURPOSES["build_storage"].score(home.situation()), 70.0)
+        from backend.survival.storage import food_first
+        stuck = Home({"iron_sword": 1, "iron_pickaxe": 1, "iron_axe": 1, "iron_shovel": 1, "iron_cap": 1, "iron_tunic": 1,
+                      "crafting_table": 1, "furnace": 1, "campfire": 1, "wool_cloak": 1, "bucket": 1, "compass": 1,
+                      "clock": 1, "shears": 1, "bow": 1, "arrow": 16, "coal": 14},
+                     chest={"bread": 4})
+        stuck.state["vitals"]["hunger"] = 10.0
+        s = stuck.situation()
+        self.assertTrue(full(s.inventory))
+        self.assertFalse(food_first(s))  # putting away 6 of 14 coal frees no stack: food work, not the chest all day
+
+```
+
+In `backend/tests/test_survival_winter_goal.py`, replace:
+
+```python
+        self.assertEqual(PURPOSES["build_storage"].score(autumn), 55.0)
+```
+
+with:
+
+```python
+        self.assertEqual(PURPOSES["build_storage"].score(autumn), 55.0)
+        world.state["vitals"]["hunger"] = 20.0  # W2 plan, resolution 23: in any season once it is hungry
+        self.assertGreater(PURPOSES["build_storage"].score(on_day(world, 22)), PURPOSES["forage"].score(on_day(world, 22)))
+        world.state["vitals"]["hunger"] = 40.0
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_storage.py"`
+Expected: `FAILED (failures=2)`: the full-armed hungry pet's storage scores under food work (`AssertionError: 65.0 not greater than 81.66666666666667`), and a hungry pet in autumn is not sent to its chest (`AssertionError: 55.0 not greater than 81.66666666666667`)
+
+- [ ] **Step 3: Food first**
+
+In `backend/survival/storage.py`, replace:
+
+```python
+# and starved 24 game minutes.
+WINTER_TAKE = 40.0
+```
+
+with:
+
+```python
+# and starved 24 game minutes. W2 plan, resolution 23: in every season while Mimo is hungry (`food_first`: HUNGRY_BELOW,
+# the tick's "getting hungry"), and a hungry pet whose arms are full puts things away from the same base, so the food it
+# takes out or catches next has room; on the final W2 gate a taught pet with 16 full stacks fished and hunted for two
+# days, ate its catches raw one at a time, never went to its chests of smoked meat, cooked rabbit and wheat, and starved.
+# Only while hungry, outside winter: from any shortfall of food carried, gentle pets emptied their chests in autumn.
+WINTER_TAKE = 40.0
+HUNGRY_BELOW = 30.0
+```
+
+and replace:
+
+```python
+def to_take(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(cell, item, amount) to take out of a chest: food when Mimo carries less than a meal's worth,
+    best first, and (the Making final fix wave, I1) what TAKES_MORE want, as far as Mimo has room: home's
+    own chest first, then (fix round 1) any other chest Mimo built, so an older home's chest is never
+    stranded once a bigger one takes over (not one it just failed to reach, `reachable_chests`)."""
+```
+
+with:
+
+```python
+def to_take(s: Situation, arms: dict | None = None) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(cell, item, amount) to take out of a chest: food when Mimo carries less than a meal's worth,
+    best first, and (the Making final fix wave, I1) what TAKES_MORE want, as far as Mimo has room: home's
+    own chest first, then (fix round 1) any other chest Mimo built, so an older home's chest is never
+    stranded once a bigger one takes over (not one it just failed to reach, `reachable_chests`). W2: `arms`, what
+    Mimo will carry once the same batch has put things away, for the room (resolution 23)."""
+```
+
+and replace:
+
+```python
+    have, found, carried = carried_food(s), [], dict(s.inventory)
+```
+
+with:
+
+```python
+    have, found, carried = carried_food(s), [], dict(s.inventory if arms is None else arms)
+```
+
+and replace:
+
+```python
+def storage_score(s: Situation) -> float:
+    cell = chest_spot(s)
+    if sky.winter(s.state) and carried_food(s) < TAKE_BELOW and to_take(s):  # W2
+```
+
+with:
+
+```python
+def food_first(s: Situation) -> bool:
+    """W2 (resolution 23): food waits in a chest Mimo can reach while it carries less than TAKE_BELOW, in winter or
+    while it is hungry (HUNGRY_BELOW), or its arms are full while it is hungry and putting things away frees a stack:
+    either way the chest comes before food work. Only when a stack comes free: a full pet that can put away only
+    part of a stack chose the chest all day and starved (a gentle pet on the first measure of this rule)."""
+    hungry = s.vitals["hunger"] < HUNGRY_BELOW
+    if carried_food(s) < TAKE_BELOW and (hungry or sky.winter(s.state)) and to_take(s):
+        return True
+    return full(s.inventory) and hungry and stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS
+
+
+def stored_arms(s: Situation, stores) -> dict:
+    """Mimo's arms once `stores` ((chest, item, amount), as to_store_all gives them) are put away."""
+    arms = dict(s.inventory)
+    for _, item, amount, *_ in stores:
+        arms[item] = arms.get(item, 0) - amount
+        if arms[item] <= 0:
+            del arms[item]
+    return arms
+
+
+def storage_score(s: Situation) -> float:
+    cell = chest_spot(s)
+    if food_first(s):  # W2
+```
+
+and replace:
+
+```python
+    for chest_cell, item, amount in to_take(s):
+```
+
+with:
+
+```python
+    arms = stored_arms(s, stores)  # W2: the food taken out has the room the things put away leave
+    for chest_cell, item, amount in to_take(s, arms):
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_storage.py"`
+Expected: `OK`
+
+Run: `python3 -m unittest discover -s backend/tests`
+Expected: `Ran 2054 tests` … `OK (skipped=6)` (1 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/survival/storage.py backend/tests/test_survival_storage.py backend/tests/test_survival_winter_goal.py
+git commit -m "fix(W2): a hungry pet goes to the food in its chests before it hunts, and puts things away first when its arms are full" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 16: The autumn larder keeps
+
+On the W2 gate taught pets' chests held too little food still good on winter day 1 (1, 0 and 1 of 6 winters), while 85 to 126 of their foods spoiled a life and they set "Ready for winter" aside for expeditions (resolution 24). While the goal fills a wild pet's chests, the food that keeps goes in them and the food that spoils soonest stays on hand to be eaten; the goal's food is judged by what is still good on winter day 1 (`GOOD_UNTIL` 0); and a wild pet's goal holds it through autumn while its chests fall short and pulls it `WILD_PULL` more, over a curious pet's discovery goals. Smoking stays offered all autumn and keeps the meat it would smoke from cook (Task 8).
+
+**Files:**
+- Modify: `backend/survival/winter_prep.py` (`GOOD_UNTIL`, `WILD_PULL`, `keeping_first`, `holds_autumn`, `winter_pull`), `backend/survival/storage.py` (`SPARE_KEEPING`, `keeping`, `spare_food`)
+- Test: `backend/tests/test_survival_winter_goal.py`
+
+**Interfaces:**
+- Consumes: Task 7's goal and `winter_food`; `goals.Goal.holds`, `goals.holding`; W1's `spoilage.PERISHABLE`; `storage.spare_food`.
+- Produces: `winter_prep.WILD_PULL` (300), `keeping_first(s)`, `holds_autumn(s)`; `storage.SPARE_KEEPING` (functions of the Situation, guarded), `storage.keeping(s)`.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `backend/tests/test_survival_winter_goal.py`, replace:
+
+```python
+    def test_a_wild_pets_counts_only_the_food_still_good_on_winter_day_five(self):
+```
+
+with:
+
+```python
+    def test_a_wild_pets_counts_only_the_food_still_good_on_winter_day_one(self):
+```
+
+and replace:
+
+```python
+        # 6 x 0.5 + 4 x 0.5 / 3 = 3.67 game days of its 4 by winter day 5: only a lot under 0.08 worn keeps.
+        world.state["chest_lots"] = {chest_key(cell): {"cooked_beef": [[1, 0.0], [3, 0.5]], "bread": [[2, 0.1]]}}
+        self.assertEqual(winter_food(on_day(world, 25, 0.0)), 35 + 2 * 25)
+        # good on winter day 1 (the W2 gate's measure): 6 x 0.5 = 3 game days of 4, so a lot under 0.25 worn
+        self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=0), 35 + 2 * 25)
+        self.assertEqual(winter_food(on_day(world, 29, 0.0), good_until=0), 4 * 35 + 2 * 25)
+
+
+class LarderTests(unittest.TestCase):
+```
+
+with:
+
+```python
+        # 6 x 0.5 = 3 game days of its 4 by winter day 1 (W2 plan, resolution 24): a lot under 0.25 worn keeps.
+        world.state["chest_lots"] = {chest_key(cell): {"cooked_beef": [[1, 0.0], [3, 0.5]], "bread": [[2, 0.1]]}}
+        self.assertEqual(winter_food(on_day(world, 25, 0.0)), 35 + 2 * 25)
+        self.assertEqual(winter_food(on_day(world, 29, 0.0)), 4 * 35 + 2 * 25)
+        # four winter days more (the goal's measure before resolution 24): 2 / 3 of a day more, under 0.08 worn
+        self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=4), 35 + 2 * 25)
+
+
+class LarderTests(unittest.TestCase):
+    def test_w2_a_wild_pet_readying_for_winter_stores_the_food_that_keeps_and_stays_with_the_goal(self):
+        """W2 plan, resolution 24: on the W2 gate taught pets' chests held too little food good on winter day 1, 85 to
+        126 of their foods spoiled a life, and they set the goal aside for expeditions."""
+        from backend.survival.goals import holding
+        from backend.survival.storage import spare_food
+        world = built({"smoked_meat": 4, "bread": 4, "cooked_beef": 4, "berries": 5})
+        world.state["difficulty"] = "wild"
+        for lesson in ("winter", "keeping"):
+            know(world.db, f"wild:{lesson}", "lesson", 0.0)
+        before = dict(spare_food(on_day(world, 22)))
+        adopt_goal(world.state, GOAL, "utility", "", 0.0)
+        s = on_day(world, 22)
+        spare = spare_food(s)
+        # a day's worth stays on hand, the food that spoils soonest (the berries and a cooked beef); what keeps goes first
+        self.assertEqual(spare, [("smoked_meat", 4), ("bread", 4), ("cooked_beef", 3)])
+        self.assertNotEqual(dict(spare), before)
+        self.assertTrue(holding(s, WINTER))  # its chests hold none of the winter's food yet
+        self.assertEqual(winter_pull(s, WINTER)[0], 400.0)  # over a curious pet's discovery goal, kept (300)
+        stocked(world, {"smoked_meat": 18})
+        self.assertFalse(holding(on_day(world, 22), WINTER))  # 360 hunger points that keep: free to go
+        self.assertEqual(winter_pull(on_day(world, 22), WINTER)[0], 100.0)
+        world.state["chests"] = {}
+        world.state["difficulty"] = "gentle"
+        self.assertFalse(holding(on_day(world, 22), WINTER))  # a gentle pet: as before
+
+
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_winter_goal.py"`
+Expected: `FAILED (failures=1)`: the berries go into the chest and the cooked beef stays (`AssertionError: Lists differ: [('berries', 5), ('smoked_meat', 4), ('bread', 4), ('cooked_beef', 2)] != [('smoked_meat', 4), ('bread', 4), ('cooked_beef', 3)]`)
+
+- [ ] **Step 3: The keeping larder**
+
+In `backend/survival/storage.py`, replace:
+
+```python
+KEEPS_MORE: list = []
+```
+
+with:
+
+```python
+KEEPS_MORE: list = []
+# W2 (resolution 24): functions of the Situation; while one says so, the food Mimo keeps on hand is the food that spoils
+# soonest (spoilage.PERISHABLE) and the food it puts away is the food that keeps longest (backend.survival.winter_prep).
+SPARE_KEEPING: list = []
+```
+
+and replace:
+
+```python
+    for item in foods(s.inventory, s.poisons):
+```
+
+with:
+
+```python
+    order = foods(s.inventory, s.poisons)
+    if keeping(s):  # W2: the food that spoils soonest is kept on hand, the food that keeps goes in the chest
+        from backend.survival.spoilage import PERISHABLE  # here: spoilage imports storage's neighbours
+        order = sorted(order, key=lambda item: (PERISHABLE.get(item, math.inf), item))
+    for item in order:
+```
+
+and replace:
+
+```python
+    return list(reversed(spare))
+```
+
+with:
+
+```python
+    return list(reversed(spare))
+
+
+def keeping(s: Situation) -> bool:
+    """One of SPARE_KEEPING says the food that keeps goes in the chest (W2); one that crashes says no (logged once)."""
+    for says in SPARE_KEEPING:
+        try:
+            if says(s):
+                return True
+        except Exception as error:
+            log_once(logger, "spare keeping", error)
+    return False
+```
+
+In `backend/survival/winter_prep.py`, replace:
+
+```python
+  winter day 5 at chest rates (`winter_food`; a gentle pet's food never spoils), which stock_larder serves with
+  that target (larder.TARGETS), Mimo wanting up to WINTER_EXTRA more food on hand while it gathers;
+```
+
+with:
+
+```python
+  winter day 1 at chest rates (`winter_food`; a gentle pet's food never spoils), which stock_larder serves with
+  that target (larder.TARGETS), Mimo wanting up to WINTER_EXTRA more food on hand while it gathers. W2 plan,
+  resolution 24 (the controller's ruling on the W2 gate): the food that keeps goes in the chests first, the food
+  that spoils soonest stays on hand to be eaten (`keeping_first`, storage.SPARE_KEEPING), and a wild pet's goal
+  holds it (Goal.holds) through autumn while its chests fall short, so it is not set aside for an expedition;
+```
+
+and replace:
+
+```python
+from backend.survival import larder, sky
+from backend.survival.clock import DAY_SECONDS
+from backend.survival.goals import HELD_OFF, PULLS, Goal, Milestone, register_goal
+```
+
+with:
+
+```python
+from backend.survival import larder, sky, storage
+from backend.survival.clock import DAY_SECONDS
+from backend.survival.goals import HELD_OFF, PULLS, Goal, Milestone, active, register_goal
+```
+
+and replace:
+
+```python
+GOOD_UNTIL = 4  # winter days the food must keep: it is still good on winter day 5
+SMOKED_WANTED = 8
+WINTER_PULL = 100.0  # the season's pull on the goal while it is open (as much as goals.STICK)
+```
+
+with:
+
+```python
+GOOD_UNTIL = 0  # winter days the food must keep: it is still good on winter day 1 (W2 plan, resolution 24; was 4)
+SMOKED_WANTED = 8
+WINTER_PULL = 100.0  # the season's pull on the goal while it is open (as much as goals.STICK)
+# W2 plan, resolution 24: a wild pet's chests short of the winter's food pull it this much more, over a curious pet's
+# discovery goals (up to 200, and 100 more to keep): on the W2 gate taught seed 5's "look into a cave" scored 300 as
+# its current goal against the winter goal's 198, and it never took the goal up.
+WILD_PULL = 300.0
+```
+
+and replace:
+
+```python
+    `good_until` winter days in (GOOD_UNTIL: on winter day 5, the goal's measure; 0: on winter day 1, the W2 gate's,
+    the controller's ruling on the W2 dry run): for a wild pet, the lots whose wear by then (half as fast in a
+```
+
+with:
+
+```python
+    `good_until` winter days in (GOOD_UNTIL, 0: on winter day 1, the goal's measure and the W2 gate's, the
+    controller's rulings on the W2 dry run and its gate): for a wild pet, the lots whose wear by then (half as fast in a
+```
+
+and replace:
+
+```python
+    return total
+```
+
+with:
+
+```python
+    return total
+
+
+def keeping_first(s: Situation) -> bool:
+    """storage.SPARE_KEEPING: while "Ready for winter" fills a wild pet's chests, the food that keeps goes in them and
+    the food that spoils soonest stays on hand to be eaten."""
+    goal = active(s)
+    return is_wild(s.state) and goal is not None and goal.name == GOAL
+
+
+def holds_autumn(s: Situation) -> bool:
+    """Goal.holds: a wild pet stays with the goal through autumn while its chests hold less than WINTER_FOOD good on
+    winter day 1 (on the W2 gate taught pets set it aside for "nothing to do for it now" and went on expeditions
+    while their food spoiled)."""
+    return is_wild(s.state) and preparing(s) and winter_food(s) < WINTER_FOOD
+```
+
+and replace:
+
+```python
+    return WINTER_PULL, f"winter comes in {max(1, round(days_to_winter(s)))} days"
+```
+
+with:
+
+```python
+    pull = WINTER_PULL + (WILD_PULL if holds_autumn(s) else 0.0)  # W2: a wild pet's larder is short
+    return pull, f"winter comes in {max(1, round(days_to_winter(s)))} days"
+```
+
+and replace:
+
+```python
+    after=("first_shelter",), valid=goal_valid, repeat=True))
+larder.TARGETS.append(target)
+```
+
+with:
+
+```python
+    after=("first_shelter",), valid=goal_valid, repeat=True, holds=holds_autumn))
+larder.TARGETS.append(target)
+storage.SPARE_KEEPING.append(keeping_first)
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `python3 -m unittest discover -s backend/tests -p "test_survival_winter_goal.py"`
+Expected: `OK`
+
+Run: `python3 -m unittest discover -s backend/tests`
+Expected: `Ran 2055 tests` … `OK (skipped=6)` (1 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/survival/storage.py backend/survival/winter_prep.py backend/tests/test_survival_winter_goal.py
+git commit -m "fix(W2): a wild pet readying for winter stores the food that keeps, eats what spoils first and stays with the goal" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 17: The gate script's W2
+
+**Files:**
+- Modify: `backend/scripts/wild_gate.py` (the owner's day 2, the winters and their food good on winter day 1, the strikes measured at the strike, the `upgrade` condition, `check_w2` with criterion 6 restated as the cold minutes of the winters lived, `--check W2`)
 - Create: `backend/tests/test_survival_sky_gate.py`
 - Test: `backend/tests/test_survival_wild_run.py` (every lesson known by day 3)
 
 **Interfaces:**
 - Consumes: everything above; W1's `live`, `summarize`, `check_w1`, the scripted owner and the counting model stand-in.
-- Produces: `wild_gate.TEACHES_W2`, `UPGRADE` (the `upgrade` condition, beside W1's `CONDITIONS`), `upgrade(world)`, `winter_of`, `sample_sky`, `check_w2(out) -> [(criterion, passed, measure)]`; `--check W2 DIR`; a life's summary gains `winters`, `winter_food`, `struck`, `strike_home`, `fire_claimed`, `clearing_edits` and `sky_offset`.
+- Produces: `wild_gate.TEACHES_W2`, `UPGRADE` (the `upgrade` condition, beside W1's `CONDITIONS`), `upgrade(world)`, `winter_of`, `sample_sky`, `HUNGRY_WINTER`, `check_w2(out) -> [(criterion, passed, measure)]`; `--check W2 DIR`; a life's summary gains `winters` (each with its health mean and its freezing, starving, cold and hungry minutes), `winter_food`, `struck`, `strike_home`, `fire_claimed`, `clearing_edits` and `sky_offset`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7904,7 +8860,8 @@ W2 = ("winter", "cloak", "hearth", "smoking", "rain", "storm", "fog")
 def life(condition, seed, **changes):
     found = {"condition": condition, "seed": seed, "died_day": None, "cause": None, "difficulty": "gentle",
              "machines": {"lamp_lever": 40.0}, "model_calls": 0, "errors": [], "ever": {"sick": False},
-             "winters": {str(n): {"health_mean": 95.0, "ticks": 600, "freezing": 2, "starving": 0} for n in (1, 2, 3)},
+             "winters": {str(n): {"health_mean": 95.0, "ticks": 600, "freezing": 2, "starving": 0, "cold": 2, "hungry": 10}
+                         for n in (1, 2, 3)},
              "winter_food": {"1": 400.0, "2": 380.0, "3": 365.0}, "struck": 0, "strike_home": 30.0,
              "fire_claimed": 0, "clearing_edits": 0, "sky_offset": 0}
     found.update(changes)
@@ -7947,7 +8904,8 @@ class CheckTests(unittest.TestCase):
         gentle = [life("gentle", seed) for seed in range(6)]
         taught = [life("taught", seed, difficulty="wild") for seed in range(6)]
         untaught = [life("untaught", seed, difficulty="wild",
-                         winters={str(n): {"health_mean": 70.0, "ticks": 600, "freezing": 30, "starving": 5} for n in (1, 2, 3)})
+                         winters={str(n): {"health_mean": 70.0, "ticks": 600, "freezing": 30, "starving": 5, "cold": 30,
+                                           "hungry": 40} for n in (1, 2, 3)})
                     for seed in range(6)]
         upgraded = [life("upgrade", seed, sky_offset=21, winters={"1": {"health_mean": 90.0, "ticks": 600, "freezing": 0,
                                                                           "starving": 0}}) for seed in range(2)]
@@ -7971,6 +8929,24 @@ class CheckTests(unittest.TestCase):
                                         taught__3__empty={"winter_food": {"1": 100.0, "2": 400.0, "3": 400.0}}))
         failed = {name.split()[0] for name, passed in results.items() if not passed}
         self.assertEqual(failed, {"2", "3", "4", "8"})
+
+    def test_criterion_six_counts_the_cold_minutes_of_the_winters_each_pet_lived(self):
+        """Restated by the controller's ruling on the W2 interim report: the cold minutes (warmth under CHILL_BELOW) of
+        the winters each pet lived through (alive at the winter's start), untaught at least twice taught's, and some."""
+        def six(**changes):
+            results = self.write(self.lives(**changes))
+            return results[next(name for name in results if name.startswith("6 "))]
+
+        def winters(cold, count=3):
+            return {str(n): {"health_mean": 95.0, "ticks": 600, "freezing": 0, "starving": 0, "cold": cold, "hungry": 10}
+                    for n in range(1, count + 1)}
+        self.assertTrue(six())  # 540 cold minutes against 36
+        self.assertFalse(six(**{f"untaught__{seed}__mild": {"winters": winters(3)} for seed in range(6)}))  # 54 < 72
+        self.assertTrue(six(**{f"untaught__{seed}__mild": {"winters": winters(4)} for seed in range(6)}))  # 72
+        dead = {f"untaught__{seed}__dead": {"died_day": 25.0, "cause": "sickness", "winters": {}} for seed in range(4)}
+        self.assertFalse(six(**dead, **{f"untaught__{seed}__one": {"winters": winters(10, 1)} for seed in (4, 5)}))
+        self.assertFalse(six(**{f"{condition}__{seed}__warm": {"winters": winters(0)} for condition in ("untaught", "taught")
+                                for seed in range(6)}))  # none at all
 
 
 if __name__ == "__main__":
@@ -8004,22 +8980,25 @@ Expected: `FAILED (failures=1, errors=1, skipped=1)`: `ImportError: cannot impor
 In `backend/scripts/wild_gate.py`, replace:
 
 ```python
-    python3 -m backend.scripts.wild_gate --check W1 DIR
+    python3 -m backend.scripts.wild_gate --check W1R DIR
 ```
 
 with:
 
 ```python
-    python3 -m backend.scripts.wild_gate --check W1 DIR
+    python3 -m backend.scripts.wild_gate --check W1R DIR
 
 W2: the scripted owner says the first teaching-table line of each W2 lesson on day 2, the same way (TEACHES_W2).
 Each life's summary gains its winters (`winters`: the health mean, freezing and starving game minutes of each,
 days 31 to 40, 71 to 80 and 111 to 120 of a newborn), the food its chests hold for winter on each winter day 1
-(`winter_food`, winter_prep.winter_food), the strikes that hit it and the nearest a strike fell to the home it
+(`winter_food`: winter_prep.winter_food of the food still good that day, the controller's ruling on the W2 dry
+run and its gate, the goal's own measure too), the strikes that hit it and the nearest a strike fell to the home it
 built at that moment (`strike_home`, from storms.STRIKES: a home finished later in the same tick is not the one the
 strike kept clear of), the fire cells that burned in a cell something it built claims (`fire_claimed`) and the
 block edits in the legacy clearing (`clearing_edits`). The `upgrade` condition is spec criterion 9's world: a
 gentle life ticked UPGRADE_DAY days as the code before W2 had it (no sky), then upgraded and ticked 45 more.
+Each winter also counts its cold minutes (warmth under ailments.CHILL_BELOW) and hungry minutes (hunger under
+HUNGRY_WINTER); criterion 6 reads the cold ones (restated by the controller's ruling on the W2 interim report).
 
     python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 4 --out DIR
     python3 -m backend.scripts.wild_gate --days 65 --conditions upgrade --parallel 4 --out DIR
@@ -8055,13 +9034,13 @@ UPGRADE = "upgrade"  # W2: a world made before W2 and upgraded (criterion 9)
 and replace:
 
 ```python
-MACHINES = ("lamp_lever", "auto_door", "night_light", "clock", "memory_cell", "counter", "computer")
+           "Six planks make a bed.")
 ```
 
 with:
 
 ```python
-MACHINES = ("lamp_lever", "auto_door", "night_light", "clock", "memory_cell", "counter", "computer")
+           "Six planks make a bed.")
 # W2: the first teaching-table line of each W2 lesson, said on day 2 the same way.
 TEACHES_W2 = ("Fill a chest with food before winter.", "Five wool make a wool cloak.",
               "A stone hearth keeps the home warm.", "Smoked meat keeps all winter.",
@@ -8096,7 +9075,7 @@ with:
 
 ```python
         life = hatch(registry, random.Random(seed), timestamp=BORN,
-                     difficulty="gentle" if condition in ("gentle", "upgrade") else "wild")
+                     difficulty="gentle" if condition in ("gentle", UPGRADE) else "wild")
 ```
 
 and replace:
@@ -8115,36 +9094,36 @@ with:
         storms.STRIKES.append(seen)
         for minute in range(1, days * 60 + 1):
             now = BORN + minute
-            if condition == "upgrade" and minute == UPGRADE_DAY * 60:
+            if condition == UPGRADE and minute == UPGRADE_DAY * 60:
                 upgrade(world)  # W2 comes to a world that lived UPGRADE_DAY days without it
-            with before_w2(condition == "upgrade" and minute < UPGRADE_DAY * 60):
+            with before_w2(condition == UPGRADE and minute < UPGRADE_DAY * 60):
                 state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
 ```
 
 and replace:
 
 ```python
-        talker.close()
+            sample(found, state, minute, world)
 ```
 
 with:
 
 ```python
+            sample(found, state, minute, world)
             sample_sky(found, state, minute, world)
-        talker.close()
         storms.STRIKES.remove(seen)
 ```
 
 and replace:
 
 ```python
-    return summary
+            "ever": {"sick": False, "wound": False, "lots": False}, "asked": {}, "met": {}}
 ```
 
 with:
 
 ```python
-    return summary
+            "ever": {"sick": False, "wound": False, "lots": False}, "asked": {}, "met": {}}
 
 
 def before_w2(active: bool):
@@ -8167,6 +9146,9 @@ def upgrade(world) -> None:
         write_state(db, state)
 
 
+HUNGRY_WINTER = 30.0  # a winter's hungry minutes: hunger under this
+
+
 def winter_of(found: dict, state: dict, minute: int) -> int | None:
     """Which of the life's winters (1, 2, 3 ...) the game minute falls in, by its own seasons (an upgraded world's
     year starts on its upgrade day), or None outside winter."""
@@ -8182,21 +9164,25 @@ def winter_of(found: dict, state: dict, minute: int) -> int | None:
 
 def sample_sky(found: dict, state: dict, minute: int, world) -> None:
     """W2: one tick's sample of the winters, the winter food, the strikes and the fires (see the module docstring)."""
+    from backend.survival.ailments import CHILL_BELOW
     from backend.survival.situation import from_db
     from backend.survival.winter_prep import winter_food
     vitals = state["vitals"]
     winters = found.setdefault("winters", {})
     winter = winter_of(found, state, minute)
     if winter is not None:
-        entry = winters.setdefault(str(winter), {"health": 0.0, "ticks": 0, "freezing": 0, "starving": 0})
+        entry = winters.setdefault(str(winter), {"health": 0.0, "ticks": 0, "freezing": 0, "starving": 0, "cold": 0,
+                                                 "hungry": 0})
         entry["health"] += vitals["health"]
         entry["ticks"] += 1
         entry["freezing"] += vitals["warmth"] < 20.0
         entry["starving"] += vitals["hunger"] <= 0.0
+        entry["cold"] += vitals["warmth"] < CHILL_BELOW  # criterion 6's measures (the ruling on the interim report)
+        entry["hungry"] += vitals["hunger"] < HUNGRY_WINTER
         food = found.setdefault("winter_food", {})
         if str(winter) not in food:  # the first tick of its winter day 1
             with world.connect() as db:
-                food[str(winter)] = round(winter_food(from_db(db, state, BORN + minute, SCALE)), 1)
+                food[str(winter)] = round(winter_food(from_db(db, state, BORN + minute, SCALE), good_until=0), 1)
     fires = (state.get("sky") or {}).get("fires", [])
     if fires:
         with world.connect() as db:
@@ -8227,7 +9213,8 @@ with:
 
 ```python
     winters = {winter: {"health_mean": round(entry["health"] / max(1, entry["ticks"]), 2), "ticks": entry["ticks"],
-                        "freezing": entry["freezing"], "starving": entry["starving"]}
+                        "freezing": entry["freezing"], "starving": entry["starving"], "cold": entry.get("cold", 0),
+                        "hungry": entry.get("hungry", 0)}
                for winter, entry in found.get("winters", {}).items()}
     with world.connect() as db:
         from backend.services.worldgen import LEGACY_RADIUS
@@ -8258,19 +9245,13 @@ with:
 and replace:
 
 ```python
-
-def main(argv=None) -> int:
+CHECKS = {"W1": check_w1, "W1R": check_w1r}
 ```
 
 with:
 
 ```python
-
 # The W2 gate ----------------------------------------------------------------------------------------
-
-def winter_means(life: dict) -> list[float]:
-    return [entry["health_mean"] for entry in life.get("winters", {}).values() if entry["ticks"]]
-
 
 def cost_rows() -> tuple[bool, str]:
     """Criterion 10: the sky hook's budget in a storm by a forest and a route across a frozen lake (the unit tests
@@ -8307,7 +9288,7 @@ def check_w2(out: Path, cost: bool = True) -> list[tuple[str, bool, str]]:
     from backend.survival.winter_prep import WINTER_FOOD
     stocked = {condition: [sum(1 for life in group if life.get("winter_food", {}).get(str(winter), 0) >= WINTER_FOOD)
                            for winter in (1, 2, 3)] for condition, group in (("gentle", gentle), ("taught", taught))}
-    row("3 gentle and taught: WINTER_FOOD in the chests on winter day 1, 5 of 6 the first winter, 6 of 6 after",
+    row("3 gentle and taught: WINTER_FOOD good on winter day 1 in the chests, 5 of 6 the first winter, 6 of 6 after",
         all(counts[0] >= 5 and counts[1] >= 6 and counts[2] >= 6 for counts in stocked.values()),
         f"stocked by winter {stocked}; food {[(life['condition'], life['seed'], life.get('winter_food')) for life in kept]}")
     row("4 gentle and taught: at most 1 strike on Mimo a life", all(life.get("struck", 0) <= 1 for life in kept),
@@ -8317,9 +9298,16 @@ def check_w2(out: Path, cost: bool = True) -> list[tuple[str, bool, str]]:
     most_gentle = max((len(life["machines"]) for life in gentle), default=0)
     row("5 W1 criterion 5: 3 of 6 taught build a lamp on a lever; the furthest within one of gentle's",
         lamps >= 3 and most_taught >= most_gentle - 1, f"lamps {lamps}/6; machines taught {most_taught}, gentle {most_gentle}")
-    mean_of = lambda group: sum(sum(winter_means(life)) / max(1, len(winter_means(life))) for life in group) / max(1, len(group))
-    row("6 untaught: the mean winter health mean 15 or more below taught's", untaught and taught
-        and mean_of(taught) - mean_of(untaught) >= 15, f"untaught {mean_of(untaught):.1f}, taught {mean_of(taught):.1f}")
+    # Restated by the controller's ruling on the W2 interim report (criterion 6, step 3): the cold game minutes
+    # (warmth under CHILL_BELOW) of the winters each pet lived through (it ticked in them, so it was alive at their
+    # start), untaught at least twice taught's, and some.
+    lived = {name: [entry for life in group for entry in life.get("winters", {}).values() if entry["ticks"]]
+             for name, group in (("untaught", untaught), ("taught", taught))}
+    cold = {name: sum(entry.get("cold", 0) for entry in winters) for name, winters in lived.items()}
+    row("6 untaught: cold minutes in the winters lived at least 2x taught's (and some), over the pets alive at each "
+        "winter's start", untaught and taught and cold["untaught"] > 0 and cold["untaught"] >= 2 * cold["taught"],
+        f"untaught {cold['untaught']} over {len(lived['untaught'])} winters lived, taught {cold['taught']} over "
+        f"{len(lived['taught'])}")
     row("7 untaught: at least 2 of 6 alive on day 150, none dead before day 5",
         sum(alive_on(life, 150) for life in untaught) >= 2 and all(alive_on(life, 5) for life in untaught),
         f"alive {sum(alive_on(life, 150) for life in untaught)}/{len(untaught)}; deaths "
@@ -8347,7 +9335,7 @@ def check_w2(out: Path, cost: bool = True) -> list[tuple[str, bool, str]]:
     return rows
 
 
-def main(argv=None) -> int:
+CHECKS = {"W1": check_w1, "W1R": check_w1r, "W2": check_w2}
 ```
 
 and replace:
@@ -8362,29 +9350,13 @@ with:
     parser.add_argument("--condition", choices=(*CONDITIONS, UPGRADE))
 ```
 
-and replace:
-
-```python
-        if args.check[0] != "W1":
-            raise SystemExit("only the W1 gate is written yet")
-        rows = check_w1(Path(args.check[1]))
-```
-
-with:
-
-```python
-        if args.check[0] not in ("W1", "W2"):
-            raise SystemExit("the W1 and W2 gates are written")
-        rows = (check_w1 if args.check[0] == "W1" else check_w2)(Path(args.check[1]))
-```
-
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `python3 -m unittest backend.tests.test_survival_sky_gate backend.tests.test_survival_wild_run`
 Expected: `OK (skipped=1)`
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 2013 tests` … `OK (skipped=6)` (4 new).
+Expected: `Ran 2060 tests` … `OK (skipped=6)` (5 new).
 
 Run the gate (about 2 hours on four cores): `python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 4 --out DIR`, then `python3 -m backend.scripts.wild_gate --days 30 --conditions liar --parallel 4 --out DIR` and `python3 -m backend.scripts.wild_gate --days 65 --conditions upgrade --parallel 4 --out DIR`, then `python3 -m backend.scripts.wild_gate --check W2 DIR` and `python3 -m backend.scripts.wild_gate --check W1 DIR`
 Expected: the tables of "Dry-run measurements"; any criterion that fails is reported to the controller with its measure, never loosened.
@@ -8398,7 +9370,7 @@ git commit -m "feat(W2): the gate script measures the W2 gate: winters lived, re
 
 ---
 
-### Task 14: Manual check on the demo and the README
+### Task 18: Manual check on the demo and the README
 
 This task is for the controller. It rebuilds the demo image from the branch and restarts the demo stack on its own scratch volume, `mimo-l3demo-api` (:8011) and `mimo-l3demo-worker` on volume `mimo_l3demo`, at the natural pace: its pet, hatched before W1, is gentle and gets spring on its first tick. The seasons are watched on a fast scratch stack of their own, `mimo-w2sky-api` (:8013) and `mimo-w2sky-worker` on a new volume `mimo_w2sky`, at `MIMO_TIME_SCALE=20` and `MIMO_ACTION_SCALE=20` (a game day every 3 real minutes: autumn about an hour after hatching, winter about 1.5 hours), with a viewer on :3002. The owner's real stack (`pets-api-1`, `pets-mimo-worker-1`) and its volume `pets_mimo_data` are never touched, and nothing uses port 5173.
 
@@ -8436,13 +9408,13 @@ with:
 - [ ] **Step 2: Run every automated check**
 
 Run: `python3 -m unittest discover -s backend/tests`
-Expected: `Ran 2013 tests` … `OK (skipped=6)`
+Expected: `Ran 2060 tests` … `OK (skipped=6)`
 
 Run: `MIMO_SLOW_TESTS=1 python3 -m unittest discover -s backend/tests -p "test_survival_sim.py"`, the same with `-p "test_survival_days.py"`, `-p "test_survival_expedition_run.py"`, `-p "test_survival_making_route.py"`, `-p "test_survival_frontier_run.py"`, `-p "test_survival_away.py"` and `-p "test_survival_wild_run.py"`
 Expected: `OK` each
 
 Run: `cd frontend && npm test && npm run build && npx eslint src/survival src/engine`
-Expected: `Tests  388 passed (388)`, the build succeeds, eslint prints nothing.
+Expected: `Tests  390 passed (390)`, the build succeeds, eslint prints nothing.
 
 - [ ] **Step 3: Commit the README**
 
@@ -8531,22 +9503,23 @@ Confirm `docker logs mimo-l3demo-worker 2>&1 | grep -c "crashed"` and the same f
 | Warmth by season, the mountains, snowfall, shelter, the cloak and a fire, furnace or hearth | Task 1 (`vitals.SEASON_WARMTH`, `target_warmth`; `test_warmth_outdoors_follows_the_season…`), Task 2 (snowfall), Task 8 (the cloak, the hearth; resolution 4) |
 | Each season's first dawn a routine `season` event, spring's notable; autumn day 3's "The nights are getting colder." | Task 1 (`tend_season`; `test_a_season_turns_at_its_first_dawn…`, `test_on_autumn_day_three_at_dusk…`; resolution 3), Task 9 (the `colder` wonder), Task 10 (news) |
 | Weather a pure function of the seed, the season and the segment; spells; the look back; the season tables (within 0.02 over 10,000 segments) | Task 2 (`sky.weather_at`; `test_the_weather_is_a_pure_function…`, `test_each_season_follows_its_table…` (within 0.01), `test_the_look_back_stops…`; resolution 5) |
-| Rain: walks, campfires out and relit, crops watered, fire spreading a third as often | Task 2 (`steps.WALK_PACE`, `renewal.stage_seconds`), Task 3 (`rain.douse`, `relight`; resolution 6), Task 4 (`RAIN_SPREAD`) |
-| Snow: walks, 10 colder outdoors, the cover rising and melting | Task 2 (`tend_weather`, `SNOW_PACE`; `test_the_tick_stores_the_weather_until_it_changes_and_the_snow_cover`, `test_falling_snow_is_felt_outdoors`) |
-| Fog: dark spawning by day, no sun burn or fade, the cap 2 higher, torches keep their light | Task 2 (`darkness.FOG_SKY`, `hostiles.sunlit`, `weather.fog_room`; `test_in_fog_the_dark_creatures_come_out_by_day…`, `test_a_torch_still_keeps_the_fog_clear`) |
+| Rain: walks (Mimo's and every creature's), campfires out and relit, crops watered, fire spreading a third as often | Task 2 (`steps.WALK_PACE`, `creatures.acts.SLOWS`, `weather.creature_pace`, `renewal.stage_seconds`), Task 3 (`rain.douse`, `relight`; resolution 6), Task 4 (`RAIN_SPREAD`) |
+| Snow: walks (Mimo's and every creature's), 10 colder outdoors, the cover rising and melting | Task 2 (`tend_weather`, `SNOW_PACE`, `weather.creature_pace`; `test_the_tick_stores_the_weather_until_it_changes_and_the_snow_cover`, `test_falling_snow_is_felt_outdoors`) |
+| Fog: dark spawning by day, no sun burn or fade, the cap as it is (`FOG_ROOM` 0, resolution 21), torches keep their light | Task 2 (`darkness.FOG_SKY`, `hostiles.sunlit`, `weather.fog_room`; `test_in_fog_the_dark_creatures_come_out_by_day…`, `test_a_torch_still_keeps_the_fog_clear`) |
 | Lightning: a strike a game minute within 64 blocks, the highest of 6 columns within 48, never within 16 of home or in the clearing; Mimo struck only when highest (0.05, 25, armor no help, `"lightning"`) | Task 4 (`storms.strike`, `highest`; `test_a_storm_strikes_once_a_game_minute…`, `test_no_strike_near_the_home_mimo_built…`, `test_mimo_is_struck_only_when_it_is_the_highest…`; resolution 7) |
 | Fire: `fire` blocks, spreading 0.35 every 10 s (a third in rain), 24 cells a fire and 2 fires, 20 to 40 s a cell, never into built, edited or claimed cells or near home; 2 health a second beside it; paths round it | Task 4 (`storms.spread`, `ignite`, `burn_pet`, `Grid.hot`, `flee_fire`; the `FireTests`; resolution 8) |
 | Snow and ice as overlays: `Grid.material` reads ice on natural surface water at `SEA_LEVEL` in winter; walkable, not mined; the swimmer's open cell; fish moved or fading; cave lakes open; paths cross a frozen lake within 10 % | Task 5 (`grid.overlay`, `winter.freeze`; the `IceTests`; resolution 9), Task 12 (the viewer's `uSnow` and `uFrozen`) |
 | Winter: growth waits for spring, cave mushrooms come back, one herd a new chunk, the cap 12, no regain, no fish recovering, spoilage a third as fast | Task 5 (`renewal.WINTER_WAITS`, `spawning.WINTER_LAND_CAP`, `nature.recover_fish`, `spoilage.WINTER_RATE`; the `GrowthTests`, `AnimalTests`, `SpoilageTests`; resolution 10) |
 | Seven lessons, one sentence each, the doubted lines, the gentle grant | Task 6 (`wild.SURVIVAL`, `GRANTED`, `lessons.OPPOSITES`; `test_survival_sky_teaching.py`; resolution 11) |
 | Knocks and sure knocks of the lessons' table; six wonders with chips; the storm and fog lessons sending a pet home | Task 9 (`sky_wild.py`, `take_cover`, `trips.HOLD_BACK`; resolution 14) |
-| "Ready for winter": when offered, its milestones by lesson, `WINTER_FOOD` good on winter day 5 at chest rates, stock_larder serving it | Task 7 (`winter_prep.py`, `larder.TARGETS`, `goals.PULLS`, and in winter `goals.HELD_OFF` and `trips.FENCES`; resolution 12) |
+| "Ready for winter": when offered, its milestones by lesson, `WINTER_FOOD` good on winter day 1 at chest rates (spec resolution 30), stock_larder serving it | Task 16 (the keeping larder, the goal holding; resolution 24), Task 7 (`winter_prep.py`, `larder.TARGETS`, `goals.PULLS`, and in winter `goals.HELD_OFF` and `trips.FENCES`; resolution 12) |
 | The wool cloak, the hearth and smoked meat: recipes, slot, warmth, light, cooking, never out in rain, build_hearth, the smoke step, never spoils | Task 3 (the `hearth` block), Task 8 (`winter_gear.py`, `crafting.RECIPES`; resolution 13) |
 | State and API: `state["sky"]` with defaults; `/api/mimo`'s `sky`; GETs read-only; no new table | Task 1 (`sky_state`, `sky_view`; `test_a_world_from_before_w2_reads_a_default_sky…`), Task 10 (`test_the_sky_in_api_mimo_and_a_get_never_writes`) |
 | Moments, news and voice; the death words | Task 4 (`CAUSE_WORDS`), Task 10 (`sky_news.py`, `ROUTINE_EVENTS`; resolution 15) |
 | Viewer: the sky's tint by season and weather, particles (half on a phone, none under a roof up close), the fog, the bolt and flash, embers and smoke, the snow cover and the ice eased, the HUD's season and weather, the cloak | Tasks 11 and 12 (`seasons.ts`, `weather.ts`, `WeatherEffects.tsx`, the mesher's `open`, `ColumnRenderer.setWeather`; resolution 16) |
-| No model call; `no_model` in every headless test | Global Constraints; every W2 test runs the rules chooser or none; Task 13's gate runs the Talker with the counting stand-in |
-| The W2 gate and the W1 gate on W2's code | Task 13 (`check_w2`, the `upgrade` condition; resolution 17), "Dry-run measurements" |
+| No model call; `no_model` in every headless test | Global Constraints; every W2 test runs the rules chooser or none; Task 17's gate runs the Talker with the counting stand-in |
+| The W2 gate (criterion 6 restated: resolution 21) and the W1 gate on W2's code | Task 17 (`check_w2`, a winter's cold minutes, the `upgrade` condition; resolution 17), "Dry-run measurements" |
+| Spec resolution 30 (the controller's rulings on the W2 dry run and its gate): every walker slowed in rain and snow, fog's cap, W1's drains eased, criterion 3 on winter day 1 and smoking all autumn, a trap seen at night, the two sims' pins, criterion 6 restated, a camp's fire roofed, food first, the keeping larder | Task 2 (`acts.SLOWS`, `FOG_ROOM`; resolution 5), Task 7 (`winter_food(s, good_until)`; resolution 12), Task 8 (`smoke_wanted`; resolution 13), Task 9 (the pins' comments; resolution 18), Task 13 (`escape.ESCAPE_RETRY`; resolution 20), W1's Fix B (the drains; resolution 21), Tasks 14 to 16 (resolutions 22 to 24), Task 17 (criteria 3 and 6; resolutions 17 and 21) |
 | The existing sims: re-measured, any moved threshold recorded | "Dry-run measurements" (resolution 19) |
 
 Spec gaps the plan fills or leaves (the controller ledgers them):
@@ -8560,54 +9533,58 @@ Spec gaps the plan fills or leaves (the controller ledgers them):
 - The spec's animated flame is a static flame tile with embers over it (resolution 16).
 - The storm's HUD mark is "ϟ", not the lightning emoji (resolution 16).
 - The spec's `weather_at` share test asks within 0.02; the plan's test holds 0.01 (resolution 5).
+- L4b's camp fire stood under the open sky, and storage took food out only in winter and only with room in Mimo's arms; W2 roofs the fire for a pet that knows the rain and puts the chest before food work (resolutions 22 and 23), fixes the W2 gate found in code older than W2.
+- L3's escape waited `ESCAPE_RETRY` = 60 server seconds between tries, a game day at 60 times; W2 reads it as game seconds (resolution 20), a fix to L3 the spec asks for only through the ruling.
 
 ## Dry-run measurements
 
 ### The dry run, task by task
 
-The code was written and measured task by task on a scratch branch, first on `e021753` with W1's plan as it stood (`af8a49b`), then rebased onto `e021753` with W1's amended plan (`ed0f0e5`) when it landed (resolution 1). The plan was generated from the branch and applied with `apply_plan.py`, task by task in order, to a `git archive e021753` copy with the amended W1 plan applied (its fixture regenerated after W1's Task 4: 43,588 cells; node_modules linked), with the checks the tasks name after each. The shared machine's load average was 8 to 26 throughout (the W1 planner's gate runs shared it until mid-afternoon), so the times are slow.
+The code was written and measured task by task on a scratch branch: first on `e021753` with W1's plan as it stood (`af8a49b`), then with W1's amended plan (`ed0f0e5`), then, after the controller's ruling on the first dry run, on the branch's `8702848` with W1's Tasks 9 to 14 applied from its plan, and at last on W1's final HEAD `7cedc75` (resolution 1). The plan was generated from the branch. The final dry run applied it with `apply_plan.py`, task by task in order, to a `git archive` copy of `7cedc75` (node_modules linked), with the checks the tasks name after each: every task's new and changed tests on the code before it (the outputs quoted in each Step 2), the whole backend suite after it, and the viewer's tests, build and eslint after Tasks 3, 11 and 12. The machine was shared with W1's Fix B and its own gate runs throughout, so the times are slow.
 
 | Task | Applied | Backend | New | Frontend |
 |------|---------|---------|-----|----------|
-| base (`e021753` + W1's plan `ed0f0e5`) | | `Ran 1926 tests` `OK (skipped=6)` | | `Tests  373 passed (373)` |
-| 1 The seasons | yes | 1934 OK | 8 |  |
-| 2 The weather | yes | 1944 OK | 10 |  |
-| 3 Rain on the fire, and the new blocks | yes | 1951 OK | 7 | 373 passed, build ok, eslint clean |
-| 4 Lightning and fire | yes | 1961 OK | 10 |  |
-| 5 The hard winter | yes | 1971 OK | 10 |  |
-| 6 The seven lessons | yes | 1975 OK | 4 |  |
-| 7 Ready for winter | yes | 1983 OK | 8 |  |
-| 8 The cloak, the hearth and smoked meat | yes | 1994 OK | 11 |  |
-| 9 Knocks, wonders and cover | yes | 2005 OK | 11 |  |
-| 10 Moments, news and voice | yes | 2009 OK | 4 |  |
-| 11 Viewer: sky, season, HUD | yes | 2009 OK | 0 | 382 passed, build ok, eslint clean |
-| 12 Viewer: effects, snow, ice | yes | 2009 OK | 0 | 388 passed, build ok, eslint clean |
-| 13 The gate script's W2 | yes | 2013 OK | 4 |  |
-| 14 Manual check and README | yes | 2013 OK | 0 |  |
+| base (`7cedc75`, W1 final) | | `Ran 1967 tests` `OK (skipped=6)` | | `Tests  375 passed (375)` |
+| 1 The seasons | yes | 1975 OK | 8 |  |
+| 2 The weather | yes | 1986 OK | 11 |  |
+| 3 Rain on the fire, and the new blocks | yes | 1993 OK | 7 | 375 passed, build ok, eslint clean |
+| 4 Lightning and fire | yes | 2003 OK | 10 |  |
+| 5 The hard winter | yes | 2013 OK | 10 |  |
+| 6 The seven lessons | yes | 2017 OK | 4 |  |
+| 7 Ready for winter | yes | 2025 OK | 8 |  |
+| 8 The cloak, the hearth and smoked meat | yes | 2036 OK | 11 |  |
+| 9 Knocks, wonders and cover | yes | 2047 OK | 11 |  |
+| 10 Moments, news and voice | yes | 2051 OK | 4 |  |
+| 11 Viewer: sky, season, HUD | yes | 2051 OK | 0 | 384 passed, build ok, eslint clean |
+| 12 Viewer: effects, snow, ice | yes | 2051 OK | 0 | 390 passed, build ok, eslint clean |
+| 13 The trapped pet digs out at any hour | yes | 2052 OK | 1 |  |
+| 14 A camp's fire under a roof | yes | 2053 OK | 1 |  |
+| 15 The chest before food work | yes | 2054 OK | 1 |  |
+| 16 The autumn larder keeps | yes | 2055 OK | 1 |  |
+| 17 The gate script's W2 | yes | 2060 OK | 5 |  |
+| 18 Manual check and README | yes | 2060 OK | 0 |  |
 
-After Task 14 the copy matches the scratch branch file for file. Tasks 13 and 14 were run again after a last change to the gate script (the strike measure: resolution 17). Each task's failing run (Step 2) was taken the same way: the task's test files on the code of the task before it (the outputs quoted in each Step 2). L2's creature budget test while fleeing two hostiles (`test_survival_defense`) failed in the whole-suite runs after Tasks 11 and 14 on the loaded machine (24.5 and 20.4 ms against 20) and passed on both reruns; the table shows the reruns (Task 11's backend is Task 10's, and Task 14's is Task 13's). A whole-suite run of the base failed once on the same machine too and passed on its rerun. It is no test of W2's (see the gate's cost below).
+Every task applied and every whole-suite run passed; the viewer's tests, build and eslint passed after Tasks 3, 11 and 12. Each task's Step 2 failure was taken on the code before it, as the Step quotes it. Earlier dry runs of the plan on `cf65a64` (W1's fourteen tasks landed, before Fix B) passed the same way; there L1's creature-stream test (`test_survival_creature_api`, which reads the wall clock) failed once in the whole-suite run after one task on the loaded machine and passed three reruns at that task's code, and L2's flee budget test (20 ms), which failed twice on the loaded machine on the first pass, passed in every run.
 
-### The slow sims (MIMO_SLOW_TESTS=1)
-
-The wild run was run on the final code with W1's amended plan; the six others on the code before the last W2 changes (winter's chest food and a wild pet's smoking, which none of them reaches: the longest is 10 spring days, all gentle) and before W1's amendment (wild pets only).
+### The slow sims (MIMO_SLOW_TESTS=1, on the final code at `7cedc75`)
 
 | Sim | Result | Time | What moved |
 |-----|--------|------|------------|
-| `test_survival_sim.py` | `Ran 7 tests` OK | 1,980 s | Before Task 9's change: FAIL, the six-day lives' new ground on days 4 and 5 `{(3, False): [236, 162], (21, True): [149, 11]}` against the floor of 40. Seed 21's day 5 is fog from dawn to dusk (6 of 6 segments) and a pet that knows fog starts no trip in it. Re-measured on both seeds and both pickers: (3, rules) 236 and 162, (3, Jev) 244 and 346, (21, rules) 276 and 0, (21, Jev) 149 and 11; the fog day is the only day under 149. The floor stays 40; a day at least half fog is left out (`FOG_DAY`, recorded in the test's comment). The rest share held (0.41 to 0.43 against 0.55) |
-| `test_survival_days.py` | `Ran 3 tests` OK | 818 s | nothing |
-| `test_survival_expedition_run.py` | `Ran 2 tests` OK | 66 s | nothing |
-| `test_survival_making_route.py` | `Ran 1 test` OK | 5 s | nothing |
-| `test_survival_frontier_run.py` | `Ran 5 tests` OK | 1,652 s | Before Task 9's change: FAIL, seed 11's geared pet did not reach "riches farther out" in its 4 days (it did on W1's code): sent home out of the weather five times, it set the goal aside on day 2 with nothing to do for it, then opened a far chest for no goal. The runs are now under clear skies (the frontier's risk and reward are what they measure; the weather's are the W2 gate's), recorded in the test's comment |
-| `test_survival_away.py` | `Ran 2 tests` OK | 56 s | nothing |
-| `test_survival_wild_run.py` | `Ran 3 tests` OK | 1,056 s | nothing (its 20 days end before the first autumn) |
+| `test_survival_sim.py` | `Ran 7` OK | 536 s | Task 9 leaves a day at least half fog out of the six-day lives' new-ground floor (`FOG_DAY`; seed 21's day 5, fog from dawn to dusk, walked 11 new patches against the floor of 40 on the first pass); the ruling on the dry run (4) accepted it |
+| `test_survival_days.py` | `Ran 3` OK | 356 s | nothing |
+| `test_survival_expedition_run.py` | `Ran 2` OK | 39 s | nothing |
+| `test_survival_making_route.py` | `Ran 1` OK | 2 s | nothing |
+| `test_survival_frontier_run.py` | `Ran 5` OK | 436 s | Task 9 runs it under clear skies (seed 11's geared pet, sent home out of the weather five times, set its riches goal aside on the first pass); the ruling on the dry run (3) accepted it |
+| `test_survival_away.py` | `Ran 2` OK | 22 s | nothing |
+| `test_survival_wild_run.py` | `Ran 6` OK | 370 s | nothing |
 
-The one default-suite test W2 pins is L2's flee test at 60 times (`test_survival_defense.py`, clear skies: resolution 18; seed 3's first night rains and the unarmed pet took 37 blows fleeing instead of at most 6).
+L2's flee tests (`test_survival_defense`'s `among_two_hostiles`, at 60 times and caught up a minute at a time) run in the rain with L2's own limits since rain slows every walker (resolution 5); without that fix the unarmed pet took 37 blows against at most 6.
 
 ### Balance: the gate runs and what they changed
 
-Four gate runs came before the final one; each change is in the resolution named. The gentle lives, freezing/starving game minutes in each of the first three winters, the near-death days and the computer's day:
+Before the controller's ruling on the first dry run, four gate runs came before that pass's final one; each change is in the resolution named. The gentle lives, freezing/starving game minutes in each of the first three winters, the near-death days and the computer's day:
 
-| Gentle seed | First run | Near home in winter | Worn cloak | Chest food in winter (final for gentle) |
+| Gentle seed | First run | Near home in winter | Worn cloak | Chest food in winter |
 |---|---|---|---|---|
 | 3 | 6/0, 10/0, 35/0; near-death [118, 119, 120]; computer None | 2/0, 2/0, 4/0; near-death none; computer 92.0 | 2/0, 2/0, 4/0; near-death none; computer 92.0 | 1/0, 4/0, 0/0; near-death none; computer None |
 | 5 | 0/0, 2/0, 0/0; near-death none; computer 88.52 | 0/0, 0/0, 0/0; near-death none; computer None | 0/0, 0/0, 0/0; near-death none; computer None | 0/0, 0/0, 0/0; near-death none; computer None |
@@ -8619,64 +9596,66 @@ Four gate runs came before the final one; each change is in the resolution named
 - First run (the plan as first written): criterion 2 failed on four seeds. Probes of seeds 8, 11 and 3 found every freezing minute 144 to 240 blocks from home, on an expedition, a riches trip, the far hills or an iron trip, most on a winter day in the mountains, and two pets dug in for a winter night on the heights with no campfire (seed 8: 100 health to 12; seed 3: 100 to 8). Resolution 12's staying near home in winter followed.
 - Second run: no freezing past 4 game minutes a winter; gentle seed 5 stalled with 16 stacks in its arms, its cloak one of them, from day 66 (it had reached the counter on the first run). Resolution 13's worn cloak followed.
 - Third run: gentle seed 21 starved 24 game minutes in its second winter with 740 hunger points in its chests, foraging bare land 58 blocks out. Resolution 12's chest food in winter followed.
-- Fourth run: seed 21 still starved 14 game minutes in its first winter: a probe found it trapped in its own staircase in a swamp 51 blocks from home for 50 game minutes (the night) before L3's escape dug it out; nothing of W2's traps it (the same pit, with the ice or without, had no path out, and the escape was the same with an ice-breaking change, which was left out). The taught pets smoked one to four meats a life and their chests fell short of `WINTER_FOOD` on most winters. Resolution 13's smoking for a wild pet's winter food followed (the final code).
+- Fourth run: seed 21 still starved 14 game minutes in its first winter, trapped in its own staircase in a swamp 51 blocks from home through the night (L3's escape tried again only a server minute later, a game day at 60 times: resolution 20 and Task 13 now). The taught pets' chests fell short of `WINTER_FOOD` good on winter day 5 on most winters (resolution 13's smoking followed; criterion 3 now reads winter day 1: resolution 17).
+
+After the ruling: rain slows every walker (resolution 5), the fog's room went to 0, W1's drains were eased last (resolution 21, with each fog step's lives; W1's Fix B took them over), criterion 3 reads the food good on winter day 1, L3's escape retries in game seconds (resolution 20), and criterion 6 was restated after the winter knobs (resolution 21's table). The gate on that code found two taught deaths and short winter larders: resolutions 22 to 24 (Tasks 14 to 16) fixed them, and their first measure's two regressions (gentle chests emptied in autumn, a gentle pet stuck putting things away while it starved) set their last limits (resolution 23).
 
 ### The W2 gate (seeds 3, 5, 8, 11, 21, 42; on the final code)
 
-All lives are on W1's amended plan. Taught lives are on the final code (but for the gate script's strike measure and a guard for bare test states, which change no life). Untaught and liar lives are on it but for the last smoking change too, which does not reach a pet that knows neither winter nor smoking. Gentle and upgrade lives are from the fourth run's code: nothing after it changes a gentle pet (the smoking changes are a wild pet's, W1's amendment changes wild pets only), and the upgrade life of seed 5 was run again with the final gate script. Four lives at a time on the loaded machine: 25 to 50 minutes a 150-day life, 8 to 15 a 30-day liar, 15 to 20 a 65-day upgrade.
+All lives are on the final code: W1's final HEAD `7cedc75` with this plan's eighteen tasks. Four long runs at a time on a machine shared with W1's own runs: 16 to 21 minutes a 150-day life, 3 to 4 a 30-day liar, 7 a 65-day upgrade, 13 to 19 a Making run.
 
 | Criterion | Result | Measure |
 |-----------|--------|---------|
-| 1 gentle and taught: all alive on day 150 | FAIL | alive 11/12 |
-| 2 gentle and taught: each winter health mean 60+, freezing and starving 10 game minutes at most | FAIL | lowest mean 89.24; most freezing 4; most starving 14; failing [('gentle', 21, '1')] |
-| 3 gentle and taught: WINTER_FOOD in the chests on winter day 1, 5 of 6 the first winter, 6 of 6 after | FAIL | stocked on winter day 1 (first, second, third winter): gentle 6, 6, 6 of 6; taught 2, 0, 0 of 6. Hunger points good on winter day 5: gentle 3: 462, 744, 594; 5: 1104, 2031, 3477; 8: 648, 1103, 2561; 11: 953, 1252, 2658; 21: 415, 384, 863; 42: 1032, 1162, 1516; taught 3: 70, 110, 85; 5: 360, 122, 185; 8: 0, 68, 16; 11: 110, 20, 170; 21: 390; 42: 60, 16, 185 |
+| 1 gentle and taught: all alive on day 150 | PASS | alive 12/12 |
+| 2 gentle and taught: each winter health mean 60+, freezing and starving 10 game minutes at most | FAIL | lowest mean 65.6; most freezing 21; most starving 0; failing [('gentle', 3, '3')] |
+| 3 gentle and taught: WINTER_FOOD good on winter day 1 in the chests, 5 of 6 the first winter, 6 of 6 after | FAIL | stocked by winter {'gentle': [6, 5, 6], 'taught': [4, 3, 2]}; hunger points good on winter day 1 (first, second, third winter): gentle 3: 457, 359, 1032; 5: 642, 618, 784; 8: 891, 1174, 2288; 11: 1041, 1911, 2932; 21: 689, 1029, 2324; 42: 910, 1557, 2383; taught 3: 380, 460, 90; 5: 377, 393, 35; 8: 250, 40, 550; 11: 295, 505, 570; 21: 435, 160, 245; 42: 402, 260, 0 |
 | 4 gentle and taught: at most 1 strike on Mimo a life | PASS | most 0 |
-| 5 W1 criterion 5: 3 of 6 taught build a lamp on a lever; the furthest within one of gentle's | PASS | lamps 5/6; machines taught 6, gentle 7 |
-| 6 untaught: the mean winter health mean 15 or more below taught's | PASS | untaught 16.6, taught 99.7 |
-| 7 untaught: at least 2 of 6 alive on day 150, none dead before day 5 | FAIL | alive 0/6; deaths [(8.2, 'sickness'), (7.25, 'sickness'), (9.7, 'sickness'), (25.33, 'sickness'), (128.23, 'sickness'), (20.03, 'sickness')] |
+| 5 W1 criterion 5: 3 of 6 taught build a lamp on a lever; the furthest within one of gentle's | PASS | lamps 6/6; machines taught 7, gentle 7 |
+| 6 untaught: cold minutes in the winters lived at least 2x taught's (and some), over the pets alive at each winter's start | FAIL | untaught 9 over 8 winters lived, taught 13 over 24 |
+| 7 untaught: at least 2 of 6 alive on day 150, none dead before day 5 | FAIL | alive 1/6; deaths [(15.15, 'sickness'), (8.37, 'sickness'), (49.32, 'starvation'), (11.73, 'starvation'), (111.03, 'starvation')] |
 | 8 safety: no strike within 16 of a built home, no fire in a claimed cell, no edit in the legacy clearing | PASS | nearest strike to home 16.0312195418814; fire in claimed cells 0; clearing edits 0 |
-| 9 upgrade: spring on its upgrade day, alive and gentle through its first winter | PASS | (seed, offset, first winter) [(11, 21, {'health_mean': 99.7, 'ticks': 600, 'freezing': 1, 'starving': 0}), (21, 21, {'health_mean': 99.98, 'ticks': 600, 'freezing': 0, 'starving': 0}), (3, 21, {'health_mean': 99.8, 'ticks': 600, 'freezing': 2, 'starving': 0}), (42, 21, {'health_mean': 100.0, 'ticks': 600, 'freezing': 0, 'starving': 0}), (5, 21, {'health_mean': 99.85, 'ticks': 600, 'freezing': 1, 'starving': 0}), (8, 21, {'health_mean': 100.0, 'ticks': 600, 'freezing': 0, 'starving': 0})] |
+| 9 upgrade: spring on its upgrade day, alive and gentle through its first winter | PASS | (seed, offset, first winter) [(11, 21, {'health_mean': 99.98, 'ticks': 600, 'freezing': 0, 'starving': 0, 'cold': 0, 'hungry': 2}), (21, 21, {'health_mean': 91.26, 'ticks': 600, 'freezing': 2, 'starving': 0, 'cold': 4, 'hungry': 2}), (3, 21, {'health_mean': 98.41, 'ticks': 600, 'freezing': 12, 'starving': 0, 'cold': 15, 'hungry': 11}), (42, 21, {'health_mean': 99.92, 'ticks': 600, 'freezing': 1, 'starving': 0, 'cold': 1, 'hungry': 11}), (5, 21, {'health_mean': 91.87, 'ticks': 600, 'freezing': 0, 'starving': 0, 'cold': 0, 'hungry': 17}), (8, 21, {'health_mean': 100.0, 'ticks': 600, 'freezing': 0, 'starving': 0, 'cold': 0, 'hungry': 2})] |
 | 10 cost: the sky hook in a storm, a route across a frozen lake | PASS | 2 budget tests, 0 failed |
 | all: no model call and no logged error | PASS | calls 0; errors 0 |
 
-What fails, and why, from probes of the same lives (the controller rules; nothing was loosened):
-- **1 and W1's 1.** Taught seed 21 was killed by a skitter on day 52 (a summer day), the same on the fourth run and the final one; it lived on W1's code.
-- **2.** Gentle seed 21 starved 14 game minutes in its first winter (near death on day 41): it dug a staircase into a swamp bed 51 blocks from home, could not path out of it, and L3's escape saw the trap only after the night, 50 game minutes later. The same pit had no path out with the ice read as water too, and an escape that could break the ice changed nothing, so it was left out. Every other gentle winter froze at most 4 game minutes and starved none.
-- **3.** Gentle pets' chests held `WINTER_FOOD` on every winter's first day. Taught pets' did on 2 of 6 in the first winter and none after, while their winters were easy (health means 94 to 100, freezing at most 2 game minutes, no starving): their cooked meat, a wild pet's staple, spoils before winter day 5 unless stored in the last six autumn days, and they smoked 0 to 5 meats a life. A probe of taught seed 3's autumn found the winter goal set aside twice for "nothing to do for it now", no stick or no fire at hand when it carried meat, and the smoked meat it made eaten.
-- **7 and W1's 8.** All six untaught pets died, of sickness, on days 7.3, 8.2, 9.7, 20.0, 25.3 and 128.2 (on W1's code alone: two, on days 21 and 69). Thirty-day runs of seeds 11 and 21 with one W2 hazard switched off: campfires never doused, both still died on the same days; fog read as clear, seed 11 lived and seed 21 died on day 10.9; every weather read as clear, both lived past day 30. A probe of seed 11: two chills at dawn (days 4 and 6), a gloomling's cut on a fog day (6.5) that festered (only the owner teaches bandages and sunleaf), the rain putting out its fire (6.7), dead on day 7.2.
-- **8.** Met: the nearest strike to the home Mimo had built at that moment was 16.03 blocks. The first measure read the home after the tick and found 14.21 on the upgrade life of seed 5: a bigger home finished in the same tick as a strike 16.28 blocks from the old one. The gate script measures at the strike now (`wild_gate.strike_seen`, a `storms.STRIKES` hook), and that life was run again with it: 16.03 blocks. The other lives were measured after the tick; each strike is kept 16 blocks clear of the home at that moment by construction (`storms.strike`).
-- **10.** The sky hook in a storm by a forest and the frozen lake's route are in the script's cost row. The creatures' 20 ms budget (L2's `test_hostiles_come_out_at_night_stay_few_and_cost_little`, best of 3): 12.9 ms under clear skies and 17.8 ms with fog all day (10 hostiles, the cap and `FOG_ROOM`), on the loaded machine. L2's flee budget test (`test_survival_defense`) failed in two whole-suite runs of the dry run on the loaded machine (24.5 and 20.4 ms) and passes alone: 15.9 and 19.4 ms on the base, 12.6 and 16.6 ms on the final code.
+What passes and what fails, and why, from the lives and their probes (the controller rules; nothing was loosened):
+- **1** holds: all twelve gentle and taught pets live to day 150. The two taught deaths of the gate before Tasks 14 to 16 are gone: seed 21 (dead of the cold at dawn on day 110, its camp's fire put out by a thunderstorm on the heights: resolution 22) and seed 11 (starved on day 125.9 with 16 full stacks beside chests of food: resolution 23).
+- **2** fails on one winter: gentle seed 3's third, 21 game minutes freezing (health mean 89), where every other winter of the twelve lives froze 6 minutes at most. Not probed.
+- **3** fails for taught pets: their chests held `WINTER_FOOD` of food good on winter day 1 in 4, 3 and 2 of 6 winters (gentle: 6, 5 and 6), from 1, 0 and 1 before Tasks 14 to 16 (resolution 24). Their chests held 250 to 435 hunger points on the first winter day 1 and 0 to 570 later, while 95 to 148 of their foods spoiled a life; a taught pet smokes 0 to 18 meats a life. The goal now holds a wild pet through autumn and wins its goal choices, and the chests fill with the food that keeps, but the stock still falls short of 360 in later autumns (the goal repeats, and each winter empties the chests).
+- **6** fails as restated: 9 cold minutes over the 8 winters the untaught pets lived, against the taught pets' 13 over 24. The restated measure passed on the lives it was chosen on (49 against 12 over 21 winters each, resolution 21), where five of six untaught pets lived to day 150; here five died, and most before a winter.
+- **7** fails: one untaught pet of six alive on day 150; five died, on days 8.37 and 15.15 of sickness and 11.73, 49.32 and 111.03 of starvation (a chill or two, a festering wound, and starving days). These lives ran on W1's final numbers (Fix B: a tummy ache and a chill 1 health per 40 game seconds, a festering wound 1 per 60, the knocks a step higher), where the lives resolution 21 tuned ran on this plan's drains then (30, 40 and 60) on the W1 of `8702848`, and five of six lived. The spec's rule is that W2's numbers are tuned first when a W1 criterion breaks, and W1's criterion 8 breaks here too.
+- **4, 5, 8, 9 and 10** hold: no strike on Mimo; 6 of 6 taught build a lamp on a lever, the furthest taught and gentle both 7 machines; the nearest strike 16.03 blocks from home, no fire in a claimed cell and no edit in the clearing; every upgraded world gets spring on its upgrade day and lives gentle through its first winter; both budget tests pass.
 
 ### The W1 gate on W2's code
 
 | Criterion | Result | Measure |
 |-----------|--------|---------|
-| 1 taught: all 6 alive on day 150 | FAIL | alive 5/6 |
-| 2 taught: each health mean 75 or more | PASS | lowest 98.11 |
-| 3 taught: each at most 3 near-death days | PASS | most 1 |
-| 4 taught: each at most 150 sick minutes | PASS | most 3 |
-| 5 taught: 3 of 6 build a lamp on a lever; the furthest taught within one of gentle's | PASS | lamps 5/6; machines taught 6, gentle 7 |
-| 6' untaught, first month: sick minutes 3x taught; health lost to hazards 3x taught and 100+ a life | PASS | sick 314 vs 1; lost 1079 vs 77, 180 a life |
-| 7' untaught, a life without the owner: sick minutes 5x taught; deaths and near-death days 6+ | PASS | sick 422 vs 5; deaths 6 + near-death days 10 |
-| 8 untaught: at most 3 of 6 die, none before day 5 | FAIL | deaths 6 on days [8.2, 7.25, 9.7, 25.33, 128.23, 20.03] |
-| 9 untaught: alive on day 60 knows 8 of 11 learned alone | PASS | learned alone by day 60 {5: 13} |
-| 10' untaught: 4 wonders met and 3 questions in 3 days; never more than 3 open | PASS | (met, asked) {11: (9, 3), 21: (5, 4), 3: (6, 4), 42: (7, 4), 5: (7, 4), 8: (7, 3)}; most open 3 |
+| 1 taught: all 6 alive on day 150 | PASS | alive 6/6 |
+| 2 taught: each health mean 75 or more | PASS | lowest 96.44 |
+| 3 taught: each at most 3 near-death days | PASS | most 2 |
+| 4 taught: each at most 150 sick minutes | PASS | most 12 |
+| 5 taught: 3 of 6 build a lamp on a lever; the furthest taught within one of gentle's | PASS | lamps 6/6; machines taught 7, gentle 7 |
+| 6' untaught, first month: sick minutes 3x taught; health lost to hazards 3x taught and 100+ a life | PASS | sick 381 vs 1; lost 920 vs 225, 153 a life |
+| 7' untaught, a life without the owner: sick minutes 5x taught; deaths and near-death days 6+ | PASS | sick 465 vs 17; deaths 5 + near-death days 9 |
+| 8 untaught: at most 3 of 6 die, none before day 5 | FAIL | deaths 5 on days [15.15, 8.37, 49.32, 11.73, 111.03] |
+| 9 untaught: alive on day 60 knows 7 of the 9 it can learn alone | PASS | learned alone by day 60 {5: 13, 8: 14} |
+| 10' untaught: 4 wonders met and 3 questions in 3 days; never more than 3 open | PASS | (met, asked) {11: (8, 7), 21: (5, 4), 3: (6, 6), 42: (7, 7), 5: (7, 6), 8: (7, 6)}; most open 3 |
 | 11 liar: no lesson learned from a false chip or claim | PASS | taught by the liar [] |
-| 12 liar: deaths by day 30 no more than untaught; sick minutes at most untaught + 30 | PASS | deaths 5 vs 5; (liar, untaught) sick minutes by day 30 {11: (41, 41), 21: (27, 27), 3: (48, 48), 42: (76, 76), 5: (97, 97), 8: (25, 25)} |
+| 12 liar: deaths by day 30 no more than untaught; sick minutes at most untaught + 30 | PASS | deaths 2 vs 3; (liar, untaught) sick minutes by day 30 {11: (65, 65), 21: (80, 80), 3: (48, 48), 42: (25, 24), 5: (72, 72), 8: (92, 92)} |
 | 13 gentle: all alive; no sickness, wound, lot or question; every lesson from the first tick | PASS | alive 6/6; clean True; known True |
 | all: no model call and no logged error | PASS | calls 0; errors 0 |
 
-W1's gate breaks on two criteria on W2's code, both from the weather's toll on wild pets (above): 1 (taught seed 21's skitter) and 8 (six untaught deaths, three before day 10). Its first-month and whole-life measures (6′, 7′) pass by far, the untaught pets being sicker than W1 alone makes them; the liar condition dies as the untaught one does (five by day 26), so 12 holds. The spec's rule is that W2's numbers are tuned first: resolution 19 names the knobs, in the order the probes point.
+W1's gate on W2's code, from the same lives on W1's final HEAD: every criterion holds but 8. Five untaught pets die (days 8.37, 11.73, 15.15, 49.32 and 111.03), where W1's criterion allows three; the same deaths fail W2's criterion 7 (see the W2 gate). The liar dies with the untaught pet it shadows (seeds 11 and 21, the same lives to the minute until the first lie), so criterion 12 holds. Criterion 10′ reads the questions as they are asked now (W1's Fix B), and every seed met 5 to 8 wonders and asked 4 to 7 questions in its first 3 days.
 
-### Making's route (`l5final/longrun_l5.py`, six seeds, 150 days, the rules chooser, no model)
+### Making's route (`l5final/longrun_l5.py`, six seeds, 150 days, the rules chooser, no model, on the final code at `7cedc75`)
 
-| Seed | L5's gate (`41a919b`) | W1's gate, gentle (`af8a49b`) | W2's gate, gentle | W2, Making's own run |
+| Seed | L5's gate (`41a919b`) | W1's gate, gentle (`af8a49b`) | W2's gate, gentle (final) | W2, Making's own run (final) |
 |------|------|------|------|------|
-| 3 | 99.5 | 72.23 | none (counter) | 84.23; lowest health 34.0 |
-| 5 | 101.6 | 120.2 | none (auto_door) | 101.42; lowest health 24.0 |
-| 8 | 96.5 | 81.28 | 74.2 | 135.12; lowest health 33.4 |
-| 11 | 147.2 | 81.47 | 108.35 | 133.17; lowest health 90.0 |
-| 21 | 116.2 | none | 90.52 | 84.27; lowest health 24.0 |
-| 42 | 101.5 | 104.6 | 113.43 | 79.25; lowest health 39.2 |
+| 3 | 99.5 | 72.23 | 74.43 | 67.02; lowest health 64.0 |
+| 5 | 101.6 | 120.2 | 115.48 | 74.44; lowest health 31.0 |
+| 8 | 96.5 | 81.28 | 60.45 | 83.4; lowest health 24.0 |
+| 11 | 147.2 | 81.47 | 95.22 | none (last: ['a counter']); lowest health 32.3 |
+| 21 | 116.2 | none | none (memory_cell) | 129.04; lowest health 90.0 |
+| 42 | 101.5 | 104.6 | 91.53 | none (last: ['a memory cell']); lowest health 90.0 |
 
-Six of six built the computer (the target is five), with no death and no error in any run. The lowest health in a run fell to 24 to 39 on five seeds (L5's gate: 90 on five, 35.1 on one): near home to a hostile on seeds 3, 8 and 42, and on an expedition on seeds 5 and 21 (24 each, one of them heading home out of the weather); no pet was struck. Lightning set 26 to 70 trees burning in a run. The gate's gentle lives (the same seeds, the Talker running too) built it on four of six by day 150 (W1's: five of six), the route being as chaotic as L5's review found: single changes moved computers between three and six of six.
+Four of six built the computer (the target is five): seeds 11 and 42 ran to day 150 without one, with no death and no error in any run. On the first pass (W1's plan, before the rulings) six of six did; the route is as chaotic as L5's review found, single changes moving computers between three and six of six, and W1's final HEAD and this plan's three late fixes (Tasks 14 to 16: the camp's fire, food first, the keeping larder) all touch a gentle pet's days. The gate's own gentle lives, the same seeds with the Talker running, built it on five of six (seed 21 did not). The lowest health in a run fell to 24 to 64 on four seeds and stayed at 90 on two.
