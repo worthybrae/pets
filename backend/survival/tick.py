@@ -35,6 +35,10 @@ W1: first of all, a living pet's difficulty is settled (backend.survival.wild.se
 W1 becomes gentle, and a gentle pet is granted the survival lessons it knows from the start. Each vitals
 step takes a wild pet's ailments into account (backend.survival.ailments: `ailing` before, `tend` after),
 and its food ages (backend.survival.spoilage.age).
+
+W2: a world from before W2 gets its year's offset on its first tick (backend.survival.sky.settle_sky), and before
+each step the sky is tended (sky.advance: the season, then its effects), so a long catch-up plays the seasons in
+time order; the season sets the warmth Mimo drifts toward (Surroundings.season).
 """
 
 from __future__ import annotations
@@ -47,7 +51,7 @@ from typing import Callable
 
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
-from backend.survival import ailments, spoilage
+from backend.survival import ailments, sky, spoilage
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
@@ -102,7 +106,8 @@ class Mind:
 RESTING = Mind()
 
 
-def surroundings_at(db: sqlite3.Connection, seed: str, position: dict) -> Surroundings:
+def surroundings_at(db: sqlite3.Connection, seed: str, position: dict, state: dict | None = None) -> Surroundings:
+    """What the world round Mimo's cell says for a vitals step; W2: with `state`, the season too."""
     x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
 
     def material_at(cx: int, cy: int, cz: int) -> str:
@@ -113,6 +118,7 @@ def surroundings_at(db: sqlite3.Connection, seed: str, position: dict) -> Surrou
         sheltered=is_sheltered(material_at, x, y, z),
         near_fire=near_warm_block(placed_near(db, position, FIRE_REACH, WARM_BLOCKS), x, y, z),
         head_in_water=material_at(x, y, z) == "water",
+        season=sky.season_now(state) if state is not None else "spring",
     )
 
 
@@ -209,6 +215,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             return state
         ensure_actions(state)
         settle(state, db, state["last_tick_at"])  # W1: gentle for an old world, and a gentle pet's lessons
+        sky.settle_sky(state, state["last_tick_at"], scale)  # W2: an old world's year starts in spring now
         events: list[Event] = []
         context = ActionContext(grid=world_grid(db, world.seed), planner=mind.plan, events=events,
                                 clock_at=lambda at: clock_at(state["born_at"], at, scale),
@@ -224,6 +231,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             if fell_at is not None:
                 record_death(state, "fall", fell_at, scale, events)
                 break
+            sky.advance(state, context, cursor)  # W2: the season and the weather at this step's start
             run_renewal(state, context, cursor)
             if cursor != state["last_tick_at"]:  # the last tick already ran the creatures up to here
                 run_creatures(state, context, cursor, fight_step=fight_step)
@@ -245,7 +253,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             night = is_night(clock_at(state["born_at"], cursor, scale)["phase"])
             last_hello = state["last_hello_at"] or state["born_at"]
             before = state["vitals"]
-            surroundings = surroundings_at(db, world.seed, state["position"])
+            surroundings = surroundings_at(db, world.seed, state["position"], state)
             activity = activity_of(state)
             ill = ailments.ailing_now(state)  # W1: read once a step, guarded (the final fix wave)
             state["vitals"], cause = step_vitals(

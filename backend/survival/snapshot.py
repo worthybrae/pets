@@ -26,6 +26,7 @@ from backend.survival.memory import explored, nearest, places, structures
 from backend.survival.mind import life_memories, mind_fields
 from backend.survival.registry import LifeRegistry
 from backend.survival.rings import ring_view
+from backend.survival.sky import sky_view
 from backend.survival.trips import trip_view
 from backend.survival.wild import difficulty, survival_view as survival_lessons
 from backend.survival.world import ROUTINE_EVENTS, SurvivalWorld, read_state, recent_events
@@ -209,6 +210,8 @@ def survival_view(world: SurvivalWorld, now: float, scale: float) -> dict:
         "difficulty": difficulty(state),
         "survival": survival,
         "ailments": ailments_view(state),
+        # W2: the season, the weather, the snow, the frozen lakes and the latest strikes (backend.survival.sky).
+        "sky": sky_view(state, now, scale),
     }
 
 
