@@ -61,6 +61,7 @@ from backend.survival import homes, larder, life_goals, scouting  # noqa: F401  
 from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
 from backend.survival import herbs, meals, wounds  # noqa: F401  (W1: sunleaf; meals and throw_out; wounds)
+from backend.survival import knocks  # noqa: F401  (W1: learning alone)
 from backend.survival.computer import observe_computer
 from backend.survival.ruins import find_manual
 from backend.survival.tinker import observe_tinker
