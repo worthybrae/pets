@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from backend.scripts.wild_gate import (
-    BORN, SCALE, TEACHES_W2, before_w2, check_w2, sample_sky, upgrade, winter_of,
+    BORN, COST_TESTS, SCALE, TEACHES_W2, before_w2, check_w2, sample_sky, upgrade, winter_of,
 )
 from backend.survival.brain import BRAIN
 from backend.survival.hatch import hatch
@@ -115,3 +115,9 @@ class CheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CostTests(unittest.TestCase):
+    def test_criterion_ten_names_budget_tests_that_exist(self):
+        # the review of Task 17: a stale name made criterion 10 fail on every run, whatever the sky cost
+        self.assertEqual(unittest.defaultTestLoader.loadTestsFromNames(COST_TESTS).countTestCases(), len(COST_TESTS))

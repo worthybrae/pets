@@ -86,7 +86,6 @@ TEACHES_W2 = ("Fill a chest with food before winter.", "Five wool make a wool cl
               "A stone hearth keeps the home warm.", "Smoked meat keeps all winter.",
               "Rain puts out a fire under the open sky.", "In a storm stay low and inside.",
               "Stay close to home in the fog.")
-WINTERS = ((31, 40), (71, 80), (111, 120))  # a newborn's winters, game days
 UPGRADE_DAY = 20  # criterion 9: the upgraded world's day when W2 comes
 
 
@@ -185,20 +184,22 @@ def live(seed: int, days: int, condition: str, http=None) -> dict:
         from backend.survival import storms
         seen = strike_seen(found)
         storms.STRIKES.append(seen)
-        for minute in range(1, days * 60 + 1):
-            now = BORN + minute
-            if condition == UPGRADE and minute == UPGRADE_DAY * 60:
-                upgrade(world)  # W2 comes to a world that lived UPGRADE_DAY days without it
-            with before_w2(condition == UPGRADE and minute < UPGRADE_DAY * 60):
-                state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
-            if state is None or state["died_at"] is not None:
-                break
-            chooser.poll(registry, now)
-            owner(world, condition, minute, now, answered)
-            talker.poll(registry, now)
-            sample(found, state, minute, world)
-            sample_sky(found, state, minute, world)
-        storms.STRIKES.remove(seen)
+        try:
+            for minute in range(1, days * 60 + 1):
+                now = BORN + minute
+                if condition == UPGRADE and minute == UPGRADE_DAY * 60:
+                    upgrade(world)  # W2 comes to a world that lived UPGRADE_DAY days without it
+                with before_w2(condition == UPGRADE and minute < UPGRADE_DAY * 60):
+                    state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
+                if state is None or state["died_at"] is not None:
+                    break
+                chooser.poll(registry, now)
+                owner(world, condition, minute, now, answered)
+                talker.poll(registry, now)
+                sample(found, state, minute, world)
+                sample_sky(found, state, minute, world)
+        finally:
+            storms.STRIKES.remove(seen)  # never left on the global list, even when a life crashes
         talker.close()
         summary = summarize(world, found, seed, days, condition, time.time() - started)
     summary.update(errors=errors.records[:50], model_calls=len(getattr(model, "calls", [])))
@@ -523,14 +524,16 @@ def check_w1r(out: Path) -> list[tuple[str, bool, str]]:
 
 # The W2 gate ----------------------------------------------------------------------------------------
 
+COST_TESTS = ("backend.tests.test_survival_storms.TickTests.test_a_storm_by_a_burning_forest_costs_the_sky_little_a_transaction",
+              "backend.tests.test_survival_winter.IceTests.test_a_path_crosses_a_frozen_lake_and_the_overlay_costs_the_search_little")
+
+
 def cost_rows() -> tuple[bool, str]:
     """Criterion 10: the sky hook's budget in a storm by a forest and a route across a frozen lake (the unit tests
     that measure them, run here)."""
     import unittest
-    names = ("backend.tests.test_survival_storms.TickTests.test_a_storm_near_a_forest_costs_the_tick_little",
-             "backend.tests.test_survival_winter.IceTests.test_a_path_crosses_a_frozen_lake_and_the_overlay_costs_the_search_little")
     result = unittest.TextTestRunner(stream=open("/dev/null", "w"), verbosity=0).run(
-        unittest.defaultTestLoader.loadTestsFromNames(names))
+        unittest.defaultTestLoader.loadTestsFromNames(COST_TESTS))
     return result.wasSuccessful(), f"{result.testsRun} budget tests, {len(result.failures) + len(result.errors)} failed"
 
 
