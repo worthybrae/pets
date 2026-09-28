@@ -1,26 +1,41 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { dayness, rgbToHex, skyColor } from './sky'
+import { seasonSky } from './seasons'
+import { dayness, mixRgb, rgbToHex, skyColor } from './sky'
+import type { SkyView } from './types'
+import { flashAt, weatherFog, weatherSky } from './weather'
 
 /**
  * Lights that follow the game clock: sky and fog color and a sun and ambient light that dim at
  * night. Terrain dims through BlockWorld's daylight callback instead, because the terrain
- * materials ignore scene lights.
+ * materials ignore scene lights. W2: the season and the weather (`sky`) tint the sky and the fog, fog
+ * closes in (`fog`: the fog's near and far in clear weather), and a lightning strike lifts the light for a
+ * moment at replay time `now`.
  */
-export default function DayNight({ seconds }: { seconds: () => number }) {
+export default function DayNight({ seconds, sky = null, now, fog }: {
+  seconds: () => number
+  sky?: SkyView | null
+  now?: () => number
+  fog?: [number, number]
+}) {
   const ambient = useRef<THREE.AmbientLight>(null)
   const sun = useRef<THREE.DirectionalLight>(null)
   const color = useRef(new THREE.Color())
 
   useFrame((state) => {
-    const now = seconds()
-    const light = dayness(now)
-    color.current.set(rgbToHex(skyColor(now)))
+    const time = seconds()
+    const light = dayness(time)
+    const flash = now ? flashAt(sky?.strikes, now()) : 1
+    const tinted = weatherSky(seasonSky(skyColor(time), sky?.season, light), sky?.weather)
+    color.current.set(rgbToHex(flash > 1 ? mixRgb(tinted, [255, 255, 255], Math.min(1, (flash - 1) / 2)) : tinted))
     if (state.scene.background instanceof THREE.Color) state.scene.background.copy(color.current)
-    if (state.scene.fog instanceof THREE.Fog) state.scene.fog.color.copy(color.current)
-    if (ambient.current) ambient.current.intensity = 0.3 + 0.5 * light
-    if (sun.current) sun.current.intensity = 0.25 + 1.45 * light
+    if (state.scene.fog instanceof THREE.Fog) {
+      state.scene.fog.color.copy(color.current)
+      if (fog) [state.scene.fog.near, state.scene.fog.far] = weatherFog(fog[0], fog[1], sky?.weather)
+    }
+    if (ambient.current) ambient.current.intensity = (0.3 + 0.5 * light) * flash
+    if (sun.current) sun.current.intensity = (0.25 + 1.45 * light) * flash
   })
 
   return (

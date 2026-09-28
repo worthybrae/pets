@@ -23,6 +23,7 @@ export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | '
   | 'open_chest'  // L5: an old chest in a ruin
   | 'flip'
   | 'dress'  // W1: a wound dressed with a bandage or a sunleaf
+  | 'relight' | 'smoke'  // W2: a campfire the rain put out lit again; meat smoked over a fire
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -348,6 +349,37 @@ export interface SurvivalLesson {
   source: 'from_you' | 'figured' | 'from_start' | null
 }
 
+/** W2: the weather (backend/survival/sky.py). */
+export type Weather = 'clear' | 'rain' | 'storm' | 'fog' | 'snow'
+
+/** W2: the seasons, each SEASON_DAYS long. */
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
+
+/** W2: a lightning strike and the server time it fell. */
+export interface Strike extends Point {
+  at: number
+}
+
+/** W2: the sky (backend/survival/sky.py sky_view). */
+export interface SkyView {
+  season: Season
+  /** The season's day, 1 to 10. */
+  day: number
+  /** Game days to the next season. */
+  to_next: number
+  weather: Weather
+  /** Server time the weather next changes; null before the tick first tended it. */
+  until: number | null
+  /** Snow cover, 0 to 1. */
+  snow: number
+  /** The lakes are frozen (winter). */
+  frozen: boolean
+  /** The latest strikes, newest last. */
+  strikes: Strike[]
+  /** The cells burning in the trees. */
+  fires: Point[]
+}
+
 /** A goal a life reached, and the game day it did. */
 export interface GoalReached {
   name: string
@@ -417,6 +449,8 @@ export interface SurvivalState {
   difficulty?: Difficulty
   survival?: SurvivalLesson[]
   ailments?: Ailments
+  /** W2: the season, the weather, the snow, the ice, the latest strikes and the fires (an older API sends none). */
+  sky?: SkyView
 }
 
 export interface AliveResponse extends SurvivalState, BondFields, MindFields {

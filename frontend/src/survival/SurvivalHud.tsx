@@ -10,6 +10,8 @@ import { expeditionLine, journalButton } from './journal'
 import { memoriesButton } from './memories'
 import { computerCaption, workshopButton } from './workshop'
 import { ailmentLine, wildBadge } from './wild'
+import { seasonBadge } from './seasons'
+import { weatherLine } from './weather'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -101,6 +103,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const workshop = workshopButton(state.workshop)
   const ailing = ailmentLine(state.ailments)
   const badge = wildBadge(state.difficulty)
+  const season = seasonBadge(state.sky, clock.day_number)
+  const weather = weatherLine(state.sky?.weather)
   return (
     <>
       {flash !== null && <HurtFlash key={state.hurt_at ?? 0} delay={flash} />}
@@ -115,6 +119,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
                   title="A wild pet learns to survive from you, or the hard way">{badge}</span>}
               </div>
               <p className="text-xs text-[#54726e]">{dayLabel(clock.day_number, clock.phase)} · {clockTime(clock.seconds_into_day)}</p>
+              {season && <p className="truncate text-xs text-[#54726e]" title="The season">{season}{weather && ` · ${weather}`}</p>}
             </div>
             <SkyDial secondsIntoDay={clock.seconds_into_day} />
           </div>

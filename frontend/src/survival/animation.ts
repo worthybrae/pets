@@ -30,6 +30,7 @@ const MOVES: Record<ActionKind, PetMove> = {
   open_chest: 'place',  // L5: lifting the lid of an old chest
   flip: 'place',  // Making: a lever thrown, a button pressed
   dress: 'work',  // W1: wrapping a wound
+  relight: 'place', smoke: 'work',  // W2: lighting a doused campfire; smoking meat over a fire
 }
 const HOP_HEIGHT = 0.22
 const SWING_SECONDS = 0.45

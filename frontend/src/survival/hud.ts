@@ -31,6 +31,7 @@ const PHASE_NAMES: Record<ClockPhase, string> = {
 const STATUS_TEXT: Record<string, string> = { idle: 'Standing still', sleeping: 'Sleeping', dead: 'Gone' }
 const CAUSES: Record<string, string> = {
   starvation: 'starvation', cold: 'the cold', drowning: 'drowning', fall: 'a fall', creature: 'a creature',
+  lightning: 'lightning', fire: 'a fire',  // W2
 }
 /** Causes of death that are a creature's kind (L2): the pet was caught, not killed by the world. */
 const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature', 'thornback'])  // L5: the thornback
@@ -74,6 +75,7 @@ const ACTION_WORDS: Partial<Record<ActionKind, string>> = {
   till: 'Tilling', plant: 'Planting', fish: 'Fishing', cook: 'Cooking', store: 'Putting away', take: 'Taking out',
   drop: 'Dropping', attack: 'Attacking', shoot: 'Shooting', open_chest: 'Opening an old chest', flip: 'Flipping',
   dress: 'Dressing its wound with',  // W1
+  relight: 'Relighting the campfire', smoke: 'Smoking',  // W2
 }
 
 /** A block or item in plain words: a crop's stage and a bush's ripeness are left out. */
@@ -108,6 +110,8 @@ const PURPOSE_TEXT: Record<string, string> = {
   // W1
   find_herb: 'Looking for sunleaf', gather_herbs: 'Gathering sunleaf', nibble: 'Nibbling a plant',
   dress_wound: 'Dressing its wound', throw_out: 'Throwing out bad food',
+  // W2
+  make_cloak: 'Making a wool cloak', build_hearth: 'Building a hearth', smoke_meat: 'Smoking meat for the winter',
 }
 const REFLEX_TEXT: Record<string, string> = {
   surface: 'Swimming for air!', avoid_drop: 'Backing away from a drop', eat_now: 'Eating in a hurry',
@@ -115,6 +119,7 @@ const REFLEX_TEXT: Record<string, string> = {
   flee: 'Running away!', fight: 'Fighting back!',
   turn_back: 'Turning back toward home',  // L5 final fix wave: past where it is ready to go
   take_herb: 'Eating sunleaf to feel better',  // W1
+  flee_fire: 'Running from the fire!', take_cover: 'Heading home out of the weather',  // W2
 }
 
 function sentence(name: string): string {
@@ -170,6 +175,8 @@ export function lifeLine(life: Pick<LifeRow, 'kind' | 'alive' | 'days' | 'cause'
   if (life.alive) return `Alive · day ${life.days}`
   if (life.cause && CAUGHT_BY.has(life.cause)) return `Survived ${daysText(life.days)} · caught by a ${thingName(life.cause)}`
   if (life.cause === 'sickness') return `Survived ${daysText(life.days)} · fell sick and never got better`  // W1
+  if (life.cause === 'lightning') return `Survived ${daysText(life.days)} · struck by lightning`  // W2
+  if (life.cause === 'fire') return `Survived ${daysText(life.days)} · caught in a fire`
   return `Survived ${daysText(life.days)} · died of ${causeText(life.cause)}`
 }
 
