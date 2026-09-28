@@ -1,8 +1,10 @@
 """W1: what a wild newborn does not know yet, and a gentle pet always does (the lessons table's gates)."""
 
 import unittest
+from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every purpose and goal registered)
+from backend.survival.camp import lit_camp
 from backend.survival.goals import GOALS, is_open
 from backend.survival.purposes import PURPOSES, is_valid
 from backend.survival.reflexes import plan_warm_up
@@ -11,6 +13,7 @@ from backend.survival.structures import blueprint_of
 from backend.survival.wild import thing
 from backend.tests.test_survival_building import World, places_of
 from backend.tests.test_survival_cooking import plan as cook_plan, situation as cook_situation
+from backend.tests.test_survival_expedition import DUSK, FLAT, Expedition
 from backend.tests import test_survival_lighting as lighting
 
 
@@ -51,6 +54,22 @@ class FireAndCookingTests(unittest.TestCase):
         s = cook_situation({"raw_fish": 1, "oak_log": 3})
         s.state["difficulty"] = "gentle"
         self.assertIn({"kind": "craft", "recipe": "campfire"}, cook_plan(s))
+
+    def test_camp_places_a_carried_campfire_only_once_it_knows_fire(self):
+        # Fix round A, Task 3: lit_camp placed any carried campfire with no wild:fire check, reachable
+        # since the owner can craft one for Mimo and camp itself needs only wild:shelter.
+        pet = Expedition()
+        with patch("backend.survival.expedition.terrain_height", FLAT):
+            pet.set_out()  # packs a campfire and torches (test_survival_expedition.PACKED)
+        pet.go(101, 1)
+        untaught = wild(pet.situation(DUSK), "shelter", "light")
+        steps, inventory = lit_camp(untaught, (101, 1, 1))
+        self.assertFalse(any(step.get("block") == "campfire" for step in steps))
+        self.assertEqual(inventory["campfire"], 1)  # still carried: never placed without wild:fire
+        taught = wild(pet.situation(DUSK), "shelter", "light", "fire")
+        steps, inventory = lit_camp(taught, (101, 1, 1))
+        self.assertIn({"kind": "place", "target": [102, 1, 1], "block": "campfire"}, steps)
+        self.assertEqual(inventory["campfire"], 0)
 
 
 class ShelterAndBedTests(unittest.TestCase):

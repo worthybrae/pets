@@ -135,6 +135,20 @@ class EatingTests(unittest.TestCase):
                                   (0.0, "sick", "Pip ate raw mutton and felt sick.")])
         self.assertEqual(sickness(starving)["kind"], "tummy")
 
+    def test_a_starving_wild_pet_eats_raw_chicken_left_over_too(self):
+        # Fix round A, Task 6: carrying.keeps_alive is gated on steps.FOOD_RISK, the old gentle rules'
+        # own gamble food (raw chicken only), so a wild pet's raw chicken never passed it and was left
+        # behind starving. A wild pet judges leftover food by its own rules (meals.RAW_RISK) instead.
+        starving = {"name": "Pip", "world_seed": "1", "position": {"x": 0.0, "y": 1.0, "z": 0.0},
+                    "vitals": {"hunger": 5.0, "health": 100.0}, **WILD}
+        left, events = {"raw_chicken": 3}, []
+        with patch("backend.survival.meals.roll", return_value=0.3):
+            eat_what_is_left(starving, left, 0.0, events)
+        self.assertEqual((starving["vitals"]["hunger"], left), (23.0, {}))
+        self.assertEqual(events, [(0.0, "ate", "Pip ate 3 raw chicken it had no room to carry."),
+                                  (0.0, "sick", "Pip ate raw chicken and felt sick.")])
+        self.assertEqual(sickness(starving)["kind"], "tummy")
+
 
 class GentleTests(unittest.TestCase):
     def test_a_gentle_pet_eats_as_ever_and_only_avoids_nightberries(self):

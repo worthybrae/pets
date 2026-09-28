@@ -197,7 +197,11 @@ def eat_what_is_left(state: dict, left: dict[str, int], at: float, events: list 
         return
     wild = is_wild(state)
     starving = vitals["hunger"] < STARVING
-    for item in sorted((item for item in left if keeps_alive(item) and (not wild or item in SAFE or starving)),
+    # W1 fix round A: a wild pet judges leftover food by its own rules (good_food, the meal's SAFE and
+    # starving), not the old gentle FOOD_RISK (keeps_alive), which lists only raw_chicken and so let a
+    # starving wild pet's raw chicken sit uneaten while raw beef, mutton and rabbit were already eaten.
+    for item in sorted((item for item in left
+                        if (good_food(item) if wild else keeps_alive(item)) and (not wild or item in SAFE or starving)),
                        key=lambda item: (-FOOD[item], item)):
         eaten = 0
         while left[item] > 0 and vitals["hunger"] < FULL:

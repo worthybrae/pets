@@ -222,7 +222,8 @@ def lit_near(s: Situation, cell: Cell, block: str) -> int:
 def campfire_made(s: Situation) -> tuple[list[dict], dict]:
     """The craft steps for a campfire Mimo does not carry (cooking.made: from logs and sticks, as far
     as it fits in its arms; none when it carries one or cannot make one) and its arms after them,
-    worked out once per Situation: the same for every spot new_camp weighs."""
+    worked out once per Situation: the same for every spot new_camp weighs. W1: a wild pet makes one
+    only once it knows wild:fire (wild.unlocked); a carried one is `lit_camp`'s to gate."""
     def look() -> tuple[list[dict], dict]:
         inventory = dict(s.inventory)
         makes = inventory.get("campfire", 0) < 1 and unlocked(s, "fire")  # W1: a wild pet needs wild:fire
@@ -236,14 +237,18 @@ def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
     `spot`, and Mimo's arms once they are done. Fix round 1, Critical 1a: a campfire or torches
     already standing there (a batch cut short and planned again) are counted, not placed again.
     Follow-up 2 (F2): the one reckoning plan_camp plans by and camp_spot judges the roof's room by, so
-    a campfire put down (or made from sticks and logs) frees the stack the roof needs for both."""
+    a campfire put down (or made from sticks and logs) frees the stack the roof needs for both. W1: a
+    wild pet puts down a campfire it carries only once it knows wild:fire, and torches only once it
+    knows wild:light (wild.unlocked), the way reflexes.plan_warm_up and building.fittings_due already
+    gate the carried case; fix round A: a campfire carried in for Mimo by its owner was placed
+    unconditionally, since campfire_made only gates the crafting path."""
     steps: list[dict] = []
     inventory = dict(s.inventory)
     lights = ground_spots(s, spot)
     if lit_near(s, spot, "campfire") < 1:
         crafting, crafted = campfire_made(s)
         steps, inventory = list(crafting), dict(crafted)
-        if lights and inventory.get("campfire", 0) > 0:
+        if lights and inventory.get("campfire", 0) > 0 and unlocked(s, "fire"):
             steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
             inventory["campfire"] -= 1
     torches_wanted = max(0, CAMP_TORCHES - lit_near(s, spot, "torch")) if unlocked(s, "light") else 0  # W1
