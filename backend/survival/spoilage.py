@@ -32,7 +32,7 @@ import logging
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.once import log_once
 from backend.survival.steps import OBSERVERS, label
-from backend.survival.wild import is_wild
+from backend.survival.wild import LOOKS_LIKE, is_wild
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ def went_bad(state: dict, context, spoiled: dict[str, int], where: str, at: floa
     for item, count in spoiled.items():
         state.setdefault("wild", {})["last_spoiled"] = item
         context.events.append((at, "spoiled", f"{name}'s {label(item)} went bad."))
-        state["last_thought"] = f"Yuck, my {label(item)} went bad."
+        state["last_thought"] = f"Yuck, my {label(LOOKS_LIKE.get(item, item))} went bad."  # as Mimo sees it
         for hears in SPOILS:
             try:
                 hears(state, context, item, count, where, at)

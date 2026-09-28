@@ -15,7 +15,7 @@ from backend.survival.bond import utc_day
 from backend.survival.care import give_care
 from backend.survival.choosing import InlineExecutor
 from backend.survival.hatch import hatch
-from backend.survival.inbox import ITEMS_KEPT, STORY, inbox_items, mark_read, name_place, post_item, unread
+from backend.survival.inbox import ITEMS_KEPT, STORY, asking, inbox_items, mark_read, name_place, post_item, unread
 from backend.survival.memory import places, remember
 from backend.survival.once import forget_logged
 from backend.survival.owner_facts import owner_facts, remember_fact
@@ -85,6 +85,19 @@ class InboxTests(unittest.TestCase):
                           ("report", "I finished building a hut and moved in.")])
         self.chores(BORN + 20)
         self.assertEqual(len(self.items()), 2)  # each event once
+
+    def test_words_to_the_owner_by_name_go_on_in_lower_case_but_for_i(self):
+        # W1 fix round 1 (Minor 7): "Sam, the floor is so hard to sleep on.", never "Sam, The floor ...".
+        with self.world.connect() as db:
+            self.assertEqual(asking(db, "The floor is so hard to sleep on."), "The floor is so hard to sleep on.")
+        with self.world.transaction() as db:
+            remember_fact(db, "name", "Sam", BORN)
+            said = [asking(db, words) for words in ("The floor is so hard to sleep on.", "It's so cold tonight.",
+                                                    "A skitter cut me.", "I found a cave.", "I'm really hungry.",
+                                                    "I've got a question.", "I'll wait.")]
+        self.assertEqual(said, ["Sam, the floor is so hard to sleep on.", "Sam, it's so cold tonight.",
+                                "Sam, a skitter cut me.", "Sam, I found a cave.", "Sam, I'm really hungry.",
+                                "Sam, I've got a question.", "Sam, I'll wait."])
 
     def test_mimo_asks_for_a_snack_or_a_bandage_once_a_day_while_there_is_one_to_give(self):
         with self.world.transaction() as db:

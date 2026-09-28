@@ -18,6 +18,10 @@ Met when (`meet`, after each vitals step; `sighted`, after each walk: steps.OBSE
 Hesitating (meals.HOLDS: `hesitates`): an untried food whose wonder was asked waits HESITATE (8 game minutes)
 before Mimo risks a taste; one met and not yet asked waits too, unless OPEN_MOST questions are open already
 and it could not be posted. A gentle pet meets no wonder.
+
+W1 fix round 1: Mimo's words name what it met as it sees it (wild.LOOKS_LIKE: nightberries are red berries to
+it, "My red berries went bad!", and a sickness from them is from "those berries": backend.survival.meals), and
+the open questions are read through one helper (bond_tables.open_question_rows).
 """
 
 from __future__ import annotations
@@ -28,12 +32,13 @@ import sqlite3
 from dataclasses import dataclass
 
 from backend.survival.ailments import sickness, wound_of
+from backend.survival.bond_tables import open_question_rows
 from backend.survival.meals import HOLDS, RAW_RISK
 from backend.survival.once import log_once
 from backend.survival.senses import natural_plants
 from backend.survival.spoilage import SPOILED
 from backend.survival.steps import OBSERVERS, label
-from backend.survival.wild import RED_BERRIES, RED_MUSHROOM, is_wild, wild_state
+from backend.survival.wild import LOOKS_LIKE, RED_BERRIES, RED_MUSHROOM, is_wild, wild_state
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +194,8 @@ def meet(state: dict, context, at: float) -> None:
             met(state, "hard_floor", at)
         spoiled = state["inventory"].get(SPOILED, 0) > 0 or any(chest.get(SPOILED) for chest in state.get("chests", {}).values())
         if "spoiled" not in found and spoiled:
-            met(state, "spoiled", at, label(night.get("last_spoiled") or "food"))
+            item = night.get("last_spoiled") or "food"
+            met(state, "spoiled", at, label(LOOKS_LIKE.get(item, item)))  # as Mimo sees it: "My red berries went bad!"
         chased = (state.get("brain") or {}).get("reflex") in ("flee", "fight") or state.get("hurt_at") is not None
         if "dark_creature" not in found and chased:
             met(state, "dark_creature", at)
@@ -198,14 +204,9 @@ def meet(state: dict, context, at: float) -> None:
 
 
 def open_questions(db: sqlite3.Connection | None) -> int:
-    """How many of Mimo's questions are open (asked, not closed). A world without an inbox has none."""
-    if db is None:
-        return 0
-    try:
-        return db.execute("SELECT COUNT(*) FROM mimo_inbox WHERE kind='ask' AND json_extract(data, '$.ask')='wonder' "
-                          "AND json_extract(data, '$.closed') IS NULL").fetchone()[0]
-    except sqlite3.OperationalError:
-        return 0
+    """How many of Mimo's questions are open (asked, not closed). A world without an inbox has none; any other
+    error is raised (bond_tables.open_question_rows, W1 fix round 1)."""
+    return 0 if db is None else len(open_question_rows(db))
 
 
 def hesitates(s, item: str) -> bool:

@@ -9,7 +9,7 @@ from backend.survival import minding  # noqa: F401  (every Mind hook registered)
 from backend.survival.choosing import prepare
 from backend.survival.diary import story_job
 from backend.survival.hatch import hatch
-from backend.survival.mind import story_memories
+from backend.survival.mind import PRIVATE, story_memories
 from backend.survival.once import forget_logged
 from backend.survival.owner_facts import remember_fact
 from backend.survival.registry import LifeRegistry
@@ -142,10 +142,16 @@ class AnswersNeverReachLunaTests(unittest.TestCase):
         ask = prepare(SurvivalWorld(self.world.path, read_only=True), BORN + 2311, 1.0, LUNA)
         with self.world.connect() as db:
             story = list(story_memories(db, 1, limit=50))
+            asked = {row[0] for row in db.execute("SELECT id FROM mind_memories WHERE source='asked' AND game_day=1")}
+            private = {row[0] for row in db.execute("SELECT memory FROM mind_tags WHERE tag=?", (PRIVATE,))}
         sent = json.dumps([ask.payload, [memory.text for memory in story]]).lower()
         for words in ("six planks make a bed", "rosalind", said.lower(), "you taught", "you told"):
             self.assertNotIn(words, sent)  # Mimo's own "asked" event holds no owner words, and may be there
         self.assertEqual(mushroom["yes_no"], True)
+        # W1 fix round 1 (Important 10): the questions Mimo asked are memories about the owner, so no story has them.
+        self.assertEqual(len(asked), 2)
+        self.assertLessEqual(asked, private)
+        self.assertFalse(asked & {memory.id for memory in story})
 
 
 if __name__ == "__main__":

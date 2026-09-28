@@ -105,6 +105,9 @@ FAMILIAR = ("apple", "carrot", "bread", "brown_mushroom", "raw_fish", "cooked_fi
 RED_BERRIES = ("berries", "nightberries")
 BERRY_BUSHES = ("berry_bush_ripe", "nightberry_bush_ripe")
 NIGHTBERRIES = ("nightberries", "nightberry_bush_ripe")
+# What Mimo's own words call an item it cannot tell apart (W1 fix round 1): nightberries look like red berries
+# to it. The owner's lessons and the journal, which may know better, name them as they are.
+LOOKS_LIKE = {"nightberries": "red_berries"}
 RED_MUSHROOM = "red_mushroom"  # the item and the block
 SAFE = tuple(item for item in FAMILIAR if not item.startswith("raw_"))  # eaten with no risk at all
 SHUN = 7200.0  # game seconds (2 game days) a group that made Mimo sick is left alone

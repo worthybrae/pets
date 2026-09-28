@@ -19,7 +19,9 @@ and "You were right" later):
    of range, LifeOver when Mimo died (404, 400, 409). Only the chip's index is stored.
 2. Yes or no in the chat: while a yes-or-no question is open, an owner line that names no lesson's subject and
    opens with a yes-word or a no-word is read as the newest open one's yes-claim or no-claim
-   (teaching.REWORDS: `reworded`). The owner's own words are still stored and shown as they are.
+   (teaching.REWORDS: `reworded`). The owner's own words are still stored and shown as they are. Fix round 1
+   (the controller's ruling): "ok", "okay" and "fine" are no yes-words, and a line that opens with an idiom
+   ("no idea", "not sure", "never mind", IDIOMS) never binds.
 3. Anything else is read by lessons.claims as ever: a lesson taught closes every open question it answers
    (teaching.TAUGHT_HOOKS), and a claim doubted closes as "doubted" the open questions about what it names (the
    chat's "answer" question and its keeper, `keep_answer`).
@@ -32,16 +34,19 @@ import json
 import logging
 import sqlite3
 
+from backend.survival.bond_tables import open_question_rows
 from backend.survival.clock import clock_at
+from backend.survival.goals import lower
 from backend.survival.inbox import asking, item_of, post_item
+from backend.survival.journal import LESSONS
 from backend.survival.lessons import claims, lesson_keys, tokens, warned
 from backend.survival.pickers import Option
-from backend.survival.replies import in_my_voice
+from backend.survival.replies import clip, in_my_voice
 from backend.survival.talk import KEEPERS, QUESTIONS, Question
 from backend.survival.talker import CHORES
 from backend.survival.nature import roll
 from backend.survival.teaching import REWORDS, TAUGHT_HOOKS, say, teach_lesson
-from backend.survival.wild import PREFIX, is_wild, thing, wild_state
+from backend.survival.wild import BY_NAME, PREFIX, is_wild, thing, wild_state
 from backend.survival.wonders import OPEN_MOST, WONDERS, open_questions
 from backend.survival.world import LifeOver, SurvivalWorld, log_event, read_state, write_state
 
@@ -49,11 +54,14 @@ logger = logging.getLogger(__name__)
 
 ASK_GAP = 300.0  # game seconds between two questions
 SHUFFLE_CHANNEL = 220
-YES = ("yes", "yeah", "yep", "yup", "sure", "of course", "ok", "okay", "fine", "safe")
+# The controller's ruling (fix round 1): "ok", "okay" and "fine" are acknowledgements, not answers ("Ok, I'm
+# back!"), and a line that opens with one of IDIOMS never binds ("No idea" answers nothing).
+YES = ("yes", "yeah", "yep", "yup", "sure", "of course", "safe")
 NO = ("no", "nope", "nah", "don't", "dont", "never", "careful", "poison")
+IDIOMS = ("no idea", "no clue", "no problem", "no worries", "not sure", "don't know", "dont know", "never mind",
+          "nevermind")
 DOUBTED = "Hmm, I'm not sure that's right. I'll be careful."
 NOTED = "Okay. Thanks for telling me."
-OPEN = "kind='ask' AND json_extract(data, '$.ask')='wonder' AND json_extract(data, '$.closed') IS NULL"
 
 
 def known_lessons(db: sqlite3.Connection) -> set[str]:
@@ -62,12 +70,8 @@ def known_lessons(db: sqlite3.Connection) -> set[str]:
 
 
 def open_items(db: sqlite3.Connection) -> list[dict]:
-    """Mimo's open questions, newest first."""
-    try:
-        rows = db.execute(f"SELECT * FROM mimo_inbox WHERE {OPEN} ORDER BY id DESC").fetchall()
-    except sqlite3.OperationalError:
-        return []
-    return [item_of(row) for row in rows]
+    """Mimo's open questions, newest first (a world without an inbox has none; any other error is raised)."""
+    return [item_of(row) for row in open_question_rows(db)]
 
 
 def close(db: sqlite3.Connection, state: dict, item: dict, how: str, now: float, answer: int | None = None) -> None:
@@ -136,8 +140,9 @@ def ask_wonders(db: sqlite3.Connection, state: dict, now: float, scale: float) -
     wild["asked_at"] = now
     say(db, state, text, now, scale)
     log_event(db, now, "asked", f"{state['name']} asked you {wonder.asked}.")
-    if wonder.items:
-        state["last_thought"] = f"I asked about the {wonder.items[0].replace('_', ' ')}. I'll wait a bit before I try one."
+    if wonder.items:  # "I asked about the red berries." (fix round 1: the lesson's own words, as the spec says)
+        about = BY_NAME[wonder.lessons[0]].words
+        state["last_thought"] = f"I asked about the {about}. I'll wait a bit before I try one."
     return True
 
 
@@ -169,11 +174,14 @@ def answer_question(world: SurvivalWorld, item_id: int, choice: int, now: float,
         if chip.false:
             how, line = "doubted", DOUBTED
         elif chip.teaches:
-            teach_all(db, state, chip.teaches, now, scale)
+            # Fix round 1: the thanks name the first lesson Mimo learned; one it knew already is "I know that one!",
+            # as teaching.keep_teach says it.
+            learned = teach_all(db, state, chip.teaches, now, scale)
             how = "taught"
-            fact = next((lesson for lesson in chip.teaches), None)
-            from backend.survival.journal import LESSONS
-            line = f"Oh, {LESSONS[thing(fact)].fact[:1].lower()}{LESSONS[thing(fact)].fact[1:]} Thank you for teaching me!"
+            if learned:
+                line = clip(f"Oh, {lower(LESSONS[thing(learned[0])].fact)} Thank you for teaching me!")
+            else:
+                line = clip(f"I know that one! {LESSONS[thing(chip.teaches[0])].fact}")
         else:
             how, line = "noted", NOTED
         fresh = next((found for found in open_items(db) if found["id"] == item_id), item)
@@ -196,8 +204,10 @@ TAUGHT_HOOKS.append(taught)
 # Yes and no in the chat -------------------------------------------------------------------------
 
 def opener(text: str) -> str | None:
-    """"yes" or "no" when the words open with a yes-word or a no-word."""
+    """"yes" or "no" when the words open with a yes-word or a no-word, and not with one of IDIOMS."""
     words = text.lower().strip().lstrip("¡¿\"'").replace("’", "'")
+    if words.startswith(IDIOMS):
+        return None
     for answer, found in (("yes", YES), ("no", NO)):
         for word in found:
             if words == word or words.startswith((f"{word} ", f"{word},", f"{word}.", f"{word}!")):

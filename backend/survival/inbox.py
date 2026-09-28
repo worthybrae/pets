@@ -34,6 +34,11 @@ Bond's final fix wave:
 
 Bond follow-up (N1): GET /api/mimo/inbox lists every unread item first (`inbox_listing`, at most
 UNREAD_LISTED), then the newest read ones, so opening the inbox can always clear it.
+
+W1 fix round 1: an open question of Mimo's (bond_tables.OPEN_QUESTION, at most wonders.OPEN_MOST) is never
+pruned, as a waiting naming ask is not: a wild pet posts about 90 items its first game day, and a question
+pruned unanswered would never be asked again. Words to the owner by name go on in lower case ("Sam, the floor
+is so hard to sleep on."), but for "I".
 """
 
 from __future__ import annotations
@@ -44,11 +49,12 @@ import re
 import sqlite3
 
 from backend.survival.bond import REAL_DAY, bond_state, utc_day
-from backend.survival.bond_tables import missing_table
+from backend.survival.bond_tables import OPEN_QUESTION, missing_table
 from backend.survival.care import care_remaining
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.events import mirror
 from backend.survival.exploring import compass
+from backend.survival.goals import lower
 from backend.survival.memory import places, update_place
 from backend.survival.owner_facts import owner_facts, owner_name, remember_fact
 from backend.survival.replies import in_my_voice
@@ -64,6 +70,7 @@ ASK_HEALTH = 35.0
 NAMEABLE = {"cave": "a cave", "water": "a lake", "grove": "a grove", "pasture": "a pasture"}
 NAME_LIMIT = 24
 PLACE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]*$")
+FIRST_PERSON = re.compile(r"I\b")  # "I", "I'm", "I've": kept upper case after the owner's name
 STORY = "story"
 STALE_ASK = REAL_DAY  # real seconds a naming ask waits unanswered before a newer one may replace it (I7)
 FAR = 64.0  # blocks from home from which a place is "far" (m7)
@@ -71,13 +78,14 @@ UNREAD_LISTED = 500  # unread items the inbox lists at most (N1): more than ITEM
 MARKED_AT_MOST = UNREAD_LISTED  # ids one call marks read at most
 # A naming ask still waiting for its answer (I7): never pruned, and at most one at a time.
 WAITING_ASK = "kind = 'ask' AND json_extract(data, '$.ask') = 'name' AND json_extract(data, '$.answer') IS NULL"
-# What the prune may take: never a story (the diary keeps them) nor a naming ask still waiting.
-PRUNABLE = f"kind != '{STORY}' AND NOT ({WAITING_ASK})"
+# What the prune may take: never a story (the diary keeps them), a naming ask still waiting nor (W1) an open
+# question.
+PRUNABLE = f"kind != '{STORY}' AND NOT ({WAITING_ASK}) AND NOT ({OPEN_QUESTION})"
 
 
 def post_item(db: sqlite3.Connection, at: float, kind: str, text: str, data: dict | None = None) -> int:
-    """Put a message in the inbox; past ITEMS_KEPT (stories and naming asks still waiting aside) the
-    oldest go, the read ones first (I7)."""
+    """Put a message in the inbox; past ITEMS_KEPT (stories, naming asks still waiting and open questions
+    aside) the oldest go, the read ones first (I7)."""
     item = db.execute("INSERT INTO mimo_inbox(at, kind, text, data) VALUES (?, ?, ?, ?)",
                       (at, kind, text, json.dumps(data or {}))).lastrowid
     excess = db.execute(f"SELECT COUNT(*) FROM mimo_inbox WHERE {PRUNABLE}").fetchone()[0] - ITEMS_KEPT
@@ -166,9 +174,12 @@ def mark_ids(world: SurvivalWorld, ids: list[int], now: float) -> int:
 
 
 def asking(db: sqlite3.Connection, words: str) -> str:
-    """Words to the owner, by name when Mimo knows it: "Sam, I found a cave."."""
+    """Words to the owner, by name when Mimo knows it: "Sam, I found a cave.", "Sam, the floor is so hard to
+    sleep on." (W1 fix round 1: in lower case after the name, but for "I", "I'm", "I've" and the like)."""
     name = owner_name(owner_facts(db))
-    return f"{name}, {words}" if name else words
+    if not name:
+        return words
+    return f"{name}, {words if FIRST_PERSON.match(words) else lower(words)}"
 
 
 # The mirror: milestones from the event log ----------------------------------------------------

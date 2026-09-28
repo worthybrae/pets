@@ -176,7 +176,8 @@ def sick_from(state: dict, item: str, at: float) -> tuple[str, str]:
     same = RED_BERRIES if item in RED_BERRIES else (item,)
     if state.get("queue"):
         state["queue"] = [spec for spec in state["queue"] if not (spec.get("kind") == "eat" and spec.get("item") in same)]
-    wild_state(state)["sick_from"] = f"those {label(item)}" if item in RED_BERRIES else label(item)
+    # The red berries are one food to Mimo: "those berries", never the lookalike's name (W1 fix round 1).
+    wild_state(state)["sick_from"] = "those berries" if item in RED_BERRIES else label(item)
     if item in RED_BERRIES:
         wild_state(state)["shun"]["red_berries"] = at
         state["last_thought"] = SHUN_WORDS

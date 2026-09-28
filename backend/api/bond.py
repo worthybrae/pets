@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt
 
 from backend.api.lives import open_registry
 from backend.api.mimo import active_world
@@ -32,7 +32,8 @@ class ReadUpTo(BaseModel):
 
 class PlaceName(BaseModel):
     text: str | None = None  # a name for the place a naming question is about
-    choice: int | None = None  # W1: the chip the owner picks for one of Mimo's questions
+    # W1: the chip the owner picks for one of Mimo's questions; strict (fix round 1), so true, 1.0 or "1" is a 422
+    choice: StrictInt | None = None
 
 
 @router.post("/mimo/chat")

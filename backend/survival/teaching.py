@@ -37,6 +37,7 @@ a lesson (fact SEEN); then the CONFIRMED hooks run (Bond B2's bond counts it as 
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 
@@ -48,10 +49,13 @@ from backend.survival.journal import LESSONS, TAUGHT, journal_state, learn_lesso
 from backend.survival.lessons import Claims, claims, named, tokens
 from backend.survival.memory import know
 from backend.survival.mind import add_memory
+from backend.survival.once import log_once
 from backend.survival.pickers import Option
 from backend.survival.replies import REPLIES, TOLD, Heard, Reply, clip
 from backend.survival.situation import Situation
 from backend.survival.talk import HEARING, KEEPERS, QUESTIONS, Question, add_line
+
+logger = logging.getLogger(__name__)
 
 NONE = "none"  # never offered; a pick of it teaches nothing
 SEEN = "seen_true"  # the memory_knowledge fact for a taught lesson Mimo saw true
@@ -73,7 +77,8 @@ CONFIRMED: list = []
 # W1: [reword(db, s, heard) -> str | None]: the words to read in place of the owner's (a bare "yes" to Mimo's
 # open yes-or-no question reads as its yes-claim: backend.survival.questions); the first answer wins.
 REWORDS: list = []
-# W1: [taught(db, state, thing, now)]: run when a lesson is taught (Mimo's questions it answers close).
+# W1: [taught(db, state, thing, now)]: run when a lesson is taught (Mimo's questions it answers close). One that
+# crashes is logged once and passed over: the lesson is taught all the same.
 TAUGHT_HOOKS: list = []
 
 
@@ -150,8 +155,11 @@ def teach_lesson(db: sqlite3.Connection, state: dict, thing: str, now: float, da
     journal["unphrased"] = [waiting for waiting in journal["unphrased"] if waiting != thing]
     journal["words"] = {**journal["words"], thing: f"You told me that {lower(lesson.fact)}"}
     add_memory(db, now, day, "told", f"You taught me that {lower(lesson.fact)}", ("owner",), 7, 1, source="taught")
-    for taught_hook in TAUGHT_HOOKS:  # W1
-        taught_hook(db, state, thing, now)
+    for taught_hook in TAUGHT_HOOKS:  # W1: one that crashes is logged once and passed over (fix round 1)
+        try:
+            taught_hook(db, state, thing, now)
+        except Exception as error:
+            log_once(logger, "taught hook", error)
     return True
 
 
