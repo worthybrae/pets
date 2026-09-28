@@ -9,7 +9,7 @@
 Neither runs from a blow (a hit one turns on Mimo instead) and neither is hunted. Both are kinds
 in the registry and act through the creature-action registry, ahead of the animals' actions:
 - sunlit (2): under the open sky by day (backend.survival.light.sky_open) a gloomling catches
-  fire ("burning") and dies BURN_SECONDS later without drops; a skitter fades at once.
+  fire ("burning") and dies BURN_SECONDS later without drops; a skitter fades at once. W2: not in fog.
 - strike (4): within its reach of a living Mimo, with nothing solid between them (`can_hit`: a
   blow does not go through a wall or round a roof's edge), once its cooldown has passed, it hits
   Mimo (backend.survival.creatures.harm) and waits out the cooldown; never while Mimo is inside
@@ -50,7 +50,7 @@ import sqlite3
 
 from backend.survival.creatures.acts import (
     IDLE_SECONDS, PAUSE, WANDER, WANDER_CHANCE, CreatureAction, Scene, barred, flat_distance, pause, register_action,
-    wander,
+    slowed, wander,
 )
 from backend.survival.creatures.harm import hurt_pet, pet_alive, sheltered
 from backend.survival.creatures.kinds import Kind, hostile_kinds, kind_of, register_kind
@@ -58,6 +58,7 @@ from backend.survival.creatures.moves import heading, move, steps, where
 from backend.survival.creatures.table import dead
 from backend.survival.grid import Cell, Grid
 from backend.survival.light import sky_open
+from backend.survival.sky import foggy
 from backend.survival.triggers import ensure_brain, mark_trigger
 
 CHASE_SIGHT = 16.0
@@ -83,6 +84,7 @@ register_kind(Kind("skitter", health=12.0, speed=0.4, size=0.6, hostile=True, da
 
 def sunlit(creature: dict, kind: Kind, scene: Scene) -> bool:
     return (kind.hostile and not kind.daylight and not scene.night  # L5: a thornback walks by day
+            and not foggy(scene.state)  # W2: fog hides the sun
             and sky_open(scene.grid, scene.seed, where(creature, scene.at)))
 
 
@@ -289,7 +291,7 @@ def chase(creature: dict, kind: Kind, scene: Scene) -> None:
         cells.append(best)
         cell = best
     if cells:
-        creature["next_at"] = move(creature, cells, scene.at, kind.speed / scene.pace, "chasing")
+        creature["next_at"] = move(creature, cells, scene.at, kind.speed * slowed(scene, creature) / scene.pace, "chasing")
         return
     creature["heading"] = heading(cell, target, creature["heading"])
     if can_hit(scene.grid, cell, target, kind.reach):

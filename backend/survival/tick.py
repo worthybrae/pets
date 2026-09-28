@@ -38,7 +38,8 @@ and its food ages (backend.survival.spoilage.age).
 
 W2: a world from before W2 gets its year's offset on its first tick (backend.survival.sky.settle_sky), and before
 each step the sky is tended (sky.advance: the season, then its effects), so a long catch-up plays the seasons in
-time order; the season sets the warmth Mimo drifts toward (Surroundings.season).
+time order; the season sets the warmth Mimo drifts toward (Surroundings.season), and falling snow takes some off
+outdoors (Surroundings.snowing; backend.survival.weather's other effects register themselves).
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ from typing import Callable
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
 from backend.survival import ailments, sky, spoilage
+from backend.survival import weather  # noqa: F401  (W2: rain and snow slow walks, fog brings the dark creatures)
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
@@ -119,6 +121,7 @@ def surroundings_at(db: sqlite3.Connection, seed: str, position: dict, state: di
         near_fire=near_warm_block(placed_near(db, position, FIRE_REACH, WARM_BLOCKS), x, y, z),
         head_in_water=material_at(x, y, z) == "water",
         season=sky.season_now(state) if state is not None else "spring",
+        snowing=state is not None and sky.weather_now(state) == "snow",
     )
 
 

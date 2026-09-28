@@ -23,7 +23,8 @@ long gap regrows the world in time order. Each call:
      per game day and at most 3 in the chunk, never in a claimed cell;
    - W1: a picked nightberry bush turns ripe again after 2 game days, like a berry bush, and a picked
      sunleaf comes back in its chunk like a mushroom, on the grass, moss or mud of the lands it grows in,
-     one a chunk a game day and at most 2 in the chunk.
+     one a chunk a game day and at most 2 in the chunk;
+   - W2: a crop stage that starts while it rains (backend.survival.sky) takes the watered time.
 2. Applies every entry due by then, oldest first. An entry only happens while its cell still
    holds what it grows from (the unripe bush, the crop one stage earlier, the bare farmland);
    otherwise it is dropped. A crop stage that happens schedules the next one from its own due
@@ -45,6 +46,7 @@ from backend.services.blocks import is_replaceable
 from backend.services.crafting import LOGS, add_item
 from backend.services.worldgen import SUNLEAF_BIOMES, biome_at, is_leaf, terrain_height
 from backend.survival import nature
+from backend.survival.sky import RAINY, weather_of
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import CHUNK, Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, places
@@ -144,10 +146,11 @@ def watered(grid: Grid, farmland: Cell) -> bool:
                for dx in range(-WATER_REACH, WATER_REACH + 1) for dz in range(-WATER_REACH, WATER_REACH + 1))
 
 
-def stage_seconds(grid: Grid, crop: Cell) -> float:
-    """Making: a quarter less with a composter within COMPOST_REACH blocks (backend.survival.cozy)."""
+def stage_seconds(grid: Grid, crop: Cell, rain: bool = False) -> float:
+    """Making: a quarter less with a composter within COMPOST_REACH blocks (backend.survival.cozy). W2: `rain`
+    waters it too."""
     x, y, z = crop
-    seconds = CROP_STAGE_WET if watered(grid, (x, y - 1, z)) else CROP_STAGE_DRY
+    seconds = CROP_STAGE_WET if rain or watered(grid, (x, y - 1, z)) else CROP_STAGE_DRY
     return seconds * COMPOST_SPEED if grid.placed_cells(x, z, COMPOST_REACH, ("composter",)) else seconds
 
 
@@ -303,11 +306,16 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
         elif after in ("berry_bush", "nightberry_bush"):  # W1: nightberries regrow like berries
             schedule(db, cell, f"{after}_ripe", later(at, BERRY_REGROW, scale))
         elif grown is not None:
-            schedule(db, cell, grown, later(at, stage_seconds(grid, cell), scale))
+            schedule(db, cell, grown, later(at, stage_seconds(grid, cell, rained(state, at, scale)), scale))
         elif after == "farmland":
             schedule(db, cell, "dirt", later(at, FARMLAND_REVERT, scale))
         elif nature.crop_stage(before) is not None and grid.material(x, y - 1, z) == "farmland":
             schedule(db, (x, y - 1, z), "dirt", later(at, FARMLAND_REVERT, scale))
+
+
+def rained(state: dict, at: float, scale: float) -> bool:
+    """W2: it rains at `at` (a world with no birth time, in a test, never rains)."""
+    return "born_at" in state and weather_of(state, at, scale) in RAINY
 
 
 def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, scale: float,
@@ -326,7 +334,8 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
             grid.put(*cell, block)
             grown = nature.next_stage(block)
             if grown is not None:
-                schedule(db, cell, grown, later(ready_at, stage_seconds(grid, cell), scale))
+                wet = rained(state, ready_at, scale)
+                schedule(db, cell, grown, later(ready_at, stage_seconds(grid, cell, wet), scale))
     elif block == "dirt":
         if here == "farmland" and nature.crop_stage(grid.material(x, y + 1, z)) is None:
             grid.put(*cell, "dirt")

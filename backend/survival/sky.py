@@ -14,6 +14,14 @@ routine "season" event; spring's is the notable "spring": "Spring! Things are gr
 day 3 at dusk, the notable "colder" ("The nights are getting colder."). Then it runs EFFECTS, each guarded: a
 crash is logged once and counts as nothing.
 
+Weather (`weather_at`) is a pure function of the world seed, the season and the SEGMENT (10-game-minute) of the
+life: a game day has 6 segments. Each segment keeps the last one's weather with chance KEEP, else rolls its
+season's TABLE, so a spell runs 20 game minutes or more on average. The look back stops after LOOK_BACK
+segments (the sixth rolls fresh), and a kept weather the new season's table lacks (rain carried into winter)
+rolls fresh too. The tick stores the weather of each step's start in state["sky"] (with when it next changes)
+for /api/mimo and for what the step reads: a catch-up plays the weather in time order. While it snows the snow
+cover rises SNOW_RISE a game minute; from the first spring dawn it melts over 20 game minutes.
+
 state["sky"] (`sky_state`; every field has a default, so a world from before W2 and an archive read as empty):
 offset, season, season_day, day (the day number last tended), weather, weather_until, snow, frozen, open_cells,
 strikes, fires, told ({what: day} of the season's news). A GET never writes it (`sky_view` only reads).
@@ -25,6 +33,7 @@ import logging
 from typing import Callable
 
 from backend.survival.clock import DAY_SECONDS, PHASES, clock_at
+from backend.survival.nature import roll
 from backend.survival.once import log_once
 
 logger = logging.getLogger(__name__)
@@ -38,6 +47,18 @@ DUSK = next(start for name, start, _ in PHASES if name == "dusk")
 TURNS = {"summer": "Summer has come.", "autumn": "Autumn has come.", "winter": "Winter has come.",
          "spring": "Spring! Things are growing again."}
 COLDER = "The nights are getting colder."
+SEGMENT = 600.0  # game seconds of one weather segment
+LOOK_BACK = 6
+KEEP = 0.5
+TABLE = {"spring": (("clear", 0.55), ("rain", 0.30), ("storm", 0.08), ("fog", 0.07)),
+         "summer": (("clear", 0.65), ("rain", 0.15), ("storm", 0.15), ("fog", 0.05)),
+         "autumn": (("clear", 0.45), ("rain", 0.25), ("storm", 0.05), ("fog", 0.25)),
+         "winter": (("clear", 0.45), ("fog", 0.15), ("snow", 0.40))}
+RAINY = ("rain", "storm")
+WEATHER_CHANNEL, KEEP_CHANNEL = 230, 231  # Wild World's roll channels are 200 to 259 (spec resolution 27)
+UNTIL_AHEAD = 12  # segments looked ahead for when the weather changes
+SNOW_RISE = 0.1  # snow cover a game minute while it snows
+SNOW_MELT = 20 * 60.0  # game seconds a full cover takes to melt in spring
 # W2: functions (state, context, at) run by `advance` after the season is tended, before each step (the
 # weather's, the storms' and the ice's effects). One that crashes is logged once and passed over.
 EFFECTS: list[Callable] = []
@@ -95,6 +116,55 @@ def next_season_at(state: dict, at: float, scale: float, season: str) -> float:
     return state["born_at"] + (day - 1 + ahead) * DAY_SECONDS / scale
 
 
+def segment_season(offset: int, segment: int) -> str:
+    return season_of(season_day_of(int(segment * SEGMENT // DAY_SECONDS) + 1, offset))
+
+
+def fresh(seed: str, offset: int, segment: int) -> str:
+    """The season's table rolled for `segment`."""
+    table = TABLE[segment_season(offset, segment)]
+    pick = roll(seed, (segment, 0, 0), WEATHER_CHANNEL)
+    for weather, share in table:
+        pick -= share
+        if pick < 0:
+            return weather
+    return table[-1][0]
+
+
+def weather_at(seed: str, offset: int, segment: int) -> str:
+    """The weather of the life's `segment` (see the module docstring)."""
+    start = segment
+    while start > 0 and segment - start < LOOK_BACK - 1 and roll(seed, (start, 0, 0), KEEP_CHANNEL) < KEEP:
+        start -= 1
+    weather = fresh(seed, offset, start)
+    for later in range(start + 1, segment + 1):
+        if all(weather != kind for kind, _ in TABLE[segment_season(offset, later)]):
+            weather = fresh(seed, offset, later)
+    return weather
+
+
+def segment_of(state: dict, at: float, scale: float) -> int:
+    return int(max(0.0, at - state["born_at"]) * scale // SEGMENT)
+
+
+def weather_of(state: dict, at: float, scale: float) -> str:
+    """The weather at server time `at` (pure: what the tick would store then)."""
+    return weather_at(state.get("world_seed", "0"), offset_of(state), segment_of(state, at, scale))
+
+
+def weather_now(state: dict) -> str:
+    """The weather the tick stored at the start of the step ("clear" for a world from before W2)."""
+    return (state.get("sky") or {}).get("weather", "clear")
+
+
+def raining(state: dict) -> bool:
+    return weather_now(state) in RAINY
+
+
+def foggy(state: dict) -> bool:
+    return weather_now(state) == "fog"
+
+
 def settle_sky(state: dict, at: float, scale: float) -> None:
     """A living pet's tick: a world with no offset gets one, so the day at `at` is spring day 1."""
     sky = state.setdefault("sky", {})
@@ -123,10 +193,32 @@ def tend_season(state: dict, context, at: float) -> None:
         state["last_thought"] = COLDER
 
 
+def tend_weather(state: dict, context, at: float) -> None:
+    """Store the weather at `at`, when it next changes, and the snow cover."""
+    sky = sky_state(state)
+    scale = context.clock_at(at)["time_scale"]
+    segment = segment_of(state, at, scale)
+    if sky.get("segment") != segment:
+        seed, offset = state.get("world_seed", "0"), offset_of(state)
+        weather = weather_at(seed, offset, segment)
+        ahead = next((later for later in range(segment + 1, segment + UNTIL_AHEAD + 1)
+                      if weather_at(seed, offset, later) != weather), segment + UNTIL_AHEAD + 1)
+        sky.update(segment=segment, weather=weather, weather_until=state["born_at"] + ahead * SEGMENT / scale)
+    since = sky.get("tended_at")
+    seconds = 0.0 if since is None else max(0.0, (at - since) * scale)
+    sky["tended_at"] = at
+    if sky["weather"] == "snow":
+        sky["snow"] = min(1.0, sky["snow"] + SNOW_RISE * seconds / 60.0)
+    elif sky["season"] == "spring" and sky["snow"] > 0:
+        sky["snow"] = max(0.0, sky["snow"] - seconds / SNOW_MELT)
+
+
 def advance(state: dict, context, at: float) -> None:
-    """Before each step of the tick: the season, then EFFECTS. A crash is logged once and changes nothing."""
+    """Before each step of the tick: the season and the weather, then EFFECTS. A crash is logged once and
+    changes nothing."""
     try:
         tend_season(state, context, at)
+        tend_weather(state, context, at)
     except Exception as error:
         log_once(logger, "season", error)
     for effect in EFFECTS:

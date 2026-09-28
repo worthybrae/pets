@@ -18,11 +18,13 @@ check and an `act` that starts the creature's next move or pose and sets when it
 L2's hostile kinds register their chase and attack here the same way. Every duration is in
 server seconds and is divided by the action scale (`Scene.pace`, MIMO_ACTION_SCALE), like Mimo's
 own steps. Nothing here searches for a path or edits a block. L5: BARRIERS keep a creature from
-some steps (hostiles from a warding lantern's reach).
+some steps (hostiles from a warding lantern's reach). W2: SLOWS make a walk, a flight or a chase take longer
+(`slowed`: rain and snow under the open sky, backend.survival.weather, as they slow Mimo's walks).
 """
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Callable
@@ -32,9 +34,15 @@ from backend.survival.creatures.kinds import Kind, huntable, kind_of
 from backend.survival.creatures.moves import move, roll, steps, where
 from backend.survival.creatures.table import Herd, dead
 from backend.survival.grid import Cell, Grid
+from backend.survival.once import log_once
+
+logger = logging.getLogger(__name__)
 
 FLEE_BLOCKS = 8
 SCARE_REACH = 6.0
+# W2: functions (scene, creature) -> how many times as long the creature's next move on foot takes (rain and snow
+# under the open sky: backend.survival.weather). One that crashes slows nothing (logged once).
+SLOWS: list = []
 CALM_SECONDS = 8.0
 FLEE_PAUSE = 0.5
 LEASH = 12.0
@@ -141,6 +149,17 @@ def pause(creature: dict, scene: Scene, pose: str, span: tuple[float, float], ch
     creature["next_at"] = scene.at + scene.between(creature, span, channel)
 
 
+def slowed(scene, creature: dict) -> float:
+    """How many times as long a walk, a flight or a chase by `creature` takes now (W2: SLOWS)."""
+    pace = 1.0
+    for slows in SLOWS:
+        try:
+            pace *= float(slows(scene, creature))
+        except Exception as error:
+            log_once(logger, "creature pace", error)
+    return pace
+
+
 # flee ------------------------------------------------------------------------------------------
 
 def run_away(creature: dict, kind: Kind, scene: Scene, danger: Cell) -> None:
@@ -156,7 +175,7 @@ def run_away(creature: dict, kind: Kind, scene: Scene, danger: Cell) -> None:
             break
         cells.append(best)
         cell = best
-    ends = move(creature, cells, scene.at, kind.speed / 2 / scene.pace, "fleeing")
+    ends = move(creature, cells, scene.at, kind.speed / 2 * slowed(scene, creature) / scene.pace, "fleeing")
     creature["next_at"] = ends + FLEE_PAUSE / scene.pace
     creature["state"]["calm_until"] = ends + CALM_SECONDS / scene.pace
 
@@ -225,7 +244,7 @@ def wander(creature: dict, kind: Kind, scene: Scene) -> None:
     if not cells:
         pause(creature, scene, "idle", IDLE_SECONDS, PAUSE)
         return
-    ends = move(creature, cells, scene.at, kind.speed / scene.pace, "walking")
+    ends = move(creature, cells, scene.at, kind.speed * slowed(scene, creature) / scene.pace, "walking")
     creature["next_at"] = ends + scene.between(creature, WANDER_PAUSE, PAUSE)
 
 

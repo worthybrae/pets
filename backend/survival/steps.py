@@ -73,6 +73,9 @@ HERBS = ("sunleaf",)
 # or None to leave it to the next and then to the rules below (a sunleaf's cure, backend.survival.ailments; a
 # wild pet's meals, backend.survival.meals). One that crashes is logged once and passed over.
 EATING: list = []
+# W2: functions (state, grid, cell) -> how many times as long a walk that starts at `cell` takes (backend.survival
+# .weather: rain and snow under the open sky). One that crashes is logged once and counts as 1.
+WALK_PACE: list = []
 # L5: functions (state, step, context, at) the brain calls after each step that finished well, before
 # curiosity looks over the step's events (brain.observe_step; backend.survival.ruins: ruins seen, an old
 # chest opened). One that crashes is logged once and skipped.
@@ -267,6 +270,17 @@ def nothing_happens(step: dict, state: dict, grid: Grid, at: float) -> None:
     return None
 
 
+def walk_pace(state: dict, grid: Grid, here: Cell) -> float:
+    """How many times as long a walk from `here` takes now (W2: WALK_PACE)."""
+    pace = 1.0
+    for slows in WALK_PACE:
+        try:
+            pace *= float(slows(state, grid, here))
+        except Exception as error:
+            log_once(logger, "walk pace", error)
+    return pace
+
+
 def start_walk(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> dict:
     """A walk along a route() to its target (or its next segment). `nodes`, set only by the engine
     on the spec it starts (L2: a fight step's own small search, backend.survival.actions), bounds
@@ -280,7 +294,7 @@ def start_walk(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
     # A walk marked `whole` goes all the way or not at all: part of the way can end in a pit.
     if not reached and (not cells or spec.get("whole")):
         raise StepFailed("no way there", "no_path")
-    path = timed_path(grid, here, cells, at, scale)
+    path = timed_path(grid, here, cells, at, scale / walk_pace(state, grid, here))
     return {"kind": "walk", "started_at": at, "ends_at": path[-1]["at"], "path": path,
             "target": as_point(target), "reach": reach, "reached": reached, "segments": segments,
             **({"whole": True} if spec.get("whole") else {})}

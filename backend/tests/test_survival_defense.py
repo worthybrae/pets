@@ -554,8 +554,11 @@ class HatchedWorldTests(unittest.TestCase):
                 blows.append(scene.at)
                 return real_hurt(scene, damage, source)
 
+            # W2 (the controller's ruling on the W2 dry run, 2): in the rain, which slows a walk under the open sky,
+            # Mimo's and its chasers' alike. Slowed alone, the unarmed pet took 37 blows fleeing the skitter at 60x.
             with patch("backend.survival.creatures.simulate.spawn_hostiles", lambda scene: []), \
-                    patch("backend.survival.creatures.hostiles.hurt_pet", counted):
+                    patch("backend.survival.creatures.hostiles.hurt_pet", counted), \
+                    patch("backend.survival.sky.weather_at", lambda seed, offset, segment: "rain"):
                 for call in range(1, calls + 1):
                     at = BORN + call * MAX_STEP_SECONDS / scale
                     started = time.perf_counter()
