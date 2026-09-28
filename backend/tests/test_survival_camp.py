@@ -36,7 +36,9 @@ class CampTests(unittest.TestCase):
     def test_at_dusk_it_digs_in_by_a_campfire_with_torches_and_roofs_itself_over(self):
         camp = PURPOSES["camp"]
         steps = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
-        self.assertEqual(steps, [{"kind": "place", "target": [102, 1, 1], "block": "campfire"},
+        # W2: a pet that knows the rain (a gentle one does) roofs its camp's fire first (W2 plan, resolution 22).
+        self.assertEqual(steps, [{"kind": "place", "target": [102, 2, 1], "block": "dirt"},
+                                 {"kind": "place", "target": [102, 1, 1], "block": "campfire"},
                                  {"kind": "place", "target": [100, 1, 1], "block": "torch"},
                                  {"kind": "place", "target": [101, 1, 2], "block": "torch"},
                                  {"kind": "mine", "target": [101, 0, 1]}])
@@ -58,6 +60,26 @@ class CampTests(unittest.TestCase):
         self.pet.state["brain"]["purpose"] = "gather_stone"
         dig = [{"kind": "mine", "target": [101, -1, 1]}]  # a staircase down from the hole
         self.assertEqual(leave_camp(self.pet.situation(MORNING), dig), [{"kind": "mine", "target": [101, 1, 1]}, *dig])
+
+    def test_w2_a_pet_that_knows_the_rain_roofs_its_camps_fire_so_the_rain_leaves_it_lit(self):
+        """W2 plan, resolution 22: on the W2 gate a taught pet's camp fire went out in a thunderstorm as it dug in on
+        the heights, and it froze by morning. A pet that knows the rain puts a block over its camp's fire first."""
+        from types import SimpleNamespace
+        from backend.survival.rain import douse
+        from backend.tests.test_survival_wild_gates import wild
+
+        def rained_on(lessons):
+            pet = Expedition()
+            with patch("backend.survival.expedition.terrain_height", FLAT):
+                pet.set_out()
+            pet.go(101, 1)
+            s = wild(pet.situation(DUSK), "shelter", "light", "fire", *lessons)
+            pet.world.carry_out(PURPOSES["camp"].plan(s, pet.context(DUSK)))
+            state = {**pet.state, "sky": {"weather": "rain"}}
+            douse(state, SimpleNamespace(grid=pet.world.grid, events=[], db=None), 1.0)
+            return pet.world.grid.material(102, 1, 1), pet.world.grid.material(102, 2, 1)
+        self.assertEqual(rained_on(()), ("campfire_out", "air"))  # no roof: the rain puts it out
+        self.assertEqual(rained_on(("rain",)), ("campfire", "dirt"))
 
     def test_it_goes_back_to_an_outpost_near_it(self):
         self.pet.world.grid.put(110, 0, 1, "air")  # an old camp's hole, its roof off
@@ -93,7 +115,8 @@ class CampLoopFixTests(unittest.TestCase):
         self.pet.world.grid.put(102, 1, 1, "berry_bush_ripe")  # the nearest ground spot: not free to build on
         camp = PURPOSES["camp"]
         steps = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
-        self.assertEqual(steps, [{"kind": "place", "target": [100, 1, 1], "block": "campfire"},
+        self.assertEqual(steps, [{"kind": "place", "target": [100, 2, 1], "block": "dirt"},  # W2: the fire's roof
+                                 {"kind": "place", "target": [100, 1, 1], "block": "campfire"},
                                  {"kind": "place", "target": [101, 1, 2], "block": "torch"},
                                  {"kind": "place", "target": [101, 1, 0], "block": "torch"},
                                  {"kind": "mine", "target": [101, 0, 1]}])
@@ -103,7 +126,7 @@ class CampLoopFixTests(unittest.TestCase):
     def test_a_campfire_or_torch_already_standing_is_counted_not_placed_again(self):
         camp = PURPOSES["camp"]
         first = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
-        self.pet.world.carry_out(first[:1])  # only the campfire went down before the batch was cut short
+        self.pet.world.carry_out(first[:2])  # only the campfire (and, W2, its roof) went down before the batch was cut short
         again = camp.plan(self.pet.situation(DUSK), self.pet.context(DUSK))
         self.assertEqual(again, [{"kind": "place", "target": [100, 1, 1], "block": "torch"},
                                  {"kind": "place", "target": [101, 1, 2], "block": "torch"},

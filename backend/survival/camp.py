@@ -232,6 +232,22 @@ def campfire_made(s: Situation) -> tuple[list[dict], dict]:
     return s.sensed("camp campfire made", look)
 
 
+def fire_cover(s: Situation, inventory: dict, spot: Cell, fire: Cell) -> str | None:
+    """W2: for a pet that knows the rain (`wild:rain`), a building block to roof its camp's campfire at `fire` with,
+    as rain.roofed_first puts cook's and warm_up's fires under a roof: one it can spare from the hole's own roof (a
+    second of the stack, or the last when the block it digs out will roof the hole), and a free cell over the fire.
+    On the W2 gate a taught pet camped out in a thunderstorm on autumn's last night; the rain put its camp's fire out
+    as it dug in, and it froze by morning (W2 plan, resolution 22)."""
+    if not unlocked(s, "rain"):
+        return None
+    block = next((block for block in BUILDING if inventory.get(block, 0) > 0), None)
+    x, y, z = spot
+    fx, fy, fz = fire
+    if block is None or not is_replaceable(s.grid.material(fx, fy + 1, fz)):
+        return None
+    return block if inventory[block] >= 2 or dug_block(s.grid.material(x, y - 1, z)) is not None else None
+
+
 def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
     """The steps that make and put down the campfire and CAMP_TORCHES torches on the ground beside
     `spot`, and Mimo's arms once they are done. Fix round 1, Critical 1a: a campfire or torches
@@ -249,7 +265,14 @@ def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
         crafting, crafted = campfire_made(s)
         steps, inventory = list(crafting), dict(crafted)
         if lights and inventory.get("campfire", 0) > 0 and unlocked(s, "fire"):
-            steps.append({"kind": "place", "target": list(lights.pop(0)), "block": "campfire"})
+            fire = lights.pop(0)
+            cover = fire_cover(s, inventory, spot, fire)
+            if cover is not None:  # W2: the roof goes on first, so the rain never finds the fire uncovered
+                steps.append({"kind": "place", "target": [fire[0], fire[1] + 1, fire[2]], "block": cover})
+                inventory[cover] -= 1
+                if not inventory[cover]:
+                    del inventory[cover]
+            steps.append({"kind": "place", "target": list(fire), "block": "campfire"})
             inventory["campfire"] -= 1
     torches_wanted = max(0, CAMP_TORCHES - lit_near(s, spot, "torch")) if unlocked(s, "light") else 0  # W1
     for cell in lights[:min(torches_wanted, inventory.get("torch", 0))]:
