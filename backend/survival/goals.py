@@ -144,6 +144,9 @@ class Goal:
 
 
 GOALS: dict[str, Goal] = {}
+# W2: functions of (Situation, Goal) that keep a goal from being offered, or kept, now (backend.survival.winter_prep:
+# no expedition or riches trip in winter for a pet that knows winter).
+HELD_OFF: list = []
 
 
 def register_goal(goal: Goal) -> Goal:
@@ -209,7 +212,7 @@ def is_open(s: Situation, goal: Goal) -> bool:
     once)."""
     if not counted(goal) or (goal.name in reached(s) and not goal.repeat) or not goal_open(goal.name, s):  # W1
         return False
-    if not all(settled(s, name) for name in goal.after):
+    if not all(settled(s, name) for name in goal.after) or held_off(s, goal):
         return False
     try:
         valid = bool(goal.valid(s))
@@ -217,6 +220,18 @@ def is_open(s: Situation, goal: Goal) -> bool:
         log_once(logger, f"goal {goal.name} validity", error)
         return False
     return valid and not complete(s, goal)
+
+
+def held_off(s: Situation, goal: Goal) -> bool:
+    """W2: one of HELD_OFF keeps the goal from being offered or kept now; one that crashes holds nothing off
+    (logged once)."""
+    for holds in HELD_OFF:
+        try:
+            if holds(s, goal):
+                return True
+        except Exception as error:
+            log_once(logger, "goal held off", error)
+    return False
 
 
 def holding(s: Situation, goal: Goal) -> bool:

@@ -59,7 +59,8 @@ from backend.survival.blueprints import BUILDING
 from backend.survival.building import current_shelter, structures_near, usable_supplies
 from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STACK, full, room_for, stacks
 from backend.survival.cooking import RAW_FOODS, made
-from backend.survival.foraging import FOOD_WANTED, whole_walk
+from backend.survival import sky
+from backend.survival.foraging import FOOD_WANTED, hunger_score, whole_walk
 from backend.survival.goals import ADVANCES
 from backend.survival.housework import chest_key
 from backend.survival.once import log_once
@@ -81,6 +82,11 @@ logger = logging.getLogger(__name__)
 STORE_FROM = 13  # stacks from which putting things away is worth a trip home
 DROP_FROM = 10
 TAKE_BELOW = 20.0  # hunger points of food carried below which Mimo takes food out
+# W2: in winter the chest is where the food is (bushes and crops wait for spring, herds thin, lakes freeze), so taking
+# food out while Mimo carries less than TAKE_BELOW scores as food work does, from this base (forage's is 35). On the
+# gate's third run a gentle pet with 740 hunger points in its chests went foraging bare winter land 58 blocks from home
+# and starved 24 game minutes.
+WINTER_TAKE = 40.0
 STORE_STEPS = 8
 # What Mimo keeps on it of each material; the rest goes into the chest. Items not listed (tools,
 # stations, food up to a day's worth) stay with Mimo.
@@ -506,6 +512,8 @@ def storage_facts(s: Situation) -> str:
 
 def storage_score(s: Situation) -> float:
     cell = chest_spot(s)
+    if sky.winter(s.state) and carried_food(s) < TAKE_BELOW and to_take(s):  # W2
+        return max(55.0, hunger_score(s, WINTER_TAKE))
     if chest_placed(s, cell) and to_take(s) and stacks(s.inventory) < STORE_FROM:
         return 55.0
     return 50.0 + 5.0 * max(0, stacks(s.inventory) - STORE_FROM) + (5.0 if s.state.get("full_at") else 0.0)

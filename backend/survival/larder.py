@@ -14,17 +14,23 @@ stock_larder is offered only while the full larder is Mimo's goal, by day, at th
 built: to put the chest in, or with spare food carried and room in the chest. Work band: 55 plus
 a tenth of thrift. The goal's rules score is 45 plus a tenth of thrift, 15 more when Mimo is
 hungry.
+
+W2: another goal may fill the larder its own way (TARGETS: "Ready for winter", backend.survival.winter_prep,
+wants WINTER_FOOD of food that will still be good in the winter, and more of it on hand): stock_larder and the
+food Mimo wants on hand then follow that goal's target (`target_of`).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Callable
 
 from backend.survival import foraging
 from backend.survival.carrying import CHEST_STACKS, crafts_fit, room_for
 from backend.survival.cooking import made
 from backend.survival.foraging import whole_walk
 from backend.survival.goals import Goal, Milestone, active, register_goal
+from backend.survival.once import log_once
 from backend.survival.life_goals import home_structure, whole
 from backend.survival.purposes import Purpose, foods, register
 from backend.survival.situation import Situation
@@ -35,10 +41,16 @@ from backend.survival.structures import blueprint_of, clearing
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
+logger = logging.getLogger(__name__)
+
 GOAL = "full_larder"
 LARDER_FOOD = 60.0  # hunger points of food in the chests that make a full larder: a day's worth
 LARDER_EXTRA = 40.0  # at most this much more food Mimo wants on hand while it fills the larder
 FED = 50.0  # hunger from which Mimo gathers for the larder
+# W2: functions (Situation, goal) giving (the food the chests should hold, how the chests' food is measured, the
+# most food Mimo wants on hand beyond a day's) while `goal` fills the larder its own way, or None
+# (backend.survival.winter_prep). One that crashes counts as None (logged once).
+TARGETS: list = []
 
 
 def chest_food(s: Situation) -> float:
@@ -49,16 +61,36 @@ def chest_food(s: Situation) -> float:
                if not ruin_chest_key(s.seed, key) for item in foods(chest, s.poisons))
 
 
-def filling(s: Situation) -> bool:
+def target_of(s: Situation) -> tuple[float, Callable[[Situation], float], float] | None:
+    """(the food the chests should hold, how it is measured, the most more Mimo wants on hand) while Mimo's goal
+    fills the larder, else None."""
     goal = active(s)
-    return goal is not None and goal.name == GOAL
+    if goal is None:
+        return None
+    if goal.name == GOAL:
+        return LARDER_FOOD, chest_food, LARDER_EXTRA
+    for aim in TARGETS:
+        try:
+            found = aim(s, goal)
+        except Exception as error:
+            log_once(logger, "larder target", error)
+            continue
+        if found is not None:
+            return found
+    return None
+
+
+def filling(s: Situation) -> bool:
+    return target_of(s) is not None
 
 
 def more_food(s: Situation) -> float:
     """Food beyond a day's worth Mimo wants on hand while it fills the larder and is not hungry."""
-    if not filling(s) or s.vitals["hunger"] < FED:
+    found = target_of(s)
+    if found is None or s.vitals["hunger"] < FED:
         return 0.0
-    return min(LARDER_EXTRA, max(0.0, LARDER_FOOD - chest_food(s)))
+    target, measure, extra = found
+    return min(extra, max(0.0, target - measure(s)))
 
 
 foraging.MORE_FOOD.append(more_food)
@@ -89,7 +121,8 @@ def chest_steps(s: Situation) -> list[dict] | None:
 
 
 def stock_valid(s: Situation) -> bool:
-    if s.night or not filling(s) or chest_spot(s) is None or chest_food(s) >= LARDER_FOOD:
+    found = target_of(s)
+    if s.night or found is None or chest_spot(s) is None or found[1](s) >= found[0]:
         return False
     steps = chest_steps(s)
     return steps is not None and (bool(steps) or bool(larder_moves(s)))
@@ -110,8 +143,8 @@ register(Purpose(
     "stock_larder", "stock the larder",
     "Carry spare food home and keep it in the chest, so a hungry day never turns into starving.",
     valid=stock_valid,
-    facts=lambda s: f"{round(chest_food(s))} of {round(LARDER_FOOD)} hunger of food in the chest; "
-                    f"{sum(amount for _, amount in larder_moves(s))} spare food carried",
+    facts=lambda s: f"{round(chest_food(s))} of {round((target_of(s) or (LARDER_FOOD,))[0])} hunger of food in the "
+                    f"chest; {sum(amount for _, amount in larder_moves(s))} spare food carried",
     score=lambda s: 55.0 + s.trait("thrift") / 10, plan=plan_stock,
     thoughts=("Some for now, some for later.", "A full chest means no hungry nights.")))
 

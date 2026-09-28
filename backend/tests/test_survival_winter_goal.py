@@ -1,0 +1,130 @@
+"""W2: "Ready for winter": when it is offered, how it wins the autumn's goal choice, the food that counts for it and
+stock_larder serving it."""
+
+import unittest
+from unittest.mock import patch
+
+from backend.survival import brain  # noqa: F401  (registers every purpose and goal)
+from backend.survival.clock import DAY_SECONDS, clock_at
+from backend.survival.goals import GOALS, adopt_goal, is_open, rules_score
+from backend.survival.home import home_cell
+from backend.survival.housework import chest_key
+from backend.survival.larder import more_food
+from backend.survival.memory import know
+from backend.survival.purposes import PURPOSES
+from backend.survival.situation import Situation
+from backend.survival.storage import chest_spot
+from backend.survival.trips import FENCES
+from backend.survival.winter_prep import (
+    GOAL, WINTER_EXTRA, WINTER_FOOD, far_goal, winter_fence, winter_food, winter_pull,
+)
+from backend.tests.test_survival_life_goals import built
+
+WINTER = GOALS[GOAL]
+
+
+def on_day(world, day, seconds=1000.0):
+    """A Situation of the built world on game day `day` (born at 0, scale 1): day 21 is autumn day 1."""
+    world.state.setdefault("born_at", 0.0)
+    at = (day - 1) * DAY_SECONDS + seconds
+    return Situation(world.state, world.grid, clock_at(0.0, at, 1.0), at, world.db)
+
+
+def stocked(world, food):
+    cell = chest_spot(on_day(world, 21))
+    world.grid.put(*cell, "chest")
+    world.state["chests"] = {chest_key(cell): food}
+    return cell
+
+
+class OfferTests(unittest.TestCase):
+    def test_it_is_offered_in_autumn_to_a_pet_with_a_built_home_that_knows_winter(self):
+        world = built()
+        self.assertEqual([is_open(on_day(world, day), WINTER) for day in (11, 20, 21, 30, 31, 61, 71)],
+                         [False, False, True, True, False, True, False])
+        self.assertTrue(70 <= WINTER.score(on_day(world, 21)) <= 80)
+        world.state["difficulty"] = "wild"
+        self.assertFalse(is_open(on_day(world, 21), WINTER))
+        know(world.db, "wild:winter", "lesson", 0.0)
+        self.assertTrue(is_open(on_day(world, 21), WINTER))
+
+    def test_the_autumn_pulls_it_past_a_goal_the_rules_would_keep(self):
+        world = built({"wooden_pickaxe": 1})
+        adopt_goal(world.state, "iron_tools", "utility", "", 0.0)
+        s = on_day(world, 21)
+        self.assertGreater(rules_score(s, WINTER), rules_score(s, GOALS["iron_tools"]))
+        self.assertEqual(winter_pull(on_day(world, 15), WINTER), (0.0, ""))  # summer: no pull
+        self.assertEqual(winter_pull(s, WINTER), (100.0, "winter comes in 10 days"))
+
+    def test_in_winter_a_pet_that_knows_winter_keeps_near_the_home_it_built(self):
+        world = built()
+        winter, autumn = on_day(world, 31), on_day(world, 21)
+        x, y, z = home_cell(winter)
+        far, near = (x + 100, y, z), (x + 50, y, z)
+        self.assertEqual([far_goal(s, GOALS[name]) for s in (winter, autumn) for name in ("expedition", "frontier", GOAL)],
+                         [True, True, False, False, False, False])
+        self.assertFalse(is_open(winter, GOALS["expedition"]))
+        self.assertEqual([winter_fence(winter, far), winter_fence(winter, near), winter_fence(autumn, far)],
+                         [True, False, False])
+        with patch("backend.survival.winter_prep.biome_at", return_value="alpine"):
+            self.assertTrue(winter_fence(winter, near))  # a winter day in the mountains freezes
+        self.assertIn(winter_fence, FENCES)
+        world.state["difficulty"] = "wild"  # a wild pet that does not know winter roams as ever
+        self.assertEqual((far_goal(on_day(world, 31), GOALS["expedition"]), winter_fence(on_day(world, 31), far)),
+                         (False, False))
+
+    def test_a_goal_whose_lesson_mimo_does_not_know_is_whole_for_it(self):
+        world = built()
+        world.state["difficulty"] = "wild"
+        know(world.db, "wild:winter", "lesson", 0.0)
+        s = on_day(world, 21)
+        self.assertEqual([milestone.share(s) for milestone in WINTER.milestones[1:]], [1.0, 1.0, 1.0])
+
+
+class FoodTests(unittest.TestCase):
+    def test_a_gentle_pets_chest_food_all_counts(self):
+        world = built()
+        stocked(world, {"cooked_beef": 6, "bread": 4, "nightberries": 3})  # it knows nightberries from the start
+        self.assertEqual(winter_food(on_day(world, 22)), 6 * 35 + 4 * 25)
+
+    def test_a_wild_pets_counts_only_the_food_still_good_on_winter_day_five(self):
+        world = built()
+        world.state["difficulty"] = "wild"
+        cell = stocked(world, {"cooked_beef": 4, "bread": 2})
+        # cooked beef keeps 4 game days in arms, 8 in a chest; from autumn day 5 (6 days to winter) it ages
+        # 6 x 0.5 + 4 x 0.5 / 3 = 3.67 game days of its 4 by winter day 5: only a lot under 0.08 worn keeps.
+        world.state["chest_lots"] = {chest_key(cell): {"cooked_beef": [[1, 0.0], [3, 0.5]], "bread": [[2, 0.1]]}}
+        self.assertEqual(winter_food(on_day(world, 25, 0.0)), 35 + 2 * 25)
+        # good on winter day 1 (the W2 gate's measure): 6 x 0.5 = 3 game days of 4, so a lot under 0.25 worn
+        self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=0), 35 + 2 * 25)
+        self.assertEqual(winter_food(on_day(world, 29, 0.0), good_until=0), 4 * 35 + 2 * 25)
+
+
+class LarderTests(unittest.TestCase):
+    def test_stock_larder_fills_the_chests_to_the_winters_target(self):
+        world = built({"cooked_fish": 5})
+        adopt_goal(world.state, GOAL, "utility", "", 0.0)
+        stocked(world, {"cooked_beef": 3})
+        s = on_day(world, 22)
+        self.assertEqual(more_food(s), WINTER_EXTRA)
+        self.assertTrue(PURPOSES["stock_larder"].valid(s))
+        self.assertIn(f"105 of {round(WINTER_FOOD)} hunger", PURPOSES["stock_larder"].facts(s))
+        world.state["chests"] = {key: {"cooked_beef": 11} for key in world.state["chests"]}
+        full = on_day(world, 22)
+        self.assertFalse(PURPOSES["stock_larder"].valid(full))
+        self.assertEqual(more_food(full), 0.0)
+
+    def test_in_winter_a_pet_short_of_food_goes_to_its_chest_before_it_forages(self):
+        world = built()
+        stocked(world, {"cooked_beef": 11})
+        world.state["vitals"]["hunger"] = 40.0
+        autumn = on_day(world, 22)
+        self.assertEqual(PURPOSES["build_storage"].score(autumn), 55.0)
+        world.state["sky"] = {"season": "winter"}
+        s = on_day(world, 32)
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        self.assertGreater(PURPOSES["build_storage"].score(s), PURPOSES["forage"].score(s))
+
+
+if __name__ == "__main__":
+    unittest.main()
