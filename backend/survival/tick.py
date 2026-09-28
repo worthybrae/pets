@@ -39,7 +39,8 @@ and its food ages (backend.survival.spoilage.age).
 W2: a world from before W2 gets its year's offset on its first tick (backend.survival.sky.settle_sky), and before
 each step the sky is tended (sky.advance: the season, then its effects), so a long catch-up plays the seasons in
 time order; the season sets the warmth Mimo drifts toward (Surroundings.season), and falling snow takes some off
-outdoors (Surroundings.snowing; backend.survival.weather's other effects register themselves). Lightning or a
+outdoors (Surroundings.snowing; backend.survival.weather's other effects register themselves); a wool cloak
+Mimo wears (wild.cloaked) adds warmth (Surroundings.cloak). Lightning or a
 fire (backend.survival.storms) that takes Mimo's last health kills it ("was struck by lightning", "was caught in a
 fire"), and while a fire burns beside Mimo the steps are short, as near a hostile.
 """
@@ -72,7 +73,7 @@ from backend.survival.signals import run_signals
 from backend.survival.vitals import (
     FIRE_REACH, FREEZING_BELOW, WARM_BLOCKS, Surroundings, is_sheltered, near_warm_block, step_vitals,
 )
-from backend.survival.wild import settle
+from backend.survival.wild import cloaked, settle
 from backend.survival.world import SurvivalWorld, log_event, placed_near, read_state, write_state
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ def surroundings_at(db: sqlite3.Connection, seed: str, position: dict, state: di
         head_in_water=material_at(x, y, z) == "water",
         season=sky.season_now(state) if state is not None else "spring",
         snowing=state is not None and sky.weather_now(state) == "snow",
+        cloak=state is not None and cloaked(state, db),
     )
 
 

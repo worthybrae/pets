@@ -20,11 +20,13 @@ there is raw food it can cook now, with room to carry what it makes, and scores 
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from backend.services.crafting import COOKING, FIRES
 from backend.survival.carrying import crafts_fit
 from backend.survival.grid import Cell
+from backend.survival.once import log_once
 from backend.survival.foraging import whole_walk
 from backend.survival.purposes import Purpose, register
 from backend.survival.rain import relight_steps, roofed_first
@@ -81,19 +83,38 @@ def light_fire(s: Situation, inventory: dict, spots, steps: list[dict], placed: 
     """Put down a fire to cook on: a carried campfire or furnace, or a campfire made now; W1: a wild pet that
     does not know `wild:fire` only puts down a furnace it carries."""
     if unlocked(s, "fire"):
-        return station(inventory, "campfire", spots, steps, placed, FIRES)
+        return station(inventory, "campfire", spots, steps, placed, ("campfire", "furnace"))  # W2: never a hearth
     return inventory.get("furnace", 0) > 0 and station(inventory, "furnace", spots, steps, placed, ("furnace",))
 
 
+logger = logging.getLogger(__name__)
+# W2: functions of the Situation giving the raw foods cook leaves alone now (backend.survival.winter_gear: the meat a
+# wild pet smokes for the winter instead). One that crashes spares nothing (logged once).
+SPARED: list = []
+
+
+def spared(s: Situation) -> frozenset[str]:
+    found: set[str] = set()
+    for spare in SPARED:
+        try:
+            found.update(spare(s))
+        except Exception as error:
+            log_once(logger, "cook spared", error)
+    return frozenset(found)
+
+
 def cook_plan(s: Situation) -> list[dict] | None:
-    """The steps that cook the raw food Mimo carries, or None when it cannot cook any now."""
+    """The steps that cook the raw food Mimo carries (but what SPARED leaves alone), or None when it cannot cook any
+    now."""
     inventory = dict(s.inventory)
     x, _, z = s.here
     near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
     spots = roofed_first(s, station_spots(s))
     steps: list[dict] = []
     placed: list[Cell] = []
-    raw = [(item, inventory[item]) for item in RAW_FOODS if inventory.get(item, 0) > 0] if unlocked(s, "cooking") else []
+    left = spared(s)
+    raw = ([(item, inventory[item]) for item in RAW_FOODS if inventory.get(item, 0) > 0 and item not in left]
+           if unlocked(s, "cooking") else [])
     relit = relight_steps(s, STATION_REACH) if raw and not near.intersection(FIRES) and unlocked(s, "fire") else []
     if relit:
         steps.extend(relit)

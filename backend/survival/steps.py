@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 
 REACH = 4.0
 STATION_REACH = 6.0
-WORKSTATIONS = ("crafting_table", "furnace", "campfire", "kiln")  # Making: the kiln fires bricks and glass
+WORKSTATIONS = ("crafting_table", "furnace", "campfire", "kiln",  # Making: the kiln fires bricks and glass
+                "hearth")  # W2: cooks and smokes like a campfire
 PLACE_SECONDS = 0.3
 EAT_SECONDS = 1.6
 CRAFT_SECONDS = 1.0
@@ -54,7 +55,8 @@ FOOD = {"berries": 8.0, "brown_mushroom": 6.0, "red_mushroom": 6.0, "carrot": 10
         # L1: meat from hunting. Raw it fills little; cooked at a fire it fills far more.
         "raw_beef": 8.0, "raw_mutton": 8.0, "raw_chicken": 6.0, "raw_rabbit": 6.0,
         "cooked_beef": 35.0, "cooked_mutton": 30.0, "cooked_chicken": 25.0, "cooked_rabbit": 25.0,
-        "nightberries": 8.0, "spoiled_food": 4.0}  # W1: nightberries fill like berries, and are poison
+        "nightberries": 8.0, "spoiled_food": 4.0,  # W1: nightberries fill like berries, and are poison
+        "smoked_meat": 20.0}  # W2: it never spoils (backend.survival.winter_gear)
 # Health a food changes when eaten: a red mushroom is poisonous. Poison never takes the last point
 # of health (it is not a cause of death).
 FOOD_HEALTH = {"red_mushroom": -10.0, "nightberries": -10.0}  # W1: nightberries, as a gentle pet would

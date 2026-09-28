@@ -123,7 +123,8 @@ FITTING_LESSONS = {"bed": "bed", "campfire": "fire", "door": "shelter"}
 # cooking), and the foods it has to try first: the red berries (bright red berries and nightberries, one
 # group to a pet that does not know nightberries yet) and red mushrooms (backend.survival.meals).
 FAMILIAR = ("apple", "carrot", "bread", "brown_mushroom", "raw_fish", "cooked_fish", "raw_beef", "raw_mutton",
-            "raw_chicken", "raw_rabbit", "cooked_beef", "cooked_mutton", "cooked_chicken", "cooked_rabbit")
+            "raw_chicken", "raw_rabbit", "cooked_beef", "cooked_mutton", "cooked_chicken", "cooked_rabbit",
+            "smoked_meat")  # W2: what it smoked itself
 RED_BERRIES = ("berries", "nightberries")
 BERRY_BUSHES = ("berry_bush_ripe", "nightberry_bush_ripe")
 NIGHTBERRIES = ("nightberries", "nightberry_bush_ripe")
@@ -261,6 +262,16 @@ def facts_of(db: sqlite3.Connection, subjects: tuple[str, ...]) -> dict[str, set
     for subject, fact in rows:
         found.setdefault(subject, set()).add(fact)
     return found
+
+
+def cloaked(state: dict, db: sqlite3.Connection | None) -> bool:
+    """W2: Mimo wears a wool cloak: it carries one and (a wild pet) knows `wild:cloak`, which unlocks wearing it."""
+    if state.get("inventory", {}).get("wool_cloak", 0) < 1:
+        return False
+    if not is_wild(state):
+        return True
+    return db is not None and db.execute("SELECT 1 FROM memory_knowledge WHERE subject=? AND fact=?",
+                                         (thing("cloak"), LESSON)).fetchone() is not None
 
 
 def survival_view(db: sqlite3.Connection) -> list[dict]:

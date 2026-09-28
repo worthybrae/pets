@@ -40,11 +40,15 @@ CHEST_STACKS = 24
 # project wants is still a loose block drop_items leaves behind (storage.LEAST_USEFUL).
 LOW_VALUE = ("moss", "gravel", "sand", "dirt", "basalt", "limestone", "sandstone", "cobblestone")
 VALUABLE = ("seeds", "sapling", "wheat", "coal", "bow", "arrow", "leather_cap", "leather_tunic")  # L2: gear
+# W2: worn, not carried: the wool cloak takes no stack. Kept on Mimo like its armor, it would otherwise fill a
+# stack for good, and a pet with full arms can dig no cobblestone (Making's full-arms stall: measured on the
+# gate's route runs, seed 5 carried 16 stacks with its cloak and never finished its computer).
+WORN = frozenset({"wool_cloak"})
 
 
 def stacks(items: dict[str, int]) -> int:
-    """How many stacks `items` fill."""
-    return sum(math.ceil(count / STACK) for count in items.values() if count > 0)
+    """How many stacks `items` fill (a worn cloak fills none)."""
+    return sum(math.ceil(count / STACK) for item, count in items.items() if count > 0 and item not in WORN)
 
 
 def room_for(items: dict[str, int], item: str, limit: int) -> int:

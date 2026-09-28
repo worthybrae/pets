@@ -43,7 +43,7 @@ EXHAUSTED_BELOW = 10.0
 SHELTER_BONUS = 45.0
 SHELTER_REACH = 4
 FIRE_REACH = 4
-WARM_BLOCKS = ("campfire", "furnace")
+WARM_BLOCKS = ("campfire", "furnace", "hearth")  # W2: a hearth warms like a furnace
 ACTIVITIES = ("idle", "working", "sleeping", "sleeping_in_bed")
 # W2: outdoor warmth by season, (by day, by night), before shelter, cloak and fire (backend.survival.sky).
 SEASON_WARMTH = {"spring": (100.0, 30.0), "summer": (100.0, 45.0), "autumn": (85.0, 20.0), "winter": (45.0, -10.0)}

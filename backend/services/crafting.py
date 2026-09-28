@@ -109,6 +109,11 @@ RECIPES.update({
     "lamp": {"ingredients": {"copper_ingot": 1, "torch": 1}, "output": {"lamp": 1}, "station": "crafting_table"},
     "bell": {"ingredients": {"copper_ingot": 2, "sticks": 1}, "output": {"bell": 1}, "station": "crafting_table"},
 })
+# W2: a wool cloak for the snow and a stone hearth for the home (backend.survival.winter_gear).
+RECIPES.update({
+    "wool_cloak": {"ingredients": {"wool": 5}, "output": {"wool_cloak": 1}, "station": "crafting_table"},
+    "hearth": {"ingredients": {"cobblestone": 8, "campfire": 1}, "output": {"hearth": 1}, "station": "crafting_table"},
+})
 # Any wood does where a recipe asks for oak (L3): birch and spruce logs stand in for an oak log, and
 # their planks for plain planks. A recipe takes the item it names first, then its stand-ins in order.
 LOGS = ("oak_log", "birch_log", "spruce_log")
@@ -125,7 +130,7 @@ COOKING = frozenset({"raw_fish", "raw_beef", "raw_mutton", "raw_chicken", "raw_r
 # Making: a kiln fires clay into bricks and sand into glass and burns no fuel (a furnace still does both,
 # with fuel).
 KILN_FIRED = frozenset({"clay", "sand"})
-FIRES = ("campfire", "furnace")
+FIRES = ("campfire", "furnace", "hearth")  # W2: a hearth cooks like a campfire
 
 
 def add_item(inventory: dict[str, int], item: str, amount: int = 1) -> None:

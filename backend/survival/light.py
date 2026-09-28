@@ -24,7 +24,7 @@ SKY_NIGHT = 4
 DARK = 7  # hostiles spawn only where the light is this or less
 BLOCK_LIGHT = {"torch": 14, "lantern": 15, "campfire": 13, "furnace": 13,
                "candle": 12, "lamp_lit": 15,  # Making: candles, and a lamp while it is lit
-               "fire": 13}  # W2: a fire in the trees
+               "fire": 13, "hearth": 13}  # W2: a fire in the trees, and a hearth
 LIGHT_REACH = max(BLOCK_LIGHT.values())  # the farthest any block light carries
 # Cells over the natural ground (or the cell, when it is higher) that can cover a cell: 8, and in any
 # case more than the highest tree or rock the generator makes (L3).

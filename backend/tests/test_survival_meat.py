@@ -108,7 +108,8 @@ class SwordTests(unittest.TestCase):
 
 class LeftoversTests(unittest.TestCase):
     def test_hides_wool_and_feathers_are_put_away_and_a_meal_of_meat_is_kept(self):
-        home = Home({"leather": 7, "wool": 3, "feather": 6, "rabbit_hide": 9, "raw_beef": 1}, chest={})
+        # W2: with its cloak made (a pet that wants one keeps its wool: backend.survival.winter_gear)
+        home = Home({"leather": 7, "wool": 3, "feather": 6, "rabbit_hide": 9, "raw_beef": 1, "wool_cloak": 1}, chest={})
         self.assertEqual(storage.to_store(home.situation(), home.chest),  # L2 keeps 5 leather, 4 feathers, 8 hides
                          [("wool", 3), ("feather", 2), ("leather", 2), ("rabbit_hide", 1)])
 
