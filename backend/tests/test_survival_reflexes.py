@@ -62,7 +62,8 @@ class ReflexTests(unittest.TestCase):
         self.assertEqual([(reflex.name, reflex.priority) for reflex in REFLEXES],
                          [("surface", 10), ("avoid_drop", 20), ("flee_fire", 25), ("flee", 30), ("eat_now", 40),
                           ("fight", 40), ("fence", 45), ("take_herb", 45), ("warm_up", 50), ("turn_back", 55),
-                          ("head_home", 60), ("collapse", 70)])  # W1: take_herb; W2: flee_fire (sky_reflexes)
+                          ("take_cover", 58), ("head_home", 60), ("collapse", 70)])
+        # W1: take_herb; W2: flee_fire and take_cover (backend.survival.sky_reflexes)
 
     def test_collapse_sets_the_plan_aside_and_gives_it_back(self):
         state = pet(vitals={**START_VITALS, "energy": 5.0})

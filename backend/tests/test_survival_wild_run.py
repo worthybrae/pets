@@ -19,6 +19,7 @@ from backend.scripts.wild_gate import (
 )
 from backend.survival.hatch import hatch
 from backend.survival.registry import LifeRegistry
+from backend.survival.wild import SURVIVAL
 from backend.survival.world import SurvivalWorld
 from backend.tests.no_model import no_model
 
@@ -58,8 +59,9 @@ class WildRunTests(unittest.TestCase):
         self.assertIsNone(taught["died_day"])
         self.assertGreaterEqual(len(untaught["questions"]), 3)
         self.assertLessEqual(untaught["open_most"], 3)
-        self.assertEqual(len(taught["lessons"]), 11)
-        self.assertTrue(all(entry["day"] < 2 for entry in taught["lessons"].values()), taught["lessons"])
+        w1 = [lesson.name for lesson in SURVIVAL[:11]]  # W2: its questions may teach it some of W2's too
+        self.assertLessEqual(set(w1), set(taught["lessons"]))
+        self.assertTrue(all(taught["lessons"][name]["day"] < 2 for name in w1), taught["lessons"])
 
     @unittest.skipUnless(os.environ.get("MIMO_SLOW_TESTS"), "a slow run: set MIMO_SLOW_TESTS=1")
     def test_twenty_days_untaught_is_sicker_and_taught_lives(self):

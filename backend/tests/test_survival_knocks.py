@@ -52,7 +52,8 @@ class KnockTests(unittest.TestCase):
         self.assertFalse(sure(state, context.db, context.events, 6.0, "cooking"))  # once
 
     def test_the_table_of_knocks(self):
-        self.assertEqual({name: (rule.first, rule.step) for name, rule in KNOCKS.items()},
+        w2 = ("winter", "cloak", "hearth", "smoking", "rain", "storm", "fog")  # W2's (test_survival_sky_wild)
+        self.assertEqual({name: (rule.first, rule.step) for name, rule in KNOCKS.items() if name not in w2},
                          {"nightberries": (0.30, 0.15), "fire": (0.20, 0.15),
                           "cooking": (0.30, 0.15), "keeping": (0.25, 0.15), "light": (0.15, 0.10),
                           "shelter": (0.30, 0.20), "bed": (0.15, 0.10)})

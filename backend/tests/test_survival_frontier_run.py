@@ -66,6 +66,12 @@ GEAR = {"stone_sword": 1, "leather_cap": 1, "leather_tunic": 1, "bow": 1, "arrow
 UNGEARED = {"stone_sword": 1, "bread": 6, "cooked_beef": 4}
 FAR_LOOT = {item for item, *_ in LOOT[2]} - {item for item, *_ in LOOT[1]}  # what only the far wilds' ruins hold
 CLOCK = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
+# W2: the runs are under clear skies. A storm or fog sends a pet that knows them home and fog starts no trip
+# (backend.survival.sky_reflexes), and in slow mode seed 11's geared pet, sent home out of the weather five times,
+# set its riches goal aside on day 2 with nothing to do for it and did not reach it in 4 days (it did on W1's code).
+# These runs measure the frontier's risk and reward; the weather's are the W2 gate's (the controller's ruling on the
+# W2 dry run, 3, accepts this pin).
+CLEAR = patch("backend.survival.sky.weather_at", lambda seed, offset, segment: "clear")
 
 
 def home_of_its_own(db, state: dict) -> None:
@@ -114,10 +120,12 @@ def run_trip(seed: int, geared: bool) -> dict:
             t, deepest, at_nightfall, lowest, ungeared_riches = 0.0, 0, [], 100.0, 0
             while t < DAYS * DAY:
                 t += STEP
-                state = tick_life(registry, BORN + t, scale=1.0, mind=BRAIN, action_scale=1.0)
+                with CLEAR:
+                    state = tick_life(registry, BORN + t, scale=1.0, mind=BRAIN, action_scale=1.0)
                 if state is None or state["died_at"] is not None:
                     break
-                chooser.poll(registry, BORN + t)
+                with CLEAR:
+                    chooser.poll(registry, BORN + t)
                 deepest = max(deepest, ring_here(state))
                 brain = state.get("brain") or {}
                 if (brain.get("purpose") == "explore" and (brain.get("trip") or {}).get("reason") == "riches"

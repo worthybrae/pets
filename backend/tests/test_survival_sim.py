@@ -28,6 +28,7 @@ from backend.survival.memory import cell_of, places
 from backend.survival.once import forget_logged
 from backend.survival.registry import LifeRegistry
 from backend.survival.situation import from_db
+from backend.survival.sky import SEGMENT, offset_of, weather_at
 from backend.survival.steps import as_cell
 from backend.survival.tick import tick_life
 from backend.survival.triggers import HOUR
@@ -88,6 +89,12 @@ REST_AT_MOST = 0.5
 # game days; on each of days 4 and 5 every one walks at least NEW_GROUND_LATE patches it never walked
 # before, and once home stands they rest or sleep at most LONG_REST_AT_MOST of the ticks. The floors
 # are the final fix wave's measure with margin (its report).
+# W2: a pet that knows fog starts no trip in it ("Stay close to home in the fog.", backend.survival.sky_reflexes),
+# so a day at least FOG_DAY of whose weather segments are fog is no measure of settling back into resting and is
+# left out: seed 21's day 5 is fog from dawn to dusk, and its pet walked 11 new patches that day (149 the day
+# before, 40 the floor). Every run still has a day to count; the floor stays 40. Accepted by the controller's ruling
+# on the W2 dry run (4): a pet that knows fog grounds its trips by design.
+FOG_DAY = 0.5
 LONG_DAYS = 6
 LONG_RUNS = ((3, False), (21, True))
 LATE_DAYS = (3, 4)  # days 4 and 5, counted from 0
@@ -170,6 +177,13 @@ def patches_walked(world: SurvivalWorld) -> int:
         return db.execute("SELECT COUNT(*) FROM memory_explored").fetchone()[0]
 
 
+def fog_share(state: dict, day: int) -> float:
+    """W2: the share of game day `day`'s (from 0) weather segments that are fog."""
+    per_day = round(DAY / SEGMENT)
+    return sum(weather_at(state["world_seed"], offset_of(state), day * per_day + k) == "fog"
+               for k in range(per_day)) / per_day
+
+
 @functools.lru_cache(maxsize=None)
 def run_life(seed: int, jev: bool, length: float = LENGTH) -> dict:
     """One headless run, made once per seed, picker and length and shared by the tests (call it with
@@ -228,6 +242,7 @@ def run_life(seed: int, jev: bool, length: float = LENGTH) -> dict:
                     "dull_days": dull_days(home_at, discoveries, t),
                     "resting": resting, "lived": lived,
                     "new_ground": [after - before for before, after in zip(walked_by_day, walked_by_day[1:])],
+                    "fog": [fog_share(world.state(), day) for day in range(len(walked_by_day) - 1)],
                     "hours": t / HOUR,
                     "errors": [record.getMessage() for record in errors.records]}
     finally:
@@ -279,8 +294,9 @@ class HeadlessBrainTests(unittest.TestCase):
         for key, run in runs.items():
             self.assertIsNone(run["state"]["died_at"], key)
             self.assertEqual(run["errors"], [], key)
-        late = {key: [run["new_ground"][day] for day in LATE_DAYS] for key, run in runs.items()}
-        self.assertTrue(all(min(days) >= NEW_GROUND_LATE for days in late.values()), late)
+        late = {key: [run["new_ground"][day] for day in LATE_DAYS if run["fog"][day] < FOG_DAY]
+                for key, run in runs.items()}
+        self.assertTrue(all(days and min(days) >= NEW_GROUND_LATE for days in late.values()), late)
         share = sum(run["resting"] for run in runs.values()) / sum(run["lived"] for run in runs.values())
         self.assertLessEqual(share, LONG_REST_AT_MOST)
 

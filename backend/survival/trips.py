@@ -92,6 +92,9 @@ LIKELY = 3.0  # a target scores this much for land sure to hold what the reason 
 NEW = 1.0  # ...and this much for land Mimo never saw (area novelty over 9)
 SPOT_SLACK = 3  # a spot's column may be this far from the dry cell Mimo stands on to see it
 SHOWN = 3  # targets kept per offer: the facts and the model payload name them
+# W2: functions of the Situation that hold every new trip back now (backend.survival.sky_reflexes: no trip starts in
+# fog for a pet that knows `wild:fog`). One that crashes holds nothing back (logged once).
+HOLD_BACK: list = []
 OFFERED = 4  # reasons offered at a choice
 # Fix round 1: a trip whose reason failed to find what it needed (its walk failed, or it used up
 # every walk without a find) is not offered again this soon -- the same cooldown pattern purposes
@@ -323,6 +326,8 @@ def offers(s: Situation) -> list[Offer]:
     first (L4a final fix wave, I3: food while Mimo is hungry used to wait behind a goal's reason),
     then one that serves its goal, then the higher score."""
     def look() -> list[Offer]:
+        if held_back(s):
+            return []
         goal = (s.brain.get("goal") or {}).get("name")
         found, urgent = [], set()
         for reason in REASONS.values():
@@ -339,6 +344,17 @@ def offers(s: Situation) -> list[Offer]:
                                       -offer.score, offer.reason))
         return found[:OFFERED]
     return s.sensed("trip offers", look)
+
+
+def held_back(s: Situation) -> bool:
+    """W2: something holds every new trip back now (HOLD_BACK)."""
+    for holds in HOLD_BACK:
+        try:
+            if holds(s):
+                return True
+        except Exception as error:
+            log_once(logger, "hold back", error)
+    return False
 
 
 def best_trip(s: Situation) -> Offer | None:
