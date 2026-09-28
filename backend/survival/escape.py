@@ -24,8 +24,10 @@ needs no mining, so it is used whether or not it is claimed: Mimo trapped in its
 passage walks out through them (L3 final fix wave). The cell over a stair is the
 next stair's headroom and is kept; the other widening cells break into rubble Mimo leaves behind.
 It tries the four directions and takes the
-first staircase that brings Mimo above the natural surface within 24 stairs, at most once per 60
-real seconds. There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
+first staircase that brings Mimo above the natural surface within 24 stairs, at most once per
+ESCAPE_RETRY game seconds (W2, the controller's ruling on the W2 dry run: it was 60 server seconds, a
+game day at MIMO_TIME_SCALE 60, so a pet in its own staircase at dusk slept the night in it and dug out
+after dawn; at 1x nothing changes). There is no jump step, so a narrow shaft in rock Mimo cannot mine, with no blocks
 to place, stays a trap.
 
 L4b final fix wave, C1: a cell above the natural surface is free only when Mimo can walk from it to
@@ -70,7 +72,7 @@ from backend.survival.work import side_of
 SURFACE_SEARCH = 2000
 TRAP_WINDOW = 300.0  # game seconds: two walks with no path this close together check for a trap
 MAX_STAIRS = 24
-ESCAPE_RETRY = 60.0
+ESCAPE_RETRY = 60.0  # game seconds between two escapes (W2: they were server seconds)
 DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 # L4b final fix wave, C1: a cell above the natural surface from which Mimo can walk to no more than
 # this many cells (itself included) is a pit, not open ground. The seed-21 pit held 1.
@@ -241,9 +243,10 @@ def plan_escape(state: dict, context: ActionContext, at: float) -> list[dict] | 
     whose small flood needs no search) Mimo is not trapped; in a pit above the surface it may be (C1).
     """
     brain = ensure_brain(state)
-    if not walks_failed_twice(state, at, context.clock_at(at)["time_scale"]):
+    scale = context.clock_at(at)["time_scale"]
+    if not walks_failed_twice(state, at, scale):
         return []
-    if brain["escaped_at"] is not None and at - brain["escaped_at"] < ESCAPE_RETRY:
+    if brain["escaped_at"] is not None and (at - brain["escaped_at"]) * scale < ESCAPE_RETRY:
         return []
     here, seed = as_cell(state["position"]), state["world_seed"]
     if free(context.grid, here, seed):

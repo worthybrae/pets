@@ -19,6 +19,7 @@ from backend.survival.triggers import ensure_brain
 from backend.survival.vitals import START_VITALS
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
+NIGHT_60 = {"phase": "night", "seconds_into_day": 2700.0, "time_scale": 60.0, "day_number": 40}
 
 
 def pit(wall="dirt", width=1):
@@ -378,6 +379,24 @@ class EscapeTests(unittest.TestCase):
         self.assertEqual(brain_plan(state, ctx, 2.0), [{"kind": "wait", "seconds": 1.0}])
         self.assertIsNone(state["brain"]["handled_failure"])
         self.assertEqual(state["brain"]["purpose"], "explore")
+
+    def test_at_night_at_sixty_times_a_pet_in_its_own_staircase_digs_out_before_dawn(self):
+        """W2 (the controller's ruling on the W2 dry run, 6): the escape tried again only ESCAPE_RETRY *server*
+        seconds after the last, which at MIMO_TIME_SCALE 60 is a game day. On the W2 gate a gentle pet (seed 21)
+        dug its staircase into a frozen swamp's bed at dusk, failed two walks home, slept the night in the pit
+        with nothing to eat and dug out only after dawn. The wait is ESCAPE_RETRY game seconds now, the same at 1x."""
+        db = sqlite3.connect(":memory:")
+        create_memory_tables(db)
+        state = stuck()
+        state["brain"]["escaped_at"] = 2.0 - 20.0  # an escape tried 20 server seconds ago: 20 game minutes at 60x
+        ctx = ActionContext(grid=pit(), clock_at=lambda at: NIGHT_60, planner=brain_plan, events=[], db=db)
+        steps = brain_plan(state, ctx, 2.0)
+        self.assertEqual({step.get("purpose") for step in steps}, {"escape"})
+        self.assertEqual(ctx.events[-1][1], "trapped")
+        soon = stuck()
+        soon["brain"]["escaped_at"] = 1.5  # half a server second ago: 30 game seconds at 60x, under ESCAPE_RETRY
+        ctx = ActionContext(grid=pit(), clock_at=lambda at: NIGHT_60, planner=brain_plan, events=[], db=db)
+        self.assertFalse(any(step.get("purpose") == "escape" for step in brain_plan(soon, ctx, 2.0)))
 
     def test_a_pet_that_is_not_trapped_reports_the_failure(self):
         state = stuck(position={"x": 0.0, "y": 5.0, "z": 0.0})  # on the natural surface (y 4 and up)
