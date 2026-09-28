@@ -40,7 +40,9 @@ ROUTINE_EVENTS = frozenset({"sleep", "wake", "hello", "error", "rest", "block", 
                             "explore", "owner", "plan", "purpose", "reflex", "ate", "cook", "fish", "grow",
                             "hunt", "hurt", "fight", "threat", "learned", "bell",
                             # W1: a wild pet's small news (backend.survival.wild_news)
-                            "cured", "dressed", "spoiled", "asked", "rested", "safe_night"})
+                            "cured", "dressed", "spoiled", "asked", "rested", "safe_night",
+                            # W2: the turn of a season, a storm, a campfire the rain put out, smoked meat
+                            "season", "storm", "fire_out", "smoke"})
 RECENT_WINDOW = 5  # recent_events reads this many times the rows it returns, to skip repeats
 BLOCK_TYPES = set(BLOCKS) | {"air"}
 STATION_REACH = 6

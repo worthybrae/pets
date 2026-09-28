@@ -18,3 +18,4 @@ from backend.survival import moments  # noqa: F401  (first sightings, seeds, dan
 from backend.survival import diary  # noqa: F401  (the story lane)
 from backend.survival import questions  # noqa: F401  (W1: Mimo's questions to its owner, and their answers)
 from backend.survival import wild_news  # noqa: F401  (W1: new moments for Mind, news and danger for the inbox)
+from backend.survival import sky_news  # noqa: F401  (W2: the weather's and seasons' moments, news and danger)

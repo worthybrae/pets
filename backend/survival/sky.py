@@ -230,11 +230,13 @@ def advance(state: dict, context, at: float) -> None:
 
 def sky_view(state: dict, now: float, scale: float) -> dict:
     """For /api/mimo (read only): the season and its day (1 to 10), the days to the next season, the weather
-    and until when, the snow, whether the lakes are frozen, and the latest strikes ({x, y, z, at})."""
+    and until when, the snow, whether the lakes are frozen, the latest strikes ({x, y, z, at}) and the cells
+    burning in the trees ({x, y, z}, for the viewer's embers)."""
     sky = state.get("sky") or {}
     at = state["died_at"] if state.get("died_at") is not None else now
     season, season_day = season_at(state, at, scale)
     return {"season": season, "day": season_day % SEASON_DAYS + 1, "to_next": SEASON_DAYS - season_day % SEASON_DAYS,
             "weather": sky.get("weather", "clear"), "until": sky.get("weather_until"),
             "snow": round(float(sky.get("snow", 0.0)), 3), "frozen": bool(sky.get("frozen", False)),
-            "strikes": list(sky.get("strikes", []))}
+            "strikes": list(sky.get("strikes", [])),
+            "fires": [{"x": entry["x"], "y": entry["y"], "z": entry["z"]} for entry in sky.get("fires", [])]}
