@@ -11,6 +11,7 @@ from __future__ import annotations
 from backend.survival.bond import bond_view, visit
 from backend.survival.diary import newest_story
 from backend.survival.inbox import inbox_view
+from backend.survival.questions import questions_view
 from backend.survival.requests import request_view
 from backend.survival.talk import chat_view
 from backend.survival.world import LifeOver, SurvivalWorld, read_state, write_state
@@ -22,7 +23,8 @@ def bond_fields(world: SurvivalWorld, now: float, scale: float) -> dict:
     with world.connect() as db:
         db.execute("BEGIN")
         state = read_state(db)
-        return {"chat": chat_view(db, state, now, scale), "bond": bond_view(state, now), "inbox": inbox_view(db),
+        inbox = {**inbox_view(db), "questions": questions_view(db)}  # W1: Mimo's open questions and their chips
+        return {"chat": chat_view(db, state, now, scale), "bond": bond_view(state, now), "inbox": inbox,
                 "request": request_view(state, now), "story": newest_story(db)}
 
 

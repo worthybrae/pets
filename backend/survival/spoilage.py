@@ -199,6 +199,7 @@ def spoil(lots_of: dict, items: dict, rate: float, seconds: float) -> dict[str, 
 def went_bad(state: dict, context, spoiled: dict[str, int], where: str, at: float) -> None:
     name = state["name"]
     for item, count in spoiled.items():
+        state.setdefault("wild", {})["last_spoiled"] = item
         context.events.append((at, "spoiled", f"{name}'s {label(item)} went bad."))
         state["last_thought"] = f"Yuck, my {label(item)} went bad."
         for hears in SPOILS:

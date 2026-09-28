@@ -62,6 +62,7 @@ from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
 from backend.survival import herbs, meals, wounds  # noqa: F401  (W1: sunleaf; meals and throw_out; wounds)
 from backend.survival import knocks  # noqa: F401  (W1: learning alone)
+from backend.survival.wonders import meet as meet_wonders
 from backend.survival.computer import observe_computer
 from backend.survival.ruins import find_manual
 from backend.survival.tinker import observe_tinker
@@ -311,6 +312,7 @@ def notice_step(state: dict, context: ActionContext, before: dict, surroundings:
     tend_curiosity(state, context, at)
     tend_expedition(state, context, at)
     tend_comfort(state, context, at, phase)
+    meet_wonders(state, context, at)  # W1: what a wild pet meets and does not understand
     asleep = (state.get("action") or {}).get("kind") == "sleep"
     if brain["pending"] is None and not asleep and hour_passed(brain, at, clock["time_scale"]):
         mark_trigger(state, "hour", at)

@@ -16,3 +16,4 @@ from backend.survival import inbox  # noqa: F401  (the mirror, asks for care and
 from backend.survival import requests  # noqa: F401  (the request question, goals.PULLS, kept promises)
 from backend.survival import moments  # noqa: F401  (first sightings, seeds, danger, near death)
 from backend.survival import diary  # noqa: F401  (the story lane)
+from backend.survival import questions  # noqa: F401  (W1: Mimo's questions to its owner, and their answers)

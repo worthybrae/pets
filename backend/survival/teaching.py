@@ -70,6 +70,11 @@ UNSURE = "Hmm, I'm not sure that's right. I'll believe it when I see it!"
 UNKNOWN = "I don't understand that yet. Maybe once I've seen more of the world!"
 # [confirmed(db, state, thing, now)]: run when Mimo sees a taught lesson true (Bond B2's bond).
 CONFIRMED: list = []
+# W1: [reword(db, s, heard) -> str | None]: the words to read in place of the owner's (a bare "yes" to Mimo's
+# open yes-or-no question reads as its yes-claim: backend.survival.questions); the first answer wins.
+REWORDS: list = []
+# W1: [taught(db, state, thing, now)]: run when a lesson is taught (Mimo's questions it answers close).
+TAUGHT_HOOKS: list = []
 
 
 class Told:
@@ -103,8 +108,10 @@ def without_name(text: str, name: str) -> str:
 
 
 def hear_lessons(db: sqlite3.Connection, s: Situation, heard: Heard) -> Claims:
-    """talk.HEARING["teach"]: what the owner's words could teach, worked out once a chat job."""
-    return claims(without_name(heard.text, s.state.get("name") or ""))
+    """talk.HEARING["teach"]: what the owner's words could teach, worked out once a chat job. W1: a bare yes or no
+    to Mimo's open yes-or-no question reads as that question's claim (REWORDS)."""
+    text = next((found for found in (reword(db, s, heard) for reword in REWORDS) if found), heard.text)
+    return claims(without_name(text, s.state.get("name") or ""))
 
 
 def hear_day(db: sqlite3.Connection, s: Situation, heard: Heard) -> int:
@@ -143,6 +150,8 @@ def teach_lesson(db: sqlite3.Connection, state: dict, thing: str, now: float, da
     journal["unphrased"] = [waiting for waiting in journal["unphrased"] if waiting != thing]
     journal["words"] = {**journal["words"], thing: f"You told me that {lower(lesson.fact)}"}
     add_memory(db, now, day, "told", f"You taught me that {lower(lesson.fact)}", ("owner",), 7, 1, source="taught")
+    for taught_hook in TAUGHT_HOOKS:  # W1
+        taught_hook(db, state, thing, now)
     return True
 
 
