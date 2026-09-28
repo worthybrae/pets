@@ -53,7 +53,7 @@ from typing import Callable
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
 from backend.survival import ailments, sky, spoilage
-from backend.survival import weather  # noqa: F401  (W2: rain and snow slow walks, fog brings the dark creatures)
+from backend.survival import rain, weather  # noqa: F401  (W2: rain douses campfires and slows walks; fog)
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )

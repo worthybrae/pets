@@ -49,6 +49,7 @@ from backend.survival.purposes import (
     AT_HOME, GO_HOME_RANGE, HOME_RANGE, away, home_of, land_refuge, meal_of, walk_to,
 )
 from backend.survival.purposes import homeward_from  # L5: far out, the window opens sooner
+from backend.survival.rain import roofed_first  # W2: a pet that knows rain lights its fire under a roof
 from backend.survival.senses import near_failure
 from backend.survival.situation import NIGHTFALL, Situation, in_tick
 from backend.survival.steps import as_cell
@@ -303,7 +304,7 @@ def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
     fire = next((block for block in WARM_BLOCKS if s.inventory.get(block, 0) > 0 and fitting_open(block, s)), None)
     if fire is not None:
         steps: list[dict] = []
-        if place_station(station_spots(s), fire, steps) is not None:
+        if place_station(roofed_first(s, station_spots(s)), fire, steps) is not None:
             return steps
     x, _, z = s.here
     spots = []

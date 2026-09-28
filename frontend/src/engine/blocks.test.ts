@@ -17,8 +17,10 @@ const WIRING = ['copper_wire', 'copper_wire_lit', 'lever', 'lever_on', 'button',
   'daylight_sensor', 'repeater', 'repeater_lit', 'inverter', 'inverter_lit', 'joiner', 'joiner_lit', 'lamp', 'lamp_lit', 'bell']
 /** L5's blocks, after Making's wiring (backend/tests/test_survival_frontier_gear.py). */
 const FRONTIER = ['warding_lantern']
-/** W1's plants, after L5's, the last (backend/tests/test_worldgen_wild.py). */
+/** W1's plants, after L5's (backend/tests/test_worldgen_wild.py). */
 const WILD = ['nightberry_bush', 'nightberry_bush_ripe', 'sunleaf']
+/** W2's doused campfire, fire and hearth, the last (backend/tests/test_survival_rain.py). */
+const WEATHER = ['campfire_out', 'fire', 'hearth']
 
 describe('block registry', () => {
   it('puts air at id 0 and keeps ids below the missing id', () => {
@@ -141,8 +143,14 @@ describe('block registry', () => {
   it('adds L5\'s warding lantern last, after the wiring, glowing like a lantern', () => {
     const names = BLOCKS.map((block) => block.name)
     expect(blockId('warding_lantern')).toBe(blockId('bell') + 1)
-    expect(names.slice(-WILD.length - FRONTIER.length, -WILD.length)).toEqual(FRONTIER)
-    expect(names.slice(-WILD.length)).toEqual(WILD)
+    const wild = names.slice(0, -WEATHER.length)
+    expect(wild.slice(-WILD.length - FRONTIER.length, -WILD.length)).toEqual(FRONTIER)
+    expect(wild.slice(-WILD.length)).toEqual(WILD)
+    expect(names.slice(-WEATHER.length)).toEqual(WEATHER)
+    expect(GLOW_BY_ID[blockId('fire')]).toBe(1)
+    expect(GLOW_BY_ID[blockId('hearth')]).toBe(1)
+    expect(GLOW_BY_ID[blockId('campfire_out')]).toBe(0)
+    expect(LAYER_BY_ID[blockId('hearth')]).toBe(LAYER_OPAQUE)
     for (const name of WILD) {
       expect(LAYER_BY_ID[blockId(name)], name).toBe(LAYER_CUTOUT)
       expect(blockDef(blockId(name)).solid, name).toBe(false)

@@ -137,7 +137,11 @@
     "warding_lantern": {"pattern": "glow", "color": [176, 150, 236]},
     "nightberry_bush": {"pattern": "sprite_bush", "color": [76, 128, 100]},
     "nightberry_bush_ripe": {"pattern": "sprite_speckled_bush", "color": [76, 128, 100], "accent": [74, 40, 96]},
-    "sunleaf": {"pattern": "sprite_rosette", "color": [178, 196, 70], "accent": [226, 214, 96]}
+    "sunleaf": {"pattern": "sprite_rosette", "color": [178, 196, 70], "accent": [226, 214, 96]},
+    "campfire_out": {"pattern": "sprite_ashes", "color": [132, 128, 122], "accent": [110, 80, 58]},
+    "fire": {"pattern": "sprite_flame", "color": [255, 150, 60], "accent": [255, 226, 120]},
+    "hearth_side": {"pattern": "furnace_side", "color": [138, 130, 122], "accent": [255, 150, 70]},
+    "hearth_top": {"pattern": "cobble", "color": [124, 118, 112]}
   },
   "blocks": [
     {"name": "air", "color": [0, 0, 0], "textures": "missing", "layer": "none", "solid": false, "replaceable": true, "drop": null, "hardness": null},
@@ -264,6 +268,9 @@
     {"name": "warding_lantern", "color": [176, 150, 236], "textures": "warding_lantern", "layer": "opaque", "solid": true, "drop": "warding_lantern", "glow": true, "hardness": 0.6},
     {"name": "nightberry_bush", "color": [76, 128, 100], "textures": "nightberry_bush", "layer": "cutout", "solid": false, "replaceable": true, "drop": null, "hardness": 0.1},
     {"name": "nightberry_bush_ripe", "color": [74, 40, 96], "textures": "nightberry_bush_ripe", "layer": "cutout", "solid": false, "replaceable": true, "drop": null, "hardness": 0.1},
-    {"name": "sunleaf", "color": [178, 196, 70], "textures": "sunleaf", "layer": "cutout", "solid": false, "replaceable": true, "drop": "sunleaf", "hardness": 0.1}
+    {"name": "sunleaf", "color": [178, 196, 70], "textures": "sunleaf", "layer": "cutout", "solid": false, "replaceable": true, "drop": "sunleaf", "hardness": 0.1},
+    {"name": "campfire_out", "color": [132, 128, 122], "textures": "campfire_out", "layer": "cutout", "solid": false, "drop": "campfire", "hardness": 2.0, "tool": "axe"},
+    {"name": "fire", "color": [255, 150, 60], "textures": "fire", "layer": "cutout", "solid": false, "drop": null, "glow": true, "hardness": null},
+    {"name": "hearth", "color": [138, 130, 122], "textures": {"top": "hearth_top", "side": "hearth_side", "bottom": "hearth_top"}, "layer": "opaque", "solid": true, "drop": "hearth", "glow": true, "hardness": 4.0, "tool": "pickaxe"}
   ]
 }

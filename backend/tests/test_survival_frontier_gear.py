@@ -76,7 +76,7 @@ class WardTests(unittest.TestCase):
         # Pre-flight (eda93d4): Making's blocks followed L3's after this plan was written, so L5's one
         # block goes after Making's last (the bell), and no older id moves.
         names = [block["name"] for block in BLOCK_LIST]
-        self.assertEqual(names[-4], "warding_lantern")  # W1's three plants come after it (test_worldgen_wild)
+        self.assertEqual(names[-7], "warding_lantern")  # W1's three plants and W2's three blocks come after it
         self.assertEqual(BLOCK_IDS["warding_lantern"], BLOCK_IDS["bell"] + 1)
         self.assertIn(BLOCK_LIST[BLOCK_IDS["warding_lantern"]]["textures"], TILES)
         self.assertLess(len(BLOCK_LIST), 255)

@@ -45,9 +45,9 @@ class WorldgenTests(unittest.TestCase):
 
     def test_the_blocks_come_last_and_give_way_like_tall_grass(self):
         names = [block["name"] for block in BLOCK_LIST]
-        self.assertEqual(names[-3:], ["nightberry_bush", "nightberry_bush_ripe", "sunleaf"])
+        self.assertEqual(names[-6:-3], ["nightberry_bush", "nightberry_bush_ripe", "sunleaf"])  # W2's three follow
         self.assertEqual(BLOCK_IDS["nightberry_bush"], BLOCK_IDS["warding_lantern"] + 1)
-        for name in names[-3:]:
+        for name in names[-6:-3]:
             self.assertTrue(is_replaceable(name), name)
             self.assertFalse(is_solid(name), name)
 

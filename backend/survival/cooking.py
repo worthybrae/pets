@@ -11,6 +11,8 @@
 W1: a wild pet cooks raw food only once it knows `wild:cooking`, and makes or puts down a campfire only
 once it knows `wild:fire` (backend.survival.wild): before that it cooks at a furnace it carries or finds, and
 bakes bread as ever.
+W2: a campfire the rain put out that stands within reach is lit again (one stick) before another is put down,
+and a pet that knows `wild:rain` puts its fire under a roof when one is in reach (backend.survival.rain).
 A station or fire the plan placed is mined back into Mimo's inventory at the end. Those steps
 are kept (`keep`), so a new choice does not leave the station behind. cook is offered while
 there is raw food it can cook now, with room to carry what it makes, and scores in the needs band.
@@ -25,6 +27,7 @@ from backend.survival.carrying import crafts_fit
 from backend.survival.grid import Cell
 from backend.survival.foraging import whole_walk
 from backend.survival.purposes import Purpose, register
+from backend.survival.rain import relight_steps, roofed_first
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import STATION_REACH, WORKSTATIONS
@@ -87,11 +90,15 @@ def cook_plan(s: Situation) -> list[dict] | None:
     inventory = dict(s.inventory)
     x, _, z = s.here
     near = s.grid.placed_near(x, z, STATION_REACH, WORKSTATIONS)
-    spots = station_spots(s)
+    spots = roofed_first(s, station_spots(s))
     steps: list[dict] = []
     placed: list[Cell] = []
     raw = [(item, inventory[item]) for item in RAW_FOODS if inventory.get(item, 0) > 0] if unlocked(s, "cooking") else []
-    if raw and not near.intersection(FIRES) and not light_fire(s, inventory, spots, steps, placed):
+    relit = relight_steps(s, STATION_REACH) if raw and not near.intersection(FIRES) and unlocked(s, "fire") else []
+    if relit:
+        steps.extend(relit)
+        inventory["sticks"] -= 1
+    elif raw and not near.intersection(FIRES) and not light_fire(s, inventory, spots, steps, placed):
         fires = sorted((found for found in s.grid.placed_cells(x, z, FIRE_TRAVEL, FIRES)
                         if not near_failure(s.state, found[0])), key=lambda found: s.distance(found[0]))
         if fires:

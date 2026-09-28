@@ -390,6 +390,19 @@ export const PATTERNS: Record<string, Painter> = {
     if (j < 1 || Math.abs(i - 3.5) > half) return CLEAR
     return tone(color, (Math.abs(i - 3.5) < 1 && j >= 3 ? 1.18 : 1) * jitter(random, 0.06))
   }),
+  // W2: a campfire the rain put out, its charred logs under a few grey ashes
+  sprite_ashes: ({ color, accent }, random) => grid((i, j) => {
+    if (j >= 6) return (j === 6 ? i >= 1 && i <= 6 : i !== 3 && i !== 4) ? tone(accent ?? color, (i % 2 ? 0.7 : 0.82) * jitter(random)) : CLEAR
+    if (j === 5 && i >= 2 && i <= 5 && random() < 0.7) return tone(color, jitter(random, 0.12))
+    return CLEAR
+  }),
+  // W2: a fire in the trees, a tall flame with a bright heart and no logs
+  sprite_flame: ({ color, accent }, random) => grid((i, j) => {
+    const half = j * 0.5
+    if (Math.abs(i - 3.5) > half || (j < 2 && (i + j) % 2 === 0)) return CLEAR
+    return Math.abs(i - 3.5) < half * 0.45 && j >= 3 ? tone(accent ?? color, jitter(random, 0.06))
+      : tone(color, (j >= 6 ? 0.86 : 1) * jitter(random, 0.08))
+  }),
   sprite_torch: ({ color, accent }, random) => grid((i, j) => {
     if (i !== 3 && i !== 4) return CLEAR
     if (j >= 3) return tone(accent ?? color, (i === 4 ? 0.86 : 1) * jitter(random))
