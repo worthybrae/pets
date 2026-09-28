@@ -87,20 +87,46 @@ class FoodTests(unittest.TestCase):
         stocked(world, {"cooked_beef": 6, "bread": 4, "nightberries": 3})  # it knows nightberries from the start
         self.assertEqual(winter_food(on_day(world, 22)), 6 * 35 + 4 * 25)
 
-    def test_a_wild_pets_counts_only_the_food_still_good_on_winter_day_five(self):
+    def test_a_wild_pets_counts_only_the_food_still_good_on_winter_day_one(self):
         world = built()
         world.state["difficulty"] = "wild"
         cell = stocked(world, {"cooked_beef": 4, "bread": 2})
         # cooked beef keeps 4 game days in arms, 8 in a chest; from autumn day 5 (6 days to winter) it ages
-        # 6 x 0.5 + 4 x 0.5 / 3 = 3.67 game days of its 4 by winter day 5: only a lot under 0.08 worn keeps.
+        # 6 x 0.5 = 3 game days of its 4 by winter day 1 (W2 plan, resolution 24): a lot under 0.25 worn keeps.
         world.state["chest_lots"] = {chest_key(cell): {"cooked_beef": [[1, 0.0], [3, 0.5]], "bread": [[2, 0.1]]}}
         self.assertEqual(winter_food(on_day(world, 25, 0.0)), 35 + 2 * 25)
-        # good on winter day 1 (the W2 gate's measure): 6 x 0.5 = 3 game days of 4, so a lot under 0.25 worn
-        self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=0), 35 + 2 * 25)
-        self.assertEqual(winter_food(on_day(world, 29, 0.0), good_until=0), 4 * 35 + 2 * 25)
+        self.assertEqual(winter_food(on_day(world, 29, 0.0)), 4 * 35 + 2 * 25)
+        # four winter days more (the goal's measure before resolution 24): 2 / 3 of a day more, under 0.08 worn
+        self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=4), 35 + 2 * 25)
 
 
 class LarderTests(unittest.TestCase):
+    def test_w2_a_wild_pet_readying_for_winter_stores_the_food_that_keeps_and_stays_with_the_goal(self):
+        """W2 plan, resolution 24: on the W2 gate taught pets' chests held too little food good on winter day 1, 85 to
+        126 of their foods spoiled a life, and they set the goal aside for expeditions."""
+        from backend.survival.goals import holding
+        from backend.survival.storage import spare_food
+        world = built({"smoked_meat": 4, "bread": 4, "cooked_beef": 4, "berries": 5})
+        world.state["difficulty"] = "wild"
+        for lesson in ("winter", "keeping"):
+            know(world.db, f"wild:{lesson}", "lesson", 0.0)
+        before = dict(spare_food(on_day(world, 22)))
+        adopt_goal(world.state, GOAL, "utility", "", 0.0)
+        s = on_day(world, 22)
+        spare = spare_food(s)
+        # a day's worth stays on hand, the food that spoils soonest (the berries and a cooked beef); what keeps goes first
+        self.assertEqual(spare, [("smoked_meat", 4), ("bread", 4), ("cooked_beef", 3)])
+        self.assertNotEqual(dict(spare), before)
+        self.assertTrue(holding(s, WINTER))  # its chests hold none of the winter's food yet
+        self.assertEqual(winter_pull(s, WINTER)[0], 400.0)  # over a curious pet's discovery goal, kept (300)
+        stocked(world, {"smoked_meat": 18})
+        self.assertFalse(holding(on_day(world, 22), WINTER))  # 360 hunger points that keep: free to go
+        self.assertEqual(winter_pull(on_day(world, 22), WINTER)[0], 100.0)
+        world.state["chests"] = {}
+        world.state["difficulty"] = "gentle"
+        self.assertFalse(holding(on_day(world, 22), WINTER))  # a gentle pet: as before
+
+
     def test_stock_larder_fills_the_chests_to_the_winters_target(self):
         world = built({"cooked_fish": 5})
         adopt_goal(world.state, GOAL, "utility", "", 0.0)

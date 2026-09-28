@@ -130,6 +130,9 @@ CLEAR_STACKS = 4  # stacks thrown out in one visit at most
 # what the rules below keep ("food" for hunger points of food): an expedition's torches and food.
 # Fewer when negative (what a packing expedition leaves at home), but never fewer than none.
 KEEPS_MORE: list = []
+# W2 (resolution 24): functions of the Situation; while one says so, the food Mimo keeps on hand is the food that spoils
+# soonest (spoilage.PERISHABLE) and the food it puts away is the food that keeps longest (backend.survival.winter_prep).
+SPARE_KEEPING: list = []
 # The Making final fix wave (I1): functions of the Situation giving {item: count} Mimo wants back out of
 # its chests now, besides food (backend.survival.making: what a project needs that a chest holds).
 TAKES_MORE: list = []
@@ -263,7 +266,11 @@ def spare_food(s: Situation) -> list[tuple[str, int]]:
     if not unlocked(s, "keeping"):
         return []
     kept, spare, wanted = 0.0, [], FOOD_WANTED + more_kept(s, "food")
-    for item in foods(s.inventory, s.poisons):
+    order = foods(s.inventory, s.poisons)
+    if keeping(s):  # W2: the food that spoils soonest is kept on hand, the food that keeps goes in the chest
+        from backend.survival.spoilage import PERISHABLE  # here: spoilage imports storage's neighbours
+        order = sorted(order, key=lambda item: (PERISHABLE.get(item, math.inf), item))
+    for item in order:
         if item in RAW_FOODS:
             continue
         count = s.inventory[item]
@@ -274,6 +281,17 @@ def spare_food(s: Situation) -> list[tuple[str, int]]:
         if count > keep:
             spare.append((item, count - keep))
     return list(reversed(spare))
+
+
+def keeping(s: Situation) -> bool:
+    """One of SPARE_KEEPING says the food that keeps goes in the chest (W2); one that crashes says no (logged once)."""
+    for says in SPARE_KEEPING:
+        try:
+            if says(s):
+                return True
+        except Exception as error:
+            log_once(logger, "spare keeping", error)
+    return False
 
 
 def pooled(s: Situation, item: str, pool: tuple[str, ...]) -> int:

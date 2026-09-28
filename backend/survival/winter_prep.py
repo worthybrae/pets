@@ -6,8 +6,11 @@ above iron tools and never past the survival floor, and while it is open the sea
 (goals.PULLS), so at the first autumn dawn's goal choice it wins over a goal the rules would otherwise keep.
 Its milestones, each only for a lesson Mimo knows (one it does not know is whole: nothing to do for it):
 - the chests hold WINTER_FOOD hunger points (six winter days) of food Mimo would eat that will still be good on
-  winter day 5 at chest rates (`winter_food`; a gentle pet's food never spoils), which stock_larder serves with
-  that target (larder.TARGETS), Mimo wanting up to WINTER_EXTRA more food on hand while it gathers;
+  winter day 1 at chest rates (`winter_food`; a gentle pet's food never spoils), which stock_larder serves with
+  that target (larder.TARGETS), Mimo wanting up to WINTER_EXTRA more food on hand while it gathers. W2 plan,
+  resolution 24 (the controller's ruling on the W2 gate): the food that keeps goes in the chests first, the food
+  that spoils soonest stays on hand to be eaten (`keeping_first`, storage.SPARE_KEEPING), and a wild pet's goal
+  holds it (Goal.holds) through autumn while its chests fall short, so it is not set aside for an expedition;
 - a wool cloak, a hearth in home and SMOKED_WANTED smoked meat (the cloak, the hearth and the smoke step come
   with their purposes and recipes: a milestone is skipped until then, goals.counted).
 Reached, it is a notable "goal" event, as goals are.
@@ -26,9 +29,9 @@ from __future__ import annotations
 import math
 
 from backend.services.worldgen import biome_at
-from backend.survival import larder, sky
+from backend.survival import larder, sky, storage
 from backend.survival.clock import DAY_SECONDS
-from backend.survival.goals import HELD_OFF, PULLS, Goal, Milestone, register_goal
+from backend.survival.goals import HELD_OFF, PULLS, Goal, Milestone, active, register_goal
 from backend.survival.home import built_home, home_cell, home_structure
 from backend.survival.purposes import foods
 from backend.survival.situation import Situation
@@ -40,9 +43,13 @@ from backend.survival.wild import is_wild, unlocked
 GOAL = "winter_ready"
 WINTER_FOOD = 360.0  # hunger points: six winter days
 WINTER_EXTRA = 120.0  # the most food beyond a day's Mimo wants on hand while it fills the chests for winter
-GOOD_UNTIL = 4  # winter days the food must keep: it is still good on winter day 5
+GOOD_UNTIL = 0  # winter days the food must keep: it is still good on winter day 1 (W2 plan, resolution 24; was 4)
 SMOKED_WANTED = 8
 WINTER_PULL = 100.0  # the season's pull on the goal while it is open (as much as goals.STICK)
+# W2 plan, resolution 24: a wild pet's chests short of the winter's food pull it this much more, over a curious pet's
+# discovery goals (up to 200, and 100 more to keep): on the W2 gate taught seed 5's "look into a cave" scored 300 as
+# its current goal against the winter goal's 198, and it never took the goal up.
+WILD_PULL = 300.0
 WINTER_REACH = 96.0  # blocks from the home it built that a pet that knows winter goes in winter
 FAR_GOALS = ("expedition", "frontier")  # goals held off in winter: an expedition and riches farther out
 AUTUMN = sky.SEASONS.index("autumn") * sky.SEASON_DAYS  # the season day autumn starts on (20)
@@ -65,8 +72,8 @@ def days_to_winter(s: Situation) -> float:
 
 def winter_food(s: Situation, good_until: int = GOOD_UNTIL) -> float:
     """Hunger points of the food in Mimo's chests (not an old ruin's) it would eat and that will still be good
-    `good_until` winter days in (GOOD_UNTIL: on winter day 5, the goal's measure; 0: on winter day 1, the W2 gate's,
-    the controller's ruling on the W2 dry run): for a wild pet, the lots whose wear by then (half as fast in a
+    `good_until` winter days in (GOOD_UNTIL, 0: on winter day 1, the goal's measure and the W2 gate's, the
+    controller's rulings on the W2 dry run and its gate): for a wild pet, the lots whose wear by then (half as fast in a
     chest, and a third of that in winter) stays under 1; a gentle pet's food never spoils."""
     from backend.survival.ruins import ruin_chest_key  # here: brain imports the larder before the ruins
     wild, autumn = is_wild(s.state), days_to_winter(s)
@@ -82,6 +89,20 @@ def winter_food(s: Situation, good_until: int = GOOD_UNTIL) -> float:
                 count = min(count, sum(number for number, wear in lots.get(key, {}).get(item, []) if wear + later < 1.0))
             total += FOOD[item] * count
     return total
+
+
+def keeping_first(s: Situation) -> bool:
+    """storage.SPARE_KEEPING: while "Ready for winter" fills a wild pet's chests, the food that keeps goes in them and
+    the food that spoils soonest stays on hand to be eaten."""
+    goal = active(s)
+    return is_wild(s.state) and goal is not None and goal.name == GOAL
+
+
+def holds_autumn(s: Situation) -> bool:
+    """Goal.holds: a wild pet stays with the goal through autumn while its chests hold less than WINTER_FOOD good on
+    winter day 1 (on the W2 gate taught pets set it aside for "nothing to do for it now" and went on expeditions
+    while their food spoiled)."""
+    return is_wild(s.state) and preparing(s) and winter_food(s) < WINTER_FOOD
 
 
 def target(s: Situation, goal) -> tuple | None:
@@ -127,7 +148,8 @@ def winter_pull(s: Situation, goal) -> tuple[float, str]:
     """goals.PULLS: winter is coming."""
     if goal.name != GOAL or not preparing(s):
         return 0.0, ""
-    return WINTER_PULL, f"winter comes in {max(1, round(days_to_winter(s)))} days"
+    pull = WINTER_PULL + (WILD_PULL if holds_autumn(s) else 0.0)  # W2: a wild pet's larder is short
+    return pull, f"winter comes in {max(1, round(days_to_winter(s)))} days"
 
 
 def keeps_near(s: Situation) -> bool:
@@ -159,8 +181,9 @@ register_goal(Goal(
      Milestone("Build a hearth at home", hearth_share, ("build_hearth",), items=("hearth",)),
      Milestone("Smoke meat for the winter", smoked_share, ("smoke_meat",))),
     score=lambda s: 70.0 + s.trait("caution") / 10, thought="Winter is coming. Better get ready.",
-    after=("first_shelter",), valid=goal_valid, repeat=True))
+    after=("first_shelter",), valid=goal_valid, repeat=True, holds=holds_autumn))
 larder.TARGETS.append(target)
+storage.SPARE_KEEPING.append(keeping_first)
 PULLS.append(winter_pull)
 HELD_OFF.append(far_goal)
 FENCES.append(winter_fence)
