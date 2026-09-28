@@ -15,6 +15,9 @@ journal's own list and counts, investigate's and tinker's facts and Mind's "I ha
 thought read them without BORN_KNOWING (situation.Situation.lessons, journal.learned, insights, replies),
 so a gentle pet's choices and words stay as they were.
 
+W2 adds seven lessons for the weather and the seasons (winter, cloak, hearth, smoking, rain, storm, fog) and
+raises GRANTED to 2: a gentle pet granted W1's lessons is granted W2's on its next tick the same way.
+
 The wild bookkeeping lives in state["wild"] (`wild_state`): `knocks`, `wonders`, `shun`, `night_cold`,
 `floor_nights`, `granted` (the milestone version granted to a gentle pet), each read with a default so
 older saves and archives read as empty. This module imports nothing that imports the journal, so any
@@ -40,7 +43,7 @@ BORN_KNOWING = "born_knowing"  # memory_knowledge's second fact for a lesson a g
 FIGURED = "figured"  # memory_knowledge's second fact for a lesson Mimo worked out alone (a knock)
 LESSON = "lesson"  # journal.FACT
 TAUGHT = "taught"  # journal.TAUGHT
-GRANTED = 1  # the milestone whose lessons a gentle pet has been granted (W1)
+GRANTED = 2  # the milestone whose lessons a gentle pet has been granted (W1, then W2)
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,25 @@ SURVIVAL: tuple[Survival, ...] = (
              "a shelter with a door keeps the night out", ("shelter",), ("safe", "warm"), ("warm",)),
     Survival("bed", "a bed", "Six planks make a bed, and sleep in a bed rests you best.",
              "makes a bed and sleeps in it", "a bed rests you best", ("bed",), ("sleep",)),
+    # W2: the weather and the seasons (backend.survival.sky and what hangs from it).
+    Survival("winter", "winter", "Winter comes after autumn, when crops stop and animals hide, so fill a chest with "
+             "food in autumn.", "gets ready for winter: fills its chests with food in autumn",
+             "winter comes after autumn, so a chest of food must be filled in autumn", ("winter",), ("before",)),
+    Survival("cloak", "a wool cloak", "Five wool make a wool cloak that keeps you warm in the snow.",
+             "makes a wool cloak and wears it", "a wool cloak keeps the snow's cold out", ("wool cloak", "cloak")),
+    Survival("hearth", "a hearth", "A hearth of stone with a fire in it keeps the home warm all winter.",
+             "builds a stone hearth in its home", "a stone hearth keeps the home warm", ("hearth",)),
+    Survival("smoking", "smoked meat", "Meat smoked over a fire keeps all winter.", "smokes meat over a fire",
+             "smoked meat keeps all winter", ("smoked meat",)),
+    Survival("rain", "rain on a fire", "Rain puts out a fire under the open sky, so keep your fire under a roof.",
+             "keeps its fire under a roof", "rain puts out a fire under the open sky", ("rain",)),
+    Survival("storm", "a thunderstorm", "Lightning strikes high ground and tall trees, so in a storm stay low and "
+             "inside.", "goes home or down off high ground when a storm starts",
+             "lightning strikes high ground, so a storm is for staying low and inside",
+             ("storm", "thunderstorm", "lightning"), ("harmless",), ("dangerous",)),
+    Survival("fog", "fog", "Fog hides the sun and lets the dark creatures walk by day, so stay close to home in the "
+             "fog.", "stays close to home in fog and starts no trips", "fog lets the dark creatures walk by day",
+             ("fog",), ("safe",), ("dangerous",)),
 )
 BY_NAME = {lesson.name: lesson for lesson in SURVIVAL}
 SOURCES = {TAUGHT: "from_you", BORN_KNOWING: "from_start"}
@@ -200,7 +222,7 @@ def settle(state: dict, db: sqlite3.Connection | None, at: float) -> None:
     this milestone's lessons is granted them now, quietly (no event, no discovery, no memory, no choice)."""
     if state.get("difficulty") not in DIFFICULTIES:
         state["difficulty"] = GENTLE
-    if state["difficulty"] != GENTLE or db is None or (state.get("wild") or {}).get("granted") == GRANTED:
+    if state["difficulty"] != GENTLE or db is None or ((state.get("wild") or {}).get("granted") or 0) >= GRANTED:
         return
     for lesson in SURVIVAL:
         know(db, thing(lesson.name), LESSON, at)

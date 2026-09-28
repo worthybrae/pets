@@ -143,7 +143,9 @@ OPPOSITES = ((frozenset({"love", "like", "enjoy"}), frozenset({"hate", "fear", "
               frozenset({"poison", "poisonous", "toxic", "bad"})),
              (frozenset({"raw"}), frozenset({"cooked", "cook"})),
              (frozenset({"away"}), frozenset({"bring", "attract"})),
-             (frozenset({"warm", "warmth"}), frozenset({"cold", "chill"})))
+             (frozenset({"warm", "warmth"}), frozenset({"cold", "chill"})),
+             # W2: harmless or dangerous (a storm, fog)
+             (frozenset({"harmless", "safe"}), frozenset({"dangerous", "danger"})))
 _NOT = ((re.compile(r"\bcan['’]t\b", re.IGNORECASE), "cannot"),
         (re.compile(r"\bwon['’]t\b", re.IGNORECASE), "will not"),
         (re.compile(r"n['’]t\b", re.IGNORECASE), " not"))

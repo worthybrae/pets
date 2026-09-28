@@ -51,7 +51,7 @@ class TeachableLessonsTests(unittest.TestCase):
         self.assertEqual(len(added), len(GEAR) + 2 * len(KINDS) - sum(1 for kind in KINDS.values() if not kind.drops)
                          + 2)  # L5: the warding lantern's and gold nuggets' recipe lessons (frontier_gear)
         survival = [thing for thing in LESSONS if thing.startswith("wild:")]
-        self.assertEqual(len(survival), 11)  # W1's survival lessons
+        self.assertEqual(len(survival), 18)  # W1's eleven survival lessons and W2's seven
         self.assertEqual(len(LESSONS) - len(added) - len(survival), 36)  # L4b's 32, plus Making T2's 4
         self.assertFalse(set(added) & (set(SURFACE) | set(PLANTS) | set(KINDS)))
 

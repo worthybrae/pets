@@ -23,7 +23,7 @@ from backend.survival.replies import Heard, journal
 from backend.survival.situation import from_db
 from backend.survival.tick import tick_life
 from backend.survival.wild import (
-    BORN_KNOWING, GENTLE, SURVIVAL, WILD, difficulty, is_wild, settle, survival_view, thing, unlocked,
+    BORN_KNOWING, GENTLE, GRANTED, SURVIVAL, WILD, difficulty, is_wild, settle, survival_view, thing, unlocked,
 )
 from backend.survival.world import SurvivalWorld, read_state, write_state
 from backend.tests.test_survival_pickers import situation
@@ -79,9 +79,9 @@ class DifficultyTests(unittest.TestCase):
         self.assertEqual(memories, 0)
         self.assertEqual({entry["source"] for entry in view}, {"from_start"})
         self.assertFalse(any(event["kind"] in ("learned", "figured") for event in world.events(100)))
-        self.assertEqual(world.state()["wild"], {"granted": 1})
+        self.assertEqual(world.state()["wild"], {"granted": GRANTED})  # W2: every landed milestone's, W1's and W2's
         tick_life(self.lives.registry, BORN + 2, scale=1.0, mind=BRAIN)  # granted once
-        self.assertEqual(world.state()["wild"], {"granted": 1})
+        self.assertEqual(world.state()["wild"], {"granted": GRANTED})
 
     def test_a_wild_pet_is_granted_nothing_and_knows_only_instinct(self):
         _, world = self.lives.hatch(difficulty=WILD)
@@ -110,7 +110,7 @@ class DifficultyTests(unittest.TestCase):
         wild = {"difficulty": WILD}
         settle(wild, db, 1.0)
         self.assertEqual(wild, {"difficulty": WILD})
-        gentle = {"wild": {"granted": 1}}
+        gentle = {"wild": {"granted": GRANTED}}
         settle(gentle, db, 1.0)
         self.assertEqual(db.execute("SELECT COUNT(*) FROM memory_knowledge").fetchone()[0], 0)
 
@@ -185,11 +185,11 @@ class ApiTests(unittest.TestCase):
         hatch_egg()
         mimo = get_mimo()
         self.assertEqual(mimo["difficulty"], WILD)
-        self.assertEqual(len(mimo["survival"]), 11)
+        self.assertEqual(len(mimo["survival"]), len(SURVIVAL))  # W1's eleven and W2's seven
         registry = LifeRegistry()
         registry.mark_dead(registry.active_life()["id"], BORN, "starvation")
         memorial = get_mimo()["last_life"]
-        self.assertEqual(len(memorial["survival"]), 11)  # the memorial tallies where its lessons came from
+        self.assertEqual(len(memorial["survival"]), len(SURVIVAL))  # the memorial tallies where its lessons came from
         hatch_egg(Hatching(difficulty="gentle"))
         self.assertEqual(get_mimo()["difficulty"], GENTLE)
 
