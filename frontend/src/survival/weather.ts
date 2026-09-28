@@ -1,5 +1,6 @@
+import type { CameraMode } from './cameraModes'
 import { mixRgb, type Rgb } from './sky'
-import type { Strike, Weather } from './types'
+import type { Point, Strike, Weather } from './types'
 
 /**
  * Wild World W2 in the viewer: how each weather tints the sky, the word and mark the HUD shows, how many rain
@@ -56,6 +57,77 @@ export function weatherFog(near: number, far: number, weather: Weather | null | 
 export function flashLevel(since: number): number {
   if (since < 0 || since >= FLASH_SECONDS) return 1
   return 1 + (FLASH_LIFT - 1) * (1 - since / FLASH_SECONDS)
+}
+
+/** Rain and snow fall in a box this wide and tall that follows the camera. */
+export const FALL_BOX = { width: 44, height: 30 }
+const FALL_SPEED: Partial<Record<Weather, number>> = { rain: 24, storm: 30, snow: 2.4 }
+/** A bolt is drawn this long after its strike. */
+export const BOLT_SECONDS = 0.25
+const BOLT_HEIGHT = 60
+export const BOLT_SEGMENTS = 9
+/** Embers over a burning cell, and how long a burned-out tree smokes (game seconds). */
+export const EMBERS_PER_FIRE = 3
+export const SMOKE_GAME_SECONDS = 60
+
+function hashUnit(a: number, b: number): number {
+  let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263)
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+/** Where rain streak or snowflake `index` is at `t` seconds, in a box round `center`: it falls and wraps round,
+ * and a flake drifts. */
+export function fallAt(index: number, t: number, weather: Weather, center: Point): Point {
+  const speed = FALL_SPEED[weather] ?? 0
+  const x = (hashUnit(index, 1) - 0.5) * FALL_BOX.width, z = (hashUnit(index, 2) - 0.5) * FALL_BOX.width
+  const drop = (hashUnit(index, 3) * FALL_BOX.height + t * speed) % FALL_BOX.height
+  const drift = weather === 'snow' ? Math.sin(t * 0.8 + index) * 0.6 : 0
+  return { x: center.x + x + drift, y: center.y + FALL_BOX.height / 2 - drop, z: center.z + z }
+}
+
+/** Rain and snow are left out under a roof when the camera is close to or in the pet. */
+export function fallShown(weather: Weather | null | undefined, mode: CameraMode, sheltered: boolean): boolean {
+  if (particleCount(weather, false) === 0) return false
+  return !(sheltered && (mode === 'close' || mode === 'eyes'))
+}
+
+/** A jagged bolt from the sky down to the strike: BOLT_SEGMENTS + 1 points, the same for the same strike. */
+export function boltPoints(strike: Strike): Point[] {
+  const salt = Math.round(strike.at * 1000)
+  return Array.from({ length: BOLT_SEGMENTS + 1 }, (_, k) => {
+    const share = k / BOLT_SEGMENTS
+    const jitter = k === BOLT_SEGMENTS ? 0 : 2.2
+    return {
+      x: strike.x + 0.5 + (hashUnit(salt, k * 2) - 0.5) * jitter,
+      y: strike.y + 1 + BOLT_HEIGHT * (1 - share),
+      z: strike.z + 0.5 + (hashUnit(salt, k * 2 + 1) - 0.5) * jitter,
+    }
+  })
+}
+
+/** The strikes whose bolt shows at replay time `now`. */
+export function boltsAt(strikes: readonly Strike[] | null | undefined, now: number): Strike[] {
+  return (strikes ?? []).filter((strike) => now >= strike.at && now < strike.at + BOLT_SECONDS)
+}
+
+/** Ember `index` of a burning cell, rising and fading over a second and a half, at `t` seconds. */
+export function emberAt(cell: Point, index: number, t: number): { position: Point; scale: number } {
+  const age = (t * 0.66 + hashUnit(index, cell.x * 31 + cell.z)) % 1
+  return {
+    position: {
+      x: cell.x + 0.5 + (hashUnit(index, cell.y) - 0.5) * 0.8,
+      y: cell.y + 0.6 + age * 1.6,
+      z: cell.z + 0.5 + (hashUnit(cell.z, index) - 0.5) * 0.8,
+    },
+    scale: 1 - age,
+  }
+}
+
+/** The cells burning a moment ago that are not now: a tree burned out there, and smokes. */
+export function burnedOut(before: readonly Point[], now: readonly Point[]): Point[] {
+  const burning = new Set(now.map((cell) => `${cell.x},${cell.y},${cell.z}`))
+  return before.filter((cell) => !burning.has(`${cell.x},${cell.y},${cell.z}`))
 }
 
 /** The brightest flash of any strike at replay time `now`. */

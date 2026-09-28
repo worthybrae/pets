@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { previewPet } from '../components/world/previewWorld'
-import { HURT_GLOW_SECONDS, capVoxels, hurtGlow, tunicVoxels, wornCap, wornTunic } from './petGear'
+import { HURT_GLOW_SECONDS, capVoxels, cloakVoxels, hurtGlow, tunicVoxels, wornCap, wornCloak, wornTunic } from './petGear'
 
 const key = (voxel: { x: number; y: number; z: number }) => `${voxel.x},${voxel.y},${voxel.z}`
 
@@ -38,6 +38,15 @@ describe('petGear', () => {
     expect(leather.every((voxel) => voxel.r - voxel.b > 40)).toBe(true)
     expect(capVoxels({ iron_cap: 1 }).map(key)).toEqual(capVoxels({ leather_cap: 1 }).map(key))
     expect(capVoxels({ iron_cap: 1 })[0].g).toBeGreaterThan(capVoxels({ leather_cap: 1 })[0].g)
+  })
+
+  it('wears a wool cloak down its back when it carries one (W2)', () => {
+    expect(wornCloak({ wool_cloak: 1 })).toBe(true)
+    expect(wornCloak({ wool: 5 })).toBe(false)
+    expect(cloakVoxels(false)).toEqual([])
+    const cloak = cloakVoxels(true)
+    expect(cloak).toHaveLength(9)
+    expect(cloak.every((voxel) => voxel.z < 0)).toBe(true)  // behind the body, never over the face
   })
 
   it('glows red at once after a blow and fades', () => {

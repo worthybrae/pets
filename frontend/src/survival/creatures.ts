@@ -200,6 +200,8 @@ export function dropColor(item: string): Color {
     amber: [232, 156, 44], gold_nugget: [246, 206, 84], diamond: [120, 226, 232], flint: [70, 70, 76],
     // W1: what a wild pet picks, makes and throws out
     nightberries: [74, 40, 96], sunleaf: [206, 212, 84], bandage: [244, 240, 228], spoiled_food: [122, 118, 70],
+    // W2: what a pet makes for the winter
+    wool_cloak: [236, 229, 212], smoked_meat: [140, 84, 58],
   } as Record<string, Color>)[item] ?? [180, 180, 180]
 }
 

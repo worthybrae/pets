@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildAtlas } from './atlas'
 import { blockId } from './blocks'
-import { cornerAo, meshColumn, PADDED, paddedIndex, type LayerBuffers } from './mesher'
+import { cornerAo, meshColumn, OPEN_TOP, PADDED, paddedIndex, WATER_FACE, type LayerBuffers } from './mesher'
 import { WORLD_HEIGHT, WORLD_MIN_Y } from './worldgen'
 
 const { faceTiles } = buildAtlas()
@@ -33,6 +33,23 @@ function quads(buffers: LayerBuffers) {
 function topOfBlock(buffers: LayerBuffers) {
   return quads(buffers).find((quad) => quad.vertices.every(([x, y, z]) => y === 11 && x >= 4 && x <= 5 && z >= 4 && z <= 5))!
 }
+
+describe('the open attribute (W2)', () => {
+  it('marks a top face open to the sky, not one under a roof, and every face of water', () => {
+    const topOpen = (blocks: [number, number, number, string][]) => {
+      const opaque = mesh(blocks).opaque
+      const quad = quads(opaque).findIndex((found) => found.vertices.every(([x, y, z]) => y === 11 && x >= 4 && x <= 5 && z >= 4 && z <= 5))
+      return opaque.opens[quad * 4]
+    }
+    expect(topOpen([[5, 10, 5, 'stone']])).toBe(OPEN_TOP)
+    expect(topOpen([[5, 10, 5, 'stone'], [5, 14, 5, 'planks']])).toBe(0)
+    expect(topOpen([[5, 10, 5, 'stone'], [5, 12, 5, 'glass']])).toBe(OPEN_TOP)  // glass is no roof for snow... nor opaque
+    const lake = mesh([[5, 10, 5, 'sand'], [5, 11, 5, 'water']]).translucent
+    expect(new Set(lake.opens)).toEqual(new Set([WATER_FACE]))
+    const side = mesh([[5, 10, 5, 'stone']]).opaque
+    expect(side.opens.filter((value) => value === OPEN_TOP)).toHaveLength(4)  // the top face's four corners only
+  })
+})
 
 describe('meshColumn', () => {
   it('draws all six faces of a lone block', () => {

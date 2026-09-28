@@ -17,11 +17,11 @@ class FakeWorker {
 
 const empty = (): LayerBuffers => ({
   positions: new Float32Array(0), uvs: new Float32Array(0), colors: new Float32Array(0), glows: new Float32Array(0),
-  indices: new Uint32Array(0),
+  opens: new Float32Array(0), indices: new Uint32Array(0),
 })
 const oneQuad = (): LayerBuffers => ({
   positions: new Float32Array(12), uvs: new Float32Array(8), colors: new Float32Array(12), glows: new Float32Array(4),
-  indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+  opens: new Float32Array(4), indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
 })
 
 /** Run a material's onBeforeCompile on three's own basic shader, as the renderer would. */
@@ -169,6 +169,19 @@ describe('ColumnRenderer', () => {
     expect(shader.uniforms.uCutaway.value.toArray()).toEqual([1.5, -3.5, 2.5, 8])
     renderer.setCutaway(null)
     expect(shader.uniforms.uCutaway.value.w).toBe(0)
+  })
+
+  it('installs the open attribute and drives the snow and the ice (W2)', () => {
+    const { group, worker, renderer } = setup()
+    renderer.setView(8, 8, 0)
+    worker.reply(meshed(worker.posted[0]))
+    const mesh = group.children[0] as THREE.Mesh
+    expect(mesh.geometry.getAttribute('open').itemSize).toBe(1)
+    const shader = compile(mesh.material as THREE.Material)
+    expect(shader.fragmentShader).toContain('uniform float uSnow;')
+    expect(shader.fragmentShader).toContain('vOpen > 1.5 && vWorld.y >= 2.0')
+    renderer.setWeather(0.6, 2)
+    expect([shader.uniforms.uSnow.value, shader.uniforms.uFrozen.value]).toEqual([0.6, 1])
   })
 
   it('reports a worker crash and cleans up on dispose', () => {

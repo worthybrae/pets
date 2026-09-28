@@ -15,6 +15,8 @@ const STITCH: Color = [112, 70, 44]
 const IRON: Color = [196, 201, 204]  // L3: iron armor, with darker rivets
 const RIVET: Color = [128, 135, 140]
 const AMBER: Color = [222, 150, 52]  // L5: amber-studded, over the iron's rivets
+const WOOL: Color = [236, 229, 212]  // W2: a wool cloak, with a darker hem
+const HEM: Color = [196, 184, 160]
 export const TUNIC_SCALE = 1.12
 /** The middle of the body, in voxel units, that the tunic is scaled around. */
 export const BODY_MIDDLE: [number, number, number] = [0.5, 1, 0]
@@ -55,6 +57,21 @@ export function wornTunic(inventory: Record<string, number> | null | undefined):
 /** L3: the cap Mimo wears, iron over leather (L5: amber over iron), or null when it carries none. */
 export function wornCap(inventory: Record<string, number> | null | undefined): string | null {
   return ['amber_cap', 'iron_cap', 'leather_cap'].find((item) => (inventory?.[item] ?? 0) > 0) ?? null
+}
+
+/** W2: whether Mimo wears a wool cloak (it carries one). */
+export function wornCloak(inventory: Record<string, number> | null | undefined): boolean {
+  return (inventory?.wool_cloak ?? 0) > 0
+}
+
+/** W2: the cloak's voxels, hanging down its back from a collar at its neck, when it wears one; else none. */
+export function cloakVoxels(worn: boolean): Voxel[] {
+  if (!worn) return []
+  const voxels: Voxel[] = []
+  for (let x = -1; x <= 1; x++) {
+    voxels.push(voxel(x, 2, -1, WOOL), voxel(x, 1, -2, WOOL), voxel(x, 0, -2, HEM))
+  }
+  return voxels
 }
 
 /** How red the pet glows (0..1) at server time `t` after a blow at `hurtAt`: at once, then fading. */

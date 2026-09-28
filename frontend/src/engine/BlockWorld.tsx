@@ -19,11 +19,13 @@ interface BlockWorldProps {
   /** Called every frame, with the camera's position, for the terrain to cut away over an
    * underground or hidden pet (null: none). */
   cutaway?: (camera: THREE.Vector3) => Cutaway | null
+  /** W2: called every frame with the frame's seconds for the snow cover and the ice, each 0..1. Omit for neither. */
+  weather?: (delta: number) => [number, number]
   onStats?: (stats: ViewStats) => void
   onError?: (message: string) => void
 }
 
-export default function BlockWorld({ store, centerX, centerZ, viewDistance, daylight, cutaway, onStats, onError }: BlockWorldProps) {
+export default function BlockWorld({ store, centerX, centerZ, viewDistance, daylight, cutaway, weather, onStats, onError }: BlockWorldProps) {
   const { gl } = useThree()
   const [group] = useState(() => new THREE.Group())
   const renderer = useRef<ColumnRenderer | null>(null)
@@ -57,6 +59,8 @@ export default function BlockWorld({ store, centerX, centerZ, viewDistance, dayl
     if (!current) return
     current.setDaylight(daylight ? daylight() : 1)
     current.setCutaway(cutaway ? cutaway(camera.position) : null)
+    const [snow, frozen] = weather ? weather(delta) : [0, 0]
+    current.setWeather(snow, frozen)
     current.tick(delta)
     if (!onStats) return
     const clock = statsClock.current

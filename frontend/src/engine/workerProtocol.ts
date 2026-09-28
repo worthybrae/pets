@@ -36,6 +36,7 @@ export type WorkerResponse = MeshedResponse | ErrorResponse
 
 export function meshTransfers(mesh: ColumnMesh): ArrayBuffer[] {
   return [mesh.opaque, mesh.cutout, mesh.translucent].flatMap((layer) => [
-    layer.positions.buffer, layer.uvs.buffer, layer.colors.buffer, layer.glows.buffer, layer.indices.buffer,
+    layer.positions.buffer, layer.uvs.buffer, layer.colors.buffer, layer.glows.buffer, layer.opens.buffer,
+    layer.indices.buffer,
   ] as ArrayBuffer[])
 }

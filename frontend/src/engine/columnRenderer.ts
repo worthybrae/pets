@@ -3,7 +3,7 @@ import { animateWater, buildAtlas, type Atlas } from './atlas'
 import type { LayerBuffers } from './mesher'
 import type { MeshedResponse, WorkerRequest, WorkerResponse } from './workerProtocol'
 import { columnKey, type WorldStore } from './worldStore'
-import { CHUNK_SIZE } from './worldgen'
+import { CHUNK_SIZE, SEA_LEVEL } from './worldgen'
 
 export const MAX_IN_FLIGHT = 4
 const WATER_FRAME_SECONDS = 0.25
@@ -50,6 +50,23 @@ export interface CutawayUniform {
   value: THREE.Vector4
 }
 
+/** W2: shared uniforms for the snow cover on top faces open to the sky (0..1) and the ice on the lakes (0..1). */
+export interface WeatherUniforms {
+  snow: { value: number }
+  frozen: { value: number }
+}
+
+/** W2: the snow whitens an open top face (the mesher's `open` attribute is 1); the ice turns a water face at or above
+ * SEA_LEVEL (`open` 2) an opaque pale blue with a faint crackle. */
+const WEATHER_FRAGMENT = `
+if (vOpen > 0.5 && vOpen < 1.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.95, 0.97), uSnow * 0.85);
+if (vOpen > 1.5 && vWorld.y >= ${SEA_LEVEL.toFixed(1)}) {
+  vec2 cell = floor(vWorld.xz * 3.0);
+  float crackle = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.74, 0.86, 0.94) * (1.0 - 0.18 * crackle), uFrozen);
+  diffuseColor.a = mix(diffuseColor.a, 1.0, uFrozen);
+}`
+
 const CUTAWAY_FRAGMENT = `
 if (uCutaway.w > 0.0 && vCutWorld.y > uCutaway.y) {
   if (length(vCutWorld.xz - uCutaway.xz) < uCutaway.w) discard;
@@ -64,13 +81,23 @@ if (uCutaway.w > 0.0 && vCutWorld.y > uCutaway.y) {
  * attribute set to 1 (lanterns, furnaces, lava, later torches and campfires) keep full brightness.
  * With a cutaway uniform, the material also discards fragments over an underground pet.
  */
-export function applyDaylight(material: THREE.Material, daylight: DaylightUniform, cutaway?: CutawayUniform): void {
+export function applyDaylight(material: THREE.Material, daylight: DaylightUniform, cutaway?: CutawayUniform,
+  weather?: WeatherUniforms): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uDaylight = daylight
     let vertexCommon = '#include <common>\nattribute float glow;\nvarying float vGlow;'
     let vertexBegin = '#include <begin_vertex>\nvGlow = glow;'
     let fragmentCommon = '#include <common>\nuniform float uDaylight;\nvarying float vGlow;'
     let fragmentStart = '#include <clipping_planes_fragment>'
+    let color = '#include <color_fragment>\ndiffuseColor.rgb *= mix(uDaylight, 1.0, vGlow);'
+    if (weather) {  // W2
+      shader.uniforms.uSnow = weather.snow
+      shader.uniforms.uFrozen = weather.frozen
+      vertexCommon += '\nattribute float open;\nvarying float vOpen;\nvarying vec3 vWorld;'
+      vertexBegin += '\nvOpen = open;\nvWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      fragmentCommon += '\nuniform float uSnow;\nuniform float uFrozen;\nvarying float vOpen;\nvarying vec3 vWorld;'
+      color = color.replace('#include <color_fragment>', `#include <color_fragment>${WEATHER_FRAGMENT}`)
+    }
     if (cutaway) {
       shader.uniforms.uCutaway = cutaway
       vertexCommon += '\nvarying vec3 vCutWorld;'
@@ -84,9 +111,9 @@ export function applyDaylight(material: THREE.Material, daylight: DaylightUnifor
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', fragmentCommon)
       .replace('#include <clipping_planes_fragment>', fragmentStart)
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(uDaylight, 1.0, vGlow);')
+      .replace('#include <color_fragment>', color)
   }
-  material.customProgramCacheKey = () => (cutaway ? 'terrain-daylight-cutaway' : 'terrain-daylight')
+  material.customProgramCacheKey = () => `terrain-daylight${cutaway ? '-cutaway' : ''}${weather ? '-weather' : ''}`
 }
 
 function toGeometry(buffers: LayerBuffers): THREE.BufferGeometry | null {
@@ -96,6 +123,7 @@ function toGeometry(buffers: LayerBuffers): THREE.BufferGeometry | null {
   geometry.setAttribute('uv', new THREE.BufferAttribute(buffers.uvs, 2))
   geometry.setAttribute('color', new THREE.BufferAttribute(buffers.colors, 3))
   geometry.setAttribute('glow', new THREE.BufferAttribute(buffers.glows, 1))
+  geometry.setAttribute('open', new THREE.BufferAttribute(buffers.opens, 1))  // W2: the snow and the ice
   geometry.setIndex(new THREE.BufferAttribute(buffers.indices, 1))
   geometry.computeBoundingSphere()
   return geometry
@@ -113,6 +141,7 @@ export class ColumnRenderer {
   private readonly materials: Record<LayerName, THREE.MeshBasicMaterial>
   private readonly daylight: DaylightUniform = { value: 1 }
   private readonly cutaway: CutawayUniform = { value: new THREE.Vector4(0, 0, 0, 0) }
+  private readonly weather: WeatherUniforms = { snow: { value: 0 }, frozen: { value: 0 } }
   private readonly entries = new Map<string, ColumnEntry>()
   private readonly unsubscribe: () => void
   private queue: string[] = []
@@ -141,7 +170,7 @@ export class ColumnRenderer {
       cutout: new THREE.MeshBasicMaterial({ map: this.texture, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
       translucent: new THREE.MeshBasicMaterial({ map: this.texture, vertexColors: true, transparent: true, depthWrite: false }),
     }
-    for (const material of Object.values(this.materials)) applyDaylight(material, this.daylight, this.cutaway)
+    for (const material of Object.values(this.materials)) applyDaylight(material, this.daylight, this.cutaway, this.weather)
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.receive(event.data)
     this.worker.onerror = (event) => {
       event.preventDefault()
@@ -177,6 +206,12 @@ export class ColumnRenderer {
   /** Terrain brightness: 1 by day, 0.35 at night. Glowing blocks ignore it. */
   setDaylight(value: number): void {
     this.daylight.value = Math.min(1, Math.max(0, value))
+  }
+
+  /** W2: the snow cover (0..1) on top faces open to the sky, and the ice (0..1) on the lakes' surface. */
+  setWeather(snow: number, frozen: number): void {
+    this.weather.snow.value = Math.min(1, Math.max(0, snow))
+    this.weather.frozen.value = Math.min(1, Math.max(0, frozen))
   }
 
   /** Cut terrain away over an underground pet, or stop cutting with null. */

@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import PetVoxels from '../components/world/PetVoxels'
 import { previewPet } from '../components/world/previewWorld'
 import { bodyPose, crumbs, moveFor, zPuffs } from './animation'
-import { BODY_MIDDLE, TUNIC_SCALE, capVoxels, hurtGlow, tunicVoxels } from './petGear'
+import { BODY_MIDDLE, TUNIC_SCALE, capVoxels, cloakVoxels, hurtGlow, tunicVoxels } from './petGear'
 import { poseAt, turnToward } from './motion'
 import { replayAt } from './replay'
 import type { Ailments, FinishedAction, MimoAction, Point } from './types'
@@ -63,7 +63,7 @@ function setOpacity(object: THREE.Object3D, opacity: number) {
  * useFrame.
  */
 export default function SurvivalPet({ action, recent = NO_STEPS, position, now, onPetClick, hopSignal = 0, hidden,
-  tunic = null, cap = null, hurtAt = null, ailments = null, asking = false, children }: {
+  tunic = null, cap = null, cloak = false, hurtAt = null, ailments = null, asking = false, children }: {
   action: MimoAction | null
   /** Finished steps, oldest first, so short steps between polls still play out. */
   recent?: FinishedAction[]
@@ -79,6 +79,8 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   /** L3: the tunic and cap it wears (petGear.wornTunic and wornCap), or null. */
   tunic?: string | null
   cap?: string | null
+  /** W2: it wears a wool cloak (petGear.wornCloak). */
+  cloak?: boolean
   hurtAt?: number | null
   /** W1: what ails it (a green tint, a droop and a slower hop while sick, a shiver with a chill, a wrap on a
    * dressed wound, a red mark while one festers) and whether it has just asked something (a "?" over it). */
@@ -98,6 +100,7 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   const tunicParts = useMemo(() => tunicVoxels(tunic ? { [tunic]: 1 } : {}), [tunic])
   const ailing = useMemo(() => petAilment(ailments), [ailments])
   const capParts = useMemo(() => capVoxels(cap ? { [cap]: 1 } : {}), [cap])
+  const cloakParts = useMemo(() => cloakVoxels(cloak), [cloak])
 
   useFrame((state, delta) => {
     const t = now()
@@ -174,6 +177,7 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
             </group>
           )}
           {capParts.length > 0 && <PetVoxels voxels={capParts} />}
+          {cloakParts.length > 0 && <PetVoxels voxels={cloakParts} />}
           {children}
         </group>
         {ailing.tint > 0 && (

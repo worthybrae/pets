@@ -16,7 +16,9 @@ import { hidden, holdWallCut, shelterBlocks } from './cutaway'
 import SurvivalCreatures from './SurvivalCreatures'
 import SurvivalDoors from './SurvivalDoors'
 import SurvivalPet from './SurvivalPet'
-import { wornCap, wornTunic } from './petGear'
+import { wornCap, wornCloak, wornTunic } from './petGear'
+import { easeToward, freezeSeconds, SNOW_EASE_SECONDS } from './seasons'
+import WeatherEffects from './WeatherEffects'
 import type { Ailments, Built, Creature, CreatureMove, FinishedAction, LeafDecay, MimoAction, Point, SkyView } from './types'
 
 const CAMERA_DISTANCE = 26
@@ -45,7 +47,7 @@ function pickViewDistance(): number {
  * (`ailments`) and a "?" while it has just asked its owner something (`asking`). W2: the season and the
  * weather (`sky`) tint the sky, fog closes in and lightning flashes.
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, ailments = null, asking = false, sky = null, serverTime, cameraMode = 'overview', onAutoPick, doorsOpen }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, ailments = null, asking = false, sky = null, sheltered = false, timeScale = 1, serverTime, cameraMode = 'overview', onAutoPick, doorsOpen }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -70,8 +72,11 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   /** W1: what ails Mimo, and whether it has just asked its owner something. */
   ailments?: Ailments | null
   asking?: boolean
-  /** W2: the season and the weather (the snapshot's `sky`). */
+  /** W2: the season and the weather (the snapshot's `sky`); whether Mimo stands inside the shelter it built (no rain
+   * or snow falls round a camera close to it there); the clock's pace, for how fast the ice comes and goes. */
   sky?: SkyView | null
+  sheltered?: boolean
+  timeScale?: number
   serverTime?: () => number
   cameraMode?: CameraMode
   /** Called when the auto camera picks overview or close. */
@@ -118,6 +123,14 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
     return cutawayFor(view.current.cut, store, at, held.on, view.current.closeDistance)
   }, [store, serverTime, stepAt, position, walls])
   const petHidden = useCallback(() => view.current.petHidden, [])
+  // W2: the snow cover and the ice drawn on the terrain, eased toward the server's (seasons.ts).
+  const cover = useRef({ snow: sky?.snow ?? 0, frozen: sky?.frozen ? 1 : 0 })
+  const weatherNow = useCallback((delta: number): [number, number] => {
+    const drawn = cover.current
+    drawn.snow = easeToward(drawn.snow, sky?.snow ?? 0, delta, SNOW_EASE_SECONDS)
+    drawn.frozen = easeToward(drawn.frozen, sky?.frozen ? 1 : 0, delta, freezeSeconds(timeScale))
+    return [drawn.snow, drawn.frozen]
+  }, [sky, timeScale])
   // Where the drawn pet is, for the doors it opens (L2).
   const petAt = useCallback(() => {
     const pose = stepAt()
@@ -140,11 +153,11 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           )}
           <BlockWorld key={engineKey} store={store} centerX={cameraChunk.x * 16 + 8} centerZ={cameraChunk.z * 16 + 8}
             viewDistance={viewDistance} daylight={seconds ? () => daylightFactor(seconds()) : undefined}
-            cutaway={cutawayAt}
+            cutaway={cutawayAt} weather={sky ? weatherNow : undefined}
             onStats={debug ? setStats : undefined} onError={setEngineError} />
           <SurvivalPet action={action} recent={recentActions} position={position} now={replayTime} onPetClick={onPetClick}
             hopSignal={hopSignal} hidden={petHidden} tunic={wornTunic(inventory)}
-            cap={wornCap(inventory)} hurtAt={hurtAt} ailments={ailments} asking={asking}>
+            cap={wornCap(inventory)} cloak={wornCloak(inventory)} hurtAt={hurtAt} ailments={ailments} asking={asking}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />
@@ -159,6 +172,8 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
           </SurvivalPet>
           {serverTime && <ActionEffects store={store} action={action} recent={recentActions} position={position} now={replayTime} />}
           {serverTime && <LeafPuffs decays={decays} now={replayTime} />}
+          {serverTime && sky && <WeatherEffects sky={sky} now={replayTime} mode={cameraMode} sheltered={sheltered}
+            small={viewDistance < 6} timeScale={timeScale} />}
           {serverTime && <SurvivalCreatures creatures={creatures} moves={creatureMoves} now={replayTime} />}
           {serverTime && <CombatEffects action={action} recent={recentActions} position={position} creatures={creatures}
             now={replayTime} />}

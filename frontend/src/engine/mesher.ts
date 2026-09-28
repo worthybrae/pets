@@ -1,6 +1,7 @@
 import { tileUv } from './atlas'
 import {
   AIR, CUBE_BY_ID, FLUID_BY_ID, GLOW_BY_ID, HEIGHT_BY_ID, LAYER_BY_ID, LAYER_CUTOUT, LAYER_OPAQUE, LAYER_TRANSLUCENT,
+  blockId,
 } from './blocks'
 import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from './worldgen'
 
@@ -18,8 +19,15 @@ export interface LayerBuffers {
   colors: Float32Array
   /** 1 for vertices of glowing blocks, which daylight must not darken; else 0. One per vertex. */
   glows: Float32Array
+  /** W2: OPEN_TOP for a top face with no opaque block above it in its column (the snow settles there), WATER_FACE
+   * for a face of water (it freezes at the lakes' surface), else 0. One per vertex. */
+  opens: Float32Array
   indices: Uint32Array
 }
+
+/** W2: the `open` attribute's values. */
+export const OPEN_TOP = 1
+export const WATER_FACE = 2
 
 export interface ColumnMesh {
   opaque: LayerBuffers
@@ -58,6 +66,7 @@ const CORNER_UV = [[0, 0], [1, 0], [1, 1], [0, 1]]
 const AO_LIGHT = [0.45, 0.62, 0.8, 1]
 const WATER_DROP = 0.125
 const SIDE_FACE = 4
+const WATER = blockId('water')
 const CROSS: Vec3[][] = [
   [[0.05, 0, 0.05], [0.95, 0, 0.95], [0.95, 1, 0.95], [0.05, 1, 0.05]],
   [[0.95, 0, 0.05], [0.05, 0, 0.95], [0.05, 1, 0.95], [0.95, 1, 0.05]],
@@ -85,9 +94,10 @@ class LayerBuilder {
   uvs: number[] = []
   colors: number[] = []
   glows: number[] = []
+  opens: number[] = []
   indices: number[] = []
 
-  quad(corners: Vec3[], uv: [number, number, number, number], light: number[], flip: boolean, glow = 0): void {
+  quad(corners: Vec3[], uv: [number, number, number, number], light: number[], flip: boolean, glow = 0, open = 0): void {
     const base = this.positions.length / 3
     corners.forEach(([x, y, z], k) => {
       this.positions.push(x, y, z)
@@ -95,6 +105,7 @@ class LayerBuilder {
       const value = srgbToLinear(Math.min(1, light[k]))
       this.colors.push(value, value, value)
       this.glows.push(glow)
+      this.opens.push(open)
     })
     if (flip) this.indices.push(base + 1, base + 2, base + 3, base + 1, base + 3, base)
     else this.indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
@@ -106,6 +117,7 @@ class LayerBuilder {
       uvs: new Float32Array(this.uvs),
       colors: new Float32Array(this.colors),
       glows: new Float32Array(this.glows),
+      opens: new Float32Array(this.opens),
       indices: new Uint32Array(this.indices),
     }
   }
@@ -123,6 +135,18 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
     return id === -1 || LAYER_BY_ID[id] === LAYER_OPAQUE ? 1 : 0
   }
   const x0 = cx * CHUNK_SIZE - 1, z0 = cz * CHUNK_SIZE - 1
+  // W2: the highest opaque layer of each column (-1 with none), so a top face knows whether the sky is open over it.
+  const roofs = new Int32Array(PADDED * PADDED).fill(-1)
+  for (let pz = 1; pz <= CHUNK_SIZE; pz++) {
+    for (let px = 1; px <= CHUNK_SIZE; px++) {
+      for (let layer = WORLD_HEIGHT - 1; layer >= 0; layer--) {
+        if (LAYER_BY_ID[volume[paddedIndex(px, layer, pz)]] === LAYER_OPAQUE) {
+          roofs[pz * PADDED + px] = layer
+          break
+        }
+      }
+    }
+  }
 
   for (let layer = 0; layer < WORLD_HEIGHT; layer++) {
     for (let pz = 1; pz <= CHUNK_SIZE; pz++) {
@@ -164,6 +188,8 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
         }
 
         const builder = kind === LAYER_OPAQUE ? opaque : translucent
+        const water = id === WATER
+        const open = layer >= roofs[pz * PADDED + px]
         const above = idAt(px, layer + 1, pz)
         const lowered = FLUID_BY_ID[id] === 1 && above !== id && LAYER_BY_ID[above] !== LAYER_OPAQUE
         FACES.forEach((face, faceIndex) => {
@@ -192,7 +218,8 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
           const light = aos.map((ao) => face.shade * AO_LIGHT[ao] * blockTint)
           // Split along the diagonal that holds the odd corner so gradients don't crease.
           const flip = aos[0] + aos[2] > aos[1] + aos[3]
-          builder.quad(corners, tileUv(faceTiles[id * 6 + faceIndex]), light, flip, glow ? 1 : 0)
+          const surface = water ? WATER_FACE : dy === 1 && open ? OPEN_TOP : 0
+          builder.quad(corners, tileUv(faceTiles[id * 6 + faceIndex]), light, flip, glow ? 1 : 0, surface)
         })
       }
     }

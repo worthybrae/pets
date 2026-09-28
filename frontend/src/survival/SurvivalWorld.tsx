@@ -161,6 +161,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
         action={state.action} recentActions={state.recent_actions} decays={state.decays} structures={state.structures}
         creatures={state.creatures} creatureMoves={state.creature_moves} inventory={state.inventory} hurtAt={state.hurt_at}
         ailments={state.ailments} asking={askBubble(state.inbox?.questions, state.server_time)} sky={state.sky}
+        sheltered={state.sheltered} timeScale={state.clock.time_scale}
         serverTime={serverTime} doorsOpen={state.workshop?.doors_open}
         cameraMode={cameraMode} onAutoPick={autoPicked} />
       <SurvivalHud state={state} bond={<BondBar state={state} onChanged={onChanged} />} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
