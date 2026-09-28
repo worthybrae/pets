@@ -7,7 +7,8 @@ import { bodyPose, crumbs, moveFor, zPuffs } from './animation'
 import { BODY_MIDDLE, TUNIC_SCALE, capVoxels, hurtGlow, tunicVoxels } from './petGear'
 import { poseAt, turnToward } from './motion'
 import { replayAt } from './replay'
-import type { FinishedAction, MimoAction, Point } from './types'
+import type { Ailments, FinishedAction, MimoAction, Point } from './types'
+import { petAilment, shiverAt } from './wild'
 
 const SCALE = 0.31
 /** The pet's voxels span x -1..2 in model units, so its middle sits half a voxel right of the origin. */
@@ -20,6 +21,12 @@ const BAR: [number, number, number] = [0.24, 0.05, 0.05]
 const NO_STEPS: FinishedAction[] = []
 const UNDER_BODY: [number, number, number] = [-BODY_MIDDLE[0], -BODY_MIDDLE[1], -BODY_MIDDLE[2]]
 const GLOW_COLOR = '#e0463a'
+const SICK_COLOR = '#7fb069'  // W1: a sick pet's green tint
+const WRAP_COLOR = '#f4f0e4'
+const MARK_COLOR = '#b5473a'
+const ASK_COLOR = '#f5c46b'
+/** W1: a "?" of little boxes floating over the pet's head, as [x, y] in pet units. */
+const QUESTION_MARK: [number, number][] = [[-0.08, 0.3], [0, 0.36], [0.08, 0.3], [0.08, 0.22], [0, 0.14], [0, 0.06], [0, -0.06]]
 
 /** One floating "z" made of three thin bars, in the voxel style. */
 function SleepZ() {
@@ -56,7 +63,7 @@ function setOpacity(object: THREE.Object3D, opacity: number) {
  * useFrame.
  */
 export default function SurvivalPet({ action, recent = NO_STEPS, position, now, onPetClick, hopSignal = 0, hidden,
-  tunic = null, cap = null, hurtAt = null, children }: {
+  tunic = null, cap = null, hurtAt = null, ailments = null, asking = false, children }: {
   action: MimoAction | null
   /** Finished steps, oldest first, so short steps between polls still play out. */
   recent?: FinishedAction[]
@@ -73,6 +80,10 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   tunic?: string | null
   cap?: string | null
   hurtAt?: number | null
+  /** W1: what ails it (a green tint, a droop and a slower hop while sick, a shiver with a chill, a wrap on a
+   * dressed wound, a red mark while one festers) and whether it has just asked something (a "?" over it). */
+  ailments?: Ailments | null
+  asking?: boolean
   children?: ReactNode
 }) {
   const root = useRef<THREE.Group>(null)
@@ -85,6 +96,7 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
   const glow = useRef<THREE.Mesh>(null)
   const glowMaterial = useRef<THREE.MeshBasicMaterial>(null)
   const tunicParts = useMemo(() => tunicVoxels(tunic ? { [tunic]: 1 } : {}), [tunic])
+  const ailing = useMemo(() => petAilment(ailments), [ailments])
   const capParts = useMemo(() => capVoxels(cap ? { [cap]: 1 } : {}), [cap])
 
   useFrame((state, delta) => {
@@ -103,11 +115,12 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
         : turnToward(heading.current, pose.facing, 1 - Math.exp(-TURN_RATE * delta))
     }
     if (root.current) {
-      root.current.position.set(pose.x + 0.5, pose.y + shape.lift + hop, pose.z + 0.5)
+      root.current.position.set(pose.x + 0.5, pose.y + (shape.lift + hop) * ailing.hop, pose.z + 0.5)
       root.current.rotation.y = heading.current ?? 0
     }
     if (body.current) {
-      body.current.rotation.set(shape.pitch, 0, shape.roll)
+      const shiver = ailing.shiver ? shiverAt(state.clock.elapsedTime) : 0
+      body.current.rotation.set(shape.pitch + (ailing.droop ? 0.12 : 0), 0, shape.roll + shiver)
       body.current.scale.set(1, shape.stretch, 1)
     }
     const floating = zs.current
@@ -163,11 +176,39 @@ export default function SurvivalPet({ action, recent = NO_STEPS, position, now, 
           {capParts.length > 0 && <PetVoxels voxels={capParts} />}
           {children}
         </group>
+        {ailing.tint > 0 && (
+          <mesh position={[0, 0.95, 0.1]}>
+            <boxGeometry args={[1.08, 1.92, 1.08]} />
+            <meshBasicMaterial color={SICK_COLOR} transparent opacity={ailing.tint} depthWrite={false} />
+          </mesh>
+        )}
+        {ailing.wrap && (
+          <mesh position={[0.36, 0.45, 0.05]}>
+            <boxGeometry args={[0.08, 0.2, 0.42]} />
+            <meshLambertMaterial color={WRAP_COLOR} />
+          </mesh>
+        )}
+        {ailing.mark && (
+          <mesh position={[0.35, 0.45, 0.05]}>
+            <boxGeometry args={[0.06, 0.14, 0.14]} />
+            <meshBasicMaterial color={MARK_COLOR} />
+          </mesh>
+        )}
         <mesh ref={glow} position={[0, 0.95, 0.1]} visible={false}>
           <boxGeometry args={[1.1, 1.95, 1.1]} />
           <meshBasicMaterial ref={glowMaterial} color={GLOW_COLOR} transparent opacity={0} depthWrite={false} />
         </mesh>
       </group>
+      {asking && (
+        <group position={[0, 1.6, 0]}>
+          {QUESTION_MARK.map(([x, y]) => (
+            <mesh key={`${x},${y}`} position={[x, y, 0]}>
+              <boxGeometry args={[0.07, 0.07, 0.07]} />
+              <meshBasicMaterial color={ASK_COLOR} />
+            </mesh>
+          ))}
+        </group>
+      )}
       <group ref={zs} position={[0, 1.15, 0]} visible={false}>
         {[0, 1, 2].map((index) => <SleepZ key={index} />)}
       </group>

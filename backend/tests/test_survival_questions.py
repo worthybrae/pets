@@ -236,7 +236,7 @@ class ApiTests(unittest.TestCase):
             ask_wonders(db, state, 10.0, 1.0)
             write_state(db, state)
         [question] = get_mimo()["inbox"]["questions"]
-        self.assertEqual(question["text"], "The floor is so hard to sleep on.")
+        self.assertEqual((question["text"], question["at"]), ("The floor is so hard to sleep on.", 10.0))
         self.assertEqual(self.status(question["id"], PlaceName(choice=9)), 400)
         self.assertEqual(self.status(question["id"] + 9, PlaceName(choice=0)), 404)
         self.assertEqual(self.status(question["id"], PlaceName()), 400)

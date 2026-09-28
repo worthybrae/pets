@@ -169,6 +169,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(mimo["survival"]), 11)
         registry = LifeRegistry()
         registry.mark_dead(registry.active_life()["id"], BORN, "starvation")
+        memorial = get_mimo()["last_life"]
+        self.assertEqual(len(memorial["survival"]), 11)  # the memorial tallies where its lessons came from
         hatch_egg(Hatching(difficulty="gentle"))
         self.assertEqual(get_mimo()["difficulty"], GENTLE)
 

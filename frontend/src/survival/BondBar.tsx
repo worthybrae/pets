@@ -6,6 +6,7 @@ import StoryPanel from './StoryPanel'
 import { loadNotify, markStoryRead, newestUnread, notifyPlan, notifyShown, saveNotify, storyToShow } from './story'
 import TalkPanel from './TalkPanel'
 import { newestReply, talkLabel } from './talk'
+import { questionsLabel } from './wild'
 import type { AliveResponse } from './types'
 
 const browserStorage = () => window.localStorage
@@ -92,6 +93,10 @@ export default function BondBar({ state, onChanged }: { state: AliveResponse; on
         )}
         <button type="button" onClick={openTalk} className={button}>{talking ? 'Talk' : talkLabel(state.chat, seen)}</button>
         <button type="button" onClick={() => setReading(true)} className={button}>{inboxLabel(state.inbox)}</button>
+        {questionsLabel(state.inbox) && (
+          <button type="button" onClick={() => setReading(true)} className={`${button} font-semibold`}
+            title={`${name} has questions for you`} aria-label={`${name}'s questions`}>{questionsLabel(state.inbox)}</button>
+        )}
         <button type="button" onClick={() => setDiaryOpen(true)} className={button}>Diary</button>
       </div>
       {promise && <p className="mt-1 truncate text-xs text-[#54726e]">{promise}</p>}

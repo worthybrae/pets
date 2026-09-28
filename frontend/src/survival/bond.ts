@@ -1,5 +1,6 @@
 import { request } from './api'
 import type { BondView, InboxItem, InboxView, RequestView } from './bondTypes'
+import { closedLine } from './wild'
 
 /** Hearts in the HUD's meter: each stands for 20 points of bond. */
 export const HEARTS = 5
@@ -64,8 +65,10 @@ export function unreadIds(items: InboxItem[]): number[] {
   return items.filter((item) => !item.read).map((item) => item.id)
 }
 
-/** What answered one of Mimo's asks: the name given, or (m14) the day's snack or bandage; '' while it waits. */
+/** What answered one of Mimo's asks: the name given, or (m14) the day's snack or bandage, or (W1) how one of its
+ * questions closed; '' while it waits. */
 export function answeredLine(item: InboxItem): string {
+  if (item.data.ask === 'wonder') return closedLine(item)
   if (item.data.answer) return `You named it ${item.data.answer}.`
   if (item.data.care && item.data.done) return `You gave it a ${item.data.care}.`
   return ''
@@ -82,4 +85,7 @@ const postJson = <T>(path: string, body?: unknown) => request<T>(path, {
 })
 export const markInboxRead = (ids: number[]) => postJson<{ unread: number }>('/api/mimo/inbox/read', { ids })
 export const namePlace = (id: number, text: string) => postJson<{ item: InboxItem }>(`/api/mimo/inbox/${id}/answer`, { text })
+/** W1: the owner answers one of Mimo's questions with the chip at `choice`. */
+export const answerQuestion = (id: number, choice: number) =>
+  postJson<{ item: InboxItem }>(`/api/mimo/inbox/${id}/answer`, { choice })
 export const noteVisit = () => postJson<{ bond: BondView }>('/api/mimo/visit')

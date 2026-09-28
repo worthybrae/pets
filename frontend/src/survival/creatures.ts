@@ -198,6 +198,8 @@ export function dropColor(item: string): Color {
     gloom_dust: [132, 120, 176], string: [236, 236, 230],
     // L5: what a hostile born farther out may drop too.
     amber: [232, 156, 44], gold_nugget: [246, 206, 84], diamond: [120, 226, 232], flint: [70, 70, 76],
+    // W1: what a wild pet picks, makes and throws out
+    nightberries: [74, 40, 96], sunleaf: [206, 212, 84], bandage: [244, 240, 228], spoiled_food: [122, 118, 70],
   } as Record<string, Color>)[item] ?? [180, 180, 180]
 }
 

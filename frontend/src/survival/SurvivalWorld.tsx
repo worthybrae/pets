@@ -17,6 +17,7 @@ import SurvivalHud from './SurvivalHud'
 import type { AliveResponse, CareKind } from './types'
 import WorldCanvas from './WorldCanvas'
 import WorkshopPanel from './WorkshopPanel'
+import { askBubble } from './wild'
 
 const browserStorage = () => window.localStorage
 
@@ -159,6 +160,7 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
         following={following} onOrbit={() => setFollowing(false)} onPetClick={hello} hopSignal={helloCount}
         action={state.action} recentActions={state.recent_actions} decays={state.decays} structures={state.structures}
         creatures={state.creatures} creatureMoves={state.creature_moves} inventory={state.inventory} hurtAt={state.hurt_at}
+        ailments={state.ailments} asking={askBubble(state.inbox?.questions, state.server_time)}
         serverTime={serverTime} doorsOpen={state.workshop?.doors_open}
         cameraMode={cameraMode} onAutoPick={autoPicked} />
       <SurvivalHud state={state} bond={<BondBar state={state} onChanged={onChanged} />} online={!connectionError && workerOnline(state.server_time, state.last_tick_at)}
@@ -171,7 +173,8 @@ export default function SurvivalWorld({ state, receivedAt, arrival, connectionEr
           worldSeed={state.world_seed} message={craftMessage} onAction={(action, item) => { void craft(action, item) }}
           onClose={() => setShowCrafting(false)} />
       )}
-      {showJournal && <JournalPanel name={state.life.name} journal={state.journal} onClose={() => setShowJournal(false)} />}
+      {showJournal && <JournalPanel name={state.life.name} journal={state.journal} survival={state.survival}
+        onClose={() => setShowJournal(false)} />}
       {showMemories && <MemoriesPanel name={state.life.name} memories={state.memories} onClose={() => setShowMemories(false)} />}
       {showWorkshop && <WorkshopPanel name={state.life.name} workshop={state.workshop} onClose={() => setShowWorkshop(false)} />}
     </main>

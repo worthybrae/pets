@@ -64,6 +64,9 @@ describe('the inbox', () => {
     expect(answeredLine({ ...ask, data: { care: 'bandage', done: true } })).toBe('You gave it a bandage.')
     expect(answeredLine({ ...ask, data: { care: 'snack' } })).toBe('')
     expect(answeredLine(ask)).toBe('')
+    // W1: one of Mimo's questions, closed: its answer is a chip's index, never a name
+    expect(answeredLine({ ...ask, data: { ask: 'wonder', answer: 0, closed: 'taught' } })).toBe('You told me')
+    expect(answeredLine({ ...ask, data: { ask: 'wonder', answer: null, closed: null } })).toBe('')
   })
 })
 

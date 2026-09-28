@@ -6,6 +6,7 @@ import { lifeLine } from './hud'
 import { memorialMemories } from './memories'
 import { diaryLines, memorialDiary } from './story'
 import type { LifeSummary } from './types'
+import { memorialLessons } from './wild'
 
 /** Shown after a pet dies, until the owner moves on to the next egg. Bond's final fix wave (I8): the life's
  * whole diary, fetched once from the life's own detail (the egg screen's summary keeps only the newest). */
@@ -29,6 +30,7 @@ export default function Memorial({ life, onViewWorld, onNextEgg }: {
         <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">In memory of</p>
         <h1 className="mt-1 text-4xl font-semibold tracking-tight">{life.name}</h1>
         <p className="mt-3 text-sm text-[#54726e]">{lifeLine(life)}.</p>
+        {memorialLessons(life.survival) && <p className="mt-1 text-sm text-[#54726e]">{memorialLessons(life.survival)}.</p>}
         {otherEvents(life.notable_events).length > 0 && (
           <ul className="mt-5 space-y-2 border-l-2 border-[#d6e5dc] pl-4 text-sm text-[#54726e]">
             {otherEvents(life.notable_events).map((event) => <li key={event.id}>{event.text}</li>)}

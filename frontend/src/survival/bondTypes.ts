@@ -54,15 +54,30 @@ export interface InboxItem {
    * that day's care was given (Bond's final fix wave, m14)}; a story: {day, last,
    * writer, and, for one Luna wrote and the rules later grew, lead, lead_last (Task 13's fix rounds), and
    * present for one written for an owner who was there (Bond follow-up, N3)}. */
-  data: { ask?: string; words?: string; answer?: string; care?: string; day?: number | string; last?: number;
-    writer?: string; lead?: number; lead_last?: number; done?: boolean; present?: boolean }
+  data: { ask?: string; words?: string; answer?: string | number | null; care?: string; day?: number | string; last?: number;
+    writer?: string; lead?: number; lead_last?: number; done?: boolean; present?: boolean
+    /** W1: one of Mimo's questions: the wonder it is about, its answer chips, and how it closed ("taught",
+     * "doubted", "noted" or "figured"; null while open), its answer being the chip's index. */
+    wonder?: string; chips?: string[]; closed?: string | null; yes_no?: boolean }
   read: boolean
+}
+
+/** W1: one of Mimo's open questions (backend/survival/questions.py questions_view). */
+export interface Question {
+  id: number
+  text: string
+  chips: string[]
+  yes_no: boolean
+  /** Server time it was asked (an older API sends none). */
+  at?: number
 }
 
 /** The inbox in /api/mimo: how many messages are unread, and the newest unread few. */
 export interface InboxView {
   unread: number
   newest: InboxItem[]
+  /** W1: Mimo's open questions, oldest first (an older API sends none). */
+  questions?: Question[]
 }
 
 /** A story in Mimo's diary (backend/survival/diary.py diary_entries). */

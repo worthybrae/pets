@@ -17,7 +17,7 @@ import SurvivalCreatures from './SurvivalCreatures'
 import SurvivalDoors from './SurvivalDoors'
 import SurvivalPet from './SurvivalPet'
 import { wornCap, wornTunic } from './petGear'
-import type { Built, Creature, CreatureMove, FinishedAction, LeafDecay, MimoAction, Point } from './types'
+import type { Ailments, Built, Creature, CreatureMove, FinishedAction, LeafDecay, MimoAction, Point } from './types'
 
 const CAMERA_DISTANCE = 26
 const DAY_SKY = '#dce9eb'
@@ -41,9 +41,10 @@ function pickViewDistance(): number {
  * defaults to the overview camera (archives). `creatures` and `creatureMoves` (L1) are drawn
  * replaying their moves the same REPLAY_DELAY behind the server as the pet. L2: the doors Mimo
  * built swing open as the drawn pet passes, arrows fly and hostiles burn (CombatEffects), and the
- * pet wears the armor in `inventory` and glows red when a creature hits it (`hurtAt`).
+ * pet wears the armor in `inventory` and glows red when a creature hits it (`hurtAt`). W1: it shows what ails it
+ * (`ailments`) and a "?" while it has just asked its owner something (`asking`).
  */
-export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, serverTime, cameraMode = 'overview', onAutoPick, doorsOpen }: {
+export default function WorldCanvas({ store, position, seconds, arrival = false, following, onOrbit, onPetClick, hopSignal = 0, action = null, recentActions = NO_ACTIONS, decays = NO_DECAYS, structures = NO_STRUCTURES, creatures, creatureMoves, inventory, hurtAt = null, ailments = null, asking = false, serverTime, cameraMode = 'overview', onAutoPick, doorsOpen }: {
   store: WorldStore
   position: { x: number; y: number; z: number }
   seconds?: () => number
@@ -65,6 +66,9 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
   /** What Mimo carries (L2: the armor it wears) and when a creature last hurt it. */
   inventory?: Record<string, number>
   hurtAt?: number | null
+  /** W1: what ails Mimo, and whether it has just asked its owner something. */
+  ailments?: Ailments | null
+  asking?: boolean
   serverTime?: () => number
   cameraMode?: CameraMode
   /** Called when the auto camera picks overview or close. */
@@ -137,7 +141,7 @@ export default function WorldCanvas({ store, position, seconds, arrival = false,
             onStats={debug ? setStats : undefined} onError={setEngineError} />
           <SurvivalPet action={action} recent={recentActions} position={position} now={replayTime} onPetClick={onPetClick}
             hopSignal={hopSignal} hidden={petHidden} tunic={wornTunic(inventory)}
-            cap={wornCap(inventory)} hurtAt={hurtAt}>
+            cap={wornCap(inventory)} hurtAt={hurtAt} ailments={ailments} asking={asking}>
             {[-0.25, 1.25].map((x) => (
               <mesh key={x} position={[x, 3.35, 2.08]}>
                 <boxGeometry args={[0.34, 0.38, 0.16]} />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { answeredLine, canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, unreadIds } from './bond'
+import { answerQuestion, answeredLine, canName, fetchInbox, kindLabel, markInboxRead, nameProblem, namePlace, unreadIds } from './bond'
+import { canAnswer } from './wild'
 import type { InboxItem } from './bondTypes'
 import { useEscape } from './escape'
 
@@ -56,6 +57,18 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
     }
   }
 
+  // W1: a chip of one of Mimo's questions
+  const choose = async (item: InboxItem, choice: number) => {
+    try {
+      const { item: answered } = await answerQuestion(item.id, choice)
+      setItems((current) => current?.map((known) => known.id === answered.id ? answered : known) ?? null)
+      setError('')
+      await onChanged()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'That answer did not go through. Try again.')
+    }
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-end justify-end bg-[#203b38]/25 p-3 sm:items-stretch sm:p-6" role="presentation" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-label={`${name}'s messages`} onClick={(event) => event.stopPropagation()}
@@ -74,6 +87,14 @@ export default function InboxPanel({ name, notify, canNotify, onNotify, onChange
               </p>
               <p className="mt-1 leading-5">{item.text}</p>
               {answeredLine(item) && <p className="mt-1 text-xs text-[#54726e]">{answeredLine(item)}</p>}
+              {canAnswer(item) && (
+                <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Answers">
+                  {(item.data.chips ?? []).map((chip, choice) => (
+                    <button key={chip} type="button" onClick={() => { void choose(item, choice) }}
+                      className="rounded-xl border border-[#bfd5cd] bg-white px-3 py-1.5 text-left text-sm text-[#315e58] hover:bg-[#e1eee7]">{chip}</button>
+                  ))}
+                </div>
+              )}
               {canName(item) && (
                 <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void answer(item) }}>
                   <input value={drafts[item.id] ?? ''} maxLength={48} aria-label="A name for the place"

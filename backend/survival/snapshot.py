@@ -250,5 +250,7 @@ def life_detail(registry: LifeRegistry, life: dict, scale: float, now: float, di
 
 def life_summary(registry: LifeRegistry, life: dict, scale: float, now: float) -> dict:
     detail = life_detail(registry, life, scale, now, diary_limit=DIARY_SUMMARY)
+    state = detail["state"]
     return {**detail["life"], "notable_events": detail["notable_events"], "goals_reached": detail["goals_reached"],
-            "memories": detail["memories"], "diary": detail["diary"]}
+            "memories": detail["memories"], "diary": detail["diary"],
+            "survival": state.get("survival", []) if isinstance(state, dict) else []}  # W1: for the memorial

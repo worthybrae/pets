@@ -270,6 +270,6 @@ KEEPERS["answer"] = keep_answer
 
 
 def questions_view(db: sqlite3.Connection) -> list[dict]:
-    """Mimo's open questions for /api/mimo's inbox: {id, text, chips, yes_no}, oldest first."""
-    return [{"id": item["id"], "text": item["text"], "chips": item["data"].get("chips", []),
+    """Mimo's open questions for /api/mimo's inbox: {id, at, text, chips, yes_no}, oldest first."""
+    return [{"id": item["id"], "at": item["at"], "text": item["text"], "chips": item["data"].get("chips", []),
              "yes_no": item["data"].get("yes_no", False)} for item in reversed(open_items(db))]

@@ -29,6 +29,7 @@ const MOVES: Record<ActionKind, PetMove> = {
   fish: 'fish', cook: 'work', store: 'place', take: 'place', drop: 'place', attack: 'swing', shoot: 'aim',
   open_chest: 'place',  // L5: lifting the lid of an old chest
   flip: 'place',  // Making: a lever thrown, a button pressed
+  dress: 'work',  // W1: wrapping a wound
 }
 const HOP_HEIGHT = 0.22
 const SWING_SECONDS = 0.45

@@ -22,6 +22,7 @@ export type ActionKind = 'walk' | 'swim' | 'fall' | 'mine' | 'place' | 'eat' | '
   | 'pick' | 'harvest' | 'till' | 'plant' | 'fish' | 'cook' | 'store' | 'take' | 'drop' | 'attack' | 'shoot'
   | 'open_chest'  // L5: an old chest in a ruin
   | 'flip'
+  | 'dress'  // W1: a wound dressed with a bandage or a sunleaf
 
 /** One cell of a walk, swim or fall, with the server time Mimo gets there. */
 export interface PathPoint extends Point {
@@ -200,6 +201,8 @@ export interface LifeSummary extends LifeRow, DiaryFields {
   goals_reached?: GoalReached[]
   /** Mind M3: the life's gists and thoughts, oldest first (an older API sends none). */
   memories?: LifeMemories
+  /** W1: the life's survival lessons and where each came from (an older API sends none). */
+  survival?: SurvivalLesson[]
 }
 
 /** One step of the day plan toward the goal (L4). */
@@ -308,6 +311,43 @@ export interface Curiosity {
   feeling: string
 }
 
+/** W1: a life is wild or gentle (backend/survival/wild.py). */
+export type Difficulty = 'wild' | 'gentle'
+
+/** W1: a sickness Mimo has now (backend/survival/ailments.py ailments_view). */
+export interface Sickness {
+  kind: 'tummy' | 'chill'
+  /** For the HUD: "Tummy ache". */
+  label: string
+  /** The symptom in Mimo's words. */
+  words: string
+  /** Game minutes left. */
+  minutes: number
+}
+
+/** W1: a wound Mimo has now. */
+export interface Wound {
+  festering: boolean
+  dressed: boolean
+  /** Game minutes until it heals by itself. */
+  minutes: number
+}
+
+/** W1: what ails Mimo (nothing, always, for a gentle pet). */
+export interface Ailments {
+  sick: Sickness | null
+  wound: Wound | null
+}
+
+/** W1: a survival lesson, known or not, and where it came from (backend/survival/wild.py survival_view). */
+export interface SurvivalLesson {
+  name: string
+  words: string
+  fact: string
+  known: boolean
+  source: 'from_you' | 'figured' | 'from_start' | null
+}
+
 /** A goal a life reached, and the game day it did. */
 export interface GoalReached {
   name: string
@@ -373,6 +413,10 @@ export interface SurvivalState {
   expedition?: Expedition | null
   /** Making: the workshop, the machines and the doors they hold open (an older API sends none). */
   workshop?: WorkshopView
+  /** W1: wild or gentle; every survival lesson, known or not; what ails Mimo (an older API sends none of them). */
+  difficulty?: Difficulty
+  survival?: SurvivalLesson[]
+  ailments?: Ailments
 }
 
 export interface AliveResponse extends SurvivalState, BondFields, MindFields {

@@ -9,6 +9,7 @@ import { curiosityBar, goalHint, goalLine, planSteps, tripLines } from './goals'
 import { expeditionLine, journalButton } from './journal'
 import { memoriesButton } from './memories'
 import { computerCaption, workshopButton } from './workshop'
+import { ailmentLine, wildBadge } from './wild'
 import type { AliveResponse, CareKind } from './types'
 
 const LEVEL_COLORS: Record<VitalLevel, string> = { ok: '#4d8c77', low: '#d6a14a', critical: '#c76e5c' }
@@ -98,6 +99,8 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
   const expedition = expeditionLine(state.expedition)
   const caption = computerCaption(life.name, state.workshop, clock.day_number)
   const workshop = workshopButton(state.workshop)
+  const ailing = ailmentLine(state.ailments)
+  const badge = wildBadge(state.difficulty)
   return (
     <>
       {flash !== null && <HurtFlash key={state.hurt_at ?? 0} delay={flash} />}
@@ -105,7 +108,11 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
         <section className={`${PANEL} px-4 py-3 sm:w-80`} aria-label={`${life.name}'s day`}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-lg font-semibold leading-tight">{life.name}</p>
+              <p className="truncate text-lg font-semibold leading-tight">
+                {life.name}
+                {badge && <span className="ml-2 rounded-md bg-[#e8d9b8] px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[#7a5a24]"
+                  title="A wild pet learns to survive from you, or the hard way">{badge}</span>}
+              </p>
               <p className="text-xs text-[#54726e]">{dayLabel(clock.day_number, clock.phase)} · {clockTime(clock.seconds_into_day)}</p>
             </div>
             <SkyDial secondsIntoDay={clock.seconds_into_day} />
@@ -113,6 +120,7 @@ export default function SurvivalHud({ state, online, busy, message, cameraMode, 
           <p className="mt-2 text-sm font-medium leading-5 text-[#315e58]">{trip ? trip.label : purposeText(state)}</p>
           {trip && <p className="truncate text-xs text-[#54726e]">{trip.detail}</p>}
           {danger && <p className="mt-0.5 text-sm font-semibold text-[#b5473a]" role="status">{danger}</p>}
+          {ailing && <p className="mt-0.5 text-xs font-semibold text-[#7d6b2c]" role="status">{ailing}</p>}
           {goal && (
             <div className="mt-1.5" title={goalHint(state.goal)}>
               <div className="flex items-baseline justify-between gap-2 text-xs text-[#315e58]">

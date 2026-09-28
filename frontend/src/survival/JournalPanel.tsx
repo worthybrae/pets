@@ -1,16 +1,20 @@
 import { useEscape } from './escape'
 import FromYouBadge from './FromYouBadge'
 import { journalEntries, journalTitle } from './journal'
-import type { JournalEntry } from './types'
+import type { JournalEntry, SurvivalLesson } from './types'
+import { survivalEntries } from './wild'
 
 /** L4b: the knowledge journal, what Mimo learned about the world, newest first. */
-export default function JournalPanel({ name, journal, onClose }: {
+export default function JournalPanel({ name, journal, survival, onClose }: {
   name: string
   journal: readonly JournalEntry[] | undefined
+  /** W1: the survival lessons, known or not (an older API sends none). */
+  survival?: readonly SurvivalLesson[]
   onClose: () => void
 }) {
   useEscape(onClose)
   const entries = journalEntries(journal, name)
+  const lessons = survivalEntries(survival)
   const title = journalTitle(name)
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#203b38]/45 p-4" role="presentation" onClick={onClose}>
@@ -26,6 +30,20 @@ export default function JournalPanel({ name, journal, onClose }: {
         <p className="mt-3 max-w-xl text-sm leading-6 text-[#54726e]">
           The first time {name} meets something new, it walks up, looks it over, takes a sample and writes down what it learned.
         </p>
+        {lessons.length > 0 && (
+          <div className="mt-6">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#65817b]">Survival</p>
+            <ul className="mt-2 space-y-2">
+              {lessons.map((lesson) => (
+                <li key={lesson.key} className="rounded-xl bg-[#f1ecdf] px-4 py-2 text-sm leading-6">
+                  <span className="mr-2 font-semibold text-[#6d5a2c]">{lesson.words}</span>
+                  <span className={lesson.line === '?' ? 'text-[#9a8f73]' : 'text-[#243e3d]'}>{lesson.line}</span>
+                  {lesson.source && <span className="ml-2 text-xs italic text-[#7d6b2c]">{lesson.source}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {entries.length === 0 && <p className="mt-6 text-sm text-[#65817b]">Nothing yet: {name} has not studied anything.</p>}
         <ul className="mt-6 space-y-3">
           {entries.map((entry) => (
