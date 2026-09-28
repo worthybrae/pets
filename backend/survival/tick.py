@@ -254,7 +254,9 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             cursor += step / scale
             remaining -= step
             note_crossings(state, before, cursor, events)
-            ailments.tend(state, step, activity, cursor, events)  # W1: a sickness runs its time
+            ailments.tend(state, context, step, activity, cursor)  # W1: a sickness runs its time, a wound too
+            phases = (clock_at(state["born_at"], since, scale)["phase"], clock_at(state["born_at"], cursor, scale)["phase"])
+            ailments.tend_night(state, context, step, phases, activity, surroundings.sheltered, cursor)  # W1: cold nights
             spoilage.age(state, context, step, cursor)  # W1: a wild pet's food ages
             if cause:
                 record_death(state, cause, cursor, scale, events)

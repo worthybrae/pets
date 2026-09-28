@@ -4,6 +4,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import backend.survival.brain  # noqa: F401  (every purpose and reflex registered)
 from backend.survival.ailments import AILMENTS, ailing, ailments_view, fall_sick, sickness, tend
@@ -37,7 +38,7 @@ def run(state, seconds, activity="working", step=10.0):
     for _ in range(int(seconds / step)):
         state["vitals"], cause = step_vitals(state["vitals"], step, night=False, activity=activity, surroundings=QUIET,
                                              ailing=ailing(state))
-        tend(state, step, activity, 0.0, events)
+        tend(state, SimpleNamespace(events=events, db=None), step, activity, 0.0)
         if cause:
             return cause
     return None

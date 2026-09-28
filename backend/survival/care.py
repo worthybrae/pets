@@ -3,15 +3,22 @@ the bond between Mimo and its owner (backend.survival.bond)."""
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from backend.survival.bond import grow_bond
+from backend.survival.once import log_once
 from backend.survival.world import LifeOver, SurvivalWorld, check_not_behind, log_event, read_state, write_state
+
+logger = logging.getLogger(__name__)
 
 CARE_EFFECTS = {"snack": ("hunger", 30.0), "bandage": ("health", 25.0)}
 DAILY_ALLOWANCE = {"snack": 1, "bandage": 1}
 CARE_EVENTS = {"snack": "You gave {name} a snack.", "bandage": "You bandaged {name}."}
 CARE_THOUGHTS = {"snack": "Yum! Thank you.", "bandage": "That feels much better."}
+# W1: functions (state, kind, timestamp) run as care is given (backend.survival.wounds: a bandage dresses a
+# wound). One that crashes gives nothing more.
+CARED: list = []
 
 
 class CareRefused(RuntimeError):
@@ -45,6 +52,11 @@ def give_care(world: SurvivalWorld, kind: str, timestamp: float) -> dict:
         vital, amount = CARE_EFFECTS[kind]
         state["vitals"][vital] = min(100.0, state["vitals"][vital] + amount)
         state["last_thought"] = CARE_THOUGHTS[kind]
+        for cared in CARED:  # W1
+            try:
+                cared(state, kind, timestamp)
+            except Exception as error:
+                log_once(logger, "care", error)
         write_state(db, state)
         log_event(db, timestamp, "care", CARE_EVENTS[kind].format(name=state["name"]))
         return {"kind": kind, "vitals": state["vitals"], "remaining": care_remaining(state, timestamp)}

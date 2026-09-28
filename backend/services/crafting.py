@@ -34,6 +34,8 @@ RECIPES = {
     "leather": {"ingredients": {"rabbit_hide": 4}, "output": {"leather": 1}},
     "leather_cap": {"ingredients": {"leather": 2}, "output": {"leather_cap": 1}, "station": "crafting_table"},
     "leather_tunic": {"ingredients": {"leather": 3}, "output": {"leather_tunic": 1}, "station": "crafting_table"},
+    # W1: a wool bandage dresses a wound, made anywhere (a wild pet makes them once it knows how)
+    "bandage": {"ingredients": {"wool": 1}, "output": {"bandage": 2}},
 }
 
 # L3, the bigger world: birch and spruce make planks of their own, cobblestone makes stone bricks.

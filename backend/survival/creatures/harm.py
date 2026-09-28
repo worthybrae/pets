@@ -39,6 +39,9 @@ SLOTS = {"leather_cap": "head", "iron_cap": "head", "leather_tunic": "body", "ir
 IRON_ARMOR = ("iron_tunic", "iron_cap")
 INDOORS = ("room", "passage")  # the parts of a shelter Mimo is safe in
 HURT_QUIET = 10.0  # server seconds (at the normal pace) between two "hurt" events
+# W1: functions (scene, health lost, source) run after each blow (backend.survival.wounds: a wild pet's wound).
+# One that crashes is logged once and passed over.
+BLOWS: list = []
 
 
 def armor_cut(inventory: dict) -> float:
@@ -129,4 +132,9 @@ def hurt_pet(scene: Scene, damage: float, source: str) -> float:
     except sqlite3.OperationalError as error:
         if not missing_table(error):  # a database without memory: unit tests of creatures alone
             raise
+    for blown in BLOWS:  # W1
+        try:
+            blown(scene, lost, source)
+        except Exception as error:
+            log_once(logger, "blows", error)
     return lost
