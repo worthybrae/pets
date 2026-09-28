@@ -85,8 +85,13 @@ TAKE_BELOW = 20.0  # hunger points of food carried below which Mimo takes food o
 # W2: in winter the chest is where the food is (bushes and crops wait for spring, herds thin, lakes freeze), so taking
 # food out while Mimo carries less than TAKE_BELOW scores as food work does, from this base (forage's is 35). On the
 # gate's third run a gentle pet with 740 hunger points in its chests went foraging bare winter land 58 blocks from home
-# and starved 24 game minutes.
+# and starved 24 game minutes. W2 plan, resolution 23: in every season while Mimo is hungry (`food_first`: HUNGRY_BELOW,
+# the tick's "getting hungry"), and a hungry pet whose arms are full puts things away from the same base, so the food it
+# takes out or catches next has room; on the final W2 gate a taught pet with 16 full stacks fished and hunted for two
+# days, ate its catches raw one at a time, never went to its chests of smoked meat, cooked rabbit and wheat, and starved.
+# Only while hungry, outside winter: from any shortfall of food carried, gentle pets emptied their chests in autumn.
 WINTER_TAKE = 40.0
+HUNGRY_BELOW = 30.0
 STORE_STEPS = 8
 # What Mimo keeps on it of each material; the rest goes into the chest. Items not listed (tools,
 # stations, food up to a day's worth) stay with Mimo.
@@ -413,16 +418,17 @@ def reachable_chests(s: Situation) -> list[tuple[tuple[int, int, int], tuple[int
             if s.here == stand or s.distance(cell) <= REACH or not near_failure(s.state, stand)]
 
 
-def to_take(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+def to_take(s: Situation, arms: dict | None = None) -> list[tuple[tuple[int, int, int], str, int]]:
     """(cell, item, amount) to take out of a chest: food when Mimo carries less than a meal's worth,
     best first, and (the Making final fix wave, I1) what TAKES_MORE want, as far as Mimo has room: home's
     own chest first, then (fix round 1) any other chest Mimo built, so an older home's chest is never
-    stranded once a bigger one takes over (not one it just failed to reach, `reachable_chests`)."""
+    stranded once a bigger one takes over (not one it just failed to reach, `reachable_chests`). W2: `arms`, what
+    Mimo will carry once the same batch has put things away, for the room (resolution 23)."""
     hungry = carried_food(s) < TAKE_BELOW
     wanted = more_taken(s)
     if not hungry and not wanted:
         return []
-    have, found, carried = carried_food(s), [], dict(s.inventory)
+    have, found, carried = carried_food(s), [], dict(s.inventory if arms is None else arms)
     for chest_cell, _ in reachable_chests(s):
         chest = chest_contents(s, chest_cell)
         for item in foods(chest, s.poisons) if hungry else ():
@@ -510,9 +516,30 @@ def storage_facts(s: Situation) -> str:
             f"{CHEST_STACKS} stacks")
 
 
+def food_first(s: Situation) -> bool:
+    """W2 (resolution 23): food waits in a chest Mimo can reach while it carries less than TAKE_BELOW, in winter or
+    while it is hungry (HUNGRY_BELOW), or its arms are full while it is hungry and putting things away frees a stack:
+    either way the chest comes before food work. Only when a stack comes free: a full pet that can put away only
+    part of a stack chose the chest all day and starved (a gentle pet on the first measure of this rule)."""
+    hungry = s.vitals["hunger"] < HUNGRY_BELOW
+    if carried_food(s) < TAKE_BELOW and (hungry or sky.winter(s.state)) and to_take(s):
+        return True
+    return full(s.inventory) and hungry and stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS
+
+
+def stored_arms(s: Situation, stores) -> dict:
+    """Mimo's arms once `stores` ((chest, item, amount), as to_store_all gives them) are put away."""
+    arms = dict(s.inventory)
+    for _, item, amount, *_ in stores:
+        arms[item] = arms.get(item, 0) - amount
+        if arms[item] <= 0:
+            del arms[item]
+    return arms
+
+
 def storage_score(s: Situation) -> float:
     cell = chest_spot(s)
-    if sky.winter(s.state) and carried_food(s) < TAKE_BELOW and to_take(s):  # W2
+    if food_first(s):  # W2
         return max(55.0, hunger_score(s, WINTER_TAKE))
     if chest_placed(s, cell) and to_take(s) and stacks(s.inventory) < STORE_FROM:
         return 55.0
@@ -557,7 +584,8 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
             steps.append({"kind": "take", "target": list(chest_cell), "item": item, "amount": amount, "away": True})
         else:
             steps.append({"kind": "store", "target": list(chest_cell), "item": item, "amount": amount})
-    for chest_cell, item, amount in to_take(s):
+    arms = stored_arms(s, stores)  # W2: the food taken out has the room the things put away leave
+    for chest_cell, item, amount in to_take(s, arms):
         if chest_cell != at:
             steps.append(whole_walk(stands[chest_cell]))
             at = chest_cell

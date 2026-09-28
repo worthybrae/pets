@@ -78,6 +78,33 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(steps[:2], [{"kind": "mine", "target": [2, 1, 2]},
                                      {"kind": "place", "target": [2, 1, 2], "block": "chest"}])
 
+    def test_w2_a_hungry_pet_with_full_arms_puts_things_away_and_takes_food_before_food_work(self):
+        """W2 plan, resolution 23: on the W2 gate a taught pet with 16 full stacks fished and hunted for two days, ate
+        its catches raw one at a time, never went to its chests of food, and starved."""
+        from backend.survival.carrying import full
+        from backend.survival.foraging import hunger_score
+        home = Home({**LOOSE, "coal": 14, "string": 3}, chest={"bread": 4, "cooked_beef": 6})
+        home.state["vitals"]["hunger"] = 20.0
+        s = home.situation()
+        self.assertTrue(full(s.inventory))
+        self.assertTrue(PURPOSES["build_storage"].valid(s))
+        self.assertGreater(PURPOSES["build_storage"].score(s), hunger_score(s, 35.0))  # forage's base; hunt's is 30
+        steps = home.plan("build_storage")
+        self.assertIn("store", [step["kind"] for step in steps])
+        self.assertEqual(steps[-1]["kind"], "take")  # food out, in the room the things put away left
+        self.assertIn(steps[-1]["item"], ("bread", "cooked_beef"))
+        home.state["vitals"]["hunger"] = 90.0  # not hungry: food work was never the question
+        self.assertLessEqual(PURPOSES["build_storage"].score(home.situation()), 70.0)
+        from backend.survival.storage import food_first
+        stuck = Home({"iron_sword": 1, "iron_pickaxe": 1, "iron_axe": 1, "iron_shovel": 1, "iron_cap": 1, "iron_tunic": 1,
+                      "crafting_table": 1, "furnace": 1, "campfire": 1, "wool_cloak": 1, "bucket": 1, "compass": 1,
+                      "clock": 1, "shears": 1, "bow": 1, "arrow": 16, "coal": 14},
+                     chest={"bread": 4})
+        stuck.state["vitals"]["hunger"] = 10.0
+        s = stuck.situation()
+        self.assertTrue(full(s.inventory))
+        self.assertFalse(food_first(s))  # putting away 6 of 14 coal frees no stack: food work, not the chest all day
+
     def test_not_offered_with_room_to_spare_or_without_a_built_shelter(self):
         self.assertFalse(PURPOSES["build_storage"].valid(Home({"dirt": 40, "planks": 8}).situation()))
         self.assertFalse(PURPOSES["build_storage"].valid(Home({**LOOSE, "planks": 8}).situation(NIGHT)))

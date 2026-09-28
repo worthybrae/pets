@@ -120,6 +120,9 @@ class LarderTests(unittest.TestCase):
         world.state["vitals"]["hunger"] = 40.0
         autumn = on_day(world, 22)
         self.assertEqual(PURPOSES["build_storage"].score(autumn), 55.0)
+        world.state["vitals"]["hunger"] = 20.0  # W2 plan, resolution 23: in any season once it is hungry
+        self.assertGreater(PURPOSES["build_storage"].score(on_day(world, 22)), PURPOSES["forage"].score(on_day(world, 22)))
+        world.state["vitals"]["hunger"] = 40.0
         world.state["sky"] = {"season": "winter"}
         s = on_day(world, 32)
         self.assertTrue(PURPOSES["build_storage"].valid(s))
