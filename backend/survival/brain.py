@@ -62,6 +62,7 @@ from backend.survival import discovery  # noqa: F401  (L4's discovery goals)
 from backend.survival import cozy, machines, making, workshop  # noqa: F401  (Making's purposes and goals)
 from backend.survival import herbs, meals, wounds  # noqa: F401  (W1: sunleaf; meals and throw_out; wounds)
 from backend.survival import knocks  # noqa: F401  (W1: learning alone)
+from backend.survival import sky_reflexes  # noqa: F401  (W2: flee_fire)
 from backend.survival.wonders import meet as meet_wonders
 from backend.survival.computer import observe_computer
 from backend.survival.ruins import find_manual

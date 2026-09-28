@@ -39,7 +39,9 @@ and its food ages (backend.survival.spoilage.age).
 W2: a world from before W2 gets its year's offset on its first tick (backend.survival.sky.settle_sky), and before
 each step the sky is tended (sky.advance: the season, then its effects), so a long catch-up plays the seasons in
 time order; the season sets the warmth Mimo drifts toward (Surroundings.season), and falling snow takes some off
-outdoors (Surroundings.snowing; backend.survival.weather's other effects register themselves).
+outdoors (Surroundings.snowing; backend.survival.weather's other effects register themselves). Lightning or a
+fire (backend.survival.storms) that takes Mimo's last health kills it ("was struck by lightning", "was caught in a
+fire"), and while a fire burns beside Mimo the steps are short, as near a hostile.
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
 from backend.survival import ailments, sky, spoilage
 from backend.survival import rain, weather  # noqa: F401  (W2: rain douses campfires and slows walks; fog)
+from backend.survival.storms import fire_near  # W2: lightning and fire in the trees (it registers itself)
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
@@ -88,7 +91,8 @@ FIGHT_SLICE = 1.0
 FIGHT_SLICES_MAX = 60
 HUNGRY_BELOW = 30.0
 CAUSE_TEXT = {"starvation": "starvation", "cold": "the cold", "drowning": "drowning", "fall": "a fall"}
-CAUSE_WORDS = {"sickness": "fell sick and never got better"}  # W1
+CAUSE_WORDS = {"sickness": "fell sick and never got better",  # W1
+               "lightning": "was struck by lightning", "fire": "was caught in a fire"}  # W2
 
 Event = tuple[float, str, str]
 # After each vitals step: (state, context, vitals before the step, surroundings, step start, step end).
@@ -235,6 +239,9 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                 record_death(state, "fall", fell_at, scale, events)
                 break
             sky.advance(state, context, cursor)  # W2: the season and the weather at this step's start
+            if caught(state):  # W2: lightning or a fire took Mimo's last health
+                record_death(state, state["hurt_by"], cursor, scale, events)
+                break
             run_renewal(state, context, cursor)
             if cursor != state["last_tick_at"]:  # the last tick already ran the creatures up to here
                 run_creatures(state, context, cursor, fight_step=fight_step)
@@ -243,7 +250,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
                     break
             step = min(MAX_STEP_SECONDS, remaining)
             fight_step = False
-            if fight_slices < FIGHT_SLICES_MAX and creature_nearby(context, state):
+            if fight_slices < FIGHT_SLICES_MAX and (creature_nearby(context, state) or fire_near(state)):
                 # Fix round 2: spread the FIGHT_SLICES_MAX steps evenly across the whole span,
                 # instead of many tiny ones followed by one long tail step once the cap is spent.
                 step = min(step, max(FIGHT_SLICE / action_scale * scale, span / FIGHT_SLICES_MAX))

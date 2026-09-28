@@ -57,14 +57,25 @@ def roofed_first(s: Situation, spots: list[tuple[Cell, bool]]) -> list[tuple[Cel
     return sorted(spots, key=lambda spot: not roofed(s.grid, spot[0]))
 
 
+def campfires_near(context, x: int, z: int) -> list[Cell]:
+    """The campfires placed within DOUSE_REACH blocks: one query of the world's blocks (loading every chunk that
+    far into the grid would cost the tick each step), or the grid's own edits without a database."""
+    if getattr(context, "db", None) is None:
+        return [cell for cell, _ in context.grid.placed_cells(x, z, DOUSE_REACH, ("campfire",))]
+    reach = math.ceil(DOUSE_REACH)
+    rows = context.db.execute("SELECT x, y, z FROM mimo_blocks WHERE material='campfire' AND x BETWEEN ? AND ? "
+                              "AND z BETWEEN ? AND ?", (x - reach, x + reach, z - reach, z + reach)).fetchall()
+    return [(row[0], row[1], row[2]) for row in rows if math.hypot(row[0] - x, row[2] - z) <= DOUSE_REACH]
+
+
 def douse(state: dict, context, at: float) -> None:
     """sky.EFFECTS: while it rains, the campfires near Mimo under the open sky go out."""
     if not sky.raining(state):
         return
     grid, position = context.grid, state["position"]
     seed = state.get("world_seed", "0")
-    for cell, _ in grid.placed_cells(math.floor(position["x"]), math.floor(position["z"]), DOUSE_REACH, ("campfire",)):
-        if not sky_open(grid, seed, cell):
+    for cell in campfires_near(context, math.floor(position["x"]), math.floor(position["z"])):
+        if grid.material(*cell) != "campfire" or not sky_open(grid, seed, cell):
             continue
         grid.put(*cell, DOUSED_BLOCK)
         context.events.append((at, "fire_out", f"The rain put out {state['name']}'s campfire."))

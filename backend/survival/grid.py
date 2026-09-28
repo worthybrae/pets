@@ -8,6 +8,8 @@ that something Mimo built claims (backend.survival.structures) load the same way
 so planners that dig or till can leave them alone (`claimed`). A grid over a world database also
 carries the world's creatures (`herd`, backend.survival.creatures.table.Herd), so steps and
 planners reach them the way they reach blocks; a grid built from `natural` alone has none.
+W2: the cells a fire burns in and their neighbours (`hot`, set by backend.survival.storms) are no way through,
+like lava.
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ class Grid:
         self.changes: list[tuple[Cell, str, str]] = []
         self.claims: set[Cell] = set()
         self.herd: Herd | None = None
+        self.hot: set[Cell] = set()  # W2: burning cells and their neighbours
 
     def _load(self, x: int, z: int) -> None:
         if self._load_edits is None:
@@ -121,9 +124,9 @@ class Grid:
         return self.material(*cell) == "water"
 
     def passable(self, cell: Cell) -> bool:
-        """Mimo's body fits in the cell: nothing solid, and no water or lava."""
+        """Mimo's body fits in the cell: nothing solid, and no water or lava (W2: nor fire, nor beside it)."""
         material = self.material(*cell)
-        return material not in FLUIDS and not is_solid(material)
+        return material not in FLUIDS and not is_solid(material) and not (self.hot and cell in self.hot)
 
     def supported(self, cell: Cell) -> bool:
         """Something holds Mimo up in this cell: the cell below is solid or water. L3: a fence below
