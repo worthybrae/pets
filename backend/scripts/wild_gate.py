@@ -29,6 +29,22 @@ The robustness check W1R (criterion 8R) runs 12 untaught lives on seeds outside 
 
     python3 -m backend.scripts.wild_gate --seeds 1,2,4,6,7,9,10,12,13,14,15,16 --days 30 --conditions untaught --parallel 4 --out DIR
     python3 -m backend.scripts.wild_gate --check W1R DIR
+
+W2: the scripted owner says the first teaching-table line of each W2 lesson on day 2, the same way (TEACHES_W2).
+Each life's summary gains its winters (`winters`: the health mean, freezing and starving game minutes of each,
+days 31 to 40, 71 to 80 and 111 to 120 of a newborn), the food its chests hold for winter on each winter day 1
+(`winter_food`: winter_prep.winter_food of the food still good that day, the controller's ruling on the W2 dry
+run and its gate, the goal's own measure too), the strikes that hit it and the nearest a strike fell to the home it
+built at that moment (`strike_home`, from storms.STRIKES: a home finished later in the same tick is not the one the
+strike kept clear of), the fire cells that burned in a cell something it built claims (`fire_claimed`) and the
+block edits in the legacy clearing (`clearing_edits`). The `upgrade` condition is spec criterion 9's world: a
+gentle life ticked UPGRADE_DAY days as the code before W2 had it (no sky), then upgraded and ticked 45 more.
+Each winter also counts its cold minutes (warmth under ailments.CHILL_BELOW) and hungry minutes (hunger under
+HUNGRY_WINTER); criterion 6 reads the cold ones (restated by the controller's ruling on the W2 interim report).
+
+    python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 4 --out DIR
+    python3 -m backend.scripts.wild_gate --days 65 --conditions upgrade --parallel 4 --out DIR
+    python3 -m backend.scripts.wild_gate --check W2 DIR
 """
 
 from __future__ import annotations
@@ -36,6 +52,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import random
 import subprocess
 import sys
@@ -52,6 +69,7 @@ R_SEEDS = (1, 2, 4, 6, 7, 9, 10, 12, 13, 14, 15, 16)
 R_DAYS = 30
 R_DEATHS_MOST = 4
 CONDITIONS = ("gentle", "untaught", "taught", "liar")
+UPGRADE = "upgrade"  # W2: a world made before W2 and upgraded (criterion 9)
 OWNER_EVERY = 5  # game minutes between the scripted owner's lines on day 1
 ANSWER_AFTER = 2  # game minutes after a question is asked that the owner answers it
 NEAR_DEATH = 20.0
@@ -63,6 +81,13 @@ TEACHES = ("Red berries are safe to eat.", "Nightberries are the dark purple one
            "Cooked meat and fish are safe to eat.", "Food keeps twice as long in a chest.",
            "Torches keep the dark creatures away.", "A shelter with a roof and a door keeps you safe at night.",
            "Six planks make a bed.")
+# W2: the first teaching-table line of each W2 lesson, said on day 2 the same way.
+TEACHES_W2 = ("Fill a chest with food before winter.", "Five wool make a wool cloak.",
+              "A stone hearth keeps the home warm.", "Smoked meat keeps all winter.",
+              "Rain puts out a fire under the open sky.", "In a storm stay low and inside.",
+              "Stay close to home in the fog.")
+WINTERS = ((31, 40), (71, 80), (111, 120))  # a newborn's winters, game days
+UPGRADE_DAY = 20  # criterion 9: the upgraded world's day when W2 comes
 
 
 class Errors(logging.Handler):
@@ -105,6 +130,9 @@ def owner(world, condition: str, minute: int, now: float, answered: set) -> None
     from backend.survival.wonders import WONDERS
     if condition == "taught" and minute <= OWNER_EVERY * len(TEACHES) and minute % OWNER_EVERY == 0:
         owner_says(world, TEACHES[minute // OWNER_EVERY - 1], now, SCALE)
+    later = minute - 60  # W2: day 2
+    if condition == "taught" and 0 < later <= OWNER_EVERY * len(TEACHES_W2) and later % OWNER_EVERY == 0:
+        owner_says(world, TEACHES_W2[later // OWNER_EVERY - 1], now, SCALE)
     if condition not in ("taught", "liar"):
         return
     with world.connect() as db:
@@ -145,7 +173,8 @@ def live(seed: int, days: int, condition: str, http=None) -> dict:
     started = time.time()
     with tempfile.TemporaryDirectory() as root:
         registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
-        life = hatch(registry, random.Random(seed), timestamp=BORN, difficulty="gentle" if condition == "gentle" else "wild")
+        life = hatch(registry, random.Random(seed), timestamp=BORN,
+                     difficulty="gentle" if condition in ("gentle", UPGRADE) else "wild")
         world = SurvivalWorld(registry.world_path(life))
         model = http or NoModel()
         chooser = Chooser(env={}, http=model, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
@@ -153,15 +182,23 @@ def live(seed: int, days: int, condition: str, http=None) -> dict:
         answered: set = set()
         found = new_record()
         state = world.state()
+        from backend.survival import storms
+        seen = strike_seen(found)
+        storms.STRIKES.append(seen)
         for minute in range(1, days * 60 + 1):
             now = BORN + minute
-            state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
+            if condition == UPGRADE and minute == UPGRADE_DAY * 60:
+                upgrade(world)  # W2 comes to a world that lived UPGRADE_DAY days without it
+            with before_w2(condition == UPGRADE and minute < UPGRADE_DAY * 60):
+                state = tick_life(registry, now, scale=SCALE, mind=BRAIN, action_scale=SCALE)
             if state is None or state["died_at"] is not None:
                 break
             chooser.poll(registry, now)
             owner(world, condition, minute, now, answered)
             talker.poll(registry, now)
             sample(found, state, minute, world)
+            sample_sky(found, state, minute, world)
+        storms.STRIKES.remove(seen)
         talker.close()
         summary = summarize(world, found, seed, days, condition, time.time() - started)
     summary.update(errors=errors.records[:50], model_calls=len(getattr(model, "calls", [])))
@@ -174,6 +211,83 @@ def new_record() -> dict:
     return {"health": 0.0, "ticks": 0, "sick": 0, "sick_by_day": [], "lost_by_day": [], "wounds": 0, "festering": 0,
             "near": set(), "freezing": 0, "starving": 0, "open_most": 0,
             "ever": {"sick": False, "wound": False, "lots": False}, "asked": {}, "met": {}}
+
+
+def before_w2(active: bool):
+    """While `active`, the tick runs as the code before W2 did: no sky at all (criterion 9's old world)."""
+    from contextlib import ExitStack
+    from unittest.mock import patch
+    stack = ExitStack()
+    if active:
+        stack.enter_context(patch("backend.survival.tick.sky.advance", lambda state, context, at: None))
+        stack.enter_context(patch("backend.survival.tick.sky.settle_sky", lambda state, at, scale: None))
+    return stack
+
+
+def upgrade(world) -> None:
+    """The old world's state loses what W2 would have written (it had none): its next tick is its first W2 tick."""
+    from backend.survival.world import read_state, write_state
+    with world.transaction() as db:
+        state = read_state(db)
+        state.pop("sky", None)
+        write_state(db, state)
+
+
+HUNGRY_WINTER = 30.0  # a winter's hungry minutes: hunger under this
+
+
+def winter_of(found: dict, state: dict, minute: int) -> int | None:
+    """Which of the life's winters (1, 2, 3 ...) the game minute falls in, by its own seasons (an upgraded world's
+    year starts on its upgrade day), or None outside winter."""
+    from backend.survival.sky import YEAR_DAYS, season_at
+    if "offset" not in (state.get("sky") or {}) or season_at(state, BORN + minute, SCALE)[0] != "winter":
+        return None
+    year = ((minute - 1) // 60 + state["sky"]["offset"]) // YEAR_DAYS
+    seen = found.setdefault("winter_years", [])
+    if year not in seen:
+        seen.append(year)
+    return seen.index(year) + 1
+
+
+def sample_sky(found: dict, state: dict, minute: int, world) -> None:
+    """W2: one tick's sample of the winters, the winter food, the strikes and the fires (see the module docstring)."""
+    from backend.survival.ailments import CHILL_BELOW
+    from backend.survival.situation import from_db
+    from backend.survival.winter_prep import winter_food
+    vitals = state["vitals"]
+    winters = found.setdefault("winters", {})
+    winter = winter_of(found, state, minute)
+    if winter is not None:
+        entry = winters.setdefault(str(winter), {"health": 0.0, "ticks": 0, "freezing": 0, "starving": 0, "cold": 0,
+                                                 "hungry": 0})
+        entry["health"] += vitals["health"]
+        entry["ticks"] += 1
+        entry["freezing"] += vitals["warmth"] < 20.0
+        entry["starving"] += vitals["hunger"] <= 0.0
+        entry["cold"] += vitals["warmth"] < CHILL_BELOW  # criterion 6's measures (the ruling on the interim report)
+        entry["hungry"] += vitals["hunger"] < HUNGRY_WINTER
+        food = found.setdefault("winter_food", {})
+        if str(winter) not in food:  # the first tick of its winter day 1
+            with world.connect() as db:
+                food[str(winter)] = round(winter_food(from_db(db, state, BORN + minute, SCALE), good_until=0), 1)
+    fires = (state.get("sky") or {}).get("fires", [])
+    if fires:
+        with world.connect() as db:
+            for entry in fires:
+                claimed = db.execute("SELECT 1 FROM structure_cells WHERE x=? AND y=? AND z=?",
+                                     (entry["x"], entry["y"], entry["z"])).fetchone()
+                found["fire_claimed"] = found.get("fire_claimed", 0) + (claimed is not None)
+
+
+def strike_seen(found: dict):
+    """A storms.STRIKES hook: how near each strike fell to the home Mimo built at that moment."""
+    from backend.survival.storms import built_home
+
+    def seen(state, context, cell, hit, at):
+        home = built_home(context.db)
+        if home is not None:
+            found["strike_home"] = min(found.get("strike_home", math.inf), math.hypot(cell[0] - home[0], cell[2] - home[1]))
+    return seen
 
 
 def sample(found: dict, state: dict, minute: int, world) -> None:
@@ -247,7 +361,19 @@ def summarize(world, found: dict, seed: int, days: int, condition: str, wall: fl
     asks = [found["asked"][item] for item in sorted(found["asked"])]
     met = dict(found["met"])
     ticks = max(1, found["ticks"])
-    return {"seed": seed, "days": days, "condition": condition, "wall": round(wall, 1), "difficulty": state.get("difficulty"),
+    winters = {winter: {"health_mean": round(entry["health"] / max(1, entry["ticks"]), 2), "ticks": entry["ticks"],
+                        "freezing": entry["freezing"], "starving": entry["starving"], "cold": entry.get("cold", 0),
+                        "hungry": entry.get("hungry", 0)}
+               for winter, entry in found.get("winters", {}).items()}
+    with world.connect() as db:
+        from backend.services.worldgen import LEGACY_RADIUS
+        clearing = db.execute("SELECT COUNT(*) FROM mimo_blocks WHERE x * x + z * z <= ?",
+                              (LEGACY_RADIUS * LEGACY_RADIUS,)).fetchone()[0]
+    sky = state.get("sky") or {}
+    return {"winters": winters, "winter_food": found.get("winter_food", {}),  # W2
+            "struck": kinds.get("struck", 0), "strike_home": found.get("strike_home"),
+            "fire_claimed": found.get("fire_claimed", 0), "clearing_edits": clearing, "sky_offset": sky.get("offset"),
+            "seed": seed, "days": days, "condition": condition, "wall": round(wall, 1), "difficulty": state.get("difficulty"),
             "died_day": None if died is None else round((died - BORN) / 60 + 1, 2), "cause": state.get("cause"),
             "lived_minutes": found["ticks"], "health_mean": round(found["health"] / ticks, 2),
             "sick_minutes": found["sick"], "sick_by_day": found["sick_by_day"],
@@ -339,8 +465,12 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     deaths = [life for life in u if not alive_on(life, 150)]
     row("8 untaught: at most 3 of 6 die, none before day 5", len(deaths) <= 3 and all(alive_on(life, 5) for life in u),
         f"deaths {len(deaths)} on days {[life['died_day'] for life in deaths]}")
-    alone = {life["seed"]: sum(1 for entry in life["lessons"].values()
-                               if entry["day"] is not None and entry["day"] <= 60 and entry["source"] == "figured")
+    from backend.survival.wild import SURVIVAL
+    from backend.survival.knocks import OWNER_ONLY
+    W1_ALONE = {lesson.name for lesson in SURVIVAL[:11]} - set(OWNER_ONLY)  # W2: leave W2's alone-learnable lessons out
+    alone = {life["seed"]: sum(1 for name, entry in life["lessons"].items()
+                               if entry["day"] is not None and entry["day"] <= 60 and entry["source"] == "figured"
+                               and name in W1_ALONE)
              for life in u if alive_on(life, 60)}
     row("9 untaught: alive on day 60 knows 7 of the 9 it can learn alone", all(count >= 7 for count in alone.values()),
         f"learned alone by day 60 {alone}")
@@ -363,8 +493,9 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
         f"deaths {liar_deaths} vs {untaught_deaths}; (liar, untaught) sick minutes by day 30 {worse}")
     g = list(gentle.values())
     clean = all(not any(life["ever"].values()) for life in g)
-    known = all(len(life["lessons"]) == 11 and all(entry["source"] == "from_start" for entry in life["lessons"].values())
-                for life in g)
+    from backend.survival.wild import SURVIVAL  # W2: every landed milestone's lessons
+    known = all(len(life["lessons"]) == len(SURVIVAL)
+                and all(entry["source"] == "from_start" for entry in life["lessons"].values()) for life in g)
     row("13 gentle: all alive; no sickness, wound, lot or question; every lesson from the first tick",
         len(g) == 6 and all(alive_on(life, 150) for life in g) and clean and known,
         f"alive {sum(alive_on(life, 150) for life in g)}/{len(g)}; clean {clean}; known {known}")
@@ -390,7 +521,91 @@ def check_w1r(out: Path) -> list[tuple[str, bool, str]]:
              f"deaths {len(deaths)}: {dict(sorted(deaths.items(), key=lambda item: item[1]))}")]
 
 
-CHECKS = {"W1": check_w1, "W1R": check_w1r}
+# The W2 gate ----------------------------------------------------------------------------------------
+
+def cost_rows() -> tuple[bool, str]:
+    """Criterion 10: the sky hook's budget in a storm by a forest and a route across a frozen lake (the unit tests
+    that measure them, run here)."""
+    import unittest
+    names = ("backend.tests.test_survival_storms.TickTests.test_a_storm_near_a_forest_costs_the_tick_little",
+             "backend.tests.test_survival_winter.IceTests.test_a_path_crosses_a_frozen_lake_and_the_overlay_costs_the_search_little")
+    result = unittest.TextTestRunner(stream=open("/dev/null", "w"), verbosity=0).run(
+        unittest.defaultTestLoader.loadTestsFromNames(names))
+    return result.wasSuccessful(), f"{result.testsRun} budget tests, {len(result.failures) + len(result.errors)} failed"
+
+
+def check_w2(out: Path, cost: bool = True) -> list[tuple[str, bool, str]]:
+    """The W2 gate's criteria, each (name, passed, the measure)."""
+    lives = load(out)
+    gentle, untaught, taught = (list(lives.get(name, {}).values()) for name in ("gentle", "untaught", "taught"))
+    upgraded = list(lives.get("upgrade", {}).values())
+    rows: list[tuple[str, bool, str]] = []
+
+    def row(name, passed, measure):
+        rows.append((name, bool(passed), measure))
+
+    kept = gentle + taught
+    row("1 gentle and taught: all alive on day 150", len(kept) == 12 and all(alive_on(life, 150) for life in kept),
+        f"alive {sum(alive_on(life, 150) for life in kept)}/{len(kept)}")
+    worst = [(life["condition"], life["seed"], winter, entry) for life in kept
+             for winter, entry in life.get("winters", {}).items()]
+    bad = [(condition, seed, winter) for condition, seed, winter, entry in worst
+           if entry["health_mean"] < 60 or entry["freezing"] > 10 or entry["starving"] > 10]
+    row("2 gentle and taught: each winter health mean 60+, freezing and starving 10 game minutes at most",
+        worst and not bad, f"lowest mean {min((entry['health_mean'] for *_, entry in worst), default=0)}; most freezing "
+        f"{max((entry['freezing'] for *_, entry in worst), default=0)}; most starving "
+        f"{max((entry['starving'] for *_, entry in worst), default=0)}; failing {bad}")
+    from backend.survival.winter_prep import WINTER_FOOD
+    stocked = {condition: [sum(1 for life in group if life.get("winter_food", {}).get(str(winter), 0) >= WINTER_FOOD)
+                           for winter in (1, 2, 3)] for condition, group in (("gentle", gentle), ("taught", taught))}
+    row("3 gentle and taught: WINTER_FOOD good on winter day 1 in the chests, 5 of 6 the first winter, 6 of 6 after",
+        all(counts[0] >= 5 and counts[1] >= 6 and counts[2] >= 6 for counts in stocked.values()),
+        f"stocked by winter {stocked}; food {[(life['condition'], life['seed'], life.get('winter_food')) for life in kept]}")
+    row("4 gentle and taught: at most 1 strike on Mimo a life", all(life.get("struck", 0) <= 1 for life in kept),
+        f"most {max((life.get('struck', 0) for life in kept), default=0)}")
+    lamps = sum(1 for life in taught if "lamp_lever" in life["machines"])
+    most_taught = max((len(life["machines"]) for life in taught), default=0)
+    most_gentle = max((len(life["machines"]) for life in gentle), default=0)
+    row("5 W1 criterion 5: 3 of 6 taught build a lamp on a lever; the furthest within one of gentle's",
+        lamps >= 3 and most_taught >= most_gentle - 1, f"lamps {lamps}/6; machines taught {most_taught}, gentle {most_gentle}")
+    # Restated by the controller's ruling on the W2 interim report (criterion 6, step 3): the cold game minutes
+    # (warmth under CHILL_BELOW) of the winters each pet lived through (it ticked in them, so it was alive at their
+    # start), untaught at least twice taught's, and some.
+    lived = {name: [entry for life in group for entry in life.get("winters", {}).values() if entry["ticks"]]
+             for name, group in (("untaught", untaught), ("taught", taught))}
+    cold = {name: sum(entry.get("cold", 0) for entry in winters) for name, winters in lived.items()}
+    row("6 untaught: cold minutes in the winters lived at least 2x taught's (and some), over the pets alive at each "
+        "winter's start", untaught and taught and cold["untaught"] > 0 and cold["untaught"] >= 2 * cold["taught"],
+        f"untaught {cold['untaught']} over {len(lived['untaught'])} winters lived, taught {cold['taught']} over "
+        f"{len(lived['taught'])}")
+    row("7 untaught: at least 2 of 6 alive on day 150, none dead before day 5",
+        sum(alive_on(life, 150) for life in untaught) >= 2 and all(alive_on(life, 5) for life in untaught),
+        f"alive {sum(alive_on(life, 150) for life in untaught)}/{len(untaught)}; deaths "
+        f"{[(life['died_day'], life['cause']) for life in untaught if not alive_on(life, 150)]}")
+    everyone = gentle + untaught + taught + upgraded
+    near = [life["strike_home"] for life in everyone if life.get("strike_home") is not None]
+    row("8 safety: no strike within 16 of a built home, no fire in a claimed cell, no edit in the legacy clearing",
+        all(distance > 16 for distance in near) and not any(life.get("fire_claimed") for life in everyone)
+        and not any(life.get("clearing_edits") for life in everyone),
+        f"nearest strike to home {min(near, default=None)}; fire in claimed cells "
+        f"{sum(life.get('fire_claimed', 0) for life in everyone)}; clearing edits "
+        f"{sum(life.get('clearing_edits', 0) for life in everyone)}")
+    first = [(life["seed"], life.get("sky_offset"), life.get("winters", {}).get("1")) for life in upgraded]
+    row("9 upgrade: spring on its upgrade day, alive and gentle through its first winter",
+        upgraded and all(offset == (1 - UPGRADE_DAY) % 40 and winter and winter["ticks"] >= 600
+                         for _, offset, winter in first) and all(alive_on(life, UPGRADE_DAY + 45) for life in upgraded)
+        and all(life["difficulty"] == "gentle" and not any(life["ever"].values()) for life in upgraded),
+        f"(seed, offset, first winter) {first}")
+    if cost:
+        passed, measure = cost_rows()
+        row("10 cost: the sky hook in a storm, a route across a frozen lake", passed, measure)
+    everybody = [life for group in lives.values() for life in group.values()]
+    row("all: no model call and no logged error", all(not life["model_calls"] and not life["errors"] for life in everybody),
+        f"calls {sum(life['model_calls'] for life in everybody)}; errors {sum(len(life['errors']) for life in everybody)}")
+    return rows
+
+
+CHECKS = {"W1": check_w1, "W1R": check_w1r, "W2": check_w2}
 
 
 def main(argv=None) -> int:
@@ -398,7 +613,7 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", type=int)
     parser.add_argument("--seeds", default=",".join(map(str, SEEDS)))
     parser.add_argument("--days", type=int, default=150)
-    parser.add_argument("--condition", choices=CONDITIONS)
+    parser.add_argument("--condition", choices=(*CONDITIONS, UPGRADE))
     parser.add_argument("--conditions", default="gentle,untaught,taught")
     parser.add_argument("--parallel", type=int, default=0)
     parser.add_argument("--out", type=Path)

@@ -18,10 +18,13 @@ from backend.scripts.wild_gate import (
     BORN, CONDITIONS, R_DAYS, R_SEEDS, SEEDS, check_w1, check_w1r, live, new_record, sample, summarize,
 )
 from backend.survival.hatch import hatch
+from backend.survival.knocks import OWNER_ONLY
 from backend.survival.registry import LifeRegistry
 from backend.survival.wild import SURVIVAL
 from backend.survival.world import SurvivalWorld
 from backend.tests.no_model import no_model
+
+W1_ALONE = [lesson.name for lesson in SURVIVAL[:11] if lesson.name not in OWNER_ONLY]  # controller note: 9 names
 
 
 def summary(condition, seed, **changes):
@@ -41,7 +44,7 @@ def untaught(seed, **changes):
                     lost_by_day=[110.0] * 30 + [300.0] * 120, near_death_days=[12],
                     wonders_met={name: 1.5 for name in ("a", "b", "c", "d", "e")},
                     questions=[[1.5, "a"], [2.0, "b"], [3.5, "c"]], open_most=3,
-                    lessons={f"lesson{n}": {"day": 40.0, "source": "figured"} for n in range(8)})
+                    lessons={name: {"day": 40.0, "source": "figured"} for name in W1_ALONE[:8]})
     found.update(changes)
     return found
 
@@ -59,9 +62,10 @@ class WildRunTests(unittest.TestCase):
         self.assertIsNone(taught["died_day"])
         self.assertGreaterEqual(len(untaught["questions"]), 3)
         self.assertLessEqual(untaught["open_most"], 3)
-        w1 = [lesson.name for lesson in SURVIVAL[:11]]  # W2: its questions may teach it some of W2's too
-        self.assertLessEqual(set(w1), set(taught["lessons"]))
+        w1 = [lesson.name for lesson in SURVIVAL[:11]]
         self.assertTrue(all(taught["lessons"][name]["day"] < 2 for name in w1), taught["lessons"])
+        self.assertEqual(len(taught["lessons"]), len(SURVIVAL))  # W2's seven on day 2
+        self.assertTrue(all(entry["day"] < 3 for entry in taught["lessons"].values()), taught["lessons"])
 
     @unittest.skipUnless(os.environ.get("MIMO_SLOW_TESTS"), "a slow run: set MIMO_SLOW_TESTS=1")
     def test_twenty_days_untaught_is_sicker_and_taught_lives(self):
@@ -102,12 +106,22 @@ class CheckTests(unittest.TestCase):
 
     def test_nine_counts_seven_of_the_nine_lessons_a_pet_can_learn_alone(self):
         def alone(count):
-            return {f"lesson{n}": {"day": 40.0, "source": "figured"} for n in range(count)}
+            return {name: {"day": 40.0, "source": "figured"} for name in W1_ALONE[:count]}
         self.assertTrue(self.rows(lessons=alone(7))["9"])
         self.assertFalse(self.rows(lessons=alone(6))["9"])
         # learned after day 60, or from the owner, does not count
-        late = {**alone(6), "lesson6": {"day": 61.0, "source": "figured"}}
+        late = {**alone(6), W1_ALONE[6]: {"day": 61.0, "source": "figured"}}
         self.assertFalse(self.rows(lessons=late)["9"])
+
+    def test_controller_note_w2_lessons_do_not_dilute_the_nine(self):
+        """Controller note (the W2 interim report): since W2 Task 9, W2's seven lessons can be figured alone too, but
+        criterion 9 still counts only the 9 W1 lessons that can be learned alone (W1_ALONE)."""
+        w2 = [lesson.name for lesson in SURVIVAL[11:]]
+
+        def figured(names):
+            return {name: {"day": 40.0, "source": "figured"} for name in names}
+        self.assertFalse(self.rows(lessons=figured(W1_ALONE[:6]) | figured(w2[:3]))["9"])  # 6 W1 + 3 W2: still fails
+        self.assertTrue(self.rows(lessons=figured(W1_ALONE[:7]))["9"])  # 7 W1 alone: passes
 
     def test_ten_prime_reads_the_questions_as_they_were_posted_not_the_inbox_at_the_end(self):
         # Fix B: by day 150 the inbox has pruned the early questions (a life read (8 wonders, 0 asked) that had asked
