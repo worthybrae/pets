@@ -117,15 +117,17 @@ def take_fish(state: dict, cell: Cell, at: float) -> None:
     entry["stock"] = max(0, entry["stock"] - 1)
 
 
-def recover_fish(state: dict, at: float, scale: float) -> None:
-    """Every region gains one fish per game day until it is full again."""
+def recover_fish(state: dict, at: float, scale: float, grows: bool = True) -> None:
+    """Every region gains one fish per game day until it is full again (W2: not while `grows` is False, in
+    winter: the days pass and no fish comes back)."""
     stocks = state.get("fish") or {}
     for key in list(stocks):
         entry = stocks[key]
         days = math.floor((at - entry["since"]) * scale / DAY_SECONDS)
         if days <= 0:
             continue
-        entry["stock"] = min(FULL_STOCK, entry["stock"] + days)
+        if grows:
+            entry["stock"] = min(FULL_STOCK, entry["stock"] + days)
         entry["since"] += days * DAY_SECONDS / scale
         if entry["stock"] >= FULL_STOCK:
             del stocks[key]

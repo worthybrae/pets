@@ -12,7 +12,9 @@ within 48 blocks of Mimo, and a school once 8 fish are, or once its 16x16 water 
 Fish are never hunted, so if they counted toward the animals' cap a lakeside would fill up with
 fish for good and its herds could never come back. Spawning takes at most NEW_CHUNKS chunks a
 call, nearest first. A chunk whose land animals have all been gone (hunted) for 3 game days
-regains one herd. (L3's creature seeds add more.)
+regains one herd. (L3's creature seeds add more.) W2: in winter the animals thin out: a new chunk rolls one
+herd at most, the land cap near Mimo falls to WINTER_LAND_CAP, and a hunted-out chunk waits for spring to
+regain its herd. Animals already alive stay.
 """
 
 from __future__ import annotations
@@ -25,9 +27,11 @@ from backend.survival.creatures.acts import Scene
 from backend.survival.creatures.kinds import Kind, kind_of, land_kinds, water_kinds
 from backend.survival.creatures.table import dead
 from backend.survival.grid import CHUNK, Cell, Grid
+from backend.survival.sky import winter
 
 SIM_REACH = 48.0
 LAND_CAP = 24  # land animals within SIM_REACH of Mimo
+WINTER_LAND_CAP = 12  # W2
 FISH_CAP = 8  # fish within SIM_REACH of Mimo
 FISH_PER_REGION = 6
 REGAIN_SECONDS = 3 * DAY_SECONDS  # game seconds a chunk's land animals stay gone before a herd comes back
@@ -134,12 +138,14 @@ def populate(scene: Scene, loaded: list[dict], scale: float) -> list[dict]:
                               (max(c[0] for c in near), max(c[1] for c in near)))
     alive = [creature for creature in loaded if not dead(creature)]
     counts = {water: sum(1 for creature in alive if passive(creature, water)) for water in (False, True)}
+    wintry = winter(scene.state)  # W2: the animals thin out
+    land_cap = WINTER_LAND_CAP if wintry else LAND_CAP
     added: list[dict] = []
 
     def room(kind: Kind, cell: Cell) -> bool:
         """Whether one more of `kind` fits in `cell` under the caps."""
         if not kind.water:
-            return counts[False] < LAND_CAP
+            return counts[False] < land_cap
         region = (cell[0] // CHUNK, cell[2] // CHUNK)
         return counts[True] < FISH_CAP and sum(
             1 for creature in alive + added if creature["kind"] == kind.name
@@ -162,12 +168,12 @@ def populate(scene: Scene, loaded: list[dict], scale: float) -> list[dict]:
         row = known.get(chunk)
         if row is None and fresh < NEW_CHUNKS:
             fresh += 1
-            rolled = herd_count(scene.seed, chunk)
+            rolled = min(herd_count(scene.seed, chunk), 1 if wintry else 2)
             planned = (plan_herd(scene.grid, scene.seed, chunk, index) for index in range(rolled))
             herds = [herd for herd in planned if herd]
             school = fish_school(scene.grid, scene.seed, chunk)
             scene.herd.note_chunk(chunk, rolled, place(herds + ([school] if school else []), chunk), scene.at)
-        elif (row is not None and row["herds"] > 0 and row["animals"] == 0 and row["empty_since"] is not None
+        elif (not wintry and row is not None and row["herds"] > 0 and row["animals"] == 0 and row["empty_since"] is not None
               and (scene.at - row["empty_since"]) * scale >= REGAIN_SECONDS):
             herd = plan_herd(scene.grid, scene.seed, chunk, 0, salt=int(scene.at))
             scene.herd.regained(chunk, place([herd], chunk) if herd else 0, scene.at)

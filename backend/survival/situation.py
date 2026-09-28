@@ -133,4 +133,5 @@ def in_tick(state: dict, context: ActionContext, at: float) -> Situation:
 
 
 def from_db(db: sqlite3.Connection, state: dict, at: float, scale: float) -> Situation:
-    return Situation(state, world_grid(db, state["world_seed"]), clock_at(state["born_at"], at, scale), at, db)
+    return Situation(state, world_grid(db, state["world_seed"], state.get("sky")), clock_at(state["born_at"], at, scale),
+                     at, db)

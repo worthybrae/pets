@@ -55,7 +55,7 @@ from typing import Callable
 from backend.services.block_table import material_in
 from backend.services.worldgen import biome_at
 from backend.survival import ailments, sky, spoilage
-from backend.survival import rain, weather  # noqa: F401  (W2: rain douses campfires and slows walks; fog)
+from backend.survival import rain, weather, winter  # noqa: F401  (W2: rain, snow and fog; the winter's ice)
 from backend.survival.storms import fire_near  # W2: lightning and fire in the trees (it registers itself)
 from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
@@ -224,7 +224,7 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
         settle(state, db, state["last_tick_at"])  # W1: gentle for an old world, and a gentle pet's lessons
         sky.settle_sky(state, state["last_tick_at"], scale)  # W2: an old world's year starts in spring now
         events: list[Event] = []
-        context = ActionContext(grid=world_grid(db, world.seed), planner=mind.plan, events=events,
+        context = ActionContext(grid=world_grid(db, world.seed, state.get("sky")), planner=mind.plan, events=events,
                                 clock_at=lambda at: clock_at(state["born_at"], at, scale),
                                 observe=mind.observe, db=db, action_scale=action_scale,
                                 interrupt=mind.interrupt)

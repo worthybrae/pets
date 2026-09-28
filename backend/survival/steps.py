@@ -310,6 +310,8 @@ def start_mine(spec: dict, state: dict, grid: Grid, at: float, scale: float) -> 
     if not in_reach(as_cell(state["position"]), target):
         raise StepFailed("out of reach", "out_of_reach")
     material = grid.material(*target)
+    if material == "ice" and grid.natural_material(*target) == "water":  # W2: a frozen lake (backend.survival.winter)
+        raise StepFailed("the ice is too thick", "blocked")
     seconds = mine_seconds(material, inventory)
     if seconds is None:
         raise StepFailed(f"{label(material)} cannot be mined", "blocked")

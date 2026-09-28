@@ -25,12 +25,16 @@ long gap regrows the world in time order. Each call:
      sunleaf comes back in its chunk like a mushroom, on the grass, moss or mud of the lands it grows in,
      one a chunk a game day and at most 2 in the chunk;
    - W2: a crop stage that starts while it rains (backend.survival.sky) takes the watered time.
+   W2, winter: an entry that falls due in winter and grows something (WINTER_WAITS: a crop's stage, a sapling,
+   a berry or nightberry bush ripening, a sunleaf or a forest-floor mushroom coming back, and farmland turning
+   back to dirt) waits for the first spring dawn; leaves still decay. A mushroom picked in a cave (below the
+   land's surface) comes back where it grew a game day later, winter or not, so the caves are winter food.
 2. Applies every entry due by then, oldest first. An entry only happens while its cell still
    holds what it grows from (the unripe bush, the crop one stage earlier, the bare farmland);
    otherwise it is dropped. A crop stage that happens schedules the next one from its own due
    time, so a long catch-up still grows a crop through every stage. An entry whose apply
    crashes is tried again 10 game minutes later and dropped after 5 crashes (`failures`).
-3. Lets fish stocks recover, one fish per region per game day (nature.recover_fish).
+3. Lets fish stocks recover, one fish per region per game day (nature.recover_fish); W2: none in winter.
 Mined ore never comes back: nothing schedules it.
 """
 
@@ -46,7 +50,7 @@ from backend.services.blocks import is_replaceable
 from backend.services.crafting import LOGS, add_item
 from backend.services.worldgen import SUNLEAF_BIOMES, biome_at, is_leaf, terrain_height
 from backend.survival import nature
-from backend.survival.sky import RAINY, weather_of
+from backend.survival.sky import RAINY, next_season_at, season_at, weather_of, winter
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import CHUNK, Cell, Grid
 from backend.survival.memory import SHELTER_KINDS, cell_of, places
@@ -80,6 +84,9 @@ FOREST_FLOOR = ("grass", "moss")
 SUNLEAF_CAP = 2  # W1
 SUNLEAF_GROUND = ("grass", "moss", "mud")
 NEIGHBOURS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+# W2: what waits for spring when it falls due in winter.
+WINTER_WAITS = frozenset({*(block for block in nature.CROP_BLOCKS if not block.endswith("_0")), LOG,
+                          "berry_bush_ripe", "nightberry_bush_ripe", "sunleaf", *nature.MUSHROOMS, "dirt"})
 
 Entry = tuple[Cell, str, float]
 
@@ -297,7 +304,9 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
         if before in LOGS and after not in LOGS:
             for leaf in orphaned_leaves(grid, cell):
                 schedule(db, leaf, "air", later(at, decay_seconds(seed, leaf, at), scale), keep_earlier=True)
-        if (before in nature.MUSHROOMS or before == "sunleaf") and after == "air":
+        if before in nature.MUSHROOMS and after == "air" and underground(seed, cell):  # W2: a cave's own spot
+            schedule(db, cell, before, later(at, MUSHROOM_RESPAWN, scale), keep_earlier=True)
+        elif (before in nature.MUSHROOMS or before == "sunleaf") and after == "air":
             respawn_mushroom(db, grid, seed, cell, before, at, scale, chosen)
         if after in GROWERS:
             schedule(db, cell, GROWERS[after].marker, later(at, GROWERS[after].seconds, scale))
@@ -313,6 +322,11 @@ def react(db: sqlite3.Connection, grid: Grid, state: dict, changes: list[tuple[C
             schedule(db, (x, y - 1, z), "dirt", later(at, FARMLAND_REVERT, scale))
 
 
+def underground(seed: str, cell: Cell) -> bool:
+    """W2: below the land's natural surface (a cave)."""
+    return cell[1] < terrain_height(cell[0], cell[2], seed)
+
+
 def rained(state: dict, at: float, scale: float) -> bool:
     """W2: it rains at `at` (a world with no birth time, in a test, never rains)."""
     return "born_at" in state and weather_of(state, at, scale) in RAINY
@@ -323,6 +337,11 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
     """Make one due change happen if its cell still holds what it grows from."""
     cell, block, ready_at = entry
     x, y, z = cell
+    cave = block in nature.MUSHROOMS and underground(state.get("world_seed", "0"), cell)
+    if (block in WINTER_WAITS and not cave and "born_at" in state
+            and season_at(state, ready_at, scale)[0] == "winter"):
+        schedule(db, cell, block, next_season_at(state, ready_at, scale, "spring"))  # W2: it waits for spring
+        return
     here = grid.material(*cell)
     stage = nature.crop_stage(block)
     if block in ("berry_bush_ripe", "nightberry_bush_ripe"):
@@ -351,6 +370,9 @@ def apply_entry(db: sqlite3.Connection, grid: Grid, state: dict, entry: Entry, s
         if here in nature.LEAVES and not leaf_supported(grid, cell):
             grid.put(*cell, "air")
             decay(state, cell, ready_at, here)
+    elif cave:  # W2: a cave mushroom on its own spot, on stone, in any season
+        if here == "air" and grid.solid((x, y - 1, z)) and not grid.claimed(cell):
+            grid.put(*cell, block)
     elif block in nature.MUSHROOMS:
         seed = state.get("world_seed", "0")
         if (here == "air" and grid.material(x, y - 1, z) in FOREST_FLOOR and not grid.claimed(cell)
@@ -442,7 +464,7 @@ def renew(state: dict, context, at: float) -> None:
                 break
     finally:
         grid.take_changes()  # renewal's own writes need no reaction
-    nature.recover_fish(state, at, scale)
+    nature.recover_fish(state, at, scale, grows=not winter(state))
 
 
 # L3: creature sprouts register their Grower; imported last because they build on everything above.

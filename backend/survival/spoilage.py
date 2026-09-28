@@ -16,7 +16,8 @@ leaves behind) never leaves them out of step: Mimo's own after each vitals step 
 after a step that stored in it or took from it, and every chest's once a game minute, just before they age (W1's
 final fix wave: not every chest on every step).
 
-The tick ages Mimo's lots every vitals step and its chests' once a game minute (`age`). A lot that reaches
+The tick ages Mimo's lots every vitals step and its chests' once a game minute (`age`); W2: in winter, a third
+as fast (WINTER_RATE), in arms or chest. A lot that reaches
 wear 1 becomes that many `spoiled_food` ("Pip's raw beef went bad.", a "spoiled" event; nightberries are "red
 berries" to a pet that does not know them), in its arms or its chest; SPOILS then hears of it
 (backend.survival.knocks). Spoiled food fills 4 hunger and gives a tummy ache 6 times in 10
@@ -35,6 +36,7 @@ import logging
 
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.once import log_once
+from backend.survival.sky import winter
 from backend.survival.steps import OBSERVERS, label
 from backend.survival.wild import LESSON, LOOKS_LIKE, is_wild, thing
 
@@ -50,6 +52,7 @@ CHEST_RATE = 0.5  # food in a chest ages half as fast
 JOIN = 60.0  # game seconds: food added within a game minute of the newest lot joins it
 CHEST_EVERY = 60.0  # game seconds between two agings of the chests
 TURNING = 0.5  # wear past which keeping cooks raw food first
+WINTER_RATE = 1 / 3  # W2: food ages a third as fast in winter
 # W1: functions (state, context, item, count, where, at) run when food spoils (backend.survival.knocks);
 # `where` is "arms" or "chest". One that crashes is logged once.
 SPOILS: list = []
@@ -237,7 +240,8 @@ def age(state: dict, context, seconds: float, at: float) -> None:
         return
     try:
         settle_lots(state, chests=False)
-        went_bad(state, context, spoil(arms_lots(state), state["inventory"], 1.0, seconds), "arms", at)
+        season = WINTER_RATE if winter(state) else 1.0
+        went_bad(state, context, spoil(arms_lots(state), state["inventory"], season, seconds), "arms", at)
         clock = state.setdefault("wild", {})
         waited = clock.get("chests_aged", 0.0) + seconds
         if waited >= CHEST_EVERY:
@@ -245,7 +249,7 @@ def age(state: dict, context, seconds: float, at: float) -> None:
             for key, lots_of in list(state.get("chest_lots", {}).items()):
                 chest = state.get("chests", {}).get(key)
                 if chest is not None:
-                    went_bad(state, context, spoil(lots_of, chest, CHEST_RATE, waited), "chest", at)
+                    went_bad(state, context, spoil(lots_of, chest, CHEST_RATE * season, waited), "chest", at)
             waited = 0.0
         clock["chests_aged"] = waited
     except Exception as error:

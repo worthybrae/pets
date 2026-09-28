@@ -9,7 +9,10 @@ so planners that dig or till can leave them alone (`claimed`). A grid over a wor
 carries the world's creatures (`herd`, backend.survival.creatures.table.Herd), so steps and
 planners reach them the way they reach blocks; a grid built from `natural` alone has none.
 W2: the cells a fire burns in and their neighbours (`hot`, set by backend.survival.storms) are no way through,
-like lava.
+like lava. In winter (`frozen`, from state["sky"]: `overlay`) a natural water cell at SEA_LEVEL that was never
+edited reads as ice, the surface of a lake, a river or a swamp pool: solid, standable, walkable, and never
+mined (steps.start_mine), so no block is written; cave lakes lie lower and stay water. A cell in `open_cells`
+(where Mimo stood or swam when the freeze came) stays water. For every other cell it costs one integer compare.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from typing import Callable
 
 from backend.services.block_table import write_block
 from backend.services.blocks import is_plant, is_solid, is_tall
-from backend.services.worldgen import block_at
+from backend.services.worldgen import SEA_LEVEL, block_at
 from backend.survival.creatures.table import Herd
 
 Cell = tuple[int, int, int]
@@ -64,6 +67,8 @@ class Grid:
         self.claims: set[Cell] = set()
         self.herd: Herd | None = None
         self.hot: set[Cell] = set()  # W2: burning cells and their neighbours
+        self.frozen = False  # W2: the lakes' surfaces are ice
+        self.open_cells: set[Cell] = set()  # W2: water Mimo kept open where it was when the freeze came
 
     def _load(self, x: int, z: int) -> None:
         if self._load_edits is None:
@@ -90,7 +95,15 @@ class Grid:
             self._natural_cache[(x, y, z)] = natural
         if is_plant(natural) and (x, y - 1, z) in self.edits:
             return "air"
+        if y == SEA_LEVEL and self.frozen and natural == "water" and (x, y, z) not in self.open_cells:
+            return "ice"  # W2: a frozen lake (the overlay, never a block)
         return natural
+
+    def overlay(self, sky: dict | None) -> None:
+        """W2: the winter's ice from state["sky"] (`frozen`, `open_cells`)."""
+        sky = sky or {}
+        self.frozen = bool(sky.get("frozen"))
+        self.open_cells = {tuple(cell) for cell in sky.get("open_cells", ())}
 
     def natural_material(self, x: int, y: int, z: int) -> str:
         """The block worldgen put at the cell, before any edit."""
@@ -155,8 +168,9 @@ class Grid:
         return {material for _, material in self.placed_cells(x, z, reach, materials)}
 
 
-def world_grid(db: sqlite3.Connection, seed: str) -> Grid:
-    """A grid over one survival world's database, for the length of one transaction."""
+def world_grid(db: sqlite3.Connection, seed: str, sky: dict | None = None) -> Grid:
+    """A grid over one survival world's database, for the length of one transaction; W2: with state["sky"],
+    frozen as the winter has it."""
 
     def load_edits(cx: int, cz: int) -> dict[Cell, str]:
         rows = db.execute("SELECT x,y,z,material FROM mimo_blocks WHERE x BETWEEN ? AND ? AND z BETWEEN ? AND ?",
@@ -176,4 +190,5 @@ def world_grid(db: sqlite3.Connection, seed: str) -> Grid:
 
     grid = Grid(lambda x, y, z: block_at(x, y, z, seed), load_edits, write, load_claims)
     grid.herd = Herd(db)
+    grid.overlay(sky)
     return grid
