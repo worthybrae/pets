@@ -50,20 +50,20 @@ def run(state, seconds, activity="working", step=10.0):
 
 
 class SicknessTests(unittest.TestCase):
-    def test_a_tummy_ache_lasts_twelve_game_minutes_and_takes_thirty_six_health(self):
+    def test_a_tummy_ache_lasts_twelve_game_minutes_and_takes_eighteen_health(self):
         state = pet()
         self.assertTrue(fall_sick(state, "tummy", 0.0))
         self.assertEqual(state["last_thought"], "My tummy hurts.")
         run(state, 12 * 60)
         self.assertIsNone(sickness(state))
-        self.assertAlmostEqual(state["vitals"]["health"], 100 - 12 * 60 / 20, places=3)
-        self.assertAlmostEqual(state["wild"]["lost"], 12 * 60 / 20, places=3)  # lost to a hazard
+        self.assertAlmostEqual(state["vitals"]["health"], 100 - 12 * 60 / 40, places=3)
+        self.assertAlmostEqual(state["wild"]["lost"], 12 * 60 / 40, places=3)  # lost to a hazard
 
-    def test_a_chill_takes_fifty_and_passes_twice_as_fast_resting_warm(self):
+    def test_a_chill_takes_thirty_seven_and_a_half_and_passes_twice_as_fast_resting_warm(self):
         state = pet()
         fall_sick(state, "chill", 0.0)
         run(state, 25 * 60)
-        self.assertAlmostEqual(state["vitals"]["health"], 50.0, places=3)
+        self.assertAlmostEqual(state["vitals"]["health"], 100 - 25 * 60 / 40, places=3)
         warm = pet()
         fall_sick(warm, "chill", 0.0)
         run(warm, 12.5 * 60 + 10, activity="sleeping")

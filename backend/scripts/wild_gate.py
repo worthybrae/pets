@@ -18,11 +18,17 @@ it lost to its hazards (`state["wild"]["lost"]`: a sickness's or a festering wou
 by day), wounds and festering minutes, near-death days (health under 20 at least once), the time-weighted health
 mean, freezing and starving minutes, the lessons it knows with their sources and days, the wonders it met and the questions it
 asked in its first 3 game days and the most open at once, the machines it built by day, whether it ever had a
-sickness, a wound, a lot or a question, logged errors and model calls.
+sickness, a wound, a lot or a question, logged errors and model calls. The wonders and questions are recorded as
+the life runs, each minute: by day 150 the inbox has pruned the early questions (Fix B).
 
     python3 -m backend.scripts.wild_gate --seed 8 --days 3 --condition untaught --out DIR
     python3 -m backend.scripts.wild_gate --days 150 --conditions gentle,untaught,taught --parallel 6 --out DIR
     python3 -m backend.scripts.wild_gate --check W1 DIR
+
+The robustness check W1R (criterion 8R) runs 12 untaught lives on seeds outside the gate's six, for 30 game days:
+
+    python3 -m backend.scripts.wild_gate --seeds 1,2,4,6,7,9,10,12,13,14,15,16 --days 30 --conditions untaught --parallel 4 --out DIR
+    python3 -m backend.scripts.wild_gate --check W1R DIR
 """
 
 from __future__ import annotations
@@ -41,6 +47,10 @@ from pathlib import Path
 BORN = 1_000_000.0
 SCALE = 60.0
 SEEDS = (3, 5, 8, 11, 21, 42)
+# W1R (criterion 8R): the promise of criterion 8 on seeds outside the gate's own, untaught, for R_DAYS game days
+R_SEEDS = (1, 2, 4, 6, 7, 9, 10, 12, 13, 14, 15, 16)
+R_DAYS = 30
+R_DEATHS_MOST = 4
 CONDITIONS = ("gentle", "untaught", "taught", "liar")
 OWNER_EVERY = 5  # game minutes between the scripted owner's lines on day 1
 ANSWER_AFTER = 2  # game minutes after a question is asked that the owner answers it
@@ -141,9 +151,7 @@ def live(seed: int, days: int, condition: str, http=None) -> dict:
         chooser = Chooser(env={}, http=model, executor=InlineExecutor(), rng=random.Random(seed), scale=SCALE)
         talker = Talker(env={}, http=model, scale=SCALE)
         answered: set = set()
-        found = {"health": 0.0, "ticks": 0, "sick": 0, "sick_by_day": [], "lost_by_day": [], "wounds": 0,
-                 "festering": 0, "near": set(),
-                 "freezing": 0, "starving": 0, "open_most": 0, "ever": {"sick": False, "wound": False, "lots": False}}
+        found = new_record()
         state = world.state()
         for minute in range(1, days * 60 + 1):
             now = BORN + minute
@@ -159,6 +167,13 @@ def live(seed: int, days: int, condition: str, http=None) -> dict:
     summary.update(errors=errors.records[:50], model_calls=len(getattr(model, "calls", [])))
     logging.getLogger("backend").removeHandler(errors)
     return summary
+
+
+def new_record() -> dict:
+    """What `sample` keeps over a life, empty."""
+    return {"health": 0.0, "ticks": 0, "sick": 0, "sick_by_day": [], "lost_by_day": [], "wounds": 0, "festering": 0,
+            "near": set(), "freezing": 0, "starving": 0, "open_most": 0,
+            "ever": {"sick": False, "wound": False, "lots": False}, "asked": {}, "met": {}}
 
 
 def sample(found: dict, state: dict, minute: int, world) -> None:
@@ -188,11 +203,25 @@ def sample(found: dict, state: dict, minute: int, world) -> None:
         found["near"].add(day)
     found["freezing"] += vitals["warmth"] < 20.0
     found["starving"] += vitals["hunger"] <= 0.0
-    if minute % 5 == 0:
-        with world.connect() as db:
-            open_now = db.execute("SELECT COUNT(*) FROM mimo_inbox WHERE kind='ask' AND json_extract(data, '$.ask')="
-                                  "'wonder' AND json_extract(data, '$.closed') IS NULL").fetchone()[0]
-        found["open_most"] = max(found["open_most"], open_now)
+    for wonder_id, entry in ((state.get("wild") or {}).get("wonders") or {}).items():
+        if wonder_id not in found["met"] and entry.get("met_at") is not None:  # the first meeting, kept
+            found["met"][wonder_id] = round((entry["met_at"] - BORN) / 60 + 1, 3)
+    with world.connect() as db:
+        record_questions(found, db)
+
+
+def record_questions(found: dict, db) -> None:
+    """The questions Mimo posted since the last sample, as they are posted, and the most open at once: the inbox
+    prunes answered and closed questions long before a 150-day life ends, so criterion 10' reads this record,
+    not the inbox at the end."""
+    since = max(found["asked"], default=0)
+    for item, at, wonder in db.execute(
+            "SELECT id, at, json_extract(data, '$.wonder') FROM mimo_inbox WHERE kind='ask' AND "
+            "json_extract(data, '$.ask')='wonder' AND id > ? ORDER BY id", (since,)):
+        found["asked"][item] = [round((at - BORN) / 60 + 1, 3), wonder]
+    open_now = db.execute("SELECT COUNT(*) FROM mimo_inbox WHERE kind='ask' AND json_extract(data, '$.ask')="
+                          "'wonder' AND json_extract(data, '$.closed') IS NULL").fetchone()[0]
+    found["open_most"] = max(found["open_most"], open_now)
 
 
 def summarize(world, found: dict, seed: int, days: int, condition: str, wall: float) -> dict:
@@ -207,9 +236,6 @@ def summarize(world, found: dict, seed: int, days: int, condition: str, wall: fl
                 entry["day"] = round((at - BORN) / 60 + 1, 2)
             elif fact in ("taught", "born_knowing"):
                 entry["source"] = {"taught": "from_you", "born_knowing": "from_start"}[fact]
-        asks = [(round((row[0] - BORN) / 60 + 1, 3), row[1]) for row in db.execute(
-            "SELECT at, json_extract(data, '$.wonder') FROM mimo_inbox WHERE kind='ask' AND "
-            "json_extract(data, '$.ask')='wonder' ORDER BY id")]
         machines = {}
         for structure in structures(db, ("machine",)):
             name = structure["data"].get("style", {}).get("machine")
@@ -217,8 +243,9 @@ def summarize(world, found: dict, seed: int, days: int, condition: str, wall: fl
                 machines[name] = round((structure["built_at"] - BORN) / 60 + 1, 2)
         kinds = dict(db.execute("SELECT kind, COUNT(*) FROM mimo_events GROUP BY kind").fetchall())
         computer = db.execute("SELECT MIN(at) FROM mimo_events WHERE kind='computer'").fetchone()[0]
-    met = {wonder_id: round((entry["met_at"] - BORN) / 60 + 1, 3)
-           for wonder_id, entry in ((state.get("wild") or {}).get("wonders") or {}).items()}
+    # Recorded as the life ran (sample, record_questions): the inbox and the state may have dropped them by now.
+    asks = [found["asked"][item] for item in sorted(found["asked"])]
+    met = dict(found["met"])
     ticks = max(1, found["ticks"])
     return {"seed": seed, "days": days, "condition": condition, "wall": round(wall, 1), "difficulty": state.get("difficulty"),
             "died_day": None if died is None else round((died - BORN) / 60 + 1, 2), "cause": state.get("cause"),
@@ -347,6 +374,25 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     return rows
 
 
+def check_w1r(out: Path) -> list[tuple[str, bool, str]]:
+    """Criterion 8R: the untaught lives on R_SEEDS, each run R_DAYS game days: none dies before day 5, and at most
+    R_DEATHS_MOST die in those days. A seed missing or run short fails the first row."""
+    lives = load(out).get("untaught", {})
+    found = [lives[seed] for seed in R_SEEDS if seed in lives and lives[seed]["days"] >= R_DAYS]
+    missing = [seed for seed in R_SEEDS if seed not in lives or lives[seed]["days"] < R_DAYS]
+    early = {life["seed"]: life["died_day"] for life in found if not alive_on(life, 5)}
+    deaths = {life["seed"]: life["died_day"] for life in found if life["died_day"] is not None}
+    return [(f"8R untaught, other seeds: {len(R_SEEDS)} lives, none dead before day 5", not missing and not early,
+             f"lives {len(found)}/{len(R_SEEDS)}{f', missing or short {missing}' if missing else ''}; "
+             f"dead before day 5 {early}"),
+            (f"8R untaught, other seeds: at most {R_DEATHS_MOST} of {len(R_SEEDS)} die in {R_DAYS} game days",
+             not missing and len(deaths) <= R_DEATHS_MOST,
+             f"deaths {len(deaths)}: {dict(sorted(deaths.items(), key=lambda item: item[1]))}")]
+
+
+CHECKS = {"W1": check_w1, "W1R": check_w1r}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--seed", type=int)
@@ -359,9 +405,9 @@ def main(argv=None) -> int:
     parser.add_argument("--check", nargs=2, metavar=("MILESTONE", "DIR"))
     args = parser.parse_args(argv)
     if args.check:
-        if args.check[0] != "W1":
-            raise SystemExit("only the W1 gate is written yet")
-        rows = check_w1(Path(args.check[1]))
+        if args.check[0] not in CHECKS:
+            raise SystemExit(f"only these checks are written yet: {', '.join(CHECKS)}")
+        rows = CHECKS[args.check[0]](Path(args.check[1]))
         for name, passed, measure in rows:
             print(f"{'PASS' if passed else 'FAIL'}  {name}  ({measure})")
         return 0 if all(passed for _, passed, _ in rows) else 1

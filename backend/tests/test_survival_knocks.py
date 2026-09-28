@@ -30,18 +30,18 @@ def knows(context, name):
 class KnockTests(unittest.TestCase):
     def test_the_chance_grows_with_every_knock_and_curiosity(self):
         state, context = world()
-        with patch("backend.survival.knocks.roll", return_value=0.31):
-            self.assertFalse(knock(state, context.db, context.events, 1.0, "light"))  # 0.10
-            self.assertFalse(knock(state, context.db, context.events, 2.0, "light"))  # 0.20
-            self.assertFalse(knock(state, context.db, context.events, 3.0, "light"))  # 0.30
-            self.assertTrue(knock(state, context.db, context.events, 4.0, "light"))  # 0.40
+        with patch("backend.survival.knocks.roll", return_value=0.36):
+            self.assertFalse(knock(state, context.db, context.events, 1.0, "light"))  # 0.15
+            self.assertFalse(knock(state, context.db, context.events, 2.0, "light"))  # 0.25
+            self.assertFalse(knock(state, context.db, context.events, 3.0, "light"))  # 0.35
+            self.assertTrue(knock(state, context.db, context.events, 4.0, "light"))  # 0.45
         self.assertEqual(wild_state(state)["knocks"]["light"], 4)
         curious, where = world(traits={"curiosity": 100})
-        with patch("backend.survival.knocks.roll", return_value=0.11):
-            self.assertTrue(knock(curious, where.db, where.events, 1.0, "light"))  # 0.10 x 1.2 = 0.12
+        with patch("backend.survival.knocks.roll", return_value=0.17):
+            self.assertTrue(knock(curious, where.db, where.events, 1.0, "light"))  # 0.15 x 1.2 = 0.18
         dull, there = world(traits={"curiosity": 0})
-        with patch("backend.survival.knocks.roll", return_value=0.09):
-            self.assertFalse(knock(dull, there.db, there.events, 1.0, "light"))  # 0.10 x 0.8 = 0.08
+        with patch("backend.survival.knocks.roll", return_value=0.13):
+            self.assertFalse(knock(dull, there.db, there.events, 1.0, "light"))  # 0.15 x 0.8 = 0.12
 
     def test_a_lesson_worked_out_is_a_figured_event_journalled_as_worked_out(self):
         state, context = world()
@@ -53,9 +53,9 @@ class KnockTests(unittest.TestCase):
 
     def test_the_table_of_knocks(self):
         self.assertEqual({name: (rule.first, rule.step) for name, rule in KNOCKS.items()},
-                         {"nightberries": (0.25, 0.15), "fire": (0.15, 0.15),
-                          "cooking": (0.25, 0.15), "keeping": (0.20, 0.15), "light": (0.10, 0.10),
-                          "shelter": (0.25, 0.20), "bed": (0.10, 0.10)})
+                         {"nightberries": (0.30, 0.15), "fire": (0.20, 0.15),
+                          "cooking": (0.30, 0.15), "keeping": (0.25, 0.15), "light": (0.15, 0.10),
+                          "shelter": (0.30, 0.20), "bed": (0.15, 0.10)})
 
     def test_sunleaf_and_bandages_are_never_learned_alone(self):
         state, context = world(inventory={"wool": 1})

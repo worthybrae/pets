@@ -10,18 +10,19 @@ and the journal line "I worked it out myself: ...". The counts live in `state["w
 | Lesson | Knock | First | Step | Sure when |
 |---|---|---|---|---|
 | berries | | | | it eats from the red berries and is not sick |
-| nightberries | sick from a nightberry | 0.25 | 0.15 | |
+| nightberries | sick from a nightberry | 0.30 | 0.15 | |
 | red_mushroom | | | | sick from a red mushroom |
-| fire | a chilled night | 0.15 | 0.15 | it smelts at a furnace for the first time |
-| cooking | sick from a raw meal, knowing fire | 0.25 | 0.15 | |
-| keeping | sick from spoiled food, or food spoils in its arms or chest | 0.20 | 0.15 | |
-| light | a hostile's blow at night | 0.10 | 0.10 | |
-| shelter | a bad night: a chill at dawn, or a hostile's blow that night | 0.25 | 0.20 | |
-| bed | a night asleep on the floor of a sheltered spot | 0.10 | 0.10 | |
+| fire | a chilled night | 0.20 | 0.15 | it smelts at a furnace for the first time |
+| cooking | sick from a raw meal, knowing fire | 0.30 | 0.15 | |
+| keeping | sick from spoiled food, or food spoils in its arms or chest | 0.25 | 0.15 | |
+| light | a hostile's blow at night | 0.15 | 0.10 | |
+| shelter | a bad night: a chill at dawn, or a hostile's blow that night | 0.30 | 0.20 | |
+| bed | a night asleep on the floor of a sheltered spot | 0.15 | 0.10 | |
 
 The chances are as unlikely as the gate's "not hopeless" criteria allow (spec resolution 29, the controller's
-ruling on the W1 dry run): each first chance is one step (0.05) lower than first planned, and a second step left
-pets that knew only 6 or 7 lessons alone by day 60. Two lessons are never learned alone (OWNER_ONLY, the same
+ruling on the W1 dry run, and resolution 31): the ruling set each first chance one step (0.05) lower than first
+planned, and Fix B put them back, since with the sickness drains eased the lower chances left the gate's untaught
+lives too few deaths and near-death days for criterion 7' and the gate's seed 8 with 6 lessons alone by day 60. Two lessons are never learned alone (OWNER_ONLY, the same
 ruling): sunleaf and bandage. A pet cannot guess that an herb cures a sickness, or that wool on a wound stops it
 festering. A sunleaf the instinct nibbles while sick (backend.survival.herbs) makes Mimo better that once and
 teaches nothing; Mimo still asks about the herb and its wounds, and the owner's answer or teaching is the only
@@ -65,9 +66,9 @@ class Knock:
 
 
 KNOCKS: dict[str, Knock] = {
-    "nightberries": Knock(0.25, 0.15), "fire": Knock(0.15, 0.15),
-    "cooking": Knock(0.25, 0.15), "keeping": Knock(0.20, 0.15), "light": Knock(0.10, 0.10),
-    "shelter": Knock(0.25, 0.20), "bed": Knock(0.10, 0.10),
+    "nightberries": Knock(0.30, 0.15), "fire": Knock(0.20, 0.15),
+    "cooking": Knock(0.30, 0.15), "keeping": Knock(0.25, 0.15), "light": Knock(0.15, 0.10),
+    "shelter": Knock(0.30, 0.20), "bed": Knock(0.15, 0.10),
 }
 
 

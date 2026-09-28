@@ -5,8 +5,8 @@ game seconds), and a new one keeps the longer of the two (`fall_sick`). The kind
 
 | Kind | Symptom | Lasts | Drain | Also |
 |---|---|---|---|---|
-| tummy ache | "My tummy hurts." | 12 game minutes | 1 health per 20 game s | hunger drains 1.5 times as fast |
-| chill | "I'm shivery and hot." | 25 game minutes | 1 health per 30 game s | energy drains 1.5 times as fast |
+| tummy ache | "My tummy hurts." | 12 game minutes | 1 health per 40 game s | hunger drains 1.5 times as fast |
+| chill | "I'm shivery and hot." | 25 game minutes | 1 health per 40 game s | energy drains 1.5 times as fast |
 
 While Mimo is sick no health regenerates and mood's target falls 15 (`ailing`, read by the tick for each
 vitals step: vitals.Ailing). A chill's time runs twice as fast while Mimo rests or sleeps with warmth 60 or
@@ -22,7 +22,7 @@ backend.survival.herbs) live elsewhere.
 
 A wound (`state["ailments"]["wound"]` = {"since", "age", "festering", "dressed_age"}; `age` in game seconds;
 backend.survival.wounds opens one): while it is open no health regenerates. Undressed for FESTER_AFTER (10 game
-minutes) it festers ("Pip's wound is festering."): 1 health per 40 game s, and mood's target falls 10. It heals
+minutes) it festers ("Pip's wound is festering."): 1 health per 60 game s, and mood's target falls 10. It heals
 by itself HEALS_AFTER (a game day) after it opened, festering or not; a dressed one stops festering at once and
 closes DRESSED_CLOSES (5 game minutes) later (`dress`).
 
@@ -64,7 +64,7 @@ NIBBLE_CHANNEL = 200  # Wild World's roll channels are 200 to 259 (spec resoluti
 FESTER_AFTER = 10 * GAME_MINUTE
 HEALS_AFTER = DAY_SECONDS
 DRESSED_CLOSES = 5 * GAME_MINUTE
-FESTER_DRAIN = 1 / 40
+FESTER_DRAIN = 1 / 60
 FESTER_MOOD = 10.0
 CHILL_BELOW = 35.0
 CHILL_SOME = 5 * GAME_MINUTE  # a chill with CHILL_CHANCE
@@ -91,8 +91,8 @@ class Ailment:
 
 
 AILMENTS: dict[str, Ailment] = {
-    "tummy": Ailment("tummy", "My tummy hurts.", "Tummy ache", 12 * GAME_MINUTE, 1 / 20, hunger=1.5),
-    "chill": Ailment("chill", "I'm shivery and hot.", "Chill", 25 * GAME_MINUTE, 1 / 30, energy=1.5),
+    "tummy": Ailment("tummy", "My tummy hurts.", "Tummy ache", 12 * GAME_MINUTE, 1 / 40, hunger=1.5),
+    "chill": Ailment("chill", "I'm shivery and hot.", "Chill", 25 * GAME_MINUTE, 1 / 40, energy=1.5),
 }
 
 

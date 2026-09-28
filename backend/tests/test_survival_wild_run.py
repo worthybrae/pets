@@ -4,16 +4,22 @@ By default seed 8 for 3 game days, untaught and taught: the untaught pet posts a
 one knows all 11 W1 lessons by the end of day 1, and both live. With MIMO_SLOW_TESTS=1, seeds 3 and 11 for 20
 game days: the untaught pet's sick minutes are at least twice the taught pet's, both are alive on day 5, and the
 taught one on day 20. No model is ever called and nothing is logged as an error. The W1 criteria that compare
-the conditions (6', 7', 10') are checked on made-up summaries.
+the conditions (6', 7', 10') and the robustness check W1R (8R) are checked on made-up summaries.
 """
 
 import json
 import os
+import random
 import tempfile
 import unittest
 from pathlib import Path
 
-from backend.scripts.wild_gate import CONDITIONS, SEEDS, check_w1, live
+from backend.scripts.wild_gate import (
+    BORN, CONDITIONS, R_DAYS, R_SEEDS, SEEDS, check_w1, check_w1r, live, new_record, sample, summarize,
+)
+from backend.survival.hatch import hatch
+from backend.survival.registry import LifeRegistry
+from backend.survival.world import SurvivalWorld
 from backend.tests.no_model import no_model
 
 
@@ -90,6 +96,46 @@ class CheckTests(unittest.TestCase):
         # 10': 4 wonders met by the end of the third game day, on every seed
         self.assertTrue(self.rows(wonders_met={name: 3.9 for name in "abcd"})["10'"])
         self.assertFalse(self.rows(wonders_met={name: 3.9 for name in "abc"})["10'"])
+
+    def test_ten_prime_reads_the_questions_as_they_were_posted_not_the_inbox_at_the_end(self):
+        # Fix B: by day 150 the inbox has pruned the early questions (a life read (8 wonders, 0 asked) that had asked
+        # 3 in its first days), so the gate keeps a record as the life runs.
+        wonders = {name: {"met_at": BORN + 60 * (0.5 + index * 0.5)} for index, name in enumerate("abcd")}  # days 1.5 to 3
+        with tempfile.TemporaryDirectory() as root:
+            registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+            world = SurvivalWorld(registry.world_path(hatch(registry, random.Random(8), timestamp=BORN,
+                                                            difficulty="wild")))
+            with world.connect() as db:
+                for index, name in enumerate("abc"):
+                    db.execute("INSERT INTO mimo_inbox(at, kind, text, data) VALUES (?, 'ask', ?, ?)",
+                               (BORN + 60 * (0.5 + index), f"About {name}?", json.dumps({"ask": "wonder", "wonder": name,
+                                                                                          "closed": "taught"})))
+            state = world.state()
+            state.setdefault("wild", {})["wonders"] = wonders
+            found = new_record()
+            sample(found, state, 3 * 60, world)  # the end of the third game day
+            with world.connect() as db:
+                db.execute("DELETE FROM mimo_inbox")  # pruned by the end of the life
+            life = summarize(world, found, 3, 150, "untaught", 0.0)  # the stored state never had the wonders
+        self.assertEqual((len(life["wonders_met"]), len(life["questions"])), (4, 3))
+        rows = self.rows(wonders_met=life["wonders_met"], questions=life["questions"], open_most=life["open_most"])
+        self.assertTrue(rows["10'"])
+        self.assertFalse(self.rows(wonders_met={}, questions=[])["10'"])  # what the inbox at the end would say
+
+    def test_robustness_no_newborn_dies_before_day_five_and_at_most_four_of_twelve_by_day_thirty(self):
+        def passed(died, days=R_DAYS, seeds=R_SEEDS):
+            """Check W1R on untaught lives of `seeds`, each run `days`; `died` maps a seed to its death day."""
+            with tempfile.TemporaryDirectory() as root:
+                for seed in seeds:
+                    life = untaught(seed, days=days, died_day=died.get(seed))
+                    (Path(root) / f"untaught_{seed}.json").write_text(json.dumps(life))
+                return [passed for _, passed, _ in check_w1r(Path(root))]
+
+        self.assertEqual(passed({1: 5.5, 2: 12.0, 4: 29.9, 6: 30.8}), [True, True])
+        self.assertEqual(passed({1: 4.9}), [False, True])  # a newborn dead before day 5
+        self.assertEqual(passed({1: 5.5, 2: 12.0, 4: 29.9, 6: 30.8, 7: 18.0}), [True, False])  # 5 of 12 dead
+        self.assertEqual(passed({}, seeds=R_SEEDS[:-1]), [False, False])  # a seed missing
+        self.assertEqual(passed({}, days=20), [False, False])  # lives run short
 
 
 if __name__ == "__main__":

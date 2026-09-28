@@ -108,8 +108,8 @@ Five hazards, each one sentence the owner can teach. All numbers are for a wild 
 
 | Kind | Caused by | Symptom (HUD and Mimo's words) | Lasts | Drain | Also |
 |---|---|---|---|---|---|
-| Tummy ache | A poison plant (sure), a raw meal (chance below), spoiled food (0.6) | "My tummy hurts." | 12 game minutes | 1 health per 45 game s (16 over a full bout) | Hunger drains ×1.5 |
-| Chill | A cold night (below) | "I'm shivery and hot." | 25 game minutes; each second resting or asleep with warmth 60 or more counts double | 1 health per 60 game s (25) | Energy drains ×1.5 |
+| Tummy ache | A poison plant (sure), a raw meal (chance below), spoiled food (0.6) | "My tummy hurts." | 12 game minutes | 1 health per 40 game s (18 over a full bout; resolution 31) | Hunger drains ×1.5 |
+| Chill | A cold night (below) | "I'm shivery and hot." | 25 game minutes; each second resting or asleep with warmth 60 or more counts double | 1 health per 40 game s (37.5; resolution 31) | Energy drains ×1.5 |
 
 - No health regenerates while Mimo is sick. Mood's target falls 15.
 - **Remedy:** eating one sunleaf ends any sickness at once. A pet that knows `wild:sunleaf` and carries one eats it through the `take_herb` reflex (priority 45, between eat_now and warm_up). A sick pet that knows sunleaf but carries none gets `find_herb` in the needs band (75) while a sunleaf it has seen lies within 64 blocks. A sick pet that does not know sunleaf may nibble one by instinct: with chance 0.4 a sickness, `nibble` walks to a sunleaf within 16 blocks and eats it. It feels better that once and learns nothing: `wild:sunleaf` comes only from the owner (resolution 29).
@@ -128,8 +128,8 @@ Five hazards, each one sentence the owner can teach. All numbers are for a wild 
 
 - A creature's blow (a hostile's, or a wolf's in W3) that does 2 or more damage after armor opens a wound with chance 0.35. Leather armor keeps a skitter's blow under 2. Mimo has at most one wound; a new blow while wounded does not open another.
 - While a wound is open no health regenerates.
-- Undressed for 10 game minutes, it **festers**: it drains health (the drain in ailments.py), and mood's target falls 10.
-- A wound heals by itself 1 game day after it opened, festering or not. The most a festering wound can take is that drain over the rest of that day.
+- Undressed for 10 game minutes, it **festers**: 1 health per 60 game s (resolution 31), and mood's target falls 10.
+- A wound heals by itself 1 game day after it opened, festering or not. The most a festering wound can take is 50 health.
 - **Dressing** (the `dress` step, 2 s): a bandage (`wild:bandage`) or a sunleaf (`wild:sunleaf`). The owner's care bandage dresses it too, besides its +25 health. A dressed wound stops festering at once and closes 5 game minutes later. Both lessons come only from the owner (resolution 29), so an untaught pet's wound festers until it heals by itself, unless the owner's care bandage dresses it.
 
 **5. Cold at night (wild only).**
@@ -145,16 +145,16 @@ A knock is a painful experience. Nine survival lessons list the knocks that can 
 | Lesson | Knock | First | Step | Sure when |
 |---|---|---|---|---|
 | `wild:berries` | | | | Eats from the red-berry group and is not sick. From then on it trusts every red berry, nightberries too, until it learns them apart |
-| `wild:nightberries` | Sick from a nightberry | 0.25 | 0.15 | |
+| `wild:nightberries` | Sick from a nightberry | 0.30 | 0.15 | |
 | `wild:red_mushroom` | | | | Sick from a red mushroom (today's rule) |
-| `wild:fire` | A chilled night | 0.15 | 0.15 | It stands within 8 blocks of a fire it did not make (a lightning fire in W2, hot rock in W3), or smelts at a furnace for the first time |
-| `wild:cooking` | Sick from a raw meal, knowing fire | 0.25 | 0.15 | |
-| `wild:keeping` | Sick from spoiled food, or food spoils in its arms or chest | 0.20 | 0.15 | |
-| `wild:light` | A hostile's blow at night | 0.10 | 0.10 | |
-| `wild:shelter` | A bad night: a chill at dawn, or a hostile's blow that night | 0.25 | 0.20 | |
-| `wild:bed` | A night asleep on the floor of a sheltered spot | 0.10 | 0.10 | |
+| `wild:fire` | A chilled night | 0.20 | 0.15 | It stands within 8 blocks of a fire it did not make (a lightning fire in W2, hot rock in W3), or smelts at a furnace for the first time |
+| `wild:cooking` | Sick from a raw meal, knowing fire | 0.30 | 0.15 | |
+| `wild:keeping` | Sick from spoiled food, or food spoils in its arms or chest | 0.25 | 0.15 | |
+| `wild:light` | A hostile's blow at night | 0.15 | 0.10 | |
+| `wild:shelter` | A bad night: a chill at dawn, or a hostile's blow that night | 0.30 | 0.20 | |
+| `wild:bed` | A night asleep on the floor of a sheltered spot | 0.15 | 0.10 | |
 
-Knock counts live in `state["wild"]["knocks"]`. The first chances are one step (0.05) lower than first written, as low as the "not hopeless" criteria allow (resolution 29): a second step left untaught pets that knew only 6 or 7 lessons alone by day 60. The expected cost of learning alone is 2 to 4 knocks a lesson, so an untaught pet pays with a handful of sick days, wounds and cold nights in its first weeks.
+Knock counts live in `state["wild"]["knocks"]`. The first chances are as low as the "not hopeless" criteria allow (resolutions 29 and 31): the ruling set them one step (0.05) below the first written; with the sickness drains eased that step left the gate's untaught lives with too few deaths and near-death days for 7′ (5) and seed 8 with 6 lessons alone by day 60, so they are back at the first written (7′ at 7, seed 8 at 7). The expected cost of learning alone is 2 to 4 knocks a lesson, so an untaught pet pays with a handful of sick days, wounds and cold nights in its first weeks.
 
 **Only the owner teaches sunleaf and bandages** (resolution 29). A pet cannot guess that an herb cures a sickness, or that wool on a wound stops it festering. No knock teaches either: an instinct nibble cures one sickness and teaches nothing, and a wound festering while Mimo carries wool teaches nothing. Mimo still asks about the herb, its tummy and its wound (the wonders below), and the owner's answer or teaching (Mind's teaching, the chat, a chip) is the only way in. Without them every sickness an untaught pet catches runs its course, and every wound festers until it heals by itself.
 
@@ -534,6 +534,7 @@ Decisions the brief did not give, each with its reason and its cost if wrong.
 27. **Roll channels 200 to 259 and worldgen hash channels 160 to 169 are Wild World's.** Why: no collision with the 30s to 150s the game uses. Cost: none.
 28. **Out of scope:** a difficulty UI, buckets and flowing water (W4), hunger or mood for the wolf beyond daily feeding, seasons or weather in the legacy life or the archive browser, weather the owner controls, Luna choosing anything new.
 29. **The untaught pet stays dependent on the owner** (the controller's ruling on the W1 dry run, 2026-09-27, `.superpowers/sdd/2026-09-27-wild-world-w1/replan-ruling.md`). Why: the dry run found that an untaught pet worked out 6 to 9 lessons alone in about three game weeks and was rarely sick after, so the gap to a taught pet closed over 150 days and the first criteria 6 and 7 (sick minutes 3 times and 600 or more, near-death days, a health mean 10 below) could not be met by any knob; a health mean also recovers, so it measures the gap poorly. The owner asked for a pet that is "hard to survive unless you talk to it and help teach it", which takes a change of structure, not more tuning. So: (a) `wild:sunleaf` and `wild:bandage` come only from the owner: no knock teaches them, an instinct nibble cures one sickness without teaching, Mind's teaching and Mimo's questions still teach them, and the knock table holds the other nine; (b) the nine knocks are as unlikely as the "not hopeless" criteria allow (at most 3 of 6 untaught pets die, none before day 5, and every one alive on day 60 knows 8 lessons alone); (c) criteria 6, 7 and 10 become 6′ (a newborn's first month), 7′ (a life without the owner) and 10′ (4 wonders); the others are unchanged. Cost: an untaught pet can never cure itself or dress a wound, so its sicknesses and festering wounds run their course; the "not hopeless" criteria still bound how often that kills. The W1 plan's tuning (raw-meal chances, sickness drains) is in the plan's resolutions.
+31. **An untaught newborn is not hopeless on any seed** (W1 Fix B, 2026-09-28, `.superpowers/sdd/2026-09-27-wild-world-w1/fixB-brief.md`; its report, `fixB-report.md`, has every run; 30 is left for a W2 amendment). Why: the W1 gate passed on its own six seeds only. On twelve others, untaught for 30 game days, the W1 numbers lost 8 of 12 pets, the first on day 2.7: a wound on the first night festering, then a raw-meal tummy ache or a nightberry on top, while hunger stayed under 60 so no health came back. Criterion 8R now holds 8's promise on those seeds. The knobs moved in the Tuning order, each measured on those twelve lives: (a) the W2 planner's drains (a tummy ache 1 health per 30 game s, a chill 1 per 40, festering 1 per 60; they were 20, 30 and 40): 4 deaths, the first still on day 3.17 (seed 4); (b) knock chances one step (0.05) higher: 2 deaths, seed 4 still on day 3.17; two steps: no better; (c) the raw-meal chances down to the spec's first 0.35, 0.2 and 0.1, then (d) `CHILL_BELOW` 30, on top: seed 4 still died on day 3.17 (its first raw meal rolled 0.138, and a nightberry on day 3.02 finished it); (e) the sickness drains again, the last knob: a tummy ache 1 per 40 (18 a bout) saves seed 4 (1 per 36 lost it on day 3.23). A newborn's grace (for its first 2 game days no sickness drain takes health below 25) was built and measured but is not part of W1: seed 4's fatal sickness starts after day 3, so the grace alone still lost it on day 3.2, and the knobs alone pass. The knock chances stay one step higher, back at the first written: at the ruling's chances with these drains the gate's untaught lives had 2 deaths and 3 near-death days (7′ at 5) and seed 8 knew 6 lessons alone by day 60. Final: knock chances 0.30, 0.20, 0.30, 0.25, 0.15, 0.30 and 0.15; raw-meal chances and `CHILL_BELOW` unchanged; a tummy ache 1 health per 40 game s, a chill 1 per 40, festering 1 per 60. On them, at 62f6653: 8R 1 death in 12 (day 16.15); the gate's untaught lives 3 deaths (a skitter on day 7.5, starvation on days 11.92 and 119.93) and 4 near-death days, so 8 sits at its limit and 7′ at 7. Criterion 9 fails on seed 8 (7 lessons alone by day 60), as it does at 62f6653 with the W1 numbers before this fix: that pet bakes bread and is sick from raw meat once before day 60, so cooking's knock comes after it. The gate records the wonders met and the questions asked as a life runs, since by day 150 the inbox may have pruned the early questions (the W2 planner saw 10′ read 0 asked on a life that had asked 3). Cost: each sickness and festering wound takes less (18, 37.5 and at most 50 health, from 36, 50 and 75), so an untaught pet's hard life rests on how often it is hurt more than on each hurt.
 
 ---
 
@@ -562,7 +563,7 @@ Decisions the brief did not give, each with its reason and its cost if wrong.
 - **The scripted owner** (`taught`): on game day 1 at game minutes 5, 10, 15 ... it says the first teaching-table line of each W1 lesson, one line every 5 game minutes, through `talk.owner_says` (11 lines by minute 55, under the chat's 20 lines a game day). W2's 7 lines and W3's 4 follow the same way on day 2 once those milestones land. It answers every question within 5 game minutes with its true chip, through the function the answer endpoint calls, which is not a chat line. It gives no care, so the gate isolates knowledge.
 - **The liar** answers every question within 5 game minutes with a false chip, or with the wonder's false claim in the chat when it has no false chip. It teaches nothing else.
 - Each life samples every tick and writes a summary: death day and cause; sick game minutes (and by day); the health lost to hazards (`state["wild"]["lost"]`, and by day); wounds and festering minutes; near-death days (game days with health under 20 at least once); the time-weighted health mean, over the whole life and over each winter; freezing and starving minutes; lessons known and their sources by day; questions asked and open at most; blows by night kind; lightning strikes and their distance from home; fire cells in built or claimed cells; edits in the legacy clearing; the day of each machine built and of the "computer" event; star tools; tame wolves and their days; logged errors.
-- `wild_gate.py --check W1|W2|W3 DIR` applies the criteria below and prints pass or fail for each.
+- `wild_gate.py --check W1|W1R|W2|W3 DIR` applies the criteria below and prints pass or fail for each (`W1R` is W1's criterion 8R, on its own 12 lives).
 - Seeds for every gate: **3, 5, 8, 11, 21, 42** (Making's route gate). A 150-day life takes about 13 minutes alone (Making's 150-day run of seed 11 took 768 s), so a gate of 18 lives takes about 45 minutes at 6 in parallel.
 - The unit suite gets `test_survival_wild_run.py`: by default seed 8 for 3 game days, untaught and taught (the untaught pet posts at least 3 questions, the taught one knows all 11 W1 lessons by the end of day 1, both live); with `MIMO_SLOW_TESTS=1` seeds 3 and 11 for 20 game days (the untaught pet's sick minutes are at least twice the taught pet's, both are alive on day 5, the taught one on day 20).
 
@@ -583,6 +584,7 @@ Untaught (clearly harder; 6′ and 7′ replace the first 6 and 7, resolution 29
 
 Untaught (not hopeless):
 8. At most 3 of 6 die before day 150, and none before day 5.
+8R. **Robustness** (`--check W1R`, its own 12 lives). Untaught, on seeds 1, 2, 4, 6, 7, 9, 10, 12, 13, 14, 15 and 16 for 30 game days each: none dies before day 5, and at most 4 of the 12 die in those 30 days. Why: the promise of 8 holds beyond the gate's own seeds (resolution 31).
 9. Every untaught pet alive on day 60 knows at least 8 of the 11 W1 lessons, learned alone.
 10′. Every untaught pet meets at least 4 wonders (was 5, resolution 29) and posts at least 3 questions in its first 3 game days. (Nobody answers it, so the cap of 3 open questions holds the rest back until it figures one out.) No pet in any condition ever has more than 3 open.
 
@@ -595,7 +597,7 @@ Gentle:
 
 All: no model call and no logged error in any life.
 
-**Tuning.** The criteria are fixed. The knobs move, in this order: knock chances (in steps of 0.05), the raw-meal chances, `CHILL_BELOW`, then the sickness drains. If untaught pets die too often (criterion 8), knocks get likelier first. If they don't struggle enough (6′, 7′), raw meals and chills get likelier first. The nine knocks are set as low as criteria 8 and 9 allow (resolution 29). The review records every knob it moved and the measure before and after. If 6′ or 7′ still cannot be met, the review reports the measures and the knob at its limit; the criteria are not loosened.
+**Tuning.** The criteria are fixed. The knobs move, in this order: knock chances (in steps of 0.05), the raw-meal chances, `CHILL_BELOW`, then the sickness drains. If untaught pets die too often (criteria 8 and 8R), knocks get likelier first. If they don't struggle enough (6′, 7′), raw meals and chills get likelier first. The nine knocks are set as low as criteria 8 and 9 allow (resolution 29). The review records every knob it moved and the measure before and after. If 6′ or 7′ still cannot be met, the review reports the measures and the knob at its limit; the criteria are not loosened.
 
 ### W2 gate
 
