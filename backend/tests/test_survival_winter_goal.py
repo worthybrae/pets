@@ -16,7 +16,7 @@ from backend.survival.situation import Situation
 from backend.survival.storage import chest_spot
 from backend.survival.trips import FENCES
 from backend.survival.winter_prep import (
-    GOAL, WINTER_EXTRA, WINTER_FOOD, far_goal, held, winter_fence, winter_food, winter_pull,
+    GOAL, MOUNTAIN_MARGIN, WINTER_EXTRA, WINTER_FOOD, far_goal, held, winter_fence, winter_food, winter_pull,
 )
 from backend.tests.test_survival_life_goals import built
 
@@ -71,6 +71,13 @@ class OfferTests(unittest.TestCase):
             self.assertTrue(winter_fence(winter, near))  # a winter day in the mountains freezes
         with patch("backend.survival.winter_prep.biome_at", return_value="alpine"):  # W2's final review: home up there
             self.assertEqual([winter_fence(winter, near), winter_fence(winter, far)], [False, True])
+        # W2 fix T: nor beside them (a walk ends beside its target): on the W2 gate a gentle pet's trips headed each
+        # winter morning for a forest column 3 blocks from a mountain strip and froze 21 game minutes in a winter
+        edge = (near[0] + MOUNTAIN_MARGIN, near[2])
+        with patch("backend.survival.winter_prep.biome_at", side_effect=lambda x, z, seed: "alpine" if (x, z) == edge
+                   else "forest"):
+            self.assertEqual([winter_fence(winter, near), winter_fence(winter, (near[0] - 1, y, z)),
+                              winter_fence(autumn, near)], [True, False, False])
         self.assertIn(winter_fence, FENCES)
         world.state["difficulty"] = "wild"  # a wild pet that does not know winter roams as ever
         self.assertEqual((far_goal(on_day(world, 31), GOALS["expedition"]), winter_fence(on_day(world, 31), far)),
@@ -155,6 +162,63 @@ class LarderTests(unittest.TestCase):
         full = on_day(world, 22)
         self.assertFalse(PURPOSES["stock_larder"].valid(full))
         self.assertEqual(more_food(full), 0.0)
+
+    def test_w2_fix_t_a_wild_larder_throws_out_what_went_bad_and_eats_what_spoils_first(self):
+        """W2 fix T: what went bad in a chest stayed there for good; on the W2 gate a taught pet's home chest was full
+        (24 stacks, 40 to 160 spoiled food among them) from its first autumn on, so the winter's food had nowhere to
+        go, and a hungry pet took its best food, the smoked meat, out of the larder first."""
+        from backend.survival import storage
+        world = built({"cooked_fish": 5, "smoked_meat": 4})
+        world.state["difficulty"] = "wild"
+        for lesson in ("winter", "keeping", "shelter"):
+            know(world.db, f"wild:{lesson}", "lesson", 0.0)
+        adopt_goal(world.state, GOAL, "utility", "", 0.0)
+        cell = list(stocked(world, {**{f"junk_{n}": 1 for n in range(20)}, "spoiled_food": 100}))  # 24 stacks
+        s = on_day(world, 27)  # autumn day 7: cooked fish stored now is still good on winter day 1
+        self.assertTrue(PURPOSES["stock_larder"].valid(s))
+        steps = PURPOSES["stock_larder"].plan(s, world.context())
+        away = [{"kind": "take", "target": cell, "item": "spoiled_food", "amount": amount, "away": True}
+                for amount in (4, 32, 32, 32)]
+        self.assertEqual(steps, away + [{"kind": "store", "target": cell, "item": "smoked_meat", "amount": 4},
+                                        {"kind": "store", "target": cell, "item": "cooked_fish", "amount": 3}])
+        world.state["difficulty"] = "gentle"  # a gentle pet's food never spoils: nothing to throw out
+        self.assertEqual(storage.spoiled_out(on_day(world, 27)), [])
+        world.state["difficulty"] = "wild"
+        world.state["chests"] = {chest_key(tuple(cell)): {**{f"junk_{n}": 1 for n in range(22)}, "dirt": 64}}  # full
+        steps = PURPOSES["stock_larder"].plan(on_day(world, 27), world.context())
+        self.assertEqual(steps, [{"kind": "take", "target": cell, "item": "dirt", "amount": 32, "away": True},  # a stack
+                                 {"kind": "store", "target": cell, "item": "smoked_meat", "amount": 4}])  # of dirt stays
+        # and what gives way to food in Mimo's arms gives way to the winter's food in a full chest: on the W2 gate a
+        # taught pet's one chest held 79 cobblestone and a stack each of dirt, seeds and wheat, feathers and hides
+        world.state["chests"] = {chest_key(tuple(cell)): {"cobblestone": 79, "dirt": 32, "seeds": 32, "wheat": 32,
+                                                           "feather": 4, "rabbit_hide": 3, "sand": 3,
+                                                           **{f"junk_{n}": 1 for n in range(15)}}}  # 24 stacks
+        steps = PURPOSES["stock_larder"].plan(on_day(world, 27), world.context())
+        self.assertEqual([(step["kind"], step["item"]) for step in steps],
+                         [("take", "feather"), ("take", "rabbit_hide"), ("take", "sand"),
+                          ("store", "smoked_meat"), ("store", "cooked_fish")])
+        world.state["inventory"] = {}
+        world.state["chests"] = {chest_key(tuple(cell)): {"smoked_meat": 6, "berries": 20}}
+        world.state["vitals"]["hunger"] = 20.0
+        self.assertEqual([item for _, item, _ in storage.to_take(on_day(world, 22))][0], "berries")  # spoils first
+        adopt_goal(world.state, "iron_tools", "utility", "", 0.0)
+        self.assertEqual([item for _, item, _ in storage.to_take(on_day(world, 22))][0], "smoked_meat")  # best first
+
+    def test_w2_fix_t_a_wild_pet_short_of_winter_food_keeps_the_goal_through_a_day_with_no_progress(self):
+        """W2 fix T: on the W2 gate taught pets set the goal aside for "no progress for a day" in early autumn, while
+        the food they gathered would spoil before winter day 1, and went on expeditions."""
+        from backend.survival.goals import STALL, check_goal
+        world = built()
+        world.state["difficulty"] = "wild"
+        know(world.db, "wild:winter", "lesson", 0.0)
+        start = on_day(world, 21).at
+        adopt_goal(world.state, GOAL, "utility", "", start)
+        check_goal(world.state, world.context(), start, True)  # its progress so far
+        check_goal(world.state, world.context(), start + STALL + 1.0, True)  # a day with none
+        self.assertEqual(world.state["brain"]["goal"]["name"], GOAL)  # held: chests short of the winter's food
+        world.state["difficulty"] = "gentle"  # nothing holds a gentle pet: the stall sets it aside, as ever
+        check_goal(world.state, world.context(), start + 2 * STALL + 2.0, True)
+        self.assertIsNone(world.state["brain"]["goal"])
 
     def test_in_winter_a_pet_short_of_food_goes_to_its_chest_before_it_forages(self):
         world = built()

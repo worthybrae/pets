@@ -32,6 +32,7 @@ from backend.survival.sky import winter
 SIM_REACH = 48.0
 LAND_CAP = 24  # land animals within SIM_REACH of Mimo
 WINTER_LAND_CAP = 12  # W2
+WINTER_HERDS = 1  # W2: the most herds a chunk first met in winter rolls
 FISH_CAP = 8  # fish within SIM_REACH of Mimo
 FISH_PER_REGION = 6
 REGAIN_SECONDS = 3 * DAY_SECONDS  # game seconds a chunk's land animals stay gone before a herd comes back
@@ -168,7 +169,7 @@ def populate(scene: Scene, loaded: list[dict], scale: float) -> list[dict]:
         row = known.get(chunk)
         if row is None and fresh < NEW_CHUNKS:
             fresh += 1
-            rolled = min(herd_count(scene.seed, chunk), 1 if wintry else 2)
+            rolled = min(herd_count(scene.seed, chunk), WINTER_HERDS if wintry else 2)
             planned = (plan_herd(scene.grid, scene.seed, chunk, index) for index in range(rolled))
             herds = [herd for herd in planned if herd]
             school = fish_school(scene.grid, scene.seed, chunk)

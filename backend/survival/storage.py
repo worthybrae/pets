@@ -57,7 +57,8 @@ from typing import TYPE_CHECKING
 from backend.services.crafting import LOGS, PLANKS, TOOL_RANK
 from backend.survival.blueprints import BUILDING
 from backend.survival.building import current_shelter, structures_near, usable_supplies
-from backend.survival.carrying import CARRY_STACKS, CHEST_STACKS, LOW_VALUE, STACK, full, room_for, stacks
+from backend.survival.carrying import (CARRY_STACKS, CHEST_STACKS, GIVES_WAY_TO_FOOD, LOW_VALUE, STACK, full, room_for,
+                                       stacks)
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival import sky
 from backend.survival.foraging import FOOD_WANTED, hunger_score, whole_walk
@@ -70,9 +71,10 @@ from backend.survival.purposes import Purpose, away, foods, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
 from backend.survival.steps import AXES, FOOD, REACH
+from backend.survival.spoilage import SPOILED
 from backend.survival.structures import blueprint_of, clearing, todo
 from backend.survival.toolmaking import SWORD_LADDER
-from backend.survival.wild import unlocked
+from backend.survival.wild import is_wild, unlocked
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -124,6 +126,7 @@ RUBBLE = ("dirt", "gravel", "moss", "basalt", "limestone", "sandstone")
 HOARDED = ("seeds", "wheat")
 LEFT_IN_CHEST = {"dirt": STACK, "seeds": STACK, "wheat": STACK}
 CLEAR_STACKS = 4  # stacks thrown out in one visit at most
+FOOD_ROOM = ("moss", "gravel", "sand")  # W2 fix T: loose blocks the larder's food also throws out of a full chest
 
 
 # L4b: functions of (Situation, item) giving how many more of an item Mimo keeps on it now, beyond
@@ -338,10 +341,10 @@ def to_store(s: Situation, cell) -> list[tuple[str, int]]:
     return [(item, amount) for _, item, amount in stored_in(s, [cell])]
 
 
-def stored_in(s: Situation, cells, cleared=(),
-              limit: int | None = STORE_STEPS) -> list[tuple[tuple[int, int, int], str, int]]:
-    """(chest, item, amount) Mimo would put away, most first, in the first of `cells` with room for it, once
-    what `cleared` throws out of them is gone; the first `limit` of them."""
+def stored_in(s: Situation, cells, cleared=(), limit: int | None = STORE_STEPS,
+              moves: list[tuple[str, int]] | None = None) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(chest, item, amount) Mimo would put away (`moves`, or `spare`), most first, in the first of `cells` with room
+    for it, once what `cleared` throws out of them is gone; the first `limit` of them."""
     chests = [(cell, chest_contents(s, cell)) for cell in cells]
     for cell, item, amount in cleared:
         for known, chest in chests:
@@ -350,7 +353,7 @@ def stored_in(s: Situation, cells, cleared=(),
                 if chest[item] <= 0:
                     del chest[item]
     found = []
-    for item, amount in sorted(spare(s), key=lambda entry: (-entry[1], entry[0])):
+    for item, amount in sorted(spare(s) if moves is None else moves, key=lambda entry: (-entry[1], entry[0])):
         for cell, chest in chests:
             moved = min(amount, room_for(chest, item, CHEST_STACKS))
             if moved > 0:
@@ -387,10 +390,28 @@ def to_store_all(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
     one is gone. On the gate's route runs every home's chest was full (24 stacks) by day 100, while the older
     home's beside it had room, so nothing Mimo carried could be put away, and a making goal's copper and torch
     chain had no room; by day 150 both were full, with dirt, seeds and berries."""
-    return stored_in(s, storing_cells(s), to_clear(s))
+    return stored_in(s, storing_cells(s), to_clear(s) + spoiled_out(s))
 
 
-def to_clear(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+def spoiled_out(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """W2 fix T: (chest, "spoiled_food", amount) a wild pet that knows keeping throws out of the chests it built on a
+    visit (a take step `away`, as `to_clear`'s), up to CLEAR_STACKS stacks: what went bad in a chest stayed there for
+    good, and on the W2 gate a taught pet's home chest was full (24 stacks, 40 to 160 spoiled food among them) from
+    its first autumn on, so the winter's food had nowhere to go."""
+    if not is_wild(s.state) or not unlocked(s, "keeping"):
+        return []
+    found: list[tuple[tuple[int, int, int], str, int]] = []
+    for cell in storing_cells(s):
+        count = chest_contents(s, cell).get(SPOILED, 0)
+        while count > 0 and len(found) < CLEAR_STACKS:
+            part = count % STACK or STACK
+            found.append((cell, SPOILED, part))
+            count -= part
+    return found
+
+
+def to_clear(s: Situation, moves: list[tuple[str, int]] | None = None,
+             food: bool = False) -> list[tuple[tuple[int, int, int], str, int]]:
     """Making wave 2: (chest, item, amount) Mimo throws out of a full chest when what it has to put away does
     not all fit: rubble (RUBBLE, but a stack of dirt, which a machine's yard is filled with), seeds and wheat
     beyond a stack (HOARDED: Juniper's chests held 160 wheat and 239 seeds), and food it knows is poisonous; up
@@ -398,9 +419,16 @@ def to_clear(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
     chests, kept in one with room first: kept in each chest, on the gate's route Juniper's two full chests
     each held 32 dirt, 32 seeds and 32 wheat, so nothing could be put away, and its computer's last part
     waited from day 91 to 150 for the room to carry 3 cobblestone. They are taken out and left behind at once
-    (a take step `away`, needing no room in Mimo's arms)."""
+    (a take step `away`, needing no room in Mimo's arms). W2 fix T: `moves`, what has to be put away (spare, or the
+    larder's food); with `food` (the larder's), what gives way to food in Mimo's arms goes too (carrying's
+    GIVES_WAY_TO_FOOD and FOOD_ROOM: hides, feathers, gloom dust, sand, all of it back with the next hunt or dig), as
+    food outranks it in Mimo's arms: on the W2 gate a taught pet's one chest was full from its second autumn on (79
+    cobblestone, a stack each of dirt, seeds and wheat, hides, feathers, gloom dust, sand ...), so the winter's food
+    had no room."""
     cells = storing_cells(s)
-    unplaced = sum(amount for _, amount in spare(s)) - sum(amount for _, _, amount in stored_in(s, cells, limit=None))
+    moves = spare(s) if moves is None else moves
+    unplaced = sum(amount for _, amount in moves) - sum(amount for _, _, amount in stored_in(s, cells, limit=None,
+                                                                                               moves=moves))
     if unplaced <= 0:
         return []
     chests = {cell: chest_contents(s, cell) for cell in cells}
@@ -415,8 +443,9 @@ def to_clear(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
         if stacks(chest) < CHEST_STACKS:
             continue
         for item in sorted(chest):
-            if item in RUBBLE or item in HOARDED or item in s.discards:  # W1: never the berries it only shuns
-                amount = chest[item] - keep.get((cell, item), 0)
+            gives = food and (item in GIVES_WAY_TO_FOOD or item in FOOD_ROOM)
+            if item in RUBBLE or item in HOARDED or item in s.discards or gives:  # W1: never the berries it only shuns
+                amount = chest[item] - (0 if gives else keep.get((cell, item), 0))
                 while amount > 0 and len(found) < CLEAR_STACKS:
                     part = amount % STACK or STACK
                     found.append((cell, item, part))
@@ -447,9 +476,14 @@ def to_take(s: Situation, arms: dict | None = None) -> list[tuple[tuple[int, int
     if not hungry and not wanted:
         return []
     have, found, carried = carried_food(s), [], dict(s.inventory if arms is None else arms)
+    soonest = keeping(s)  # W2 fix T: the winter's food stays in the chest while the goal fills it
     for chest_cell, _ in reachable_chests(s):
         chest = chest_contents(s, chest_cell)
-        for item in foods(chest, s.poisons) if hungry else ():
+        order = foods(chest, s.poisons) if hungry else []
+        if soonest:
+            from backend.survival.spoilage import PERISHABLE  # here: spoilage imports storage's neighbours
+            order = sorted(order, key=lambda item: (PERISHABLE.get(item, math.inf), -FOOD[item], item))
+        for item in order:
             amount, room = 0, room_for(carried, item, CARRY_STACKS)  # the final fix wave: only what fits
             while amount < min(chest[item], room) and have < FOOD_WANTED:
                 amount += 1
@@ -523,7 +557,7 @@ def storage_valid(s: Situation) -> bool:
             return False
     if not chest_placed(s, cell) and home_chest_coming(s):
         return stacks(s.inventory) >= STORE_FROM
-    return (stacks(s.inventory) >= STORE_FROM and bool(to_store_all(s))) or bool(to_take(s))
+    return (stacks(s.inventory) >= STORE_FROM and bool(to_store_all(s))) or bool(to_take(s)) or bool(hungry_room(s))
 
 
 def storage_facts(s: Situation) -> str:
@@ -538,11 +572,40 @@ def food_first(s: Situation) -> bool:
     """W2 (resolution 23): food waits in a chest Mimo can reach while it carries less than TAKE_BELOW, in winter or
     while it is hungry (HUNGRY_BELOW), or its arms are full while it is hungry and putting things away frees a stack:
     either way the chest comes before food work. Only when a stack comes free: a full pet that can put away only
-    part of a stack chose the chest all day and starved (a gentle pet on the first measure of this rule)."""
+    part of a stack chose the chest all day and starved (a gentle pet on the first measure of this rule).
+    W2 fix T: only food waiting counts, not what TAKES_MORE want out (a machine's cobblestone): on the W2 gate an
+    untaught pet whose chest held no food but the cobblestone its computer wanted scored build_storage as food work,
+    put 14 cobblestone away and took 16 out again, over and over, for a day and a half, and starved."""
     hungry = s.vitals["hunger"] < HUNGRY_BELOW
-    if carried_food(s) < TAKE_BELOW and (hungry or sky.winter(s.state)) and to_take(s):
+    if carried_food(s) < TAKE_BELOW and (hungry or sky.winter(s.state)) and food_taken(s):
         return True
-    return full(s.inventory) and hungry and stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS
+    return full(s.inventory) and hungry and (stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS
+                                             or bool(hungry_room(s)))
+
+
+def hungry_room(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """W2 fix T: (chest, item, amount) a hungry pet with full arms puts away when its spare frees no stack: one whole
+    stack of a material it holds more of than KEEP keeps (another goal keeps the rest: a project's copper), what KEEP
+    keeps least of first and not what its gear wants on hand, in a chest with room for all of it. What a project
+    needs comes back out (TAKES_MORE) once Mimo has room. On the W2 gate (and on W1's own, day 119.9) an untaught pet
+    carried 16 stacks its computer kept (16 copper ore, 24 coal, wire, tools), fished and hunted for two days beside
+    chests with room, left its catch behind and starved."""
+    if not full(s.inventory) or s.vitals["hunger"] >= HUNGRY_BELOW:
+        return []
+    if stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS:
+        return []  # the usual putting away frees a stack
+    wanted, cells, cleared = on_hand_wanted(s), storing_cells(s), to_clear(s) + spoiled_out(s)
+    for item in sorted((item for item in s.inventory if item in KEEP and item not in FOOD and item not in wanted
+                        and KEEP[item] < s.count(item) <= STACK), key=lambda item: (KEEP[item], item)):
+        found = stored_in(s, cells, cleared, limit=None, moves=[(item, s.count(item))])
+        if sum(amount for _, _, amount in found) == s.count(item):
+            return found
+    return []
+
+
+def food_taken(s: Situation, arms: dict | None = None) -> bool:
+    """Some of what `to_take` takes out is food (W2 fix T)."""
+    return any(item in FOOD for _, item, _ in to_take(s, arms))
 
 
 def stored_arms(s: Situation, stores) -> dict:
@@ -592,8 +655,10 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
     else:
         steps = []
     stands, at = dict(chests_built(s)), cell if coming else None
-    clears = [(chest_cell, item, amount, "away") for chest_cell, item, amount in to_clear(s)]
-    stores = [(chest_cell, item, amount, "store") for chest_cell, item, amount in to_store_all(s)]
+    clears = [(chest_cell, item, amount, "away") for chest_cell, item, amount in to_clear(s) + spoiled_out(s)]
+    whole = hungry_room(s)  # W2 fix T: the whole stack, in place of its spare part
+    stores = [(chest_cell, item, amount, "store") for chest_cell, item, amount in
+              [entry for entry in to_store_all(s) if entry[1] not in {item for _, item, _ in whole}] + whole]
     for chest_cell, item, amount, kind in sorted(clears + stores, key=lambda entry: (entry[0] != cell, entry[0])):
         if chest_cell != at:
             steps.append(whole_walk(stands[chest_cell]))
@@ -706,7 +771,29 @@ def junk(s: Situation) -> list[tuple[str, int]]:
             log_once(logger, "junk more", error)
     if stacks(s.inventory) >= CARRY_STACKS and no_chest_to_use(s):
         found += loose_blocks(s)
+    found += chestless_spare(s)
     return found
+
+
+def chestless_spare(s: Situation) -> list[tuple[str, int]]:
+    """W2 fix T: a hungry wild pet with full arms and no chest built at all (it has not worked out the shelter a
+    chest stands in) leaves behind the whole stacks a chest would have taken, so the food it gathers next has room:
+    what KEEP keeps none of that is neither a building block nor food (creature seeds, copper ore). On the W2 gate
+    (and on W1's own) an untaught pet with no shelter carried 16 stacks of things it keeps, none of which gives way
+    to food; it fished for a day and a half, left its catch behind (a wild pet eats a raw fish on the spot only
+    when starving) and starved. Only while hungry (HUNGRY_BELOW), as the chest comes before food work."""
+    if (not is_wild(s.state) or not full(s.inventory) or s.vitals["hunger"] >= HUNGRY_BELOW
+            or chests_built(s)):
+        return []
+    return [(item, s.count(item)) for item in sorted(s.inventory)
+            if s.count(item) > 0 and item in KEEP and item not in BUILDING and item not in FOOD and kept(s, item) == 0]
+
+
+def drop_score(s: Situation) -> float:
+    """drop_items' score: higher the fuller Mimo is, and (W2 fix T) as food work while a hungry chestless wild pet
+    sheds what a chest would have taken (`chestless_spare`), as build_storage scores when the chest comes first."""
+    score = 30.0 + 8.0 * max(0, stacks(s.inventory) - DROP_FROM)
+    return max(score, hunger_score(s, WINTER_TAKE)) if chestless_spare(s) else score
 
 
 def plan_drop(s: Situation, context: ActionContext) -> list[dict]:
@@ -721,6 +808,6 @@ register(Purpose(
     valid=lambda s: stacks(s.inventory) >= DROP_FROM and bool(junk(s)),
     facts=lambda s: f"carrying {stacks(s.inventory)} of {CARRY_STACKS} stacks; no use for "
                     + ", ".join(item.replace("_", " ") for item, _ in junk(s)),
-    score=lambda s: 30.0 + 8.0 * max(0, stacks(s.inventory) - DROP_FROM),
+    score=drop_score,
     plan=plan_drop,
     thoughts=("I don't need all of this.", "Lighter is better.")))

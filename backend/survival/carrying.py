@@ -221,12 +221,36 @@ def eat_what_is_left(state: dict, left: dict[str, int], at: float, events: list 
             events.append((at, *sick))
 
 
+def eat_herb_left(state: dict, left: dict[str, int], at: float, events: list | None) -> None:
+    """W2 fix T: a sunleaf picked to be eaten (the next queued step eats it: find_herb's and the nibble's
+    pick_and_eat) that did not fit is eaten there and then, in that step's words. On the W2 gate an untaught pet
+    with 16 full stacks and a chill walked to a sunleaf three times, left it behind each time ("no sunleaf to
+    eat"), and died of the chill the nibble was rolled to cure. What is eaten comes off `left`."""
+    if not left:
+        return
+    from backend.survival.ailments import HERB, eat_herb  # imported here: ailments imports steps, which imports this
+
+    queue = state.get("queue") or []
+    if not left.get(HERB) or not queue or queue[0].get("kind") != "eat" or queue[0].get("item") != HERB:
+        return
+    step = queue.pop(0)
+    left[HERB] -= 1
+    if not left[HERB]:
+        del left[HERB]
+    state["inventory"][HERB] = state["inventory"].get(HERB, 0) + 1  # eaten at once: it never takes a stack
+    event = eat_herb(step, state, at)
+    if event and events is not None:
+        events.append((at, *event))
+
+
 def after_step(state: dict, before: dict[str, int], at: float, events: list | None = None) -> None:
     """Settle the inventory after a finished step, eating food that did not fit while Mimo is hungry
-    (`eat_what_is_left`, C1). `state["full_at"]` is the time Mimo last found its hands full
-    (something had to stay behind), cleared once it carries less than the limit."""
+    (`eat_what_is_left`, C1), and a sunleaf picked to be eaten (`eat_herb_left`, W2 fix T). `state["full_at"]`
+    is the time Mimo last found its hands full (something had to stay behind), cleared once it carries less than
+    the limit."""
     left = settle(state["inventory"], before)
     eat_what_is_left(state, left, at, events)
+    eat_herb_left(state, left, at, events)
     if left and state.get("full_at") is None:
         state["full_at"] = at
         state["last_thought"] = "My arms are full. I can't carry any more."

@@ -137,6 +137,10 @@ class Goal:
     # L4b final fix wave, I2: while this is true of Mimo's goal (an expedition out from home), a goal
     # choice keeps it (`offers` offers it alone) and `idle` never sets it aside; `stalled` still does.
     holds: Callable[[Situation], bool] | None = None
+    # W2 fix T: while it holds, a day with no progress does not set it aside either ("Ready for winter": a wild pet
+    # whose chests hold only food that will spoil before winter day 1 makes no progress for days in early autumn; on
+    # the W2 gate taught pets set the goal aside for "no progress for a day" and went on expeditions in autumn).
+    holds_stalled: bool = False
     # L4b final fix wave, follow-up 3: whether, chosen now, it would get going at once though nothing on
     # offer advances it yet (an expedition sets out, or packs, only once it is Mimo's goal). `workable`
     # asks it, of Mimo as if the goal were chosen (`as_goal`), for a goal that is not Mimo's goal now.
@@ -548,7 +552,7 @@ def check_goal(state: dict, context: ActionContext, at: float, dawn: bool) -> No
     current["progress"] = round(progress, 3)
     if progress > current["best"] + 1e-6:
         current.update(best=progress, best_at=at)
-    if dawn and stalled(s):
+    if dawn and stalled(s) and not (goal.holds_stalled and holding(s, goal)):
         give_up_goal(state, context, goal.name, at, "no progress for a day", s.scale)
         return
     # I2: a goal that holds (an expedition out from home) is never set aside for idling: out past its

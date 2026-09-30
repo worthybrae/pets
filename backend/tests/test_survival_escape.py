@@ -438,6 +438,32 @@ class PitAboveTheSurfaceTests(unittest.TestCase):
         carry_out(grid, state, steps)
         self.assertTrue(way_out(grid, as_cell(state["position"]), "1"))
 
+    def test_one_surface_cell_over_a_hole_it_can_drop_into_is_a_trap(self):
+        """W2 fix T: on the W2 gate an untaught pet stood on the one surface cell between its house wall and its pen's
+        fence, where its two mining staircases met; they and their tunnels made 62 cells to walk, so it was not "in a
+        pit", every walk out failed ("no way there") and it starved there over a game day. Now only cells above the
+        natural surface count toward a way out."""
+        def rule(x, y, z):
+            if 0 <= x <= 5 and 1 <= z <= 6 and y in (3, 4):
+                return "air"  # a dug room below the surface, 36 cells to walk, 2 down from the cell over its corner
+            if (x, z) == (0, 1) and y == 5:
+                return "air"
+            if y <= 4:
+                return "stone"
+            if y <= 6 and (x in (-1, 1) or z == -1) and z <= 0:
+                return "planks"  # walls 2 high on three sides of the one cell (0, 5, 0)
+            return "air"
+        grid = Grid(rule)
+        here = (0, 5, 0)
+        self.assertGreater(flood(grid, here), POCKET)  # the old check called this open ground
+        self.assertFalse(roomy(grid, here, seed="1"))
+        self.assertFalse(way_out(grid, here, "1"))
+        state = stuck(position={"x": 0.0, "y": 5.0, "z": 0.0}, inventory={"dirt": 8})
+        steps = brain_plan(state, brainy(grid), 2.0)
+        self.assertEqual({step["purpose"] for step in steps}, {"escape"})
+        carry_out(grid, state, steps)
+        self.assertTrue(way_out(grid, as_cell(state["position"]), "1"))
+
     def test_open_ground_above_the_surface_is_free_with_no_search(self):
         state = stuck(position={"x": 2.0, "y": 7.0, "z": 2.0})  # on the dune top, beside the pit
         ctx = brainy(dune_pit())

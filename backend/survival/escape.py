@@ -77,6 +77,7 @@ DIRECTIONS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 # L4b final fix wave, C1: a cell above the natural surface from which Mimo can walk to no more than
 # this many cells (itself included) is a pit, not open ground. The seed-21 pit held 1.
 POCKET = 16
+ROOMY_CELLS = 256  # W2 fix T: the most cells `roomy` looks at for POCKET cells above the surface
 # Blocks Mimo will place to stand on, cheapest first.
 PLACEABLE = ("dirt", "cobblestone", "sand", "gravel", "clay", "planks", "birch_planks", "spruce_planks", "stone_bricks",
              "oak_log", "birch_log", "spruce_log")
@@ -100,22 +101,31 @@ def on_surface(cell: Cell, seed: str) -> bool:
     return cell[1] > terrain_height(cell[0], cell[2], seed)
 
 
-def roomy(grid: Grid | Dug, start: Cell, limit: int = POCKET) -> bool:
-    """Mimo can walk from `start` to more than `limit` cells (itself included): not a pit (C1)."""
-    seen, frontier = {start}, deque([start])
+def roomy(grid: Grid | Dug, start: Cell, limit: int = POCKET, seed: str | None = None) -> bool:
+    """Mimo can walk from `start` to more than `limit` cells (itself included): not a pit (C1). W2 fix T: with
+    `seed`, only cells above the natural surface count, looking at no more than ROOMY_CELLS cells: on the W2 gate an
+    untaught pet stood on the one surface cell between its house wall and its pen's fence, where its two mining
+    staircases met; they and their tunnels made 62 cells to walk, so it was not "in a pit", every walk out failed
+    ("no way there") and it starved there over a game day."""
+    seen, frontier, counted = {start}, deque([start]), 1
     while frontier:
         for step in moves(grid, frontier.popleft()):
             if step not in seen:
                 seen.add(step)
-                if len(seen) > limit:
-                    return True
+                if seed is None or on_surface(step, seed):
+                    counted += 1
+                    if counted > limit:
+                        return True
+                if len(seen) > ROOMY_CELLS:
+                    return False
                 frontier.append(step)
     return False
 
 
 def free(grid: Grid | Dug, cell: Cell, seed: str) -> bool:
-    """Open ground: above the natural surface, and not a pit there (`roomy`, C1)."""
-    return on_surface(cell, seed) and roomy(grid, cell)
+    """Open ground: above the natural surface, and not a pit there (`roomy`, C1): more than POCKET cells above the
+    natural surface to walk to (W2 fix T)."""
+    return on_surface(cell, seed) and roomy(grid, cell, seed=seed)
 
 
 def way_out(grid: Grid, start: Cell, seed: str, homes: frozenset[Cell] | set[Cell] = frozenset(),

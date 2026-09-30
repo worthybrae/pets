@@ -22,7 +22,8 @@ from backend.tests.test_survival_cooking import meadow
 
 BORN = 1_000_000.0
 SCALE = 60.0
-W2_KNOCKS = {"winter": (0.30, 0.15), "cloak": (0.30, 0.15), "hearth": (0.25, 0.15), "smoking": (0.25, 0.15),
+# W2 fix T: winter's knock is (0.10, 0.05)
+W2_KNOCKS = {"winter": (0.10, 0.05), "cloak": (0.30, 0.15), "hearth": (0.25, 0.15), "smoking": (0.25, 0.15),
              "rain": (0.50, 0.25), "storm": (0.50, 0.25), "fog": (0.35, 0.15)}
 
 

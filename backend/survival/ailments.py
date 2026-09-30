@@ -67,6 +67,12 @@ DRESSED_CLOSES = 5 * GAME_MINUTE
 FESTER_DRAIN = 1 / 60
 FESTER_MOOD = 10.0
 CHILL_BELOW = 35.0
+# W2 fix T: a newborn's grace (built and measured by W1's Fix B, spec resolution 31, and not needed there): for its
+# first GRACE game seconds a wild pet's sickness and festering drains never take its health below GRACE_FLOOR; poison
+# and blows still land. On W2's code a W1R newborn (seed 16) died on day 4.15 of two gloomling and skitter wounds
+# festering one after the other, where criterion 8R allows no death before day 5.
+GRACE = 4 * DAY_SECONDS
+GRACE_FLOOR = 25.0
 CHILL_SOME = 5 * GAME_MINUTE  # a chill with CHILL_CHANCE
 CHILL_SURE = 15 * GAME_MINUTE  # a chill for sure
 CHILL_CHANCE = 0.6
@@ -151,22 +157,27 @@ def wound_of(state: dict) -> dict | None:
     return (state.get("ailments") or {}).get("wound")
 
 
-def ailing(state: dict) -> Ailing | None:
-    """What Mimo's ailments do to a vitals step now; None without any (a gentle pet, always)."""
+def ailing(state: dict, seconds: float = 0.0, age: float | None = None) -> Ailing | None:
+    """What Mimo's ailments do to a vitals step of `seconds` game seconds now; None without any (a gentle pet,
+    always). W2 fix T, a newborn's grace: given the pet's `age` in game seconds, within its first GRACE the drain
+    takes health no lower than GRACE_FLOOR in this step."""
     found, wound = sickness(state), wound_of(state)
     ailment = AILMENTS.get(found["kind"]) if found is not None else None
     if ailment is None and wound is None:
         return None
     festering = wound is not None and wound["festering"]
-    return Ailing(drain=(ailment.drain if ailment else 0.0) + (FESTER_DRAIN if festering else 0.0),
+    drain = (ailment.drain if ailment else 0.0) + (FESTER_DRAIN if festering else 0.0)
+    if age is not None and age < GRACE and seconds > 0:
+        drain = min(drain, max(0.0, state["vitals"]["health"] - GRACE_FLOOR) / seconds)
+    return Ailing(drain=drain,
                   hunger=ailment.hunger if ailment else 1.0, energy=ailment.energy if ailment else 1.0, heals=False,
                   mood=(SICK_MOOD if ailment else 0.0) + (FESTER_MOOD if festering else 0.0))
 
 
-def ailing_now(state: dict) -> Ailing | None:
+def ailing_now(state: dict, seconds: float = 0.0, age: float | None = None) -> Ailing | None:
     """`ailing` for the tick's vitals step: a malformed ailment counts as nothing (logged once)."""
     try:
-        return ailing(state)
+        return ailing(state, seconds, age)
     except Exception as error:
         log_once(logger, "ailing", error)
         return None

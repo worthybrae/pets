@@ -271,7 +271,8 @@ def advance_world(world: SurvivalWorld, timestamp: float, scale: float, mind: Mi
             before = state["vitals"]
             surroundings = surroundings_at(db, world.seed, state["position"], state)
             activity = activity_of(state)
-            ill = ailments.ailing_now(state)  # W1: read once a step, guarded (the final fix wave)
+            ill = ailments.ailing_now(state, step, (cursor - state["born_at"]) * scale)  # W1: once a step, guarded;
+            # W2 fix T: a newborn's grace (its age in game seconds)
             state["vitals"], cause = step_vitals(
                 before, step, night=night, activity=activity, surroundings=surroundings,
                 lonely=(cursor - last_hello) * scale > DAY_SECONDS, ailing=ill)

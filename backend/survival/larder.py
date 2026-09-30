@@ -26,7 +26,7 @@ import logging
 from typing import TYPE_CHECKING, Callable
 
 from backend.survival import foraging
-from backend.survival.carrying import CHEST_STACKS, crafts_fit, room_for
+from backend.survival.carrying import crafts_fit
 from backend.survival.cooking import made
 from backend.survival.foraging import whole_walk
 from backend.survival.goals import Goal, Milestone, active, register_goal
@@ -35,7 +35,9 @@ from backend.survival.life_goals import home_structure, whole
 from backend.survival.purposes import Purpose, foods, register
 from backend.survival.situation import Situation
 from backend.survival.steps import FOOD, REACH
-from backend.survival.storage import chest_contents, chest_placed, chest_spot, spare_food
+from backend.survival.spoilage import SPOILED
+from backend.survival.storage import (chest_placed, chest_spot, chests_built, spare_food, spoiled_out, stored_in,
+                                      storing_cells, to_clear)
 from backend.survival.structures import blueprint_of, clearing
 
 if TYPE_CHECKING:
@@ -96,16 +98,27 @@ def more_food(s: Situation) -> float:
 foraging.MORE_FOOD.append(more_food)
 
 
-def larder_moves(s: Situation) -> list[tuple[str, int]]:
-    """(food, amount) stock_larder would store: the spare food, as far as the chest has room."""
-    chest = chest_contents(s, chest_spot(s))
-    moves = []
-    for item, amount in spare_food(s):
-        amount = min(amount, room_for(chest, item, CHEST_STACKS))
-        if amount > 0:
-            chest[item] = chest.get(item, 0) + amount
-            moves.append((item, amount))
-    return moves
+def larder_cells(s: Situation) -> list[tuple[int, int, int]]:
+    """The chests stock_larder fills: home's own (in its corner, placed or to be put in), then (W2 fix T) every other
+    chest Mimo built that it can get to (storage.storing_cells)."""
+    home = chest_spot(s)
+    return [home] + [cell for cell in storing_cells(s) if cell != home]
+
+
+def larder_moves(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(chest, food, amount) stock_larder would store: the spare food, as far as the chests have room, home's first,
+    once the spoiled food a wild pet throws out of them is gone (W2 fix T: storage.spoiled_out; only home's chest
+    was ever filled, and on the W2 gate a taught pet's was full of spoiled food, dirt and seeds from its first
+    autumn on, while its older chests stood empty)."""
+    return stored_in(s, larder_cells(s), larder_clears(s), limit=None, moves=spare_food(s))
+
+
+def larder_clears(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """(chest, item, amount) thrown out of the chests before the larder's food goes in (W2 fix T): the spoiled food
+    (storage.spoiled_out) and, when the food still does not fit, the rubble and hoarded seeds and wheat of a full
+    chest (storage.to_clear, as build_storage throws them out for what it puts away) and what gives way to food."""
+    spoiled = spoiled_out(s)
+    return spoiled + [entry for entry in to_clear(s, spare_food(s), food=True) if entry[1] != SPOILED]
 
 
 def chest_steps(s: Situation) -> list[dict] | None:
@@ -129,14 +142,28 @@ def stock_valid(s: Situation) -> bool:
 
 
 def plan_stock(s: Situation, context: ActionContext) -> list[dict]:
-    """Walk home, put the chest in when there is none, and put the spare food in it."""
+    """Walk home, put the chest in when there is none, throw out what went bad (W2 fix T) and put the spare food in
+    it, then in the other chests Mimo built (walking into each one's shelter, as build_storage does)."""
     if s.brain["batches"] > 0 or not stock_valid(s):
         return []
     cell = chest_spot(s)
     home = blueprint_of(home_structure(s))
     steps = [] if s.distance(cell) <= REACH and s.here in home.stands else [whole_walk(home.anchor)]
-    return steps + chest_steps(s) + [{"kind": "store", "target": list(cell), "item": item, "amount": amount}
-                                     for item, amount in larder_moves(s)]
+    steps += chest_steps(s)
+    stands, at = dict(chests_built(s)), cell
+    visits = [(chest, item, amount, "away") for chest, item, amount in larder_clears(s)]
+    visits += [(chest, item, amount, "store") for chest, item, amount in larder_moves(s)]
+    for chest, item, amount, kind in sorted(visits, key=lambda entry: entry[0] != cell):
+        if chest != at:
+            if chest not in stands:
+                continue
+            steps.append(whole_walk(stands[chest]))
+            at = chest
+        if kind == "away":
+            steps.append({"kind": "take", "target": list(chest), "item": item, "amount": amount, "away": True})
+        else:
+            steps.append({"kind": "store", "target": list(chest), "item": item, "amount": amount})
+    return steps
 
 
 register(Purpose(
@@ -144,7 +171,7 @@ register(Purpose(
     "Carry spare food home and keep it in the chest, so a hungry day never turns into starving.",
     valid=stock_valid,
     facts=lambda s: f"{round(chest_food(s))} of {round((target_of(s) or (LARDER_FOOD,))[0])} hunger of food in the "
-                    f"chest; {sum(amount for _, amount in larder_moves(s))} spare food carried",
+                    f"chest; {sum(amount for _, _, amount in larder_moves(s))} spare food carried",
     score=lambda s: 55.0 + s.trait("thrift") / 10, plan=plan_stock,
     thoughts=("Some for now, some for later.", "A full chest means no hungry nights.")))
 

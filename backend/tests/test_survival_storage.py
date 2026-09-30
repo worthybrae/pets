@@ -105,7 +105,60 @@ class StorageTests(unittest.TestCase):
         stuck.state["vitals"]["hunger"] = 10.0
         s = stuck.situation()
         self.assertTrue(full(s.inventory))
-        self.assertFalse(food_first(s))  # putting away 6 of 14 coal frees no stack: food work, not the chest all day
+        # Putting away 6 of 14 coal frees no stack: not the chest all day for that. W2 fix T: the whole stack goes in
+        # instead (storage.hungry_room), and the bread comes out in the room it leaves.
+        self.assertEqual(storage.to_store_all(s), [((2, 1, 2), "coal", 6)])
+        self.assertEqual(storage.hungry_room(s), [((2, 1, 2), "coal", 14)])
+        self.assertTrue(food_first(s))
+        self.assertEqual([(step["kind"], step["item"]) for step in stuck.plan("build_storage") if "item" in step],
+                         [("store", "coal"), ("take", "bread")])
+
+    def test_w2_fix_t_only_food_in_a_chest_puts_the_chest_before_food_work(self):
+        """W2 fix T: on the W2 gate an untaught pet whose chest held no food, only the cobblestone its computer wanted
+        (storage.TAKES_MORE), scored build_storage as food work, put 14 cobblestone away and took 16 out again for a
+        day and a half, and starved."""
+        from backend.survival.foraging import hunger_score
+        from backend.survival.storage import TAKES_MORE, food_first
+
+        def wants(s):
+            return {"cobblestone": 16}
+        home = Home({"cobblestone": 30, "iron_sword": 1}, chest={"cobblestone": 16, "dirt": 40})
+        home.state["vitals"]["hunger"] = 20.0
+        TAKES_MORE.append(wants)
+        try:
+            s = home.situation()
+            self.assertEqual([item for _, item, _ in storage.to_take(s)], ["cobblestone"])  # the machine's, not food
+            self.assertFalse(food_first(s))
+            self.assertLess(PURPOSES["build_storage"].score(s), hunger_score(s, 35.0))  # forage's base
+            home.state["chests"]["2,1,2"]["bread"] = 4
+            self.assertTrue(food_first(home.situation()))
+        finally:
+            TAKES_MORE.remove(wants)
+
+    def test_w2_fix_t_a_hungry_pet_whose_spare_frees_no_stack_puts_a_kept_stack_away(self):
+        """W2 fix T: on the W2 gate (and on W1's own, day 119.9) an untaught pet carried 16 stacks its computer kept,
+        fished and hunted for two days beside chests with room, left its catch behind and starved."""
+        from backend.survival.storage import KEEPS_MORE, food_first, hungry_room
+
+        def for_the_computer(s, item):
+            return 16.0 if item == "copper_ore" else 0.0
+        arms = {"iron_sword": 1, "iron_pickaxe": 1, "iron_cap": 1, "iron_tunic": 1, "crafting_table": 1, "furnace": 1,
+                "bow": 1, "campfire": 1, "coal": 8, "seeds": 8, "sapling": 4, "oak_log": 8, "sticks": 8, "wheat": 6,
+                "iron_ore": 3, "copper_ore": 16}  # 16 stacks, all of it kept
+        home = Home(arms, chest={})
+        home.state["vitals"]["hunger"] = 20.0
+        KEEPS_MORE.append(for_the_computer)
+        try:
+            s = home.situation()
+            self.assertEqual(storage.to_store_all(s), [])
+            self.assertEqual(hungry_room(s), [((2, 1, 2), "copper_ore", 16)])  # what KEEP keeps least of, whole
+            self.assertTrue(food_first(s))
+            self.assertTrue(PURPOSES["build_storage"].valid(s))
+            self.assertIn(store("copper_ore", 16), home.plan("build_storage"))
+            home.state["vitals"]["hunger"] = 60.0  # not hungry: it stays on hand
+            self.assertEqual(hungry_room(home.situation()), [])
+        finally:
+            KEEPS_MORE.remove(for_the_computer)
 
     def test_the_food_taken_out_is_never_the_spare_food_put_back(self):
         """Carried from W2's sixteenth task: food_first takes food out while Mimo carries less than TAKE_BELOW, and
@@ -279,6 +332,34 @@ class StorageTests(unittest.TestCase):
 
 
 class DropTests(unittest.TestCase):
+    def test_w2_fix_t_a_hungry_wild_pet_with_no_chest_sheds_what_a_chest_would_take(self):
+        """W2 fix T: on the W2 gate (and on W1's own) an untaught pet with no shelter, so no chest, carried 16 stacks of
+        things it keeps, none of which gives way to food, fished for a day and a half, left its catch behind and
+        starved."""
+        from backend.survival.foraging import hunger_score
+        from backend.survival.storage import WINTER_TAKE, junk
+        arms = {"iron_sword": 1, "iron_pickaxe": 1, "iron_cap": 1, "iron_tunic": 1, "crafting_table": 1, "furnace": 1,
+                "bow": 1, "coal": 8, "seeds": 16, "sapling": 4, "oak_log": 8, "sticks": 3, "wheat": 1, "iron_ore": 1,
+                "creature_seed": 3, "copper_ore": 1}  # 16 stacks; the shelter's chest was never placed
+        home = Home(arms)
+        home.state["difficulty"] = "wild"
+        home.state["vitals"]["hunger"] = 20.0
+        s = home.situation()
+        self.assertEqual(stacks(s.inventory), 16)
+        self.assertTrue(PURPOSES["drop_items"].valid(s))
+        self.assertEqual(home.plan("drop_items"), [{"kind": "drop", "item": "copper_ore", "amount": 1},
+                                                   {"kind": "drop", "item": "creature_seed", "amount": 3}])
+        self.assertGreaterEqual(PURPOSES["drop_items"].score(s), hunger_score(s, WINTER_TAKE))  # before food work
+        home.state["vitals"]["hunger"] = 60.0  # not hungry: kept
+        self.assertEqual(junk(home.situation()), [])
+        home.state["vitals"]["hunger"] = 20.0
+        home.state["difficulty"] = "gentle"  # a gentle pet is today's game
+        self.assertEqual(junk(home.situation()), [])
+        home.state["difficulty"] = "wild"
+        home.grid.put(*home.chest, "chest")  # a chest built: it goes there instead
+        home.state["chests"] = {"2,1,2": {}}
+        self.assertEqual(junk(home.situation()), [])
+
     def test_known_poison_old_pickaxes_and_flowers_are_dropped(self):
         home = Home({"dirt": 40, "cobblestone": 20, "oak_log": 3, "planks": 5, "seeds": 3, "sticks": 2,
                      "red_mushroom": 3, "wooden_pickaxe": 1, "stone_pickaxe": 1, "flower_pink": 2})  # 11 stacks

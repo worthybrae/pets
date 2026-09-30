@@ -42,7 +42,10 @@ CLOAK_COLD = 120.0  # game seconds freezing with the wool for a cloak at hand
 CLOAK_WOOL = 5
 FIRE_KNOWN = "sky_wild: fire known"  # its key in the tick's ActionContext.memo
 
-KNOCKS.update({"winter": Knock(0.30, 0.15), "cloak": Knock(0.30, 0.15), "hearth": Knock(0.25, 0.15),
+# W2 fix T: winter's knock (0.10, 0.05; it was 0.30, 0.15): an untaught pet worked winter out on winter day 1 to 4 and
+# kept near home from then on, so a winter was no harder untaught than taught and W1's criterion 7' (deaths and
+# near-death days) rested on the stall deaths Fix T removes; now its first winter finds it out in the cold longer.
+KNOCKS.update({"winter": Knock(0.10, 0.05), "cloak": Knock(0.30, 0.15), "hearth": Knock(0.25, 0.15),
                "smoking": Knock(0.25, 0.15), "rain": Knock(0.50, 0.25), "storm": Knock(0.50, 0.25),
                "fog": Knock(0.35, 0.15)})
 

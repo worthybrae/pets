@@ -54,6 +54,8 @@ WINTER_PULL = 100.0  # the season's pull on the goal while it is open (as much a
 # its current goal against the winter goal's 198, and it never took the goal up.
 WILD_PULL = 300.0
 WINTER_REACH = 96.0  # blocks from the home it built that a pet that knows winter goes in winter
+MOUNTAIN_MARGIN = 8  # W2 fix T: no winter trip's target within this many blocks of the mountains either
+MARGIN_COLUMNS = ((0, 0), (MOUNTAIN_MARGIN, 0), (-MOUNTAIN_MARGIN, 0), (0, MOUNTAIN_MARGIN), (0, -MOUNTAIN_MARGIN))
 FAR_GOALS = ("expedition", "frontier")  # goals held off in winter: an expedition and riches farther out
 AUTUMN = sky.SEASONS.index("autumn") * sky.SEASON_DAYS  # the season day autumn starts on (20)
 WINTER_START = sky.SEASONS.index("winter") * sky.SEASON_DAYS  # and winter (30)
@@ -169,14 +171,18 @@ def far_goal(s: Situation, goal) -> bool:
 
 
 def winter_fence(s: Situation, cell) -> bool:
-    """trips.FENCES: in winter no trip heads for a target farther than WINTER_REACH from home, or in the mountains
-    unless home is in the mountains too (W2's final review: every target of a pet whose home is on the heights was
-    fenced, so it took no trip all winter)."""
+    """trips.FENCES: in winter no trip heads for a target farther than WINTER_REACH from home, in the mountains, or
+    (W2 fix T) within MOUNTAIN_MARGIN of them: a trip's walk ends beside its target, not on it. On the W2 gate a
+    gentle pet's wander and far-hills trips headed each winter morning for the same forest column 3 blocks from a
+    mountain strip 70 blocks from home, stood in the mountains' cold and froze 21 game minutes in its third winter.
+    A pet whose home is in the mountains may still go to the mountains near home (W2's final review: every target
+    of a pet whose home is on the heights was fenced, so it took no trip all winter)."""
     if not keeps_near(s):
         return False
     home = home_cell(s)
     far = math.hypot(cell[0] - home[0], cell[2] - home[2]) > WINTER_REACH
-    return far or (biome_at(cell[0], cell[2], s.seed) == "alpine" and biome_at(home[0], home[2], s.seed) != "alpine")
+    return far or (biome_at(home[0], home[2], s.seed) != "alpine"
+                   and any(biome_at(cell[0] + dx, cell[2] + dz, s.seed) == "alpine" for dx, dz in MARGIN_COLUMNS))
 
 
 register_goal(Goal(
@@ -189,7 +195,7 @@ register_goal(Goal(
      Milestone("Build a hearth at home", hearth_share, ("build_hearth",), items=("hearth",)),
      Milestone("Smoke meat for the winter", smoked_share, ("smoke_meat",))),
     score=lambda s: 70.0 + s.trait("caution") / 10, thought="Winter is coming. Better get ready.",
-    after=("first_shelter",), valid=goal_valid, repeat=True, holds=holds_autumn))
+    after=("first_shelter",), valid=goal_valid, repeat=True, holds=holds_autumn, holds_stalled=True))
 larder.TARGETS.append(target)
 storage.SPARE_KEEPING.append(keeping_first)
 PULLS.append(winter_pull)

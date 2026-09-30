@@ -160,6 +160,31 @@ class SunleafTests(unittest.TestCase):
         self.assertEqual(in_my_voice(text, "Pip"), "I ate a little yellow herb and felt better.")
         self.assertEqual(s.state["vitals"]["hunger"], 50.0 + HERB_HUNGER)
 
+    def test_w2_fix_t_a_pet_with_full_arms_eats_the_sunleaf_it_picked_at_once(self):
+        """W2 fix T: on the W2 gate an untaught pet with 16 full stacks and a chill walked to a sunleaf three times,
+        left it behind each time ("no sunleaf to eat") and died of the chill the nibble was rolled to cure."""
+        from backend.survival.carrying import CARRY_STACKS, after_step
+        grid = meadow({(1, 1, 0): "sunleaf", (2, 1, 0): "sunleaf"})
+        arms = {f"item_{n}": 1 for n in range(CARRY_STACKS)}  # nothing that gives way
+        s = situation(dict(arms), grid, 50.0)
+        s.state["difficulty"] = "wild"
+        fall_sick(s.state, "chill", 0.0)
+        s.state["ailments"]["sick"]["nibble"] = True
+        pick, eat = PURPOSES["nibble"].plan(s, None)[-2:]
+        s.state["queue"] = [eat]
+        before = dict(s.state["inventory"])
+        finish_step(start_step(pick, s.state, grid, 0.0), s.state, grid, 1.0)
+        events = []
+        after_step(s.state, before, 1.0, events)
+        self.assertEqual(events, [(1.0, "cured", "Pip ate a little yellow herb and felt better.")])
+        self.assertIsNone(sickness(s.state))
+        self.assertEqual((s.state["inventory"], s.state["queue"]), (arms, []))
+        self.assertEqual(s.state["vitals"]["hunger"], 50.0 + HERB_HUNGER)
+        before = dict(s.state["inventory"])  # a sunleaf picked to carry (gather_herbs) with no room still stays behind
+        finish_step(start_step({"kind": "pick", "target": [2, 1, 0]}, s.state, grid, 2.0), s.state, grid, 3.0)
+        after_step(s.state, before, 3.0, [])
+        self.assertEqual(s.state["inventory"], arms)
+
     def test_a_pet_that_knows_sunleaf_carries_two(self):
         grid = meadow({(3, 1, 0): "sunleaf", (5, 1, 0): "sunleaf", (7, 1, 0): "sunleaf"})
         s = situation({}, grid)
@@ -170,6 +195,65 @@ class SunleafTests(unittest.TestCase):
         self.assertTrue(is_valid(PURPOSES["gather_herbs"], s))
         picks = [step["target"] for step in PURPOSES["gather_herbs"].plan(s, None) if step["kind"] == "pick"]
         self.assertEqual(picks, [[3, 1, 0], [5, 1, 0]])
+
+
+class GraceTests(unittest.TestCase):
+    """W2 fix T, a newborn's grace (built and measured by W1's Fix B): for its first 4 game days a wild pet's sickness
+    and festering drains never take its health below GRACE_FLOOR; poison and blows still land. On W2's code a W1R
+    newborn died on day 4.15 of two wounds festering one after the other."""
+
+    def sick_and_festering(self, health):
+        from backend.survival.ailments import open_wound
+        state = pet()
+        state["vitals"]["health"] = health
+        fall_sick(state, "tummy", 0.0)
+        open_wound(state, 0.0)
+        state["ailments"]["wound"]["festering"] = True
+        return state
+
+    def aged(self, state, seconds, age, step=10.0):
+        """Vitals and ailments for `seconds` game seconds from `age` game seconds into the pet's life, as the tick."""
+        for index in range(int(seconds / step)):
+            ill = ailments.ailing_now(state, step, age + index * step)
+            state["vitals"], cause = step_vitals(state["vitals"], step, night=False, activity="idle",
+                                                 surroundings=QUIET, ailing=ill)
+            tend(state, SimpleNamespace(events=[], db=None), step, "idle", 0.0, ill)
+            if cause:
+                return cause
+        return None
+
+    def test_a_newborns_sickness_and_festering_stop_at_its_floor(self):
+        from backend.survival.ailments import GRACE, GRACE_FLOOR
+        from backend.survival.clock import DAY_SECONDS
+        self.assertEqual(GRACE, 4 * DAY_SECONDS)  # four game days: no death from a sickness before day 5
+        newborn = self.sick_and_festering(40.0)
+        self.assertIsNone(self.aged(newborn, 12 * 60, GRACE - 13 * 60))
+        self.assertAlmostEqual(newborn["vitals"]["health"], GRACE_FLOOR, places=6)
+        self.assertAlmostEqual(newborn["wild"]["lost"], 40.0 - GRACE_FLOOR, places=6)  # only what the drain took
+        older = self.sick_and_festering(40.0)
+        self.aged(older, 12 * 60, GRACE)  # four game days old: no grace
+        self.assertLess(older["vitals"]["health"], GRACE_FLOOR - 10)
+        self.assertEqual(ailments.ailing_now(newborn).drain, ailing(newborn).drain)  # no age given: no grace
+
+    def test_the_tick_gives_a_newborn_its_grace(self):
+        from backend.survival.ailments import GRACE_FLOOR
+        from backend.survival.clock import DAY_SECONDS
+
+        def health_after_twelve_minutes(born_days_ago):
+            with tempfile.TemporaryDirectory() as root:
+                registry = LifeRegistry(Path(root) / "data", Path(root) / "no-legacy.sqlite3")
+                life = hatch(registry, random.Random(8), timestamp=BORN, difficulty="wild")
+                world = SurvivalWorld(registry.world_path(life))
+                with world.transaction() as db:
+                    state = read_state(db)
+                    state["born_at"] = BORN - born_days_ago * DAY_SECONDS
+                    state["vitals"]["health"] = 30.0
+                    fall_sick(state, "tummy", BORN)
+                    write_state(db, state)
+                return tick_life(registry, BORN + 12 * 60, scale=1.0)["vitals"]["health"]
+
+        self.assertAlmostEqual(health_after_twelve_minutes(3), GRACE_FLOOR, places=6)
+        self.assertLess(health_after_twelve_minutes(4), GRACE_FLOOR)
 
 
 class StreamTests(unittest.TestCase):
