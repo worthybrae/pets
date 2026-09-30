@@ -126,7 +126,7 @@ def hunt_for(s: Situation) -> bool:
 def hunt_valid(s: Situation) -> bool:
     """L4a final fix wave, C1: only while the meat would be kept or eaten (foraging.room_for_food)."""
     wanted = food_need(s) > 0 or not hunted_lately(s) or hunt_for(s)
-    return not s.night and wanted and room_for_food(s) and bool(prey(s))
+    return not s.night and wanted and room_for_food(s, raw=True) and bool(prey(s))
 
 
 def hunt_facts(s: Situation) -> str:
@@ -140,7 +140,7 @@ def hunt_score(s: Situation) -> float:
 
 
 def plan_hunt(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or s.brain["batches"] >= HUNT_BATCHES or not room_for_food(s):
+    if s.night or s.brain["batches"] >= HUNT_BATCHES or not room_for_food(s, raw=True):
         return []
     target = quarry(s)
     s.brain["prey"] = None if target is None else target["id"]

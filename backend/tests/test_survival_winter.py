@@ -156,6 +156,39 @@ class IceTests(unittest.TestCase):
                 times[frozen_now].append(timed(frozen_now))
         self.assertLessEqual(min(times[True]), min(times[False]) * 1.1)
 
+    def test_w2_fix_t2_a_camp_walled_by_a_frozen_pools_ice_is_sheltered_as_the_grid_sees_it(self):
+        """W2 fix T2: the vitals step read the blocks without the winter's ice, so a camp dug in on a frozen pool's
+        shore (walled by the ice on two of its three walls, which the grid, and camp.in_camp, see) was open to the
+        winter night: on the W2 gate untaught seed 8 froze from dusk to dawn in one and died of the chill on day
+        37.23. An edited water cell and a cell kept open stay water, as Grid.material has them."""
+        from backend.survival.tick import surroundings_at
+        from backend.survival.vitals import FREEZING_BELOW, target_warmth
+        hole = (0, SEA_LEVEL, 0)
+        pool = {(1, SEA_LEVEL, 0), (2, SEA_LEVEL, 0), (0, SEA_LEVEL, -1), (0, SEA_LEVEL, -2)}
+
+        def shore(db, x, y, z, seed):  # the roof over the hole, mud to the west, the pool north and east
+            if (x, y, z) == (0, SEA_LEVEL + 1, 0):
+                return "cobblestone"
+            if (x, y, z) == (-1, SEA_LEVEL, 0):
+                return "mud"
+            return "water" if (x, y, z) in pool else "air"
+
+        def felt(sky, edits=()):
+            db = sqlite3.connect(":memory:")
+            db.execute("CREATE TABLE mimo_blocks (x INTEGER, y INTEGER, z INTEGER, material TEXT)")
+            db.executemany("INSERT INTO mimo_blocks VALUES (?, ?, ?, 'water')", edits)
+            with patch("backend.survival.tick.material_in", shore), \
+                    patch("backend.survival.tick.placed_near", lambda db, position, reach, blocks: []):
+                return surroundings_at(db, "7", dict(zip("xyz", map(float, hole))),
+                                       {"sky": {"season": "winter", **sky}})
+
+        frozen = felt({"frozen": True})
+        self.assertTrue(frozen.sheltered)
+        self.assertGreaterEqual(target_warmth(True, frozen.biome, frozen.sheltered, False, "winter"), FREEZING_BELOW)
+        self.assertFalse(felt({"frozen": False}).sheltered)  # open water is no wall
+        self.assertFalse(felt({"frozen": True, "open_cells": [[1, SEA_LEVEL, 0], [2, SEA_LEVEL, 0]]}).sheltered)
+        self.assertFalse(felt({"frozen": True}, edits=[(0, SEA_LEVEL, -1), (0, SEA_LEVEL, -2)]).sheltered)
+
 
 class GrowthTests(unittest.TestCase):
     def world(self):

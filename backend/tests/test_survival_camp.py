@@ -406,6 +406,20 @@ class CampWiringFixTests(unittest.TestCase):
         self.pet.world.grid.claims.add((101, 0, 1))  # something Mimo built or tends
         self.assertFalse(camp_spot(self.pet.situation(DUSK), (101, 1, 1)))
 
+    def test_w2_fix_t2_a_room_of_its_home_is_no_camp_spot(self):
+        """W2 fix T2: on the W2 gate taught seed 21 set out on an expedition at dusk and camped at once in its home's
+        room: the cell it stood in (claimed by the home) took the roof, the morning took the roof off, and the hole
+        stayed in the floor under home's own cell, so every walk home failed "no way there" for the rest of its
+        life. The ground under a room is no part of the design, but the room cell is."""
+        s = self.pet.situation(DUSK)
+        self.assertTrue(camp_spot(s, (101, 1, 1)))
+        self.pet.world.grid.claims.update((101 + dx, 1, 1 + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1))  # a room
+        s = self.pet.situation(DUSK)
+        self.assertFalse(camp_spot(s, (101, 1, 1)))
+        spot = new_camp(s)
+        self.assertIsNotNone(spot)  # another spot near, outside the room
+        self.assertFalse(self.pet.world.grid.claimed(spot))
+
     def test_bedrock_is_never_a_camp_spot(self):
         # Follow-up 2: crafting.can_harvest passes bedrock (it needs no tool), but the mine step
         # cannot dig it; a pet on a cave floor chose it again and again, "bedrock cannot be mined".

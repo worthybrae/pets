@@ -30,7 +30,7 @@ import math
 from typing import TYPE_CHECKING
 
 from backend.survival import nature
-from backend.survival.carrying import full, gives_way
+from backend.survival.carrying import CARRY_STACKS, full, gives_way, room_for
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.grid import Cell
 from backend.survival.home import from_home
@@ -40,6 +40,7 @@ from backend.survival.purposes import EAT_BELOW, HOME_RANGE, Purpose, foods, lat
 from backend.survival.senses import FOOD_SIGHT, WATER_SIGHT, food_near, near_failure, shores_near
 from backend.survival.situation import Situation
 from backend.survival.steps import FOOD, REACH
+from backend.survival.wild import is_wild
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
@@ -57,6 +58,7 @@ REGROWN = 2 * DAY_SECONDS
 FISH_GOAL = 4
 CATCHES_PER_BATCH = 3
 FISH_BATCHES = 4
+STARVING = 15.0  # reflexes.EAT_NOW_BELOW: starving, a wild pet eats a raw catch (meals.STARVING, from here)
 
 
 def food_points(s: Situation) -> float:
@@ -90,12 +92,21 @@ def hunger_score(s: Situation, base: float) -> float:
     return base + food_need(s) / 3 + (100.0 - s.vitals["hunger"]) / 3 - late_penalty(s)
 
 
-def room_for_food(s: Situation) -> bool:
+def room_for_food(s: Situation, catch: str | None = None, raw: bool = False) -> bool:
     """C1: food Mimo gathers now would be kept or eaten, never left behind: a stack is free,
     something it carries gives way to food, or it is hungry enough (EAT_BELOW) to eat what does
-    not fit on the spot."""
-    return (not full(s.inventory) or bool(gives_way(s.inventory, "berries"))
-            or s.vitals["hunger"] < EAT_BELOW)
+    not fit on the spot. W2 fix T2: `catch`, the food it brings (fish's raw fish: a stack of it with room
+    takes it), and `raw`, a raw catch (fish's, hunt's meat): a wild pet eats a raw catch it has no room for only
+    when it is starving (carrying.eat_what_is_left: W1 leaves raw food out of wild.SAFE), so for it "hungry
+    enough" is STARVING. On the W2 gate taught pets with full arms fished and hunted all their second autumn at
+    hunger 40 to 70 (seed 11: 166 game minutes, 6 cows and some 60 fish), and every catch was left behind: their
+    chests held 0 to 235 hunger of winter food on winter day 1."""
+    if not full(s.inventory) or gives_way(s.inventory, "berries"):
+        return True
+    if catch is not None and room_for(s.inventory, catch, CARRY_STACKS) > 0:
+        return True
+    raw = raw or (catch is not None and catch.startswith("raw_"))
+    return s.vitals["hunger"] < (STARVING if raw and is_wild(s.state) else EAT_BELOW)
 
 
 def whole_walk(cell: Cell, reach: float = 0.0) -> dict:
@@ -190,7 +201,7 @@ def fishing_spots(s: Situation) -> list[tuple[Cell, Cell]]:
 
 
 def fish_valid(s: Situation) -> bool:
-    return not s.night and fish_carried(s) < FISH_GOAL and room_for_food(s) and bool(fishing_spots(s))
+    return not s.night and fish_carried(s) < FISH_GOAL and room_for_food(s, "raw_fish") and bool(fishing_spots(s))
 
 
 def fish_facts(s: Situation) -> str:
@@ -200,7 +211,8 @@ def fish_facts(s: Situation) -> str:
 
 
 def plan_fish(s: Situation, context: ActionContext) -> list[dict]:
-    if s.night or fish_carried(s) >= FISH_GOAL or s.brain["batches"] >= FISH_BATCHES or not room_for_food(s):
+    if (s.night or fish_carried(s) >= FISH_GOAL or s.brain["batches"] >= FISH_BATCHES
+            or not room_for_food(s, "raw_fish")):
         return []
     spots = fishing_spots(s)
     if not spots:

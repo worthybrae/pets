@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 from backend.services.crafting import take_items
 from backend.survival.ailments import fall_sick, lose
 from backend.survival.cooking import cooks_raw
-from backend.survival.foraging import STAND, whole_walk
+from backend.survival.foraging import STAND, STARVING, whole_walk
 from backend.survival.goals import add_urge
 from backend.survival.home import YARD, home_cell
 from backend.survival.nature import roll
@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TASTE_BELOW = 50.0  # hunger under which an untried food is tasted, when nothing else is carried
-STARVING = 15.0  # reflexes.EAT_NOW_BELOW: starving, it tastes at once
+# STARVING (15, reflexes.EAT_NOW_BELOW: starving, it tastes at once) is foraging's (W2 fix T2: room_for_food reads it)
 POISON_HEALTH = 5.0
 POISONOUS = ("nightberries", RED_MUSHROOM)  # what makes a wild pet sick for sure
 RAW_RISK = {"raw_chicken": 0.5, "raw_beef": 0.35, "raw_mutton": 0.35, "raw_rabbit": 0.35, "raw_fish": 0.2}

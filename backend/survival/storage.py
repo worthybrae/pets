@@ -57,8 +57,8 @@ from typing import TYPE_CHECKING
 from backend.services.crafting import LOGS, PLANKS, TOOL_RANK
 from backend.survival.blueprints import BUILDING
 from backend.survival.building import current_shelter, structures_near, usable_supplies
-from backend.survival.carrying import (CARRY_STACKS, CHEST_STACKS, GIVES_WAY_TO_FOOD, LOW_VALUE, STACK, full, room_for,
-                                       stacks)
+from backend.survival.carrying import (CARRY_STACKS, CHEST_STACKS, GIVES_WAY_TO_FOOD, LOW_VALUE, STACK, full, gives_way,
+                                       room_for, stacks)
 from backend.survival.cooking import RAW_FOODS, made
 from backend.survival import sky
 from backend.survival.foraging import FOOD_WANTED, hunger_score, whole_walk
@@ -70,7 +70,7 @@ from backend.survival.pathing import MAX_RANGE
 from backend.survival.purposes import Purpose, away, foods, register
 from backend.survival.senses import near_failure
 from backend.survival.situation import Situation
-from backend.survival.steps import AXES, FOOD, REACH
+from backend.survival.steps import AXES, FOOD, REACH, WORKSTATIONS
 from backend.survival.spoilage import SPOILED
 from backend.survival.structures import blueprint_of, clearing, todo
 from backend.survival.toolmaking import SWORD_LADDER
@@ -557,7 +557,7 @@ def storage_valid(s: Situation) -> bool:
             return False
     if not chest_placed(s, cell) and home_chest_coming(s):
         return stacks(s.inventory) >= STORE_FROM
-    return (stacks(s.inventory) >= STORE_FROM and bool(to_store_all(s))) or bool(to_take(s)) or bool(hungry_room(s))
+    return (stacks(s.inventory) >= STORE_FROM and bool(to_store_all(s))) or bool(to_take(s)) or bool(room_made(s))
 
 
 def storage_facts(s: Situation) -> str:
@@ -579,8 +579,10 @@ def food_first(s: Situation) -> bool:
     hungry = s.vitals["hunger"] < HUNGRY_BELOW
     if carried_food(s) < TAKE_BELOW and (hungry or sky.winter(s.state)) and food_taken(s):
         return True
-    return full(s.inventory) and hungry and (stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS
-                                             or bool(hungry_room(s)))
+    if full(s.inventory) and hungry and (stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS
+                                         or bool(hungry_room(s))):
+        return True
+    return bool(larder_room(s))  # W2 fix T2: the winter's food work has a stack to go in
 
 
 def hungry_room(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
@@ -601,6 +603,36 @@ def hungry_room(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
         if sum(amount for _, _, amount in found) == s.count(item):
             return found
     return []
+
+
+def larder_room(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """W2 fix T2: (chest, item, amount) a wild pet whose "Ready for winter" fills its chests (`keeping`) puts away
+    when its arms are full, nothing it carries gives way to food and its spare frees no stack: one whole stack of a
+    material it keeps (KEEP, not food, not a station it works at, not what its gear wants on hand, and none that
+    another goal keeps more of or wants back out, KEEPS_MORE and TAKES_MORE), the smallest first, in a chest with
+    room for all of it, so the food it gathers for the winter has a stack to go in. On the W2 gate taught pets
+    carried 16 stacks of things they keep (a log of each wood, a wheat, a cobblestone, seeds, saplings, torches,
+    coal) through their second autumn: their food work had no room for its catch (foraging.room_for_food), and their
+    chests held 0 to 235 hunger of winter food on winter day 1."""
+    if not is_wild(s.state) or not full(s.inventory) or gives_way(s.inventory, "berries") or not keeping(s):
+        return []
+    if stacks(stored_arms(s, to_store_all(s))) < CARRY_STACKS:
+        return []  # the usual putting away frees a stack
+    wanted, back, cells, cleared = on_hand_wanted(s), more_taken(s), storing_cells(s), to_clear(s) + spoiled_out(s)
+    for item in sorted((item for item in s.inventory if item in KEEP and item not in FOOD and item not in wanted
+                        and item not in WORKSTATIONS and item not in back and kept(s, item) <= KEEP[item]
+                        and 0 < s.count(item) <= STACK),
+                       key=lambda item: (s.count(item), item)):
+        found = stored_in(s, cells, cleared, limit=None, moves=[(item, s.count(item))])
+        if sum(amount for _, _, amount in found) == s.count(item):
+            return found
+    return []
+
+
+def room_made(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
+    """The whole stack a pet with full arms puts away for its food (W2 fix T's `hungry_room`, fix T2's `larder_room`),
+    or []."""
+    return hungry_room(s) or larder_room(s)
 
 
 def food_taken(s: Situation, arms: dict | None = None) -> bool:
@@ -656,7 +688,7 @@ def plan_storage(s: Situation, context: ActionContext) -> list[dict]:
         steps = []
     stands, at = dict(chests_built(s)), cell if coming else None
     clears = [(chest_cell, item, amount, "away") for chest_cell, item, amount in to_clear(s) + spoiled_out(s)]
-    whole = hungry_room(s)  # W2 fix T: the whole stack, in place of its spare part
+    whole = room_made(s)  # W2 fix T (and T2): the whole stack, in place of its spare part
     stores = [(chest_cell, item, amount, "store") for chest_cell, item, amount in
               [entry for entry in to_store_all(s) if entry[1] not in {item for _, item, _ in whole}] + whole]
     for chest_cell, item, amount, kind in sorted(clears + stores, key=lambda entry: (entry[0] != cell, entry[0])):

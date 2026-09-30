@@ -155,11 +155,17 @@ def camp_spot(s: Situation, cell: Cell) -> bool:
     can dig: crafting.can_harvest alone passes bedrock, which has no hardness (follow-up 2: once
     planks left over from making a campfire counted as its roof, a pet on a cave floor chose bedrock
     again and again, "bedrock cannot be mined", and slept without a camp). W2's final review: nor the winter's ice
-    over a lake or a pool (Grid.thick_ice), which reads as ice, a block with a hardness, and is too thick to mine."""
+    over a lake or a pool (Grid.thick_ice), which reads as ice, a block with a hardness, and is too thick to mine.
+    W2 fix T2: nor where the cell Mimo stands in is part of something it built (a room of its home: the roof goes in
+    that cell, and the hole stays in the floor): on the W2 gate taught seed 21 set out on an expedition at dusk,
+    camped at once in its home's room, and the morning took the roof off and left the hole in the floor under home's
+    own cell; every walk home (stock_larder's to the chest, the goal's own) failed "no way there" from then on, and
+    its chests held no winter food in its second, third and fourth winters."""
     x, y, z = cell
     ground = (x, y - 1, z)
     material = s.grid.material(*ground)
-    if (not s.grid.standable(cell) or reserved(s.grid, ground) or hardness(material) is None
+    if (not s.grid.standable(cell) or reserved(s.grid, ground) or reserved(s.grid, cell)  # W2 fix T2: no house floor
+            or hardness(material) is None
             or not can_harvest(material, s.inventory) or s.grid.thick_ice(ground)):  # W2: a frozen pool's ice
         return False
     if not is_solid(material) or material in ("water", "lava") or not is_solid(s.grid.material(x, y - 2, z)):

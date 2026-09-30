@@ -54,7 +54,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.services.block_table import material_in
-from backend.services.worldgen import biome_at
+from backend.services.worldgen import SEA_LEVEL, biome_at
 from backend.survival import ailments, sky, spoilage
 from backend.survival import rain, weather, winter  # noqa: F401  (W2: rain, snow and fog; the winter's ice)
 from backend.survival.storms import fire_near  # W2: lightning and fire in the trees (it registers itself)
@@ -114,13 +114,34 @@ class Mind:
 RESTING = Mind()
 
 
+def frozen_open(state: dict | None) -> set | None:
+    """W2 fix T2: while the lakes are frozen (state["sky"]["frozen"]), the water cells kept open (`open_cells`); None
+    when they are not frozen."""
+    sky_now = (state or {}).get("sky") or {}
+    return {tuple(cell) for cell in sky_now.get("open_cells", ())} if sky_now.get("frozen") else None
+
+
+def edited(db: sqlite3.Connection | None, x: int, y: int, z: int) -> bool:
+    """A block edit stands at the cell (an edited water cell is no lake's surface, as Grid.material has it)."""
+    return db is not None and db.execute("SELECT 1 FROM mimo_blocks WHERE x=? AND y=? AND z=?",
+                                         (x, y, z)).fetchone() is not None
+
+
 def surroundings_at(db: sqlite3.Connection, seed: str, position: dict, state: dict | None = None) -> Surroundings:
     """What the world round Mimo's cell says for a vitals step; W2: with `state`, the season too, and whether Mimo is
-    inside a home it built (a room or passage cell of its shelter: one query, only while it is sheltered)."""
+    inside a home it built (a room or passage cell of its shelter: one query, only while it is sheltered). W2 fix T2:
+    the winter's ice over a lake is a wall here as it is everywhere else (Grid.material's overlay): read without it,
+    a camp dug in on a frozen pool's shore, walled by the ice on two sides (camp.in_camp, from the grid, said dug in),
+    was open to the winter night for the vitals step (-10, freezing), and an untaught pet with no fire froze from dusk
+    to dawn and died of the chill (the W2 gate, untaught seed 8, day 37.23)."""
     x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
+    ice = frozen_open(state)
 
     def material_at(cx: int, cy: int, cz: int) -> str:
-        return material_in(db, cx, cy, cz, seed)
+        material = material_in(db, cx, cy, cz, seed)
+        if ice is not None and cy == SEA_LEVEL and material == "water" and (cx, cy, cz) not in ice:
+            return "ice" if not edited(db, cx, cy, cz) else material  # W2 fix T2: the lake's ice, as Grid.material
+        return material
 
     sheltered = is_sheltered(material_at, x, y, z)
     return Surroundings(

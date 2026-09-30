@@ -112,6 +112,8 @@ NO_ROOM = {"iron_pickaxe": 1, "iron_sword": 1, "crafting_table": 1, "furnace": 1
            "campfire": 1, "bow": 1}
 # The same, with a stack of feathers in place of the bow: food pushes them out.
 FEATHERS = {**{item: count for item, count in NO_ROOM.items() if item != "bow"}, "feather": 3}
+# W2 fix T2: the same, with a stack of raw fish in place of the bow.
+FISHED = {**{item: count for item, count in NO_ROOM.items() if item != "bow"}, "raw_fish": 1}
 
 
 class RoomForFoodTests(unittest.TestCase):
@@ -130,6 +132,24 @@ class RoomForFoodTests(unittest.TestCase):
                 s = situation(state, grid)
                 self.assertEqual((forage.valid(s), fish.valid(s)), (offered, offered), (sorted(inventory), hunger))
                 self.assertEqual(bool(forage.plan(s, context(s))), offered)
+
+    def test_w2_fix_t2_a_wild_pet_fishes_and_hunts_with_full_arms_only_when_it_would_eat_the_raw_catch(self):
+        """W2 fix T2: a wild pet eats a raw catch it has no room for only when starving (W1 leaves raw food out of
+        wild.SAFE), so "hungry enough" to eat what does not fit is STARVING for fish and hunt; on the W2 gate taught
+        pets with full arms fished and hunted at hunger 40 to 70 all autumn and left every catch behind. The berries
+        it forages are eaten at EAT_BELOW as before, and a gentle pet eats a raw catch as ever."""
+        grid = meadow({(3, 1, 0): "berry_bush_ripe"})
+        forage, fish = PURPOSES["forage"], PURPOSES["fish"]
+        with patch("backend.survival.foraging.shores_near", lambda grid, seed, here, radius: [SHORE]):
+            for difficulty, inventory, hunger, offered in (
+                    ("wild", NO_ROOM, 50.0, (True, False, False)), ("wild", NO_ROOM, 10.0, (True, True, True)),
+                    ("gentle", NO_ROOM, 50.0, (True, True, True)),
+                    ("wild", FISHED, 50.0, (True, True, False))):  # a stack of raw fish with room takes the fish
+                state = pet(inventory=dict(inventory), vitals={**START_VITALS, "hunger": hunger},
+                            difficulty=difficulty)
+                s = situation(state, grid)
+                self.assertEqual((forage.valid(s), fish.valid(s), foraging.room_for_food(s, raw=True)), offered,
+                                 (difficulty, sorted(inventory), hunger))
 
     def test_with_16_kept_stacks_and_a_berry_bush_the_berries_are_kept_or_eaten_never_left(self):
         for inventory, hunger in ((FEATHERS, 100.0), (NO_ROOM, 40.0)):
