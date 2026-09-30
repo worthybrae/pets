@@ -620,7 +620,8 @@ def larder_room(s: Situation) -> list[tuple[tuple[int, int, int], str, int]]:
         return []  # the usual putting away frees a stack
     wanted, back, cells, cleared = on_hand_wanted(s), more_taken(s), storing_cells(s), to_clear(s) + spoiled_out(s)
     for item in sorted((item for item in s.inventory if item in KEEP and item not in FOOD and item not in wanted
-                        and item not in WORKSTATIONS and item not in back and kept(s, item) <= KEEP[item]
+                        and item not in WORKSTATIONS and item not in back and more_kept(s, item) <= 0
+                        and not (item == "torch" and kept(s, item) > 0)  # home's dark corners want them
                         and 0 < s.count(item) <= STACK),
                        key=lambda item: (s.count(item), item)):
         found = stored_in(s, cells, cleared, limit=None, moves=[(item, s.count(item))])

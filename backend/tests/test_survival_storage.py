@@ -165,7 +165,7 @@ class StorageTests(unittest.TestCase):
         their food work had no room for its catch, and their chests held 0 to 235 hunger of winter food on winter
         day 1. While "Ready for winter" fills a wild pet's chests (storage.SPARE_KEEPING), one whole stack it keeps
         goes in a chest, the smallest first, never what its gear wants on hand nor what another goal wants back."""
-        from backend.survival.storage import SPARE_KEEPING, TAKES_MORE, food_first, larder_room
+        from backend.survival.storage import KEEPS_MORE, SPARE_KEEPING, TAKES_MORE, food_first, larder_room
         arms = {"iron_sword": 1, "iron_pickaxe": 1, "iron_cap": 1, "iron_tunic": 1, "crafting_table": 1, "furnace": 1,
                 "bow": 1, "campfire": 1, "coal": 8, "seeds": 8, "sapling": 4, "oak_log": 8, "sticks": 8, "wheat": 2,
                 "iron_ore": 3, "torch": 4}  # 16 stacks, all of it kept, nothing that gives way to food
@@ -192,6 +192,20 @@ class StorageTests(unittest.TestCase):
                 self.assertEqual(larder_room(home.situation()), [((2, 1, 2), "iron_ore", 3)])
             finally:
                 TAKES_MORE.remove(wheat_back)
+
+            def planks_kept(s, item):
+                return 1 if item == "planks" else 0
+            del home.state["inventory"]["iron_ore"]
+            home.state["inventory"]["planks"] = 1  # a building block: kept() is 0 for it once the arms are full
+            TAKES_MORE.append(wheat_back)
+            KEEPS_MORE.append(planks_kept)  # the fix T2 review: another goal keeps more of it (making's parts)
+            try:
+                self.assertEqual(larder_room(home.situation()), [((2, 1, 2), "sapling", 4)])
+            finally:
+                KEEPS_MORE.remove(planks_kept)
+                TAKES_MORE.remove(wheat_back)
+                del home.state["inventory"]["planks"]
+                home.state["inventory"]["iron_ore"] = 3
             home.state["difficulty"] = "gentle"  # a gentle pet eats what does not fit: nothing changes for it
             self.assertEqual(larder_room(home.situation()), [])
             home.state["difficulty"] = "wild"
