@@ -104,13 +104,12 @@ class Grid:
         return natural
 
     def overlay(self, sky: dict | None) -> None:
-        """W2: the winter's ice from state["sky"] (`frozen`, `open_cells`), and the heat of the cells burning in the
-        trees (`fires`: `hot`), so a grid made in a transaction keeps out of them before the storm's effect runs
-        (carried N2 of W2's fourth task: a transaction's grid had no hot cells until then)."""
+        """W2: the winter's ice from state["sky"] (`frozen`, `open_cells`). winter.freeze calls it every sky step, so
+        it leaves `hot` alone: the storm's effect keeps that, rebuilt only when the burning cells change (the fix
+        wave's re-review: rebuilding it here undid storms.heat's memo)."""
         sky = sky or {}
         self.frozen = bool(sky.get("frozen"))
         self.open_cells = {tuple(cell) for cell in sky.get("open_cells", ())}
-        self.hot = hot_of(sky.get("fires", ()))
 
     def thick_ice(self, cell: Cell) -> bool:
         """W2: the winter's ice over a lake (the overlay, never a block): too thick to mine (steps.start_mine), so
@@ -222,4 +221,5 @@ def world_grid(db: sqlite3.Connection, seed: str, sky: dict | None = None) -> Gr
     grid = Grid(lambda x, y, z: block_at(x, y, z, seed), load_edits, write, load_claims)
     grid.herd = Herd(db)
     grid.overlay(sky)
+    grid.hot = hot_of((sky or {}).get("fires", ()))  # the fires burning, from the start (carried N2)
     return grid

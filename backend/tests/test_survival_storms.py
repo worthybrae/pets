@@ -368,6 +368,20 @@ class FireTests(Flat):
         self.assertIn((X0, 4, 0), grid.hot)
         self.assertEqual(world_grid(db, "7", {}).hot, set())
 
+    def test_the_winters_overlay_each_sky_step_leaves_the_heat_alone(self):
+        """The fix wave's re-review: winter.freeze runs grid.overlay every sky step, and rebuilding the heat there
+        undid the storm's memo (7 builds over 300 steps became 605)."""
+        grid = forest(trees=((X0, 0),))
+        ctx = ActionContext(grid=grid, clock_at=lambda at: clock_at(BORN, at, SCALE), planner=lambda *args: [],
+                            events=[])
+        state = pet(X0 + 10, weather="clear")
+        ignite(state, ctx, (X0, 6, 0), BORN, None)
+        with patch("backend.survival.storms.hot_cells", wraps=hot_cells) as worked:
+            for step in range(5):
+                grid.overlay(state["sky"])  # what winter.freeze does each sky step
+                storm(state, ctx, BORN + step / SCALE)
+            self.assertEqual(worked.call_count, 1)
+
     def test_flee_fire_runs_from_a_fire_beside_mimo(self):
         grid = forest(trees=((X0 + 1, 0),))
         state = pet(weather="clear")
