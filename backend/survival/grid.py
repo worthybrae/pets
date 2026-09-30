@@ -36,6 +36,7 @@ LoadClaims = Callable[[int, int], set[Cell]]
 WriteBlock = Callable[[int, int, int, str], None]
 CHUNK = 16
 FLUIDS = ("water", "lava")
+FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 LADDER = "ladder"
 
 
@@ -103,10 +104,20 @@ class Grid:
         return natural
 
     def overlay(self, sky: dict | None) -> None:
-        """W2: the winter's ice from state["sky"] (`frozen`, `open_cells`)."""
+        """W2: the winter's ice from state["sky"] (`frozen`, `open_cells`), and the heat of the cells burning in the
+        trees (`fires`: `hot`), so a grid made in a transaction keeps out of them before the storm's effect runs
+        (carried N2 of W2's fourth task: a transaction's grid had no hot cells until then)."""
         sky = sky or {}
         self.frozen = bool(sky.get("frozen"))
         self.open_cells = {tuple(cell) for cell in sky.get("open_cells", ())}
+        self.hot = hot_of(sky.get("fires", ()))
+
+    def thick_ice(self, cell: Cell) -> bool:
+        """W2: the winter's ice over a lake (the overlay, never a block): too thick to mine (steps.start_mine), so
+        no plan digs it (W2's final review: a camp was dug in on a frozen pool). A taiga's own ice is a block, and
+        mines."""
+        return (self.frozen and cell[1] == SEA_LEVEL and self.material(*cell) == "ice"
+                and self.natural_material(*cell) == "water")
 
     def natural_material(self, x: int, y: int, z: int) -> str:
         """The block worldgen put at the cell, before any edit."""
@@ -176,6 +187,16 @@ class Grid:
     def placed_near(self, x: int, z: int, reach: float, materials: tuple[str, ...]) -> set[str]:
         """Which of `materials` have been placed within `reach` blocks (horizontally) of (x, z)."""
         return {material for _, material in self.placed_cells(x, z, reach, materials)}
+
+
+def hot_of(fires) -> set[Cell]:
+    """W2: the burning cells (state["sky"]["fires"]) and their face neighbours: paths keep out of them (Grid.hot)."""
+    cells = set()
+    for entry in fires:
+        x, y, z = entry["x"], entry["y"], entry["z"]
+        cells.add((x, y, z))
+        cells.update((x + dx, y + dy, z + dz) for dx, dy, dz in FACES)
+    return cells
 
 
 def world_grid(db: sqlite3.Connection, seed: str, sky: dict | None = None) -> Grid:

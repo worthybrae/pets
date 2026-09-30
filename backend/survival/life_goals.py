@@ -347,7 +347,8 @@ def leather_gathered(s: Situation) -> float:
 
 
 def hurt_lately(s: Situation) -> bool:
-    hurt_at = s.state.get("hurt_at")
+    """A creature hurt Mimo in the last game day (W2: lightning and fire are no creature's blow)."""
+    hurt_at = harm.blow_at(s.state)
     return hurt_at is not None and (s.at - hurt_at) * s.scale < DAY_SECONDS
 
 

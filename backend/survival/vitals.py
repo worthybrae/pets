@@ -11,7 +11,11 @@ again as fast, and mood's target falls.
 
 W2: the season sets the warmth Mimo drifts toward outdoors (SEASON_WARMTH, by day and by night; spring's is
 today's), the mountains stay 60 colder by day and 50 by night, falling snow takes SNOW_CHILL more off outdoors,
-a shelter adds 45, a wool cloak CLOAK_WARMTH, and a fire, furnace or hearth within 4 blocks sets 100.
+a shelter adds 45, a wool cloak CLOAK_WARMTH, and a fire, furnace or hearth within 4 blocks sets 100. Inside the home
+it built, sheltered, Mimo's warmth target never falls below HOME_FLOOR (spec resolution 34): the season table made a
+home in the mountains freeze every autumn and winter night (15 and -15 sheltered). The floor is the alpine sheltered
+night before W2, under CHILL_BELOW (35), so a winter night still chills without a fire or a hearth; only freezing is
+taken away.
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ SEASON_WARMTH = {"spring": (100.0, 30.0), "summer": (100.0, 45.0), "autumn": (85
 ALPINE_DAY, ALPINE_NIGHT = 60.0, 50.0  # the mountains are this much colder
 SNOW_CHILL = 10.0  # falling snow, outdoors
 CLOAK_WARMTH = 20.0  # a wool cloak
+HOME_FLOOR = 25.0  # W2 (spec resolution 34): the least warmth a pet sheltered inside the home it built drifts toward
 # When several kinds of damage land in the killing step, the largest wins; ties go to the first here.
 CAUSE_ORDER = ("drowning", "cold", "starvation", "sickness")  # W1: sickness
 HORIZONTAL = ((1, 0), (-1, 0), (0, 1), (0, -1))
@@ -68,6 +73,7 @@ class Surroundings:
     season: str = "spring"  # W2
     snowing: bool = False
     cloak: bool = False
+    at_home: bool = False  # W2: inside the home it built (a room or passage cell of a shelter Mimo built)
 
 
 @dataclass(frozen=True)
@@ -92,7 +98,7 @@ def approach(value: float, target: float, max_change: float) -> float:
 
 
 def target_warmth(night: bool, biome: str, sheltered: bool, near_fire: bool, season: str = "spring",
-                  snowing: bool = False, cloak: bool = False) -> float:
+                  snowing: bool = False, cloak: bool = False, at_home: bool = False) -> float:
     if near_fire:
         return 100.0
     day, dark = SEASON_WARMTH.get(season, SEASON_WARMTH["spring"])
@@ -101,7 +107,8 @@ def target_warmth(night: bool, biome: str, sheltered: bool, near_fire: bool, sea
         base -= ALPINE_NIGHT if night else ALPINE_DAY
     if snowing and not sheltered:
         base -= SNOW_CHILL
-    return min(100.0, base + (SHELTER_BONUS if sheltered else 0.0) + (CLOAK_WARMTH if cloak else 0.0))
+    target = min(100.0, base + (SHELTER_BONUS if sheltered else 0.0) + (CLOAK_WARMTH if cloak else 0.0))
+    return max(target, HOME_FLOOR) if sheltered and at_home else target
 
 
 def mood_target(vitals: dict, lonely: bool, ailing: float = 0.0) -> float:
@@ -145,7 +152,7 @@ def step_vitals(vitals: dict, seconds: float, *, night: bool, activity: str,
     hunger_rate = HUNGER_IDLE * (WORK_HUNGER_MULTIPLIER if working else 1.0) * ailing.hunger
     air_change = -AIR_DRAIN * seconds if surroundings.head_in_water else AIR_RECOVER * seconds
     warmth_target = target_warmth(night, surroundings.biome, surroundings.sheltered, surroundings.near_fire,
-                                  surroundings.season, surroundings.snowing, surroundings.cloak)
+                                  surroundings.season, surroundings.snowing, surroundings.cloak, surroundings.at_home)
     result = {
         "health": clamp(vitals["health"] + healing - sum(damage.values())),
         "hunger": clamp(vitals["hunger"] - hunger_rate * seconds),

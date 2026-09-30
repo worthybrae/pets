@@ -211,7 +211,7 @@ def niches(s: Situation) -> list[Cell]:
         cell = (x + dx, y, z + dz)
         material = s.grid.material(*cell)
         if (is_solid(material) and hardness(material) is not None and can_harvest(material, s.inventory)
-                and s.grid.solid((x + dx, y + 1, z + dz))):
+                and s.grid.solid((x + dx, y + 1, z + dz)) and not s.grid.thick_ice(cell)):  # W2: a lake's ice
             found.append(cell)
     return found
 

@@ -12,25 +12,35 @@ corner is mined first (structures.clearing). The walks to the corners go all the
 all, and head_home leaves light_up alone, since it keeps Mimo at home. Its facts tell the chooser
 how many corners are dark, what lights Mimo carries and (L3 final fix wave) how many torch corners
 a spare lantern can take.
+
+W2 (the controller's ruling on W2's final review): relight_fire. The rain puts out the campfire the home's design
+puts by its door (backend.survival.rain), and it stood for the door's campfire still (structures.STANDS_IN), so
+nothing lit it again: every home's fire was out from its first rain. Once it no longer rains, Mimo at home (as
+light_up, within HOME_REACH) with a stick walks to it and relights it (rain's `relight` step), at RELIGHT_SCORE. A
+wild pet does so once it knows fire, as it puts a campfire down.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from backend.survival import sky
 from backend.survival.carrying import crafts_fit
 from backend.survival.foraging import reach_steps, whole_walk
 from backend.survival.grid import Cell
 from backend.survival.life_goals import home_structure
 from backend.survival.purposes import LATE_DAY, Purpose, register
+from backend.survival.rain import DOUSED_BLOCK
 from backend.survival.situation import NIGHTFALL, Situation
 from backend.survival.structures import blueprint_of, clearing, todo
 from backend.survival.toolmaking import Short, make
+from backend.survival.wild import unlocked
 
 if TYPE_CHECKING:
     from backend.survival.actions import ActionContext
 
 HOME_REACH = 16.0  # light_up is offered this close to the shelter
+RELIGHT_SCORE = 72.0  # W2: as light_up
 
 
 def home_blueprint(s: Situation):
@@ -135,3 +145,29 @@ register(Purpose(
     facts=light_facts,
     score=lambda s: 72.0, plan=plan_light,
     thoughts=("A little light for the night.", "Torches make home feel safe.")))
+
+
+# relight_fire (W2) -------------------------------------------------------------------------------
+
+def doused_home_fire(s: Situation) -> Cell | None:
+    """The campfire by the home's door, when the rain put it out, it no longer rains and Mimo, at home, carries a
+    stick to light it with (and, a wild pet, knows fire); None otherwise."""
+    if sky.raining(s.state) or s.count("sticks") < 1 or not unlocked(s, "fire"):
+        return None
+    blueprint = home_blueprint(s)
+    cell = None if blueprint is None else blueprint.one("campfire")
+    return cell if cell is not None and s.grid.material(*cell) == DOUSED_BLOCK else None
+
+
+def plan_relight(s: Situation, context: ActionContext) -> list[dict]:
+    cell = doused_home_fire(s)
+    return [] if cell is None else reach_steps(s, [(cell, [{"kind": "relight", "target": list(cell)}])])
+
+
+register(Purpose(
+    "relight_fire", "light the fire by the door again",
+    "The rain put out the campfire by home's door; light it again with a stick now the rain has stopped.",
+    valid=lambda s: doused_home_fire(s) is not None,
+    facts=lambda s: f"the fire by the door is out; carrying {plural(s.count('sticks'), 'stick')}",
+    score=lambda s: RELIGHT_SCORE, plan=plan_relight,
+    thoughts=("The rain's stopped. Time to light the fire again.", "Home's fire should be burning.")))

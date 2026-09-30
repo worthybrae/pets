@@ -46,6 +46,7 @@ describe('the open attribute (W2)', () => {
     expect(topOpen([[5, 10, 5, 'stone'], [5, 12, 5, 'glass']])).toBe(OPEN_TOP)  // glass is no roof for snow... nor opaque
     const lake = mesh([[5, 10, 5, 'sand'], [5, 11, 5, 'water']]).translucent
     expect(new Set(lake.opens)).toEqual(new Set([WATER_FACE]))
+    expect(topOpen([[5, 10, 5, 'sand'], [5, 11, 5, 'water']])).toBe(0)  // a lake's floor: no snow under the water
     const side = mesh([[5, 10, 5, 'stone']]).opaque
     expect(side.opens.filter((value) => value === OPEN_TOP)).toHaveLength(4)  // the top face's four corners only
   })

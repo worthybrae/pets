@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 from backend.services.crafting import RECIPES, TOOL_RANK
 from backend.survival import storage
 from backend.survival.carrying import crafts_fit
-from backend.survival.creatures.harm import IRON_ARMOR, armor_iron, covered, worn
+from backend.survival.creatures.harm import IRON_ARMOR, armor_iron, blow_at, covered, worn
 from backend.survival.clock import DAY_SECONDS
 from backend.survival.purposes import Purpose, register
 from backend.survival.situation import Situation
@@ -130,7 +130,8 @@ def gear_choice(s: Situation) -> tuple[tuple[str, ...], list[dict]] | None:
 
 
 def hurt_lately(s: Situation) -> bool:
-    hurt_at = s.state.get("hurt_at")
+    """A creature hurt Mimo in the last game day (W2: lightning and fire are no creature's blow)."""
+    hurt_at = blow_at(s.state)
     return hurt_at is not None and (s.at - hurt_at) * s.scale < DAY_SECONDS
 
 

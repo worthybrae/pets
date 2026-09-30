@@ -184,7 +184,8 @@ def plan_surface(s: Situation, context: ActionContext) -> list[dict]:
     if s.grid.water(s.here):
         ceiling = (x, y + 1, z)
         material = s.grid.material(*ceiling)
-        if is_solid(material) and hardness(material) is not None and can_harvest(material, s.inventory):
+        if (is_solid(material) and hardness(material) is not None and can_harvest(material, s.inventory)
+                and not s.grid.thick_ice(ceiling)):  # W2: the ice over a frozen lake is too thick
             return [{"kind": "mine", "target": list(ceiling)}]
         return []  # open water above: the swim-up hazard already takes Mimo up
     if s.grid.swimming(s.here) and take_search(context):
@@ -300,8 +301,10 @@ def plan_warm_up(s: Situation, context: ActionContext) -> list[dict]:
     walk to the nearest known warm spot: a shelter, or a campfire or furnace within 64 blocks.
     Below the surface the fire goes in a niche Mimo digs, never in its way out. A walk to a fire
     goes all the way or not at all (foraging.whole_walk), and a fire where a step just failed is
-    left alone for a while (senses.near_failure)."""
-    fire = next((block for block in WARM_BLOCKS if s.inventory.get(block, 0) > 0 and fitting_open(block, s)), None)
+    left alone for a while (senses.near_failure). W2: never a carried hearth (its place is home's room, as cook
+    never puts one down either)."""
+    fire = next((block for block in WARM_BLOCKS if block != "hearth" and s.inventory.get(block, 0) > 0
+                 and fitting_open(block, s)), None)
     if fire is not None:
         steps: list[dict] = []
         if place_station(roofed_first(s, station_spots(s)), fire, steps) is not None:

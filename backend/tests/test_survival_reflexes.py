@@ -197,6 +197,16 @@ class ReflexTests(unittest.TestCase):
         self.assertEqual(homeward["queue"], [walk(30, 1, 0, "warm_up")])
         self.assertIsNone(reflex_hook(pet(vitals={**START_VITALS, "warmth": 20.0}), brainy(), 0.0))
 
+    def test_warm_up_never_puts_a_carried_hearth_down_in_the_field(self):
+        """W2's final review: a hearth warms like a furnace (vitals.WARM_BLOCKS), so warm_up put a carried one down
+        wherever Mimo was cold; its place is home's room, and cook never puts one down either."""
+        cold = pet(inventory={"hearth": 1}, vitals={**START_VITALS, "warmth": 20.0})
+        self.assertIsNone(reflex_hook(cold, brainy(), 0.0))
+        both = pet(inventory={"hearth": 1, "campfire": 1}, vitals={**START_VITALS, "warmth": 20.0})
+        self.assertEqual(reflex_hook(both, brainy(), 0.0), "warm_up")
+        self.assertEqual(both["queue"],
+                         [{"kind": "place", "target": [1, 1, 0], "block": "campfire", "purpose": "warm_up"}])
+
     def test_surface_mines_a_ceiling_or_heads_for_the_shore(self):
         under = pet(vitals={**START_VITALS, "air": 30.0})
         self.assertEqual(reflex_hook(under, brainy(flat({(0, 1, 0): "water", (0, 2, 0): "dirt"})), 0.0), "surface")

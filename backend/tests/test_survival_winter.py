@@ -1,6 +1,7 @@
 """W2: the hard winter: the ice overlay and the open cell a swimming pet keeps, a path across a frozen lake,
 growth that waits for spring, cave mushrooms, thinned herds, fish, and food that keeps longer."""
 
+import os
 import sqlite3
 import time
 import unittest
@@ -123,7 +124,7 @@ class IceTests(unittest.TestCase):
         self.assertEqual(grid.material(*poured), "water")
         self.assertTrue(surface_water(lake(saved={}), poured))  # a natural one freezes
 
-    def test_a_path_crosses_a_frozen_lake_and_the_overlay_costs_the_search_little(self):
+    def test_a_path_crosses_a_frozen_lake(self):
         frozen, open_water = lake(), lake()
         frozen.overlay({"frozen": True})
         cells, reached = route(frozen, (0, SEA_LEVEL + 1, 0), (50, SEA_LEVEL + 1, 0))
@@ -132,6 +133,15 @@ class IceTests(unittest.TestCase):
         swum, _ = route(open_water, (0, SEA_LEVEL + 1, 0), (50, SEA_LEVEL + 1, 0))
         self.assertTrue(any(open_water.swimming(cell) for cell in swum))
 
+    def test_a_path_crosses_a_frozen_lake_and_the_overlay_costs_the_search_little(self):
+        """Spec cost criterion 10: the search across the frozen lake no slower than with the overlay off plus 10 %. A
+        wall-clock measure (W2's final review: it flakes under load), so with MIMO_SLOW_TESTS=1, as the gate's
+        criterion 10 runs it (wild_gate.cost_rows); the crossing itself is `test_a_path_crosses_a_frozen_lake`."""
+        if not os.environ.get("MIMO_SLOW_TESTS"):
+            self.skipTest("a wall-clock budget: set MIMO_SLOW_TESTS=1 (the W2 gate's criterion 10 does)")
+        self.overlay_budget()
+
+    def overlay_budget(self) -> None:
         def timed(frozen_now: bool) -> float:
             grid = lake()
             grid.overlay({"frozen": frozen_now})

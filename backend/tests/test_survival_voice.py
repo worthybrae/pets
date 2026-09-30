@@ -135,8 +135,9 @@ def templates() -> list[tuple[str, str]]:
     found += [("figured", f"{NAME} worked out that {lesson.figured}.") for lesson in SURVIVAL]
     found += [("asked", f"{NAME} asked you {wonder.asked}.") for wonder in WONDERS.values()]
     # W2: the seasons, the weather, lightning and fire, smoked meat and the deaths the sky brings.
-    from backend.survival.sky import COLDER, TURNS
+    from backend.survival.sky import COLDER, TURNS, UNNAMED
     found += [("spring" if season == "spring" else "season", words) for season, words in TURNS.items()]
+    found += [("spring" if season == "spring" else "season", words) for season, words in UNNAMED.items()]  # unnamed
     found += [("colder", COLDER), ("storm", "A thunderstorm rolled in."), ("struck", f"Lightning struck {NAME}!"),
               ("fire", f"Lightning set a tree on fire near {NAME}."), ("fire_out", f"The rain put out {NAME}'s campfire."),
               ("smoke", f"{NAME} smoked raw beef."), ("reflex", f"{NAME} ran from the fire."),

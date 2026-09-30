@@ -3,6 +3,7 @@ burning out, the heat, the way round them, the flee_fire reflex and what a storm
 
 import gc
 import math
+import os
 import random
 import sqlite3
 import tempfile
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import backend.survival.brain  # noqa: F401  (every reflex registered, flee_fire among them)
+from backend.services.block_table import create_block_tables
 from backend.services.crafting import LOGS
 from backend.services.worldgen import LEGACY_RADIUS, terrain_height
 from backend.survival import rain, sky, storms
@@ -21,8 +23,13 @@ from backend.survival.actions import ActionContext, ensure_actions, landing, sta
 from backend.survival.blueprints import Style, find_site, shelter
 from backend.survival.building import finish_if_built
 from backend.survival.clock import clock_at
+from backend.survival.creatures.defense import threats_payload
+from backend.survival.creatures.gear import hurt_lately as gear_hurt
+from backend.survival.creatures.harm import armor_wanted, last_blow
+from backend.survival.episodes import near_death_words
 from backend.survival.grid import CHUNK, Grid, world_grid
 from backend.survival.hatch import hatch
+from backend.survival.life_goals import hurt_lately as goal_hurt
 from backend.survival.memory import BUILT, create_memory_tables, remember
 from backend.survival.pathing import route
 from backend.survival.reflexes import by_name, fall_depth
@@ -150,6 +157,28 @@ class StrikeTests(Flat):
             self.assertEqual(under["vitals"]["health"], 100.0)
         self.assertEqual(death_words("lightning"), "was struck by lightning")
         self.assertEqual(death_words("fire"), "was caught in a fire")
+
+    def test_the_skys_hurts_are_no_creatures_blow(self):
+        """W2's final review: storms.hurt set hurt_at and hurt_by, so iron armor, gear and armor after a recent hurt
+        answered lightning, and the near-death words read "a lightning almost got me"."""
+        def felt(state, at):
+            s = Situation(state, forest(), clock_at(BORN, at, SCALE), at)
+            return (armor_wanted(state), gear_hurt(s), goal_hurt(s), near_death_words(state, at, SCALE)[0],
+                    threats_payload(s)["defense"]["last_hurt_by"])
+
+        for source, words in (("lightning", "I nearly died: the lightning struck me."),
+                              ("fire", "I nearly died in a fire.")):
+            state = pet()
+            storms.hurt(state, STRUCK_DAMAGE, source, BORN, None)
+            self.assertEqual((state["hurt_at"], state["hurt_by"]), (BORN, source))  # the flash, the tick's cause
+            self.assertEqual(felt(state, BORN + 1), (False, False, False, words, None))
+        state = {**pet(), "hurt_at": BORN, "hurt_by": "skitter"}  # a creature's blow, then the sky
+        storms.hurt(state, 2.0, "fire", BORN + 5, None)
+        storms.hurt(state, 2.0, "fire", BORN + 6, None)
+        self.assertEqual(last_blow(state), (BORN, "skitter"))
+        self.assertEqual(felt(state, BORN + 7), (True, True, True, "I nearly died in a fire.", "skitter"))
+        self.assertEqual(near_death_words({**state, "hurt_by": "skitter", "hurt_at": BORN}, BORN + 7, SCALE)[0],
+                         "I nearly died: a skitter almost got me.")
 
     def test_the_cheap_roll_on_mimo_comes_before_the_height_check(self):
         """Fix round 4: `highest` reads 17 x 17 columns; the 0.05 roll comes first, so 19 strikes in 20 on a pet
@@ -327,6 +356,18 @@ class FireTests(Flat):
             storm(state, ctx, BORN + 3 / SCALE)
             self.assertEqual(grid.hot, set())
 
+    def test_a_transactions_grid_keeps_out_of_the_fires_from_the_start(self):
+        """Carried N2 of W2's fourth task: world_grid started each transaction with no hot cells until the storm's
+        effect ran, so a plan made before it (the chooser's grid) could route through a fire."""
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        create_block_tables(db)
+        fires = [{"x": X0, "y": 5, "z": 0, "fire": 1, "caught": BORN, "until": BORN + 1}]
+        grid = world_grid(db, "7", {"fires": fires})
+        self.assertEqual(grid.hot, hot_cells({"sky": {"fires": fires}}))
+        self.assertIn((X0, 4, 0), grid.hot)
+        self.assertEqual(world_grid(db, "7", {}).hot, set())
+
     def test_flee_fire_runs_from_a_fire_beside_mimo(self):
         grid = forest(trees=((X0 + 1, 0),))
         state = pet(weather="clear")
@@ -399,10 +440,15 @@ class TickTests(unittest.TestCase):
     WARM = 5  # transactions before the first run: a process's first strikes read worldgen's cold caches
 
     def setUp(self):
+        self.registry, self.world = self.hatched()
+
+    def hatched(self, difficulty: str = "gentle"):
+        """A registry and the world of a life hatched in it, seed 8."""
         root = tempfile.TemporaryDirectory()
         self.addCleanup(root.cleanup)
-        self.registry = LifeRegistry(Path(root.name) / "data", Path(root.name) / "no-legacy.sqlite3")
-        self.world = SurvivalWorld(self.registry.world_path(hatch(self.registry, random.Random(8), timestamp=BORN)))
+        registry = LifeRegistry(Path(root.name) / "data", Path(root.name) / "no-legacy.sqlite3")
+        return registry, SurvivalWorld(registry.world_path(hatch(registry, random.Random(8), timestamp=BORN,
+                                                                 difficulty=difficulty)))
 
     def edit(self, change) -> dict:
         """`change(state, db)` in a transaction of its own; the state as it was saved."""
@@ -428,12 +474,25 @@ class TickTests(unittest.TestCase):
         """Spec cost criterion 10: the sky hook at most 2 ms mean and 8 ms p99 a transaction over a storm near a
         forest with fires burning, measured like L5's budget (test_survival_frontier_run): the hook's time summed
         over each 60-game-second transaction. A real hatched world, a storm pinned, and Mimo 3 blocks from an oak
-        whose trunk burns all through (`burning_tree`), so each transaction is the fire's 60 short steps while the
-        tree catches and burns out round it; the best of up to 3 runs (backend.tests.budget's rule). Fix round 4
-        measured it on a loaded machine, runs of 100: before its cuts (the home and the campfires read from the
-        database each step, the heat's cells and the sky's defaults worked out each step) 1.6 to 2.8 ms mean, p99
-        2.6 to 9.0 ms; after them 1.0 to 1.9 ms mean, p99 1.6 to 5.5 ms but for one load spike. With 24 cells kept
-        burning beside Mimo it was 3.5 to 4.1 ms mean before and 1.4 to 2.4 ms after."""
+        whose lowest log is kept burning for good (`burning_tree`), so each transaction is the fire's 60 short steps
+        while the fire spreads from it through the tree, up to its 24 cells, and those cells burn out; the best of up
+        to 3 runs (backend.tests.budget's rule). Fix round 4 measured it on a loaded machine, runs of 100: before its
+        cuts (the home and the campfires read from the database each step, the heat's cells and the sky's defaults
+        worked out each step) 1.6 to 2.8 ms mean, p99 2.6 to 9.0 ms; after them 1.0 to 1.9 ms mean, p99 1.6 to 5.5
+        ms but for one load spike. With 24 cells kept burning beside Mimo it was 3.5 to 4.1 ms mean before and 1.4
+        to 2.4 ms after. W2's final wave: a gentle pet and a wild one are each timed (carried N1: a wild pet by a fire
+        learned fire for sure at every step, a row written each, sky_wild.fire_known), and the measure is the wall
+        clock's, so it flakes under load: it runs with MIMO_SLOW_TESTS=1, as the gate's criterion 10 runs it
+        (wild_gate.cost_rows)."""
+        if not os.environ.get("MIMO_SLOW_TESTS"):
+            self.skipTest("a wall-clock budget: set MIMO_SLOW_TESTS=1 (the W2 gate's criterion 10 does)")
+        for difficulty in ("gentle", "wild"):
+            if difficulty != "gentle":
+                self.registry, self.world = self.hatched(difficulty)
+            with self.subTest(difficulty):
+                self.storm_budget()
+
+    def storm_budget(self) -> None:
         burning_tree(self.world)
         real = sky.advance
         spent, steps = [], []
@@ -465,6 +524,9 @@ class TickTests(unittest.TestCase):
         state = self.world.state()
         self.assertIsNone(state["died_at"])
         self.assertTrue(state["sky"]["strikes"] and state["sky"]["fires"])
+        with self.world.connect() as db:  # a wild pet learned fire by the fire (a gentle one knew it from the start)
+            known = db.execute("SELECT 1 FROM memory_knowledge WHERE subject='wild:fire' AND fact='lesson'").fetchone()
+        self.assertIsNotNone(known)
 
     def test_the_sky_reads_the_home_and_the_campfires_once_a_transaction(self):
         """Fix round 4: by a fire every transaction is 60 short steps, and the storm's home and the rain's

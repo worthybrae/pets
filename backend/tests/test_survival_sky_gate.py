@@ -2,13 +2,15 @@
 W2 criteria read from the lives' summaries."""
 
 import json
+import os
 import random
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.scripts.wild_gate import (
-    BORN, COST_TESTS, SCALE, TEACHES_W2, before_w2, check_w2, sample_sky, upgrade, winter_of,
+    BORN, COST_TESTS, SCALE, TEACHES_W2, before_w2, check_w2, cost_rows, sample_sky, upgrade, winter_of,
 )
 from backend.survival.brain import BRAIN
 from backend.survival.hatch import hatch
@@ -46,7 +48,16 @@ class UpgradeTests(unittest.TestCase):
                 tick_life(registry, BORN + 90, scale=SCALE, mind=BRAIN, action_scale=SCALE)  # to day 2
             self.assertNotIn("sky", world.state())
             upgrade(world)
+
+            def granted():
+                with world.connect() as db:
+                    known = {row[0] for row in db.execute("SELECT subject FROM memory_knowledge WHERE fact='lesson'")}
+                return world.state()["wild"]["granted"], [name for name in W2 if thing(name) in known]
+
+            # W2's final review: a world W1 granted, so its first W2 tick steps GRANTED from 1 to 2
+            self.assertEqual(granted(), (1, []))
             tick_life(registry, BORN + 91, scale=SCALE, mind=BRAIN, action_scale=SCALE)
+            self.assertEqual(granted(), (2, list(W2)))
             state = world.state()
             self.assertEqual((state["sky"]["offset"], state["sky"]["season"], state["sky"]["season_day"]), (39, "spring", 0))
             found = {}
@@ -121,3 +132,20 @@ class CostTests(unittest.TestCase):
     def test_criterion_ten_names_budget_tests_that_exist(self):
         # the review of Task 17: a stale name made criterion 10 fail on every run, whatever the sky cost
         self.assertEqual(unittest.defaultTestLoader.loadTestsFromNames(COST_TESTS).countTestCases(), len(COST_TESTS))
+
+    def test_criterion_ten_runs_both_budget_tests_though_the_suite_skips_them(self):
+        """W2's final review: the budget tests time the wall clock, so the ordinary suite skips them (MIMO_SLOW_TESTS);
+        cost_rows sets it while it runs them, and a skipped one fails the criterion. Their measuring is stood in for
+        here: what is under test is that both run."""
+        from backend.tests.test_survival_storms import TickTests
+        from backend.tests.test_survival_winter import IceTests
+        before = os.environ.pop("MIMO_SLOW_TESTS", None)
+        if before is not None:
+            self.addCleanup(os.environ.__setitem__, "MIMO_SLOW_TESTS", before)
+        with patch.object(TickTests, "storm_budget") as storm, patch.object(IceTests, "overlay_budget") as ice:
+            self.assertEqual(cost_rows(), (True, "2 budget tests, 0 failed, 0 skipped"))
+            self.assertEqual((storm.call_count, ice.call_count), (2, 1))  # a gentle pet and a wild one; the lake
+            self.assertNotIn("MIMO_SLOW_TESTS", os.environ)  # set only while they ran
+            result = unittest.TestResult()
+            unittest.defaultTestLoader.loadTestsFromNames(COST_TESTS).run(result)
+            self.assertEqual((result.testsRun, len(result.skipped)), (2, 2))  # the ordinary suite skips them

@@ -105,7 +105,8 @@ SURVIVAL: tuple[Survival, ...] = (
     Survival("storm", "a thunderstorm", "Lightning strikes high ground and tall trees, so in a storm stay low and "
              "inside.", "goes home or down off high ground when a storm starts",
              "lightning strikes high ground, so a storm is for staying low and inside",
-             ("storm", "thunderstorm", "lightning"), ("harmless",), ("dangerous",)),
+             ("storm", "thunderstorm", "lightning"), ("harmless",), ("dangerous",)),  # `means`: the word of the doubted
+    # "Lightning is harmless.", which the subjects match already, so it changes nothing; `sides` is what doubts it
     Survival("fog", "fog", "Fog hides the sun and lets the dark creatures walk by day, so stay close to home in the "
              "fog.", "stays close to home in fog and starts no trips", "fog lets the dark creatures walk by day",
              ("fog",), ("safe",), ("dangerous",)),

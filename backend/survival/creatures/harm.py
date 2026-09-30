@@ -13,6 +13,11 @@ window gap. A blow:
   the event log.
 At 0 health Mimo dies of it: the tick records the death with the kind as its cause
 (backend.survival.tick, "Pip was caught by a gloomling on day 3.").
+
+W2: lightning and fire hurt Mimo too (backend.survival.storms.hurt, `hurt_by` "lightning" or "fire", SKY_HURTS), so
+the viewer flashes it and the tick names the cause, but they are no creature's blow: what answers a blow (iron armor
+worth its ingots, gear and armor after a recent hurt, Mimo's near-death words, the dark creature's wonder) reads
+`last_blow`, the last creature's blow, which the sky's hurt keeps aside (`blow_at`, `blow_by`).
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ SLOTS = {"leather_cap": "head", "iron_cap": "head", "leather_tunic": "body", "ir
 IRON_ARMOR = ("iron_tunic", "iron_cap")
 INDOORS = ("room", "passage")  # the parts of a shelter Mimo is safe in
 HURT_QUIET = 10.0  # server seconds (at the normal pace) between two "hurt" events
+SKY_HURTS = ("lightning", "fire")  # W2: the sky's hurts (backend.survival.storms), no creature's blow
 # W1: functions (scene, health lost, source) run after each blow (backend.survival.wounds: a wild pet's wound).
 # One that crashes is logged once and passed over.
 BLOWS: list = []
@@ -79,10 +85,27 @@ def worn(inventory: dict, piece: str) -> bool:
 ARMOR_WANTED: list = []
 
 
+def last_blow(state: dict) -> tuple[float, str | None] | None:
+    """(when, by what kind) of the last creature's blow on Mimo, or None: `hurt_at` and `hurt_by`, or, when the sky
+    hurt it since (SKY_HURTS), the blow before, which storms.hurt keeps in `blow_at` and `blow_by`. Either may be
+    missing (None) when the state has only the other."""
+    if state.get("hurt_by") in SKY_HURTS:
+        at, by = state.get("blow_at"), state.get("blow_by")
+    else:
+        at, by = state.get("hurt_at"), state.get("hurt_by")
+    return None if at is None and by is None else (at, by)
+
+
+def blow_at(state: dict) -> float | None:
+    """When a creature last hurt Mimo (`last_blow`), or None."""
+    blow = last_blow(state)
+    return None if blow is None else blow[0]
+
+
 def armor_wanted(state: dict) -> bool:
-    """Iron armor is worth its 13 ingots once a creature has hurt Mimo (L3), or (L4) while one of
-    ARMOR_WANTED says so; one that crashes counts as no (logged once)."""
-    if state.get("hurt_at") is not None:
+    """Iron armor is worth its 13 ingots once a creature has hurt Mimo (L3; W2: lightning and fire are none), or (L4)
+    while one of ARMOR_WANTED says so; one that crashes counts as no (logged once)."""
+    if blow_at(state) is not None:
         return True
     for wants in ARMOR_WANTED:
         try:
@@ -121,7 +144,7 @@ def hurt_pet(scene: Scene, damage: float, source: str) -> float:
     lost = min(vitals["health"], damage * (1.0 - armor_cut(state["inventory"])))
     vitals["health"] = max(0.0, vitals["health"] - lost)
     name = source.replace("_", " ")
-    last = state.get("hurt_at")
+    last = blow_at(state)  # W2: the sky's hurts are no blow
     if last is None or scene.at - last >= HURT_QUIET / scene.pace:
         scene.events.append((scene.at, "hurt", f"{state['name']} was hit by a {name}."))
     state.update(hurt_at=scene.at, hurt_by=source, last_thought=f"Ow! A {name}!")

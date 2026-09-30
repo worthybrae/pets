@@ -32,7 +32,6 @@ FIRE_FLEE = 2
 STORM_HOME = HOME_CLEAR  # blocks: a storm strikes no nearer home than this
 FOG_HOME = 24.0
 COVER = {"storm": ("storm", STORM_HOME), "fog": ("fog", FOG_HOME)}  # weather: (its lesson, how near home is near)
-SPELL_BACK = 12  # segments looked back for when a spell of weather began
 
 
 def nearest_fire(s: Situation) -> tuple[int, int, int] | None:
@@ -50,15 +49,19 @@ register(Reflex("flee_fire", 25, trigger=lambda s: fire_near(s.state, FIRE_FLEE)
                 ends_purpose=True, paced=True))
 
 
-def spell(s: Situation) -> int:
-    """The segment the present spell of weather began in (sky.weather_at, looked back SPELL_BACK at most)."""
+def same_spell(s: Situation, covered) -> bool:
+    """`covered` ([weather, segment], brain["covered"]: when take_cover last sent Mimo home) is in the spell of weather
+    that is on now: the weather has held since that segment, looked back one segment at a time from now to it, so the
+    look stops at the first other weather; cover_home moves `covered` on to each segment the spell is found to hold,
+    so a look walks back a segment or so, and the costly checks come after the cheap ones. It looked back SPELL_BACK
+    (12) segments at most before (carried from W2's ninth task), so a spell over 2 game hours seemed to begin anew
+    each segment and sent Mimo home again."""
+    if not covered or covered[0] != sky.weather_now(s.state):
+        return False
     offset, seed = sky.offset_of(s.state), s.seed
     segment = sky.segment_of(s.state, s.at, s.scale)
-    weather = sky.weather_at(seed, offset, segment)
-    start = segment
-    while start > 0 and segment - start < SPELL_BACK and sky.weather_at(seed, offset, start - 1) == weather:
-        start -= 1
-    return start
+    return covered[1] <= segment and all(sky.weather_at(seed, offset, earlier) == covered[0]
+                                         for earlier in range(segment, covered[1] - 1, -1))
 
 
 def cover_home(s: Situation) -> dict | None:
@@ -69,19 +72,22 @@ def cover_home(s: Situation) -> dict | None:
     lesson, near = COVER[weather]
     if not unlocked(s, lesson) or away(s) or s.brain["purpose"] in ("go_home", "sleep", *AT_HOME_WORK):
         return None
-    if s.brain.get("covered") == [weather, spell(s)]:
-        return None
     home = home_of(s, GO_HOME_RANGE)
-    if home is None or home["note"] != BUILT or s.distance(cell_of(home)) <= near:
+    if (home is None or home["note"] != BUILT or s.distance(cell_of(home)) <= near
+            or not sky_open(s.grid, s.seed, s.here)):
         return None
-    return home if sky_open(s.grid, s.seed, s.here) else None
+    covered = s.brain.get("covered")
+    if same_spell(s, covered):
+        covered[1] = sky.segment_of(s.state, s.at, s.scale)  # the spell held to here: the next look starts here
+        return None
+    return home
 
 
 def plan_cover(s: Situation, context) -> list[dict]:
     home = cover_home(s)
     if home is None:
         return []
-    s.brain["covered"] = [sky.weather_now(s.state), spell(s)]
+    s.brain["covered"] = [sky.weather_now(s.state), sky.segment_of(s.state, s.at, s.scale)]
     return [walk_to(cell_of(home))]
 
 

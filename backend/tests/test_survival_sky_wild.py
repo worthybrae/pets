@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import backend.survival.brain  # noqa: F401  (every hook, wonder and reflex registered)
 from backend.survival.clock import DAY_SECONDS, clock_at
-from backend.survival.knocks import KNOCKS
+from backend.survival.knocks import KNOCKS, knows_lesson
 from backend.survival.lessons import claims
 from backend.survival.memory import BUILT, create_memory_tables, know, remember
 from backend.survival.reflexes import by_name
@@ -113,6 +113,22 @@ class KnockTests(unittest.TestCase):
         meet_sky(state, context, day_at(12))
         self.assertTrue(knows(context, "fire"))
 
+    def test_by_a_fire_a_pet_that_knows_fire_writes_nothing_and_reads_its_lesson_once_a_transaction(self):
+        """Carried N1 of W2's fourth task: by a fire each step is a short one, and `sure` wrote the fire lesson's row
+        again at every one of them (an INSERT a step)."""
+        state, context = world(sky={"offset": 0, "season": "summer", "weather": "clear",
+                                    "fires": [{"x": 4, "y": 5, "z": 0, "fire": 1, "caught": 0.0, "until": 9e9}]})
+        context.memo = {}
+        meet_sky(state, context, day_at(12))
+        self.assertTrue(knows(context, "fire"))
+        with patch("backend.survival.sky_wild.sure") as taught, \
+                patch("backend.survival.sky_wild.knows_lesson", wraps=knows_lesson) as looked:
+            for second in range(60):
+                meet_sky(state, context, day_at(12, 1000.0 + second))
+            context.memo = {}  # the next transaction
+            meet_sky(state, context, day_at(12, 1100.0))
+        self.assertEqual((taught.call_count, looked.call_count), (0, 1))
+
 
 class WonderTests(unittest.TestCase):
     def test_the_six_wonders_and_the_fogs_yes_and_no(self):
@@ -156,6 +172,25 @@ class CoverTests(unittest.TestCase):
             self.assertFalse(cover.trigger(self.situation("storm", position=(10.0, 1.0, 0.0))))  # near home: safe
             self.assertFalse(cover.trigger(self.situation("storm", difficulty="wild")))  # it does not know yet
             self.assertFalse(cover.trigger(self.situation("clear")))
+
+    def test_a_long_spell_sends_it_home_once_and_the_next_spell_again(self):
+        """Carried from W2's ninth task: the spell's start was looked for 12 segments back at most, so in a spell over
+        2 game hours it moved on each segment and take_cover sent Mimo home again every 10 game minutes."""
+        cover = by_name("take_cover")
+        storm_until = 40  # segments of storm from the life's first, then clear, then a storm again from 45
+        weather = lambda seed, offset, segment: "storm" if segment < storm_until or segment >= 45 else "clear"  # noqa
+        with patch("backend.survival.sky.weather_at", weather):
+            s = self.situation("storm", at=BORN + 20 * 600 / SCALE)
+            self.assertTrue(cover.trigger(s))
+            cover.plan(s, None)
+            brain_state = s.brain
+            for segment in (21, 33, 34, 39):  # 13 and more segments into the spell: still the same one
+                later = self.situation("storm", at=BORN + segment * 600 / SCALE)
+                later.state["brain"] = brain_state
+                self.assertFalse(cover.trigger(later), segment)
+            again = self.situation("storm", at=BORN + 46 * 600 / SCALE)
+            again.state["brain"] = brain_state
+            self.assertTrue(cover.trigger(again))  # a new spell
 
     def test_fog_sends_it_home_and_holds_its_trips_back(self):
         cover = by_name("take_cover")

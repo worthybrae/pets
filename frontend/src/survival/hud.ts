@@ -31,8 +31,7 @@ const PHASE_NAMES: Record<ClockPhase, string> = {
 const STATUS_TEXT: Record<string, string> = { idle: 'Standing still', sleeping: 'Sleeping', dead: 'Gone' }
 const CAUSES: Record<string, string> = {
   starvation: 'starvation', cold: 'the cold', drowning: 'drowning', fall: 'a fall', creature: 'a creature',
-  lightning: 'lightning', fire: 'a fire',  // W2
-}
+}  // W2: lightning and fire have lines of their own (lifeLine)
 /** Causes of death that are a creature's kind (L2): the pet was caught, not killed by the world. */
 const CAUGHT_BY = new Set(['gloomling', 'skitter', 'creature', 'thornback'])  // L5: the thornback
 /** How close (blocks, across) a hostile creature is for the HUD to warn of it. */

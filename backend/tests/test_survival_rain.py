@@ -12,6 +12,7 @@ from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Planned
 from backend.survival.grid import world_grid
 from backend.survival.memory import create_memory_tables, know
+from backend.survival.pickers import options
 from backend.survival.purposes import PURPOSES
 from backend.survival.rain import (
     CAMPFIRES, DOUSED, DOUSED_BLOCK, campfire_rows, campfires_near, douse, relight_steps, roofed, roofed_first,
@@ -21,6 +22,7 @@ from backend.survival.steps import StepFailed, finish_step, start_step
 from backend.survival.structures import missing
 from backend.survival.vitals import START_VITALS
 from backend.tests.test_survival_cooking import meadow
+from backend.tests.test_survival_cozy import home_of
 
 DAY = {"phase": "day", "seconds_into_day": 1000.0, "time_scale": 1.0, "day_number": 1}
 
@@ -152,6 +154,40 @@ class RelightTests(unittest.TestCase):
         self.assertEqual(steps[:2], [{"kind": "relight", "target": [2, 1, 0]}, {"kind": "cook", "item": "raw_beef"}])
         rained = situation(pet("rain", inventory={"sticks": 1}), meadow({(2, 1, 0): "campfire_out"}))
         self.assertEqual(relight_steps(rained, 6.0), [])  # one out in the rain stays out
+
+    def test_the_rain_puts_out_homes_fire_and_once_it_stops_mimo_at_home_lights_it_again(self):
+        """W2's final review: the campfire by the home's door went out at the first rain, and nothing lit it again
+        (a doused campfire still stands for the design's, so the furnishing never came back to it)."""
+        yard = home_of((3, 3), "north")
+        yard.state.update(inventory={"sticks": 2}, sky={"weather": "rain"})
+        fire = yard.home.one("campfire")
+        yard.grid.put(*fire, "campfire")
+        douse(yard.state, SimpleNamespace(grid=yard.grid, events=[]), 5.0)
+        self.assertEqual(yard.grid.material(*fire), DOUSED_BLOCK)
+        relight = PURPOSES["relight_fire"]
+        self.assertFalse(relight.valid(yard.situation()))  # not while it rains
+        yard.state["sky"]["weather"] = "clear"
+        s = yard.situation()
+        self.assertTrue(relight.valid(s))
+        self.assertIn("relight_fire", [option.name for option in options(s)])
+        steps = relight.plan(s, yard.context())
+        self.assertEqual(steps[-1], {"kind": "relight", "target": list(fire)})
+        for step in steps:
+            if step["kind"] == "walk":
+                yard.state["position"] = dict(zip("xyz", map(float, yard.home.front)))
+                continue
+            finish_step(start_step(step, yard.state, yard.grid, 10.0), yard.state, yard.grid, 11.0)
+        self.assertEqual(yard.grid.material(*fire), "campfire")
+        self.assertEqual(yard.state["inventory"], {"sticks": 1})
+        self.assertFalse(relight.valid(yard.situation()))
+        yard.state["inventory"] = {"sticks": 1}
+        yard.grid.put(*fire, DOUSED_BLOCK)
+        yard.state["difficulty"] = "wild"
+        self.assertFalse(relight.valid(yard.situation()))  # a wild pet once it knows fire
+        know(yard.db, "wild:fire", "lesson", 0.0)
+        self.assertTrue(relight.valid(yard.situation()))
+        yard.state["inventory"] = {}
+        self.assertFalse(relight.valid(yard.situation()))  # with a stick
 
 
 class RoofTests(unittest.TestCase):

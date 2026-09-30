@@ -42,6 +42,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from backend.survival.clock import clock_at, time_scale
+from backend.survival.creatures.harm import last_blow
 from backend.survival.events import CURSORS, mirror, mirror_events
 from backend.survival.mind import add_memory, mind_state, rehearse
 from backend.survival.once import log_once
@@ -218,11 +219,19 @@ def remember_told(db: sqlite3.Connection, kind: str, words: str, at: float, new:
 
 FACT_MIRRORS.append(remember_told)
 
+# W2: a brush with death by the sky, in Mimo's own words ("a lightning almost got me" read as if it were a creature).
+SKY_WORDS = {"lightning": "I nearly died: the lightning struck me.", "fire": "I nearly died in a fire."}
+
 
 def near_death_words(state: dict, now: float, scale: float) -> tuple[str, tuple[str, ...]]:
-    vitals, hurt_at = state["vitals"], state.get("hurt_at")
-    if state.get("hurt_by") and hurt_at is not None and (now - hurt_at) * scale <= HOUR:
-        return f"I nearly died: a {label(state['hurt_by'])} almost got me.", (state["hurt_by"],)
+    """What Mimo says of a brush with death: the latest hurt within the game hour (a creature's blow, or W2's
+    lightning or fire in their own words: the sky is no creature), else what it ran short of."""
+    vitals, hurt_at, hurt_by = state["vitals"], state.get("hurt_at"), state.get("hurt_by")
+    if hurt_by in SKY_WORDS and hurt_at is not None and (now - hurt_at) * scale <= HOUR:
+        return SKY_WORDS[hurt_by], (hurt_by,)
+    blow = last_blow(state)
+    if blow is not None and blow[0] is not None and blow[1] and (now - blow[0]) * scale <= HOUR:
+        return f"I nearly died: a {label(blow[1])} almost got me.", (blow[1],)
     if vitals.get("hunger", 100.0) <= 5:
         return "I nearly starved to death.", ("food",)
     if vitals.get("warmth", 100.0) <= 10:

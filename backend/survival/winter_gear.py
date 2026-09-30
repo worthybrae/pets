@@ -9,12 +9,14 @@
 - The hearth (8 cobblestone and a campfire at a crafting table) is a block: glow and light 13, warm like a furnace
   (vitals.WARM_BLOCKS), a fire to cook and smoke at (crafting.FIRES, steps.WORKSTATIONS), and it never goes out in
   the rain. build_hearth (work band, HEARTH_SCORE, by day, while the winter goal wants one) puts it in the home's
-  room, in the front corner nearest home's cell (two walls beside it, clear of the way in), which the home claims
-  already.
+  room (`hearth_spot`: a free room cell against a wall, nearest home's cell, clear of the flower pot's, the candle's,
+  the bed's and the chest's cells and of the way from the door to every other), which the home claims already.
 - Smoked meat: the `smoke` step (SMOKE_SECONDS at a campfire or hearth) turns 1 raw meat and 1 stick into 1 smoked
   meat, which fills 20 hunger and never spoils (it is no PERISHABLE food). smoke_meat (work band, SMOKE_SCORE, by
   day) smokes the raw meat Mimo carries all through autumn, whatever its goal (the controller's ruling on the W2
-  dry run), while winter wants more smoked meat (`smoke_wanted`), lighting a campfire as cook does.
+  dry run), while winter wants more smoked meat (`smoke_wanted`), lighting a campfire as cook does. For a wild pet
+  cook leaves the meat it could smoke now (cooking.SPARED); a gentle pet's cook and smoke_meat compete for its raw
+  meat instead of sharing it, which is harmless: its food never spoils, so what cook takes is still eaten.
 Each is unlocked by its lesson (`wild:cloak`, `wild:hearth`, `wild:smoking`); a gentle pet knows them all.
 """
 
@@ -27,6 +29,7 @@ from backend.services.crafting import add_item, take_items
 from backend.survival import storage
 from backend.survival.carrying import crafts_fit
 from backend.survival.cooking import FIRE_STAND, FIRE_TRAVEL, SPARED, station
+from backend.survival.cozy import front_corners
 from backend.survival.creatures.gear import gear_steps
 from backend.survival.creatures.harm import SLOTS
 from backend.survival.foraging import whole_walk
@@ -107,22 +110,52 @@ register(Purpose(
 # The hearth --------------------------------------------------------------------------------------
 
 def hearth_spot(s: Situation) -> Cell | None:
-    """The room cell of Mimo's home the hearth goes in: one with walls on two sides (a front corner, clear of
-    the way in and of the bed and chest corners), the nearest home's cell; None when none is free."""
+    """The room cell of Mimo's home the hearth goes in (the controller's ruling on W2's final review): a free cell of
+    the room's floor that is none of the design's flower pot, candle, bed or chest cells, and that leaves every other
+    floor cell of the room reachable from the door; one against a wall first, then the nearest home's cell. None when
+    none is free. The hearth went in a front corner with walls on two sides before, and those are Making's pot and
+    candle cells (cozy.front_corners), so whichever came first kept the other out for good."""
     structure = home_structure(s)
     if structure is None or structure["status"] != "done":
         return None
     blueprint = blueprint_of(structure)
-    walls = {planned.cell for planned in blueprint.parts("wall")}
     level = blueprint.anchor[1]
-    corners = [planned.cell for planned in blueprint.parts("room") if planned.cell[1] == level
-               and sum((planned.cell[0] + dx, level, planned.cell[2] + dz) in walls for dx, dz in SIDES) >= 2
-               and s.grid.material(*planned.cell) == "air"]
-    return min(corners, key=lambda cell: (math.dist(cell, blueprint.anchor), cell)) if corners else None
+    walls = {planned.cell for planned in blueprint.parts("wall")}
+    kept = {*front_corners(blueprint).values(), *(planned.cell for planned in blueprint.parts("bed", "chest"))}
+    floor = {planned.cell for planned in blueprint.parts("room", "passage") if planned.cell[1] == level} - kept
+    gap = {planned.cell for planned in blueprint.parts("door") if planned.cell[1] == level}
+    doorway = next((cell for cell in sorted(floor)
+                    if any((cell[0] + dx, level, cell[2] + dz) in gap for dx, dz in SIDES)), blueprint.anchor)
+    if doorway not in floor:
+        return None
+
+    def open_after(cell: Cell) -> bool:
+        """Every floor cell but `cell` is reached from the doorway."""
+        left = floor - {cell}
+        if doorway not in left:
+            return False
+        seen, frontier = {doorway}, [doorway]
+        while frontier:
+            x, _, z = frontier.pop()
+            for dx, dz in SIDES:
+                beside = (x + dx, level, z + dz)
+                if beside in left and beside not in seen:
+                    seen.add(beside)
+                    frontier.append(beside)
+        return seen == left
+
+    spots = [planned.cell for planned in blueprint.parts("room") if planned.cell in floor
+             and s.grid.material(*planned.cell) == "air" and open_after(planned.cell)]
+    if not spots:
+        return None
+
+    def walled(cell: Cell) -> bool:
+        return any((cell[0] + dx, level, cell[2] + dz) in walls for dx, dz in SIDES)
+    return min(spots, key=lambda cell: (not walled(cell), math.dist(cell, blueprint.anchor), cell))
 
 
 def hearth_plan(s: Situation) -> list[dict] | None:
-    """Make the hearth when Mimo carries none, walk home and put it in its corner; None when it cannot now."""
+    """Make the hearth when Mimo carries none, walk home and put it in its spot; None when it cannot now."""
     def look() -> list[dict] | None:
         if not (winter_goal(s) and unlocked(s, "hearth")) or hearth_home(s):
             return None

@@ -34,6 +34,7 @@ from dataclasses import dataclass
 
 from backend.survival.ailments import sickness, wound_of
 from backend.survival.bond_tables import open_question_rows
+from backend.survival.creatures.harm import blow_at, last_blow
 from backend.survival.meals import HOLDS, RAW_RISK
 from backend.survival.once import log_once
 from backend.survival.senses import natural_plants
@@ -189,7 +190,7 @@ def meet(state: dict, context, at: float) -> None:
             met(state, "raw_meat", at, label(raw))
         wound = wound_of(state)
         if "wound" not in found and wound is not None:
-            met(state, "wound", at, f"A {label(state.get('hurt_by') or 'creature')}")
+            met(state, "wound", at, f"A {label((last_blow(state) or (None, None))[1] or 'creature')}")
         if "cold_night" not in found and night["night_cold"] >= COLD_NIGHT:
             met(state, "cold_night", at)
         if "hard_floor" not in found and night["floor_nights"] >= FLOORS:
@@ -199,7 +200,8 @@ def meet(state: dict, context, at: float) -> None:
                                        or any(chest.get(SPOILED) for chest in state.get("chests", {}).values())):
             item = night.get("last_spoiled") or "food"
             met(state, "spoiled", at, label(LOOKS_LIKE.get(item, item)))  # as Mimo sees it: "My red berries went bad!"
-        chased = (state.get("brain") or {}).get("reflex") in ("flee", "fight") or state.get("hurt_at") is not None
+        chased = ((state.get("brain") or {}).get("reflex") in ("flee", "fight")
+                  or blow_at(state) is not None)  # W2: the sky's hurts are no creature's
         if "dark_creature" not in found and chased:
             met(state, "dark_creature", at)
     except Exception as error:

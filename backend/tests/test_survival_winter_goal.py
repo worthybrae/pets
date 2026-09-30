@@ -16,7 +16,7 @@ from backend.survival.situation import Situation
 from backend.survival.storage import chest_spot
 from backend.survival.trips import FENCES
 from backend.survival.winter_prep import (
-    GOAL, WINTER_EXTRA, WINTER_FOOD, far_goal, winter_fence, winter_food, winter_pull,
+    GOAL, WINTER_EXTRA, WINTER_FOOD, far_goal, held, winter_fence, winter_food, winter_pull,
 )
 from backend.tests.test_survival_life_goals import built
 
@@ -66,8 +66,11 @@ class OfferTests(unittest.TestCase):
         self.assertFalse(is_open(winter, GOALS["expedition"]))
         self.assertEqual([winter_fence(winter, far), winter_fence(winter, near), winter_fence(autumn, far)],
                          [True, False, False])
-        with patch("backend.survival.winter_prep.biome_at", return_value="alpine"):
+        heights = lambda cx, cz, seed: "alpine" if cx > x else "meadow"  # noqa: E731  (the mountains, east of home)
+        with patch("backend.survival.winter_prep.biome_at", heights):
             self.assertTrue(winter_fence(winter, near))  # a winter day in the mountains freezes
+        with patch("backend.survival.winter_prep.biome_at", return_value="alpine"):  # W2's final review: home up there
+            self.assertEqual([winter_fence(winter, near), winter_fence(winter, far)], [False, True])
         self.assertIn(winter_fence, FENCES)
         world.state["difficulty"] = "wild"  # a wild pet that does not know winter roams as ever
         self.assertEqual((far_goal(on_day(world, 31), GOALS["expedition"]), winter_fence(on_day(world, 31), far)),
@@ -98,6 +101,19 @@ class FoodTests(unittest.TestCase):
         self.assertEqual(winter_food(on_day(world, 29, 0.0)), 4 * 35 + 2 * 25)
         # four winter days more (the goal's measure before resolution 24): 2 / 3 of a day more, under 0.08 worn
         self.assertEqual(winter_food(on_day(world, 25, 0.0), good_until=4), 35 + 2 * 25)
+
+    def test_an_old_ruins_chest_counts_toward_no_milestone(self):
+        """Carried from W2's seventh task: `held` counted a ruin chest's cloak and smoked meat toward the milestones,
+        while `winter_food` leaves a ruin's chests out."""
+        world = built()
+        ruin = "500,20,500"
+        world.state["chests"] = {ruin: {"wool_cloak": 1, "smoked_meat": 8, "bread": 10}}
+        with patch("backend.survival.ruins.is_ruin_chest", lambda seed, cell: cell == (500, 20, 500)):
+            s = on_day(world, 22)
+            self.assertEqual((held(s, "wool_cloak"), held(s, "smoked_meat"), winter_food(s)), (0, 0, 0.0))
+            self.assertEqual([milestone.share(s) for milestone in GOALS[GOAL].milestones], [0.0, 0.0, 0.0, 0.0])
+            world.state["chests"]["1,1,1"] = {"smoked_meat": 2}  # one of its own
+            self.assertEqual(held(on_day(world, 22), "smoked_meat"), 2)
 
 
 class LarderTests(unittest.TestCase):

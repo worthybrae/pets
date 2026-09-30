@@ -2075,7 +2075,7 @@ git commit -m "feat(W2): rain puts out a campfire under the open sky, a stick li
 
 **Interfaces:**
 - Consumes: Task 2's weather; Task 3's `fire` block; `Grid.put` (a burning cell and its burning out are ordinary edits); `claims`; `homes`; W1's `hurt_by` and the tick's `caught`; defense's `run_away`.
-- Produces: `storms.STRIKE_EVERY` (60), `HOME_CLEAR` (16), `FIRE_CLEAR` (8), `FIRE_CELLS` (24), `FIRES` (2), `built_home(db)`, `column_top`, `highest`, `strike`, `ignite`, `spread`, `hot_cells(state)`, `fire_near(state, reach=3)`, `burn_pet`, `storm` (a sky effect), `STRIKES` (callables `(state, context, cell, hit, at)`, guarded: Task 9's knocks); `state["sky"]`'s `strikes` (the last 5, `{x, y, z, at}`), `fires` (`{x, y, z, fire, since, until}`), `burned`, `last_strike`, `last_spread`; `Grid.hot`; the reflex `flee_fire` (25); causes `"lightning"` and `"fire"`.
+- Produces: `storms.STRIKE_EVERY` (60), `HOME_CLEAR` (16), `FIRE_CLEAR` (8), `FIRE_CELLS` (24), `FIRES` (2), `built_home(db)`, `column_top`, `highest`, `strike`, `ignite`, `spread`, `hot_cells(state)`, `fire_near(state, reach=3)`, `burn_pet`, `storm` (a sky effect), `STRIKES` (callables `(state, context, cell, hit, at)`, guarded: Task 9's knocks); `state["sky"]`'s `strikes` (the last 5, `{x, y, z, at}`), `fires` (`{x, y, z, fire, caught, until}`), `fire_id`, `burned`, `strike_at`, `fire_at`, `burned_at`, `storming`; `Grid.hot`; the reflex `flee_fire` (25); causes `"lightning"` and `"fire"`.
 
 - [ ] **Step 1: Write the failing tests**
 

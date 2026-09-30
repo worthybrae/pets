@@ -100,6 +100,14 @@ def frame(blueprint: Blueprint):
     return world, width, depth, door, middle
 
 
+def front_corners(blueprint: Blueprint) -> dict[str, Cell]:
+    """The flower pot's and the candle's cells, the front corners inside the home's design (W2's final review: the
+    hearth keeps out of them, winter_gear.hearth_spot)."""
+    world, width, _, _, _ = frame(blueprint)
+    level = blueprint.anchor[1]
+    return {"pot": world(width - 1, 0, level), "candle": world(0, 0, level)}
+
+
 def open_spot(s: Situation, cell: Cell) -> bool:
     x, y, z = cell
     material = s.grid.material(*cell)
@@ -120,8 +128,9 @@ def touches(s: Situation) -> list[Touch]:
         found.append(Touch("bookshelf", world(door, depth, floor + 1), "bookshelf", replaces=True))
         found += [Touch("rug", world(door, j, floor + 1), f"rug_{favourite_colour(s.state)}")
                   for j in range(1, middle + 1)]  # I4: the cell inside the door is the automatic door's plate
-        found.append(Touch("pot", world(width - 1, 0, floor + 1), "flower_pot"))
-        found.append(Touch("candle", world(0, 0, floor + 1), "candle"))
+        corners = front_corners(blueprint)
+        found.append(Touch("pot", corners["pot"], "flower_pot"))
+        found.append(Touch("candle", corners["candle"], "candle"))
         for i in (door + 1, door - 1):
             spot = world(i, -2, floor + 1)
             if s.grid.material(*spot) == "sign" or open_spot(s, spot):

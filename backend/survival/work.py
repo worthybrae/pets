@@ -199,7 +199,7 @@ def cut(grid: Grid, changed: dict[Cell, str], cell: Cell, surface: int, inventor
         return None
     if not is_solid(material):
         return ""
-    if hardness(material) is None or not can_harvest(material, inventory):
+    if hardness(material) is None or not can_harvest(material, inventory) or grid.thick_ice(cell):  # W2: a lake's ice
         return None
     above = (x, y + 1, z)
     if above not in opened and above[1] <= surface and not is_solid(look(grid, changed, above)):

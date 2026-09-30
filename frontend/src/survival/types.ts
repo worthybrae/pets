@@ -449,8 +449,9 @@ export interface SurvivalState {
   difficulty?: Difficulty
   survival?: SurvivalLesson[]
   ailments?: Ailments
-  /** W2: the season, the weather, the snow, the ice, the latest strikes and the fires (an older API sends none). */
-  sky?: SkyView
+  /** W2: the season, the weather, the snow, the ice, the latest strikes and the fires (an older API sends none; null
+   * for a world from before W2 that has not ticked since, or its archive). */
+  sky?: SkyView | null
 }
 
 export interface AliveResponse extends SurvivalState, BondFields, MindFields {

@@ -47,6 +47,11 @@ COLDER_DAY = 2  # autumn day 3 (the season day's own count starts at 0)
 DUSK = next(start for name, start, _ in PHASES if name == "dusk")
 TURNS = {"summer": "Summer has come.", "autumn": "Autumn has come.", "winter": "Winter has come.",
          "spring": "Spring! Things are growing again."}
+# W2's final review: the turns in the words of a pet that does not know the seasons yet (a wild pet that does not know
+# `wild:winter`, NAMES_KNOWN), naming none, as the winter_food wonder names none ("The lake is frozen and nothing
+# grows.").
+UNNAMED = {"summer": "The days are long and warm now.", "autumn": "The leaves are turning.",
+           "winter": "The lakes are freezing and nothing grows any more.", "spring": "Things are growing again!"}
 COLDER = "The nights are getting colder."
 SEGMENT = 600.0  # game seconds of one weather segment
 LOOK_BACK = 6
@@ -63,6 +68,10 @@ SNOW_MELT = 20 * 60.0  # game seconds a full cover takes to melt in spring
 # W2: functions (state, context, at) run by `advance` after the season is tended, before each step (the
 # weather's, the storms' and the ice's effects). One that crashes is logged once and passed over.
 EFFECTS: list[Callable] = []
+# W2's final review: functions (state, context) that say whether Mimo knows the seasons' names (backend.survival
+# .sky_wild: a wild pet once it knows `wild:winter`). With one saying no, a turn is told in UNNAMED's words; one that
+# crashes is logged once and passed over.
+NAMES_KNOWN: list[Callable] = []
 
 
 DEFAULTS = (("season", "spring"), ("season_day", 0), ("day", None), ("weather", "clear"), ("weather_until", None),
@@ -180,6 +189,17 @@ def settle_sky(state: dict, at: float, scale: float) -> None:
         sky["offset"] = (1 - day_number(state, at, scale)) % YEAR_DAYS
 
 
+def names_known(state: dict, context) -> bool:
+    """Mimo knows the seasons' names: none of NAMES_KNOWN says no."""
+    for knows in NAMES_KNOWN:
+        try:
+            if not knows(state, context):
+                return False
+        except Exception as error:
+            log_once(logger, "season names", error)
+    return True
+
+
 def tend_season(state: dict, context, at: float) -> None:
     """Keep the season up to date and log its turns and autumn's warning (see the module docstring)."""
     sky = sky_state(state)
@@ -191,8 +211,9 @@ def tend_season(state: dict, context, at: float) -> None:
     sky.update(season=season, season_day=season_day, day=day)
     if turned:
         kind = "spring" if season == "spring" else "season"
-        context.events.append((at, kind, TURNS[season]))
-        state["last_thought"] = TURNS[season]
+        words = TURNS[season] if names_known(state, context) else UNNAMED[season]
+        context.events.append((at, kind, words))
+        state["last_thought"] = words
     told = sky["told"]
     if (season == "autumn" and season_day % SEASON_DAYS == COLDER_DAY and clock["seconds_into_day"] >= DUSK
             and told.get("colder") != day):
@@ -236,11 +257,16 @@ def advance(state: dict, context, at: float) -> None:
             log_once(logger, f"sky {getattr(effect, '__name__', 'effect')}", error)
 
 
-def sky_view(state: dict, now: float, scale: float) -> dict:
+def sky_view(state: dict, now: float, scale: float) -> dict | None:
     """For /api/mimo (read only): the season and its day (1 to 10), the days to the next season, the weather
     and until when, the snow, whether the lakes are frozen, the latest strikes ({x, y, z, at}) and the cells
-    burning in the trees ({x, y, z}, for the viewer's embers)."""
+    burning in the trees ({x, y, z}, for the viewer's embers). None for a world with no year that has ticked (no
+    offset: one from before W2 that has not ticked since, or its archive), which had no seasons (W2's final review:
+    it read as offset 0, so an old world showed whatever season its day number fell in). A newborn not ticked yet
+    reads its offset 0, as its first tick sets it."""
     sky = state.get("sky") or {}
+    if "offset" not in sky and state.get("last_tick_at") != state.get("born_at"):
+        return None
     at = state["died_at"] if state.get("died_at") is not None else now
     season, season_day = season_at(state, at, scale)
     return {"season": season, "day": season_day % SEASON_DAYS + 1, "to_next": SEASON_DAYS - season_day % SEASON_DAYS,

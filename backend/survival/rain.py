@@ -134,7 +134,9 @@ def finish_relight(step: dict, state: dict, grid: Grid, at: float) -> None:
 
 
 def relight_steps(s: Situation, reach: float) -> list[dict]:
-    """The step that relights a doused campfire within `reach` (not one out in the rain), or []."""
+    """The step that relights a doused campfire in reach of Mimo (steps.in_reach, not one out in the rain), or [].
+    `reach` only bounds the look for doused campfires (Grid.placed_cells' broad phase): the step is planned only for
+    one in reach from where Mimo stands, however large `reach` is."""
     if s.count("sticks") < 1:
         return []
     x, _, z = s.here

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BOLT_SECONDS, boltPoints, boltsAt, burnedOut, desaturate, emberAt, FALL_BOX, fallAt, fallShown, FLASH_LIFT,
-  FLASH_SECONDS, FOG_NEAR, flashAt, flashLevel, particleCount, RAIN_STREAKS, SNOW_FLAKES, weatherFog, weatherLine,
-  weatherSky,
+  FLASH_SECONDS, FOG_NEAR, flashAt, flashLevel, flashSky, flashWhite, keepSmoke, particleCount, type Puff,
+  RAIN_STREAKS, SNOW_FLAKES, weatherFog, weatherLine, weatherSky,
 } from './weather'
 
 const DAY: [number, number, number] = [0xdc, 0xe9, 0xeb]
@@ -76,6 +76,20 @@ describe('rain, snow, bolts, embers and smoke', () => {
     expect(ember.scale).toBeGreaterThan(0)
     expect(burnedOut([{ x: 1, y: 2, z: 3 }, { x: 4, y: 5, z: 6 }], [{ x: 4, y: 5, z: 6 }])).toEqual([{ x: 1, y: 2, z: 3 }])
   })
+
+  it('keeps the smoke in one list from frame to frame: new puffs join, old ones go, the oldest past the most', () => {
+    // carried from W2's twelfth task: the list was made anew every frame
+    const smoking: Puff[] = []
+    const cell = (x: number) => ({ x, y: 0, z: 0 })
+    expect(keepSmoke(smoking, [cell(1), cell(2)], 10, 5, 3)).toBe(smoking)
+    expect(smoking.map((puff) => [puff.cell.x, puff.at])).toEqual([[1, 10], [2, 10]])
+    keepSmoke(smoking, [cell(3), cell(4)], 12, 5, 3)
+    expect(smoking.map((puff) => puff.cell.x)).toEqual([2, 3, 4])  // at most 3: the oldest went
+    keepSmoke(smoking, [], 15, 5, 3)
+    expect(smoking.map((puff) => puff.cell.x)).toEqual([3, 4])  // 5 s on, the first ones are gone
+    keepSmoke(smoking, [], 17, 5, 3)
+    expect(smoking).toEqual([])
+  })
 })
 
 describe('the lightning flash', () => {
@@ -87,5 +101,16 @@ describe('the lightning flash', () => {
     expect(flashAt([{ x: 0, y: 0, z: 0, at: 10 }, { x: 1, y: 0, z: 0, at: 20 }], 20.05)).toBeCloseTo(1 + 2 * (1 - 0.05 / 0.15))
     expect(flashAt([], 5)).toBe(1)
     expect(flashAt(undefined, 5)).toBe(1)
+  })
+
+  it('takes the sky toward white with the flash: none at no lift, all the way at its height', () => {
+    // carried from W2's eleventh task: the blend was inline in DayNight and untested
+    expect(flashWhite(1)).toBe(0)
+    expect(flashWhite((1 + FLASH_LIFT) / 2)).toBeCloseTo(0.5)
+    expect(flashWhite(FLASH_LIFT)).toBe(1)
+    expect(flashWhite(FLASH_LIFT + 1)).toBe(1)
+    expect(flashSky(DAY, 1)).toBe(DAY)
+    expect(flashSky([0, 0, 0], FLASH_LIFT)).toEqual([255, 255, 255])
+    expect(flashSky([0, 0, 0], flashAt([{ x: 0, y: 0, z: 0, at: 10 }], 10 + FLASH_SECONDS / 2))[0]).toBeCloseTo(128, -1)
   })
 })

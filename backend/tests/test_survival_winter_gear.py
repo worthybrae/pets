@@ -1,12 +1,15 @@
 """W2: the wool cloak, the hearth and smoked meat: their recipes, what each does, and the purposes that make them."""
 
+import math
 import sqlite3
 import unittest
 from types import SimpleNamespace
 
 from backend.services.crafting import FIRES, craft, smelt
 from backend.survival import brain  # noqa: F401  (registers every purpose and goal)
+from backend.survival.blueprints import TIERS
 from backend.survival.carrying import CARRY_STACKS, room_for, stacks
+from backend.survival.cozy import front_corners, touches, touches_left
 from backend.survival.creatures.harm import ARMOR, SLOTS, armor_cut
 from backend.survival.goals import GOALS, adopt_goal
 from backend.survival.housework import chest_key
@@ -23,6 +26,7 @@ from backend.survival.cooking import cook_plan
 from backend.survival.winter_gear import SMOKABLE, SMOKE_SECONDS, hearth_spot, smoke_wanted, spare_meat
 from backend.survival.winter_prep import GOAL, hearth_home
 from backend.tests.test_survival_cooking import meadow
+from backend.tests.test_survival_cozy import home_of
 from backend.tests.test_survival_winter_goal import on_day
 from backend.tests.test_survival_life_goals import built
 
@@ -150,7 +154,7 @@ class CloakTests(unittest.TestCase):
 
 
 class HearthTests(unittest.TestCase):
-    def test_build_hearth_puts_one_in_a_front_corner_of_home_while_the_winter_goal_wants_it(self):
+    def test_build_hearth_puts_one_in_the_room_of_home_while_the_winter_goal_wants_it(self):
         world = outside(built({"cobblestone": 8, "campfire": 1, "planks": 4}))
         s = on_day(world, 22)
         self.assertFalse(PURPOSES["build_hearth"].valid(s))
@@ -167,6 +171,60 @@ class HearthTests(unittest.TestCase):
         self.assertTrue(hearth_home(s))
         self.assertFalse(PURPOSES["build_hearth"].valid(s))
         self.assertEqual(GOALS[GOAL].milestones[2].share(s), 1.0)
+
+    def floor_open(self, yard, spot):
+        """Every floor cell of the home's room but the hearth's, the pot's, the candle's, the bed's and the chest's is
+        reached from the cell inside the door, through cells Mimo fits in."""
+        home, level = yard.home, yard.home.anchor[1]
+        kept = {spot, *front_corners(home).values(), home.one("bed"), home.one("chest")}
+        floor = {planned.cell for planned in home.parts("room", "passage") if planned.cell[1] == level} - kept
+        door = next(planned.cell for planned in home.parts("door") if planned.cell[1] == level)
+        start = next(cell for cell in floor if math.dist(cell, door) == 1)
+        seen, frontier = {start}, [start]
+        while frontier:
+            x, y, z = frontier.pop()
+            for beside in ((x + 1, y, z), (x - 1, y, z), (x, y, z + 1), (x, y, z - 1)):
+                if beside in floor and beside not in seen and yard.grid.passable(beside):
+                    seen.add(beside)
+                    frontier.append(beside)
+        return seen == floor
+
+    def test_a_cozy_home_gets_a_hearth_afterwards_on_every_tier(self):
+        """W2's final review: the hearth's only spots were Making's candle and flower pot cells, so a home that had
+        both could never have a hearth."""
+        for size in TIERS:
+            for side in ("north", "south", "east", "west"):
+                yard = home_of(size, side)
+                for touch in touches(yard.situation()):
+                    if touch.kind in ("pot", "candle"):
+                        yard.grid.put(*touch.cell, touch.block)
+                yard.grid.put(*yard.home.one("bed"), "bed")
+                yard.grid.put(*yard.home.one("chest"), "chest")
+                spot = hearth_spot(yard.situation())
+                self.assertIsNotNone(spot, (size, side))
+                self.assertIn(spot, {planned.cell for planned in yard.home.parts("room")})
+                yard.grid.put(*spot, "hearth")
+                self.assertTrue(hearth_home(yard.situation()), (size, side))
+                self.assertEqual({touch.kind for touch in touches_left(yard.situation())} & {"pot", "candle"}, set())
+                self.assertTrue(self.floor_open(yard, spot), (size, side))
+
+    def test_a_home_with_a_hearth_still_gets_its_candle_and_pot_on_every_tier(self):
+        for size in TIERS:
+            for side in ("north", "south", "east", "west"):
+                yard = home_of(size, side)
+                spot = hearth_spot(yard.situation())
+                self.assertIsNotNone(spot, (size, side))
+                yard.grid.put(*spot, "hearth")
+                left = {touch.kind: touch for touch in touches_left(yard.situation())}
+                for kind in ("pot", "candle"):
+                    self.assertEqual(yard.grid.material(*left[kind].cell), "air", (size, side, kind))
+                    yard.grid.put(*left[kind].cell, left[kind].block)
+                self.assertEqual({touch.kind for touch in touches_left(yard.situation())} & {"pot", "candle"}, set())
+                self.assertTrue(self.floor_open(yard, spot), (size, side))
+                wall = {planned.cell for planned in yard.home.parts("wall")}
+                x, y, z = spot
+                self.assertTrue(any(beside in wall for beside in ((x + 1, y, z), (x - 1, y, z), (x, y, z + 1),
+                                                                  (x, y, z - 1))))  # against a wall
 
 
 if __name__ == "__main__":

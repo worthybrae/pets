@@ -180,7 +180,7 @@ def open_up(grid: Grid, changed: dict[Cell, str], cell: Cell, stock: dict, steps
         return True  # nothing to mine: an open cell is used even when claimed (L3 final fix wave)
     if reserved(grid, cell) or reserved(grid, (x, y + 1, z)):
         return False
-    if hardness(material) is None or not can_harvest(material, stock):
+    if hardness(material) is None or not can_harvest(material, stock) or grid.thick_ice(cell):  # W2: a lake's ice
         return False
     if rubble and (material in ORES or material in LOGS):
         return False

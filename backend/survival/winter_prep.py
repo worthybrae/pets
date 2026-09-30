@@ -10,7 +10,8 @@ Its milestones, each only for a lesson Mimo knows (one it does not know is whole
   that target (larder.TARGETS), Mimo wanting up to WINTER_EXTRA more food on hand while it gathers. W2 plan,
   resolution 24 (the controller's ruling on the W2 gate): the food that keeps goes in the chests first, the food
   that spoils soonest stays on hand to be eaten (`keeping_first`, storage.SPARE_KEEPING), and a wild pet's goal
-  holds it (Goal.holds) through autumn while its chests fall short, so it is not set aside for an expedition;
+  holds it (Goal.holds) through autumn while its chests fall short, so it is not set aside for an expedition, and
+  pulls it WILD_PULL more than the season's WINTER_PULL meanwhile, over a curious pet's discovery goals;
 - a wool cloak, a hearth in home and SMOKED_WANTED smoked meat (the cloak, the hearth and the smoke step come
   with their purposes and recipes: a milestone is skipped until then, goals.counted).
 Reached, it is a notable "goal" event, as goals are.
@@ -18,7 +19,9 @@ Reached, it is a notable "goal" event, as goals are.
 In winter a pet that knows winter keeps near the home it built (`keeps_near`): a winter night out, or a winter day
 in the mountains (vitals.ALPINE_DAY: 45 less 60), freezes. It takes up no expedition and no riches trip (FAR_GOALS,
 goals.HELD_OFF: one already under way is given up at the next goal check, "it cannot be done now", and Mimo comes
-home), and no trip heads for a target farther than WINTER_REACH from home or in the mountains (trips.FENCES).
+home), and no trip heads for a target farther than WINTER_REACH from home or in the mountains (trips.FENCES; a pet whose
+home is in the mountains goes about them within WINTER_REACH, since inside it a home is never colder than
+vitals.HOME_FLOOR, spec resolution 34).
 Measured on the gate's gentle lives before this rule: every freezing minute of the first winters was 150 to 240
 blocks out, on an expedition, a riches trip or the far hills, and one pet lost 88 health in a winter night dug in
 on a mountain with no fire.
@@ -111,8 +114,11 @@ def target(s: Situation, goal) -> tuple | None:
 
 
 def held(s: Situation, item: str) -> int:
-    """How many of `item` Mimo carries and its chests hold."""
-    return s.count(item) + sum(chest.get(item, 0) for chest in s.state.get("chests", {}).values())
+    """How many of `item` Mimo carries and its chests hold (not an old ruin's, as `winter_food` counts: a cloak or
+    smoked meat left in a ruin's chest is no winter's gear of Mimo's)."""
+    from backend.survival.ruins import ruin_chest_key  # here: brain imports the larder before the ruins
+    return s.count(item) + sum(chest.get(item, 0) for key, chest in s.state.get("chests", {}).items()
+                               if not ruin_chest_key(s.seed, key))
 
 
 def food_share(s: Situation) -> float:
@@ -163,12 +169,14 @@ def far_goal(s: Situation, goal) -> bool:
 
 
 def winter_fence(s: Situation, cell) -> bool:
-    """trips.FENCES: in winter no trip heads for a target farther than WINTER_REACH from home or in the mountains."""
+    """trips.FENCES: in winter no trip heads for a target farther than WINTER_REACH from home, or in the mountains
+    unless home is in the mountains too (W2's final review: every target of a pet whose home is on the heights was
+    fenced, so it took no trip all winter)."""
     if not keeps_near(s):
         return False
     home = home_cell(s)
     far = math.hypot(cell[0] - home[0], cell[2] - home[2]) > WINTER_REACH
-    return far or biome_at(cell[0], cell[2], s.seed) == "alpine"
+    return far or (biome_at(cell[0], cell[2], s.seed) == "alpine" and biome_at(home[0], home[2], s.seed) != "alpine")
 
 
 register_goal(Goal(

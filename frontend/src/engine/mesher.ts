@@ -218,7 +218,8 @@ export function meshColumn({ cx, cz, volume, faceTiles }: MeshInput): ColumnMesh
           const light = aos.map((ao) => face.shade * AO_LIGHT[ao] * blockTint)
           // Split along the diagonal that holds the odd corner so gradients don't crease.
           const flip = aos[0] + aos[2] > aos[1] + aos[3]
-          const surface = water ? WATER_FACE : dy === 1 && open ? OPEN_TOP : 0
+          // W2: the snow settles on a top face open to the sky, but not on a lake's floor under its water
+          const surface = water ? WATER_FACE : dy === 1 && open && above !== WATER ? OPEN_TOP : 0
           builder.quad(corners, tileUv(faceTiles[id * 6 + faceIndex]), light, flip, glow ? 1 : 0, surface)
         })
       }

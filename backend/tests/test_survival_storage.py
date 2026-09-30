@@ -2,7 +2,9 @@ import sqlite3
 import unittest
 
 from backend.services.crafting import craft
-from backend.survival import farming, storage  # noqa: F401  (register farm, build_storage and drop_items)
+from backend.survival import brain, farming, storage  # noqa: F401  (register farm, build_storage and drop_items; and
+# brain every other module, as the whole suite has them: making's, the workshop's and the cozy home's KEEPS_MORE and
+# LATER keep the clay DropTests reads, and it failed when run alone)
 from backend.survival.actions import ActionContext, ensure_actions
 from backend.survival.blueprints import Style, find_site, shelter, supplies
 from backend.survival.carrying import stacks
@@ -104,6 +106,15 @@ class StorageTests(unittest.TestCase):
         s = stuck.situation()
         self.assertTrue(full(s.inventory))
         self.assertFalse(food_first(s))  # putting away 6 of 14 coal frees no stack: food work, not the chest all day
+
+    def test_the_food_taken_out_is_never_the_spare_food_put_back(self):
+        """Carried from W2's sixteenth task: food_first takes food out while Mimo carries less than TAKE_BELOW, and
+        spare_food (SPARE_KEEPING's order too) puts away only what is beyond FOOD_WANTED, so no batch takes out what
+        the next puts back, as long as TAKE_BELOW stays under FOOD_WANTED."""
+        from backend.survival.foraging import FOOD_WANTED
+        from backend.survival.storage import TAKE_BELOW, spare_food
+        self.assertLess(TAKE_BELOW, FOOD_WANTED)
+        self.assertEqual(spare_food(Home({"bread": 2}).situation()), [])  # 50 points carried: none of it spare
 
     def test_not_offered_with_room_to_spare_or_without_a_built_shelter(self):
         self.assertFalse(PURPOSES["build_storage"].valid(Home({"dirt": 40, "planks": 8}).situation()))

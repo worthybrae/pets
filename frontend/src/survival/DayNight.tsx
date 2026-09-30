@@ -2,9 +2,9 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { seasonSky } from './seasons'
-import { dayness, mixRgb, rgbToHex, skyColor } from './sky'
+import { dayness, rgbToHex, skyColor } from './sky'
 import type { SkyView } from './types'
-import { flashAt, weatherFog, weatherSky } from './weather'
+import { flashAt, flashSky, weatherFog, weatherSky } from './weather'
 
 /**
  * Lights that follow the game clock: sky and fog color and a sun and ambient light that dim at
@@ -28,7 +28,7 @@ export default function DayNight({ seconds, sky = null, now, fog }: {
     const light = dayness(time)
     const flash = now ? flashAt(sky?.strikes, now()) : 1
     const tinted = weatherSky(seasonSky(skyColor(time), sky?.season, light), sky?.weather)
-    color.current.set(rgbToHex(flash > 1 ? mixRgb(tinted, [255, 255, 255], Math.min(1, (flash - 1) / 2)) : tinted))
+    color.current.set(rgbToHex(flashSky(tinted, flash)))
     if (state.scene.background instanceof THREE.Color) state.scene.background.copy(color.current)
     if (state.scene.fog instanceof THREE.Fog) {
       state.scene.fog.color.copy(color.current)

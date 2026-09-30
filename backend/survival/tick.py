@@ -62,6 +62,7 @@ from backend.survival.actions import (
     ActionContext, Interrupt, Observe, Planner, activity_of, advance_actions, ensure_actions,
 )
 from backend.survival.clock import DAY_SECONDS, action_scale as action_scale_setting, clock_at, is_night, time_scale
+from backend.survival.creatures.harm import sheltered as inside_built
 from backend.survival.creatures.hostiles import hostile_near
 from backend.survival.creatures.simulate import simulate
 from backend.survival.grid import world_grid
@@ -114,20 +115,23 @@ RESTING = Mind()
 
 
 def surroundings_at(db: sqlite3.Connection, seed: str, position: dict, state: dict | None = None) -> Surroundings:
-    """What the world round Mimo's cell says for a vitals step; W2: with `state`, the season too."""
+    """What the world round Mimo's cell says for a vitals step; W2: with `state`, the season too, and whether Mimo is
+    inside a home it built (a room or passage cell of its shelter: one query, only while it is sheltered)."""
     x, y, z = round(position["x"]), round(position["y"]), round(position["z"])
 
     def material_at(cx: int, cy: int, cz: int) -> str:
         return material_in(db, cx, cy, cz, seed)
 
+    sheltered = is_sheltered(material_at, x, y, z)
     return Surroundings(
         biome=biome_at(x, z, seed),
-        sheltered=is_sheltered(material_at, x, y, z),
+        sheltered=sheltered,
         near_fire=near_warm_block(placed_near(db, position, FIRE_REACH, WARM_BLOCKS), x, y, z),
         head_in_water=material_at(x, y, z) == "water",
         season=sky.season_now(state) if state is not None else "spring",
         snowing=state is not None and sky.weather_now(state) == "snow",
         cloak=state is not None and cloaked(state, db),
+        at_home=sheltered and db is not None and inside_built(db, (x, y, z)),  # W2: spec resolution 34
     )
 
 

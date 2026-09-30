@@ -87,6 +87,7 @@ TEACHES_W2 = ("Fill a chest with food before winter.", "Five wool make a wool cl
               "Rain puts out a fire under the open sky.", "In a storm stay low and inside.",
               "Stay close to home in the fog.")
 UPGRADE_DAY = 20  # criterion 9: the upgraded world's day when W2 comes
+W1_LESSONS = 11  # wild.SURVIVAL's first lessons are W1's; W2's follow them
 
 
 class Errors(logging.Handler):
@@ -226,11 +227,18 @@ def before_w2(active: bool):
 
 
 def upgrade(world) -> None:
-    """The old world's state loses what W2 would have written (it had none): its next tick is its first W2 tick."""
+    """The old world's state loses what W2 would have written (it had none): its next tick is its first W2 tick. It
+    was granted W1's lessons only (`wild.granted` 1, and no row of W2's lessons), so that tick grants W2's (GRANTED
+    1 to 2, criterion 9's upgrade; W2's final review: `wild.settle` was not patched out, so the life had been granted
+    W2's lessons from its first tick and the step up never ran)."""
+    from backend.survival.wild import SURVIVAL, thing
     from backend.survival.world import read_state, write_state
+    w2 = [thing(lesson.name) for lesson in SURVIVAL[W1_LESSONS:]]
     with world.transaction() as db:
         state = read_state(db)
         state.pop("sky", None)
+        state.setdefault("wild", {})["granted"] = 1
+        db.execute(f"DELETE FROM memory_knowledge WHERE subject IN ({','.join('?' * len(w2))})", w2)
         write_state(db, state)
 
 
@@ -428,6 +436,8 @@ def by_day(life: dict, key: str, day: int) -> float:
 
 def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     """The W1 gate's criteria, each (name, passed, the measure)."""
+    from backend.survival.knocks import OWNER_ONLY
+    from backend.survival.wild import SURVIVAL
     lives = load(out)
     gentle, untaught, taught, liar = (lives.get(name, {}) for name in CONDITIONS)
     rows: list[tuple[str, bool, str]] = []
@@ -466,9 +476,7 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
     deaths = [life for life in u if not alive_on(life, 150)]
     row("8 untaught: at most 3 of 6 die, none before day 5", len(deaths) <= 3 and all(alive_on(life, 5) for life in u),
         f"deaths {len(deaths)} on days {[life['died_day'] for life in deaths]}")
-    from backend.survival.wild import SURVIVAL
-    from backend.survival.knocks import OWNER_ONLY
-    W1_ALONE = {lesson.name for lesson in SURVIVAL[:11]} - set(OWNER_ONLY)  # W2: leave W2's alone-learnable lessons out
+    W1_ALONE = {lesson.name for lesson in SURVIVAL[:W1_LESSONS]} - set(OWNER_ONLY)  # W2: leave W2's own lessons out
     alone = {life["seed"]: sum(1 for name, entry in life["lessons"].items()
                                if entry["day"] is not None and entry["day"] <= 60 and entry["source"] == "figured"
                                and name in W1_ALONE)
@@ -494,7 +502,6 @@ def check_w1(out: Path) -> list[tuple[str, bool, str]]:
         f"deaths {liar_deaths} vs {untaught_deaths}; (liar, untaught) sick minutes by day 30 {worse}")
     g = list(gentle.values())
     clean = all(not any(life["ever"].values()) for life in g)
-    from backend.survival.wild import SURVIVAL  # W2: every landed milestone's lessons
     known = all(len(life["lessons"]) == len(SURVIVAL)
                 and all(entry["source"] == "from_start" for entry in life["lessons"].values()) for life in g)
     row("13 gentle: all alive; no sickness, wound, lot or question; every lesson from the first tick",
@@ -530,11 +537,23 @@ COST_TESTS = ("backend.tests.test_survival_storms.TickTests.test_a_storm_by_a_bu
 
 def cost_rows() -> tuple[bool, str]:
     """Criterion 10: the sky hook's budget in a storm by a forest and a route across a frozen lake (the unit tests
-    that measure them, run here)."""
+    that measure them, run here). They time the wall clock, so they run only with MIMO_SLOW_TESTS (W2's final review:
+    under load they flaked in the ordinary suite): it is set in this process while they run, and one skipped fails."""
+    import os
     import unittest
-    result = unittest.TextTestRunner(stream=open("/dev/null", "w"), verbosity=0).run(
-        unittest.defaultTestLoader.loadTestsFromNames(COST_TESTS))
-    return result.wasSuccessful(), f"{result.testsRun} budget tests, {len(result.failures) + len(result.errors)} failed"
+    before = os.environ.get("MIMO_SLOW_TESTS")
+    os.environ["MIMO_SLOW_TESTS"] = "1"
+    try:
+        with open(os.devnull, "w") as quiet:
+            result = unittest.TextTestRunner(stream=quiet, verbosity=0).run(
+                unittest.defaultTestLoader.loadTestsFromNames(COST_TESTS))
+    finally:
+        if before is None:
+            os.environ.pop("MIMO_SLOW_TESTS", None)
+        else:
+            os.environ["MIMO_SLOW_TESTS"] = before
+    failed, skipped = len(result.failures) + len(result.errors), len(result.skipped)
+    return result.wasSuccessful() and not skipped, f"{result.testsRun} budget tests, {failed} failed, {skipped} skipped"
 
 
 def check_w2(out: Path, cost: bool = True) -> list[tuple[str, bool, str]]:

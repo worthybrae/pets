@@ -20,7 +20,7 @@ from backend.survival.episodes import MOMENTS, Moment, followed, remember_moment
 from backend.survival.events import mirror
 from backend.survival.inbox import CONSUMER, post_item
 from backend.survival.replies import in_my_voice
-from backend.survival.sky import TURNS
+from backend.survival.sky import TURNS, UNNAMED
 
 MOMENTS.update({
     "struck": Moment(8, -2),
@@ -45,7 +45,7 @@ def sky_danger(db: sqlite3.Connection, state: dict, event: dict, now: float, sca
 
 def season_news(db: sqlite3.Connection, state: dict, event: dict, now: float, scale: float) -> None:
     """Winter's and spring's first days, as news."""
-    if event["kind"] == "spring" or event["text"] == TURNS["winter"]:
+    if event["kind"] == "spring" or event["text"] in (TURNS["winter"], UNNAMED["winter"]):
         post_item(db, event["at"], "report", in_my_voice(event["text"], state["name"]), {"event": event["id"]})
 
 

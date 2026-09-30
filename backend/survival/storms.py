@@ -42,7 +42,8 @@ import sqlite3
 from backend.services.crafting import LOGS
 from backend.services.worldgen import LEGACY_RADIUS, terrain_height
 from backend.survival import sky
-from backend.survival.grid import Cell, Grid
+from backend.survival.creatures.harm import SKY_HURTS
+from backend.survival.grid import FACES, Cell, Grid, hot_of
 from backend.survival.light import SKY_SCAN, sky_open
 from backend.survival.memory import BUILT, places
 from backend.survival.nature import LEAVES, roll
@@ -69,7 +70,6 @@ BURN_SECONDS = (20.0, 40.0)
 FIRE_DAMAGE = 2.0  # health a game second in or beside a burning cell
 FIRE = "fire"
 BURNS = frozenset(LOGS) | frozenset(LEAVES)
-FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 # Roll channels (Wild World's are 200 to 259).
 SAMPLE_CHANNEL, STRUCK_CHANNEL, SPREAD_CHANNEL, BURN_CHANNEL, PICK_CHANNEL = 232, 233, 234, 235, 236
 # W2: functions (state, context, cell, struck, at) run after each strike: `struck` when it hit Mimo. One that
@@ -134,10 +134,13 @@ def pet_cell(state: dict) -> Cell:
 
 
 def hurt(state: dict, damage: float, source: str, at: float, context) -> None:
-    """Lightning or fire takes health, as a blow would (the tick records a death by it with `source`)."""
+    """Lightning or fire takes health, as a blow would (the tick records a death by it with `source`), but it is no
+    creature's blow: the last blow is kept aside for what answers one (harm.last_blow)."""
     vitals = state["vitals"]
     before = dict(vitals)
     vitals["health"] = max(0.0, vitals["health"] - damage)
+    if state.get("hurt_by") not in SKY_HURTS and state.get("hurt_at") is not None:
+        state.update(blow_at=state["hurt_at"], blow_by=state.get("hurt_by"))
     state.update(hurt_at=at, hurt_by=source)
     for reason in crossings(before, vitals):
         mark_trigger(state, reason, at, urgent=True)
@@ -249,12 +252,7 @@ def spread(state: dict, context, at: float, home=None) -> None:
 
 def hot_cells(state: dict) -> set[Cell]:
     """The burning cells and their face neighbours: paths keep out of them (Grid.hot)."""
-    cells = set()
-    for entry in (state.get("sky") or {}).get("fires", ()):
-        x, y, z = entry["x"], entry["y"], entry["z"]
-        cells.add((x, y, z))
-        cells.update((x + dx, y + dy, z + dz) for dx, dy, dz in FACES)
-    return cells
+    return hot_of((state.get("sky") or {}).get("fires", ()))
 
 
 def fires_within(state: dict, reach: int) -> list[dict]:

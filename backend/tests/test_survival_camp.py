@@ -2,16 +2,21 @@ import unittest
 from unittest.mock import patch
 
 from backend.services.crafting import BLOCKS, add_item
+from backend.services.worldgen import SEA_LEVEL
 from backend.survival import brain  # registers every goal, purpose and reason; also used directly below
 from backend.survival.camp import (
-    camp_spot, in_camp, leave_camp, new_camp, observe_camp, outpost_near, roof_block, roof_in, settled,
+    camp_spot, in_camp, leave_camp, lit_camp, new_camp, observe_camp, outpost_near, roof_block, roof_in, settled,
 )
+from backend.survival.actions import ensure_actions
 from backend.survival.creatures.defense import sealed_camp
 from backend.survival.carrying import full, settle
 from backend.survival.goals import meets_need
+from backend.survival.grid import Grid
 from backend.survival.memory import places, remember
 from backend.survival.once import forget_logged
 from backend.survival.purposes import PURPOSES
+from backend.survival.situation import Situation
+from backend.survival.vitals import START_VITALS
 from backend.tests.test_survival_expedition import DUSK, FLAT, MORNING, NIGHT, Expedition
 
 LATE = {"phase": "day", "seconds_into_day": 2000.0, "time_scale": 1.0, "day_number": 2}
@@ -80,6 +85,26 @@ class CampTests(unittest.TestCase):
             return pet.world.grid.material(102, 1, 1), pet.world.grid.material(102, 2, 1)
         self.assertEqual(rained_on(()), ("campfire_out", "air"))  # no roof: the rain puts it out
         self.assertEqual(rained_on(("rain",)), ("campfire", "dirt"))
+
+    def test_w2_the_fires_roof_never_takes_the_holes_last_block_or_a_taken_cell(self):
+        """Carried from W2's fourteenth task: fire_cover's two guards, through lit_camp. Its last building block stays
+        for the hole's roof when the ground it digs out gives none back (snow), and nothing goes over the fire where a
+        block stands already."""
+        fire, over = (102, 1, 1), (102, 2, 1)
+        self.pet.state["inventory"] = {"campfire": 1, "cobblestone": 1}
+        self.pet.world.grid.put(101, 0, 1, "snow_block")  # dug out, it drops nothing to roof the hole with
+        steps, arms = lit_camp(self.pet.situation(DUSK), (101, 1, 1))
+        self.assertEqual([step["target"] for step in steps if step["kind"] == "place"][:1], [list(fire)])
+        self.assertEqual(arms.get("cobblestone"), 1)  # kept for the hole's roof
+        self.pet.world.grid.put(101, 0, 1, "dirt")  # a floor that gives its block back: the last one may roof the fire
+        steps, arms = lit_camp(self.pet.situation(DUSK), (101, 1, 1))
+        self.assertEqual(steps[0], {"kind": "place", "target": list(over), "block": "cobblestone"})
+        self.assertNotIn("cobblestone", arms)
+        self.pet.state["inventory"] = {"campfire": 1, "cobblestone": 4}
+        self.pet.world.grid.put(*over, "oak_log")  # a block over the fire's cell already
+        steps, arms = lit_camp(self.pet.situation(DUSK), (101, 1, 1))
+        self.assertEqual(steps[0], {"kind": "place", "target": list(fire), "block": "campfire"})
+        self.assertEqual((arms["cobblestone"], self.pet.world.grid.material(*over)), (4, "oak_log"))
 
     def test_it_goes_back_to_an_outpost_near_it(self):
         self.pet.world.grid.put(110, 0, 1, "air")  # an old camp's hole, its roof off
@@ -389,6 +414,33 @@ class CampWiringFixTests(unittest.TestCase):
         s = self.pet.situation(DUSK)
         self.assertFalse(camp_spot(s, (101, 1, 1)))
         self.assertNotEqual(new_camp(s), (101, 1, 1))  # another spot near, on ground it can dig
+
+    def test_the_winters_ice_over_a_pool_is_no_camp_spot(self):
+        """W2's final review: the overlay's ice reads as "ice", a block with a hardness, so camp_spot took a frozen pool
+        for ground it can dig, and the mine step refused it: "the ice is too thick"."""
+        def pool(x, y, z, surface="water"):
+            if y < SEA_LEVEL:
+                return "stone"
+            if y == SEA_LEVEL:
+                return surface if abs(x) <= 4 and abs(z) <= 4 else "grass"
+            return "air"
+
+        def spot_at(grid, cell):
+            state = {"name": "Pip", "world_seed": "1", "position": dict(zip("xyz", map(float, cell))),
+                     "inventory": {"cobblestone": 4, "stone_pickaxe": 1}, "vitals": dict(START_VITALS), "traits": {},
+                     "last_tick_at": 0.0}
+            ensure_actions(state)
+            return camp_spot(Situation(state, grid, DUSK, 0.0), cell)
+
+        on_ice, shore = (0, SEA_LEVEL + 1, 0), (6, SEA_LEVEL + 1, 0)
+        frozen = Grid(pool)
+        frozen.overlay({"frozen": True})
+        self.assertTrue(frozen.standable(on_ice) and frozen.thick_ice((0, SEA_LEVEL, 0)))
+        self.assertFalse(spot_at(frozen, on_ice))
+        self.assertTrue(spot_at(frozen, shore))  # the shore's ground digs
+        taiga = Grid(lambda x, y, z: pool(x, y, z, "ice"))  # a taiga's own ice is a block, and mines
+        self.assertFalse(taiga.thick_ice((0, SEA_LEVEL, 0)))
+        self.assertTrue(spot_at(taiga, on_ice))
 
     def test_a_crashing_leave_camp_is_logged_once_and_planning_continues(self):
         self.dig_in_and_seal()

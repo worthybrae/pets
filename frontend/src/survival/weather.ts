@@ -130,6 +130,34 @@ export function burnedOut(before: readonly Point[], now: readonly Point[]): Poin
   return before.filter((cell) => !burning.has(`${cell.x},${cell.y},${cell.z}`))
 }
 
+/** How far toward white the sky goes in a flash that lifts the light `flash` times: none at 1, all the way at
+ * FLASH_LIFT. */
+export function flashWhite(flash: number): number {
+  return Math.min(1, Math.max(0, (flash - 1) / (FLASH_LIFT - 1)))
+}
+
+/** The sky's color `tinted` in a flash of `flash` times the light, taken toward white by flashWhite. */
+export function flashSky(tinted: Rgb, flash: number): Rgb {
+  const white = flashWhite(flash)
+  return white > 0 ? mixRgb(tinted, [255, 255, 255], white) : tinted
+}
+
+/** A burned-out tree's smoke: where, and when it began (replay time). */
+export interface Puff { cell: Point; at: number }
+
+/**
+ * The smoke still rising at `t`, in place: a puff for each cell of `fresh` joins `smoking`, those older than `lasts`
+ * seconds go, and the oldest go past `most`. The list is kept from frame to frame, not made anew in each.
+ */
+export function keepSmoke(smoking: Puff[], fresh: readonly Point[], t: number, lasts: number, most: number): Puff[] {
+  for (const cell of fresh) smoking.push({ cell, at: t })
+  let kept = 0
+  for (const puff of smoking) if (t - puff.at < lasts) smoking[kept++] = puff
+  smoking.length = kept
+  if (kept > most) smoking.splice(0, kept - most)
+  return smoking
+}
+
 /** The brightest flash of any strike at replay time `now`. */
 export function flashAt(strikes: readonly Strike[] | null | undefined, now: number): number {
   return Math.max(1, ...(strikes ?? []).map((strike) => flashLevel(now - strike.at)))

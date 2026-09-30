@@ -4,13 +4,14 @@ import * as THREE from 'three'
 import type { CameraMode } from './cameraModes'
 import type { Point, SkyView } from './types'
 import {
-  BOLT_SEGMENTS, boltPoints, boltsAt, burnedOut, EMBERS_PER_FIRE, emberAt, fallAt, fallShown, particleCount,
-  RAIN_STREAKS, SMOKE_GAME_SECONDS, SNOW_FLAKES,
+  BOLT_SEGMENTS, boltPoints, boltsAt, burnedOut, EMBERS_PER_FIRE, emberAt, fallAt, fallShown, keepSmoke,
+  particleCount, type Puff, RAIN_STREAKS, SMOKE_GAME_SECONDS, SNOW_FLAKES,
 } from './weather'
 
 const MAX_FIRES = 48
 const MAX_SMOKE = 24
 const SMOKE_BITS = 4
+const NO_CELLS: Point[] = []
 
 /**
  * W2: the weather drawn round the camera and the fires in the trees, at replay time `now` (server seconds): rain
@@ -34,7 +35,7 @@ export default function WeatherEffects({ sky, now, mode, sheltered, small, timeS
   const smoke = useRef<THREE.InstancedMesh>(null)
   const bolt = useRef<THREE.InstancedMesh>(null)
   const scratch = useRef<THREE.Object3D | null>(null)
-  const burned = useRef<{ before: Point[]; smoking: { cell: Point; at: number }[] }>({ before: [], smoking: [] })
+  const burned = useRef<{ before: Point[]; smoking: Puff[] }>({ before: [], smoking: [] })
 
   useFrame(({ camera }) => {
     const t = now()
@@ -91,8 +92,9 @@ export default function WeatherEffects({ sky, now, mode, sheltered, small, timeS
     }
     const memory = burned.current
     const lasts = SMOKE_GAME_SECONDS / Math.max(timeScale, 1e-6)
-    memory.smoking = [...memory.smoking, ...burnedOut(memory.before, sky.fires).map((cell) => ({ cell, at: t }))]
-      .filter((puff) => t - puff.at < lasts).slice(-MAX_SMOKE)
+    // the burned-out cells are looked for only when the fires change (a new poll), and the list is kept in place
+    keepSmoke(memory.smoking, sky.fires === memory.before ? NO_CELLS : burnedOut(memory.before, sky.fires), t, lasts,
+      MAX_SMOKE)
     memory.before = sky.fires
     const puffs = smoke.current
     if (puffs) {

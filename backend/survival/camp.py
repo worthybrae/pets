@@ -154,12 +154,13 @@ def camp_spot(s: Situation, cell: Cell) -> bool:
     (`lit_camp`, as plan_camp plans them; follow-up 2, F2). Ground it can dig is ground the mine step
     can dig: crafting.can_harvest alone passes bedrock, which has no hardness (follow-up 2: once
     planks left over from making a campfire counted as its roof, a pet on a cave floor chose bedrock
-    again and again, "bedrock cannot be mined", and slept without a camp)."""
+    again and again, "bedrock cannot be mined", and slept without a camp). W2's final review: nor the winter's ice
+    over a lake or a pool (Grid.thick_ice), which reads as ice, a block with a hardness, and is too thick to mine."""
     x, y, z = cell
     ground = (x, y - 1, z)
     material = s.grid.material(*ground)
     if (not s.grid.standable(cell) or reserved(s.grid, ground) or hardness(material) is None
-            or not can_harvest(material, s.inventory)):
+            or not can_harvest(material, s.inventory) or s.grid.thick_ice(ground)):  # W2: a frozen pool's ice
         return False
     if not is_solid(material) or material in ("water", "lava") or not is_solid(s.grid.material(x, y - 2, z)):
         return False
@@ -250,7 +251,8 @@ def fire_cover(s: Situation, inventory: dict, spot: Cell, fire: Cell) -> str | N
 
 def lit_camp(s: Situation, spot: Cell) -> tuple[list[dict], dict]:
     """The steps that make and put down the campfire and CAMP_TORCHES torches on the ground beside
-    `spot`, and Mimo's arms once they are done. Fix round 1, Critical 1a: a campfire or torches
+    `spot`, and Mimo's arms once they are done; W2: for a pet that knows the rain, a block over the
+    campfire's cell first, when it can spare one (`fire_cover`). Fix round 1, Critical 1a: a campfire or torches
     already standing there (a batch cut short and planned again) are counted, not placed again.
     Follow-up 2 (F2): the one reckoning plan_camp plans by and camp_spot judges the roof's room by, so
     a campfire put down (or made from sticks and logs) frees the stack the roof needs for both. W1: a

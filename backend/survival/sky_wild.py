@@ -40,6 +40,7 @@ HUNGRY_BELOW = 30.0
 WINTER_HUNGRY = 50.0  # the winter_food wonder
 CLOAK_COLD = 120.0  # game seconds freezing with the wool for a cloak at hand
 CLOAK_WOOL = 5
+FIRE_KNOWN = "sky_wild: fire known"  # its key in the tick's ActionContext.memo
 
 KNOCKS.update({"winter": Knock(0.30, 0.15), "cloak": Knock(0.30, 0.15), "hearth": Knock(0.25, 0.15),
                "smoking": Knock(0.25, 0.15), "rain": Knock(0.50, 0.25), "storm": Knock(0.50, 0.25),
@@ -111,8 +112,30 @@ def meet_sky(state: dict, context, at: float) -> None:
             guarded(lambda: knock(state, db, events, at, "cloak"))
     position = state["position"]
     if any(math.dist((entry["x"], entry["y"], entry["z"]), (position["x"], position["y"], position["z"])) <= FIRE_SEEN
-           for entry in found["fires"]):
+           for entry in found["fires"]) and not fire_known(context):
         guarded(lambda: sure(state, db, events, at, "fire"))  # a fire it did not make
+        if getattr(context, "memo", None) is not None and db is not None:
+            context.memo[FIRE_KNOWN] = True  # it knows now
+
+
+def fire_known(context) -> bool:
+    """Mimo knows fire already, looked up once a transaction (the tick's ActionContext.memo) and kept once it does: by
+    a fire every step of a transaction is a short one, and `sure` wrote its lesson's row again each (carried N1 of W2's
+    fourth task)."""
+    db, memo = context.db, getattr(context, "memo", None)
+    known = None if memo is None else memo.get(FIRE_KNOWN)
+    if known is None:
+        known = db is not None and knows_lesson(db, "fire")
+        if memo is not None and known:
+            memo[FIRE_KNOWN] = True
+    return known
+
+
+def names_seasons(state: dict, context) -> bool:
+    """sky.NAMES_KNOWN: a wild pet names the seasons once it knows winter (W2's final review: one that did not still
+    thought and posted "Winter has come.")."""
+    db = getattr(context, "db", None)
+    return not is_wild(state) or db is None or knows_lesson(db, "winter")
 
 
 def doused(state: dict, context, cell, at: float) -> None:
@@ -151,6 +174,7 @@ def blown(scene, lost: float, source: str) -> None:
 
 
 sky.EFFECTS.append(meet_sky)
+sky.NAMES_KNOWN.append(names_seasons)
 rain.DOUSED.append(doused)
 storms.STRIKES.append(struck)
 DAWN.append(at_dawn)

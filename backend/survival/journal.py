@@ -364,7 +364,7 @@ def diggable(s: Situation, cell: Cell) -> bool:
     x, y, z = cell
     material = s.grid.material(*cell)
     return (can_harvest(material, s.inventory) and s.grid.material(x, y + 1, z) != "water"
-            and not reserved(s.grid, cell))
+            and not reserved(s.grid, cell) and not s.grid.thick_ice(cell))  # W2: a lake's ice is too thick
 
 
 def investigate_valid(s: Situation) -> bool:

@@ -47,7 +47,7 @@ from backend.survival.actions import ActionContext
 from backend.survival.camp import in_camp as camp_sealed
 from backend.survival.creatures.archery import SHOOT_RANGE
 from backend.survival.creatures.combat import ATTACK_REACH, weapon
-from backend.survival.creatures.harm import ARMOR, sheltered
+from backend.survival.creatures.harm import ARMOR, last_blow, sheltered
 from backend.survival.creatures.hostiles import CHASE_SIGHT, GIVE_UP
 from backend.survival.creatures.kinds import hostile_kinds, kind_of
 from backend.survival.creatures.moves import where
@@ -171,7 +171,8 @@ def threats_payload(s: Situation) -> dict:
               "after_mimo": bool(creature["state"].get("chasing"))} for creature in threats(s)[:THREATS_SHOWN]]
     defense = {"indoors": indoors(s), "sword": weapon(s.inventory),
                "arrows": s.count("arrow") if s.count("bow") else 0,
-               "armor": [piece for piece in ARMOR if s.count(piece)], "last_hurt_by": s.state.get("hurt_by")}
+               "armor": [piece for piece in ARMOR if s.count(piece)],
+               "last_hurt_by": (last_blow(s.state) or (None, None))[1]}  # W2: a creature's, not the sky's
     return {"threats": shown, "defense": defense}
 
 
